@@ -72,6 +72,26 @@ The Console tab shows a bounded ring buffer of status transitions, tool starts a
 
 Prints the compact summary (headline, files read/changed, risks, next recommendation, pending relays, usage) plus the verbatim contents of the worker's `<final_answer>` block. This is the authoritative deliverable. If the block is empty, the worker did not follow the contract: re-delegate, steer it with a corrective message, or cancel.
 
+## Clean up finished workers
+
+```text
+/team-prune
+```
+
+Removes every terminal worker (`idle`, `completed`, `aborted`, `error`, `exited`) from the dashboard. Useful after a cancelled batch when you want to start fresh without the old rows cluttering the widget and `/team` overlay. Non-terminal workers are left alone, so this is safe to run while new workers are still active.
+
+If you want a hard reset, run `/agent-cancel all` first, then `/team-prune`.
+
+## See aggregate token usage and cost
+
+```text
+/team-cost
+```
+
+Prints one line per tracked worker (turns, input/output tokens, cache reads/writes, cost) plus a `Σ` total row. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so `/team-cost` focuses on the agent team.
+
+The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any worker has non-zero usage, so you don't have to run the command to see the running total.
+
 ## Copy a worker's output to the clipboard
 
 ```text
