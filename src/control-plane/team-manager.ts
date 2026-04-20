@@ -227,7 +227,8 @@ export class TeamManager {
 	}
 
 	async messageAllWorkers(message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult[]> {
-		const targets = this.listWorkers().filter((worker) => !isTerminalWorkerStatus(worker.status) || worker.status === "idle" || worker.status === "waiting_followup");
+		const deliverable: WorkerStatus[] = ["running", "idle", "waiting_followup"];
+		const targets = this.listWorkers().filter((worker) => deliverable.includes(worker.status));
 		const results: AgentMessageResult[] = [];
 		for (const worker of targets) {
 			try {
