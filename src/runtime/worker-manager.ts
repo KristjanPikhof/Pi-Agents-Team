@@ -12,6 +12,7 @@ import {
 	type WorkerProcessHandle,
 	type WorkerProcessOptions,
 } from "./worker-process";
+import { buildWorkerSummaryFromText, extractRelayQuestions } from "../comms/summary";
 import type {
 	DelegatedTaskInput,
 	ThinkingLevel,
@@ -78,17 +79,11 @@ function extractAssistantText(message: Record<string, unknown>): string {
 }
 
 function buildSummary(state: WorkerRuntimeState, text: string): WorkerSummary {
+	const summary = buildWorkerSummaryFromText(text || state.currentTask?.title || `${state.profileName}:${state.status}`, state);
 	return {
-		workerId: state.workerId,
-		taskId: state.currentTask?.taskId ?? state.workerId,
-		headline: trimSummary(text || state.currentTask?.title || `${state.profileName}:${state.status}`),
-		status: state.status,
-		currentToolName: state.lastToolName,
-		readFiles: [],
-		changedFiles: [],
-		risks: [],
+		...summary,
+		headline: trimSummary(summary.headline),
 		relayQuestionCount: state.pendingRelayQuestions.length,
-		updatedAt: Date.now(),
 	};
 }
 
@@ -257,6 +252,7 @@ export class WorkerManager {
 				const assistantText = extractAssistantText(event.message);
 				if (assistantText) {
 					record.textBuffer = assistantText;
+					record.state.pendingRelayQuestions = extractRelayQuestions(assistantText, record.state);
 					record.state.lastSummary = buildSummary(record.state, assistantText);
 				}
 				const messageUsage = event.message.usage as Record<string, unknown> | undefined;
