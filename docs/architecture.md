@@ -174,7 +174,7 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 
 Two kinds of toasts fire from the extension's `onStateChange` listener:
 
-- **Terminal transitions.** When one or more workers flip to a terminal status, the listener batches them through a 400 ms debounce and emits one toast (`✓ N workers finished — w1, w2…`). The batch is filtered against current status at flush time to avoid spurious "finished" messages from transient state.
+- **Terminal transitions.** When one or more workers flip to a terminal status, the listener batches them through a 400 ms debounce and emits one toast (`✓ N workers finished: w1, w2…`). The batch is filtered against current status at flush time to avoid spurious "finished" messages from transient state.
 - **New relay questions.** When a worker's `pendingRelayQuestions` count goes up **and** the newest relay has a non-empty question string, the listener emits a warning toast with a truncated preview. Placeholder and whitespace-only questions are suppressed.
 
 Both are UI-only. The orchestrator prompt explicitly instructs the model to ignore them, because `wait_for_agents` already surfaces terminal transitions and relay wakes as a tool result.
