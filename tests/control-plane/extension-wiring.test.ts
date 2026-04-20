@@ -33,8 +33,13 @@ test("extension registers control-plane tools and operator commands", () => {
 		tools.map((tool) => tool.name).sort(),
 		["agent_cancel", "agent_message", "agent_result", "agent_status", "delegate_task", "ping_agents"],
 	);
+	assert.ok(commands.some((command) => command.name === "team"));
 	assert.ok(commands.some((command) => command.name === "team-status"));
 	assert.ok(commands.some((command) => command.name === "agents"));
+	assert.ok(commands.some((command) => command.name === "ping-agents"));
+	assert.ok(commands.some((command) => command.name === "agent-steer"));
+	assert.ok(commands.some((command) => command.name === "agent-followup"));
+	assert.ok(commands.some((command) => command.name === "agent-cancel"));
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("before_agent_start"));
 });
