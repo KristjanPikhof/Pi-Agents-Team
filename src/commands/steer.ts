@@ -1,6 +1,12 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { AgentMessageResult } from "../control-plane/team-manager";
+import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
+
+function unknownTargetMessage(teamManager: CommandRegistrationContext["teamManager"], input: string): string {
+	const candidates = ["all", ...teamManager.listWorkers().map((worker) => worker.workerId)];
+	return formatUnknownWorker(input, suggestTargets(input, candidates));
+}
 
 function completeWorkerTargets(teamManager: CommandRegistrationContext["teamManager"], prefix: string) {
 	if (/\s/.test(prefix)) return [];
