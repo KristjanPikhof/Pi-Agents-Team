@@ -260,16 +260,18 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_result",
 		label: "Agent Result",
-		description: "Get the latest compact result for a tracked worker.",
+		description: "Get the worker's final assistant text plus structured summary. Call this after the worker reaches a terminal status (idle/exited/aborted/error) to read its full findings.",
 		parameters: WorkerIdSchema,
 		async execute(_toolCallId, params) {
-			const result = teamManager.getWorkerResult(params.workerId);
+			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
+			const result = teamManager.getWorkerResult(workerId);
 			if (!result) {
 				throw new Error(`Unknown worker: ${params.workerId}`);
 			}
+			const transcript = teamManager.getWorkerTranscript(workerId);
 			return {
-				content: [{ type: "text", text: formatWorker(result.worker) }],
-				details: result,
+				content: [{ type: "text", text: formatWorkerDetail(result.worker, transcript) }],
+				details: { ...result, transcript },
 			};
 		},
 	});
