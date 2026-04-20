@@ -230,7 +230,6 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[0],
 			description: "Fast codebase reconnaissance and file discovery.",
-			model: "claude-haiku-4-5",
 			thinkingLevel: "low",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/explorer.md",
@@ -241,7 +240,6 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[1],
 			description: "Docs, APIs, and version-sensitive reference research.",
-			model: "claude-sonnet-4-5",
 			thinkingLevel: "medium",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/librarian.md",
@@ -252,7 +250,6 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[2],
 			description: "Architecture, debugging, and review-heavy judgement.",
-			model: "claude-sonnet-4-5",
 			thinkingLevel: "high",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/oracle.md",
@@ -263,7 +260,6 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[3],
 			description: "UI and interaction design guidance.",
-			model: "claude-sonnet-4-5",
 			thinkingLevel: "medium",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/designer.md",
@@ -274,7 +270,6 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[4],
 			description: "Bounded implementation, tests, and targeted edits.",
-			model: "claude-sonnet-4-5",
 			thinkingLevel: "medium",
 			tools: ["read", "bash", "edit", "write"],
 			promptPath: "prompts/agents/fixer.md",
@@ -285,7 +280,6 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[5],
 			description: "Validation, critique, and regression review.",
-			model: "claude-sonnet-4-5",
 			thinkingLevel: "medium",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/reviewer.md",
@@ -296,7 +290,6 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[6],
 			description: "Observation-oriented worker for screenshots and non-code artifacts.",
-			model: "claude-sonnet-4-5",
 			thinkingLevel: "low",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/observer.md",
