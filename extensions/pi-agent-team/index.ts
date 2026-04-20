@@ -296,11 +296,12 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "ping_agents",
 		label: "Ping Agents",
-		description: "Return passive or active status for tracked workers.",
+		description: "Return passive or active status for tracked workers. Poll this while waiting for workers to finish. A worker is done when status is idle/exited/aborted/error; running means not done.",
 		parameters: PingAgentsSchema,
 		async execute(_toolCallId, params) {
 			const mode = params.mode === "active" ? "active" : "passive";
-			const results = await teamManager.pingWorkers({ workerIds: params.workerIds, mode });
+			const resolvedIds = params.workerIds?.map((id) => teamManager.resolveWorkerId(id) ?? id);
+			const results = await teamManager.pingWorkers({ workerIds: resolvedIds, mode });
 			return {
 				content: [{ type: "text", text: formatWorkers(results.map((result) => result.worker)) }],
 				details: { mode, results },
@@ -314,7 +315,8 @@ export default function (pi: ExtensionAPI): void {
 		description: "Abort and shut down a tracked worker.",
 		parameters: WorkerIdSchema,
 		async execute(_toolCallId, params) {
-			const result = await teamManager.cancelWorker(params.workerId);
+			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
+			const result = await teamManager.cancelWorker(workerId);
 			return {
 				content: [{ type: "text", text: `Cancelled ${result.worker.workerId}.` }],
 				details: result,
