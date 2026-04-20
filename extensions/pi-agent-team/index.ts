@@ -214,8 +214,13 @@ export default function (pi: ExtensionAPI): void {
 	function flushTerminalNotifications(): void {
 		notificationTimer = undefined;
 		if (pendingTerminalTransitions.length === 0) return;
-		const items = pendingTerminalTransitions.splice(0);
+		const queued = pendingTerminalTransitions.splice(0);
 		if (!activeContext?.hasUI) return;
+		const items = queued.filter((item) => {
+			const current = lastStatus.get(item.workerId);
+			return current ? isTerminalWorkerStatus(current) : false;
+		});
+		if (items.length === 0) return;
 		const message = items.length === 1
 			? `✓ ${items[0].workerId} (${items[0].profileName}) finished — status=${items[0].status}`
 			: `✓ ${items.length} workers finished — ${items.map((i) => i.workerId).join(", ")}`;
