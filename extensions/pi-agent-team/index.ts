@@ -504,6 +504,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		stopSpinner();
 		await teamManager.dispose();
 		teamState = teamManager.snapshot();
 		persistSnapshot(pi, teamState);
