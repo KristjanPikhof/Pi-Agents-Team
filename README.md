@@ -15,37 +15,63 @@ Pi Agents Team turns one Pi session into an orchestrator that launches and super
 - enforces profile-based launch policy and scoped-write safety
 - on warm session starts (`reload`/`resume`/`fork`/`new`), flags prior workers that were force-marked `exited` with a single warning toast so you never silently lose track of a batch
 
-## Quick start
+## Install
 
-Clone and install:
+Pi Agents Team is distributed as a [Pi package](https://shittycodingagent.ai/packages). **It is not published to npm** — install it straight from Git. Pi's installer clones the repo, runs `npm install` automatically, and registers the extension declared under `"pi"` in `package.json`.
+
+### Option A — install permanently
+
+```bash
+# SSH (requires git: prefix for git@host:path shorthand)
+pi install git:git@github.com:KristjanPikhof/pi-agents-team
+
+# or HTTPS (prefix optional for http/https/ssh protocol URLs)
+pi install https://github.com/KristjanPikhof/pi-agents-team
+```
+
+Defaults to global settings (`~/.pi/agent/settings.json`). Add `-l` to write to project-local settings (`.pi/settings.json`) instead so the package is shared with your team and auto-installed on session start.
+
+Pin to a ref to stop `pi update` from moving you forward:
+
+```bash
+pi install git:git@github.com:KristjanPikhof/pi-agents-team@v1.0.0
+```
+
+### Option B — try it once without installing
+
+```bash
+pi -e git:git@github.com:KristjanPikhof/pi-agents-team
+```
+
+Pi clones to a temp directory for that single run.
+
+### Option C — develop locally
 
 ```bash
 git clone git@github.com:KristjanPikhof/pi-agents-team.git
 cd pi-agents-team
 npm install
+npm run check          # typecheck + all 53 tests
+
+# run the extension directly from your working copy:
+pi -e ./extensions/pi-agent-team/index.ts
+pi -e ./extensions/pi-agent-team/index.ts -p "/team"   # open straight into the dashboard
+
+# or install the local directory as a real Pi package:
+pi install /absolute/path/to/pi-agents-team
 ```
 
-Run the combined typecheck + tests:
+### Requirements
+
+- `pi` CLI (`@mariozechner/pi-coding-agent`) `>=0.68.0` on your PATH
+- Node `>=20`
+- Git (for `pi install git:…`). SSH installs respect `~/.ssh/config`; HTTPS installs prompt for credentials unless `GIT_TERMINAL_PROMPT=0` is set.
+
+### Smoke scripts (for contributors)
 
 ```bash
-npm run check          # runs typecheck + all 53 tests
-# or individually:
-npm run typecheck
-npm test
-```
-
-Load the extension directly in Pi (requires `pi` on your PATH):
-
-```bash
-pi -e ./extensions/pi-agent-team/index.ts              # open an orchestrator session
-pi -e ./extensions/pi-agent-team/index.ts -p "/team"   # open straight into the dashboard overlay
-```
-
-Run the smoke scripts (these spawn real Pi RPC workers):
-
-```bash
-npm run smoke:runtime
-npm run smoke:team
+npm run smoke:runtime   # spawns a real pi RPC worker
+npm run smoke:team      # exercises TeamManager end-to-end
 ```
 
 ## Operator commands
