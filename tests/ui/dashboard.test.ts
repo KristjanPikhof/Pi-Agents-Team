@@ -44,7 +44,7 @@ test("buildTeamDashboardText summarizes workers, relays, and usage", () => {
 		},
 	};
 	const text = buildTeamDashboardText(state);
-	assert.match(text, /Pi Agent Team Dashboard/);
+	assert.match(text, /Pi Agents Team Dashboard/);
 	assert.match(text, /worker-1/);
 	assert.match(text, /UI review in progress/);
 });
