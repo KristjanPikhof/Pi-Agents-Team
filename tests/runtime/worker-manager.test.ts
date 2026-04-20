@@ -46,8 +46,15 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	await manager.steerWorker("worker-1", "focus on transport");
 	assert.equal(transports[0]?.commands.at(-1)?.type, "steer");
 
+	await manager.followUpWorker("worker-1", "summarize risks next");
+	assert.equal(transports[0]?.commands.at(-1)?.type, "follow_up");
+
 	await manager.refreshStats("worker-1");
 	const withStats = manager.getWorker("worker-1");
 	assert.equal(withStats?.state.usage.inputTokens, 10);
 	assert.equal(withStats?.state.usage.costUsd, 0.01);
+
+	await manager.abortWorker("worker-1");
+	const abortedWorker = manager.getWorker("worker-1");
+	assert.equal(abortedWorker?.state.status, "aborted");
 });
