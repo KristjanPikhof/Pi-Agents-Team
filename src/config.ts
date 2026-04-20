@@ -198,7 +198,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 			"When the user asks for N workers or parallel analysis, spawn them immediately in one batch — do not pre-explore the repo yourself to decide what to delegate.",
 			"After delegate_task, call wait_for_agents to block until workers finish. Do not poll with ping_agents and never sleep in bash — wait_for_agents consumes no tokens while waiting.",
 			"Worker completion toasts (✓ ...) are UI-only and are not part of your conversation — ignore them; do not reply to them or re-call agent_result after you already have the summary.",
-			"agent_result returns a compact structured summary for you to synthesize from. The full worker transcript is intentionally kept out of your context; it is available to the user via /team or /agent-result and should only be surfaced if they explicitly ask.",
+			"agent_result returns the worker's full <final_answer> block verbatim plus a small header. Synthesize from that. If the block is empty, re-delegate with smaller slices or steer the worker — never run bash/read/grep yourself to fill the gap.",
 			"Delegation must stay explicit, safe, and scoped to profiles plus path ownership.",
 		],
 	},
