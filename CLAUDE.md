@@ -91,6 +91,12 @@ Layering, top to bottom:
 
 **Widget spinner timer.** A 120 ms `setInterval` animates the widget while `hasAnimatedWorkers(state)` is true. It starts on state change, stops on the last worker going terminal, stops on `session_shutdown`, and calls `.unref()` so it never blocks process exit. If you change the tick cadence or the animation condition, stop the old timer.
 
+**Widget hides itself when empty.** `buildTeamWidgetLines` returns `[]` if no workers are tracked, and `applyUi` calls `setWidget(key, undefined)` to clear the surface. Do not add empty-state prose — the title bar still identifies the extension via `titleTemplate`. Three lines of "no workers tracked" is what the widget used to do; that was noise.
+
+**Widget layout switches at 6.** ≤ 6 workers → single column (cap 8 visible). > 6 workers → two columns (cap 16 visible, 8 rows × 2). Per-worker cell is truncated to `COLUMN_WIDTH=38`. The whole widget is capped at `HEADER_WIDTH=78`. Spillover shows as `  +N more · /team to view`.
+
+**Visible-width everywhere in TUI code.** Both widget and overlay use pi-tui's `visibleWidth` / `truncateToWidth` — never raw `.length` or `.slice` — because braille spinner glyphs, emoji, and combining chars miscount under code-unit length and crash pi-tui's render validator (`Rendered line N exceeds terminal width`). `wrapLines` in the overlay uses `visibleWidth` for the comparison and `truncateToWidth(remaining, width, "")` for the slice. Every `return` in the overlay's `render` passes through `enforceWidth(lines, width)` as a final safeguard.
+
 **Overlay footer is pinned at the top.** Under the tabs, not the bottom. This is intentional — terminals can clip the overlay and a bottom footer would disappear. A transient `» …` status line shows copy/refresh outcomes for ~2.5s.
 
 ## Conventions
