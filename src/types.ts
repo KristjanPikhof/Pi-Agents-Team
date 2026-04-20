@@ -36,6 +36,15 @@ export const WORKER_STATUSES = [
 ] as const;
 export type WorkerStatus = (typeof WORKER_STATUSES)[number];
 
+export function compareWorkerIds(a: string, b: string): number {
+	const am = /^w(\d+)$/.exec(a);
+	const bm = /^w(\d+)$/.exec(b);
+	if (am && bm) return Number(am[1]) - Number(bm[1]);
+	if (am) return -1;
+	if (bm) return 1;
+	return a.localeCompare(b);
+}
+
 export const TEAM_TASK_STATUSES = [
 	"queued",
 	"running",
