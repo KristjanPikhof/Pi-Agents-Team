@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createDefaultTeamState } from "../../src/config";
+import { visibleWidth } from "@mariozechner/pi-tui";
 import { SPINNER_FRAMES, buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import type { WorkerRuntimeState, WorkerStatus } from "../../src/types";
 
