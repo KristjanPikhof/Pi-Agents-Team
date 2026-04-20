@@ -115,6 +115,9 @@ export async function openTeamDashboardOverlay(
 	teamManager: TeamManager,
 	options: OpenTeamDashboardOptions = {},
 ): Promise<void> {
+	try {
+		await teamManager.pingWorkers({ mode: "active" });
+	} catch {}
 	const state = teamManager.snapshot();
 	const focusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
 		? options.initialWorkerId
