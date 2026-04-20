@@ -134,8 +134,5 @@ Fixed. The `starting → idle` race has a guard in `applyNormalizedEvent` (worke
 ```bash
 npm run typecheck
 npm test
-pi -e ./extensions/pi-agent-team/index.ts -p "/team-status"
 pi -e ./extensions/pi-agent-team/index.ts -p "/team"
-pi -e ./extensions/pi-agent-team/index.ts -p "/ping-agents"
-pi -e ./extensions/pi-agent-team/index.ts -p "/agents"
 ```
