@@ -2,7 +2,6 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { Type } from "@sinclair/typebox";
 import {
 	DEFAULT_TEAM_CONFIG,
-	buildOrchestratorSystemPrompt,
 	buildTeamWidgetLines,
 	createDefaultTeamState,
 	renderTeamStatusText,
@@ -12,6 +11,7 @@ import {
 	markRestoredWorkersExited,
 	restorePersistedTeamState,
 } from "../../src/control-plane/persistence";
+import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { TeamManager } from "../../src/control-plane/team-manager";
 import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
@@ -274,7 +274,7 @@ export default function (pi: ExtensionAPI): void {
 		teamState = teamManager.snapshot();
 		applyUi(ctx, teamState);
 		return {
-			systemPrompt: `${event.systemPrompt}\n\n${buildOrchestratorSystemPrompt(teamState, DEFAULT_TEAM_CONFIG)}`,
+			systemPrompt: `${event.systemPrompt}\n\n${buildOrchestratorPromptBundle(teamState, DEFAULT_TEAM_CONFIG)}`,
 		};
 	});
 
