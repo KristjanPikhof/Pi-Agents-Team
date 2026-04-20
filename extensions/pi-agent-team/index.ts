@@ -1,50 +1,58 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	DEFAULT_TEAM_CONFIG,
-	buildDashboardEntries,
 	buildOrchestratorSystemPrompt,
 	buildTeamWidgetLines,
 	createDefaultTeamState,
-	normalizePersistedTeamState,
 	renderTeamStatusText,
 } from "../../src/config";
-import type { PersistedTeamState } from "../../src/types";
+import {
+	createPersistedStateSnapshot,
+	markRestoredWorkersExited,
+	restorePersistedTeamState,
+} from "../../src/control-plane/persistence";
+import { TeamManager } from "../../src/control-plane/team-manager";
+import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
-function restoreLatestState(ctx: ExtensionContext): { state: PersistedTeamState; foundPersistedState: boolean } {
-	let latestState: PersistedTeamState | undefined;
+const DelegateTaskSchema = Type.Object({
+	title: Type.String({ description: "Short title for the delegated task" }),
+	goal: Type.String({ description: "What the worker should accomplish" }),
+	profileName: Type.String({ description: "Worker profile name such as explorer, fixer, or reviewer" }),
+	cwd: Type.Optional(Type.String({ description: "Working directory for the worker. Defaults to the current session cwd." })),
+	contextHints: Type.Optional(Type.Array(Type.String(), { description: "Compact context bullets to pass into the worker" })),
+	expectedOutput: Type.Optional(Type.String({ description: "Describe the output contract the worker should return" })),
+});
 
-	for (const entry of ctx.sessionManager.getEntries()) {
-		if (entry.type !== "custom") continue;
-		if (entry.customType !== DEFAULT_TEAM_CONFIG.persistence.stateCustomType) continue;
-		latestState = normalizePersistedTeamState(entry.data, DEFAULT_TEAM_CONFIG);
-	}
+const WorkerLookupSchema = Type.Object({
+	workerId: Type.Optional(Type.String({ description: "Specific worker id. Omit to inspect all tracked workers." })),
+});
 
-	if (latestState) {
-		return { state: latestState, foundPersistedState: true };
-	}
+const WorkerMessageSchema = Type.Object({
+	workerId: Type.String({ description: "Target worker id" }),
+	message: Type.String({ description: "Instruction for the worker" }),
+	delivery: Type.Optional(Type.String({ description: 'Delivery mode: "auto", "steer", or "follow_up".' })),
+});
 
-	return { state: createDefaultTeamState(DEFAULT_TEAM_CONFIG), foundPersistedState: false };
+const PingAgentsSchema = Type.Object({
+	workerIds: Type.Optional(Type.Array(Type.String(), { description: "Worker ids to ping. Omit to ping all workers." })),
+	mode: Type.Optional(Type.String({ description: 'Ping mode: "passive" or "active". Active mode refreshes state and stats.' })),
+});
+
+const WorkerIdSchema = Type.Object({
+	workerId: Type.String({ description: "Target worker id" }),
+});
+
+function restoreLatestState(ctx: ExtensionContext): PersistedTeamState {
+	const restoredState = restorePersistedTeamState(
+		ctx.sessionManager.getEntries(),
+		DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+	);
+	return markRestoredWorkersExited(restoredState);
 }
 
-function syncDerivedState(state: PersistedTeamState): PersistedTeamState {
-	const dashboardEntries = buildDashboardEntries(state.activeWorkers);
-	return {
-		...state,
-		ui: {
-			...state.ui,
-			dashboardEntries,
-			lastRenderAt: Date.now(),
-		},
-		updatedAt: Date.now(),
-	};
-}
-
-function persistStateSnapshot(pi: ExtensionAPI, state: PersistedTeamState): void {
-	pi.appendEntry(DEFAULT_TEAM_CONFIG.persistence.stateCustomType, syncDerivedState(state));
-}
-
-function applyUi(ctx: ExtensionContext, state: PersistedTeamState): void {
-	if (!ctx.hasUI) return;
+function applyUi(ctx: ExtensionContext | undefined, state: PersistedTeamState): void {
+	if (!ctx?.hasUI) return;
 
 	const workerCount = Object.keys(state.activeWorkers).length;
 	const workerLabel = workerCount === 1 ? "worker" : "workers";
@@ -53,52 +61,217 @@ function applyUi(ctx: ExtensionContext, state: PersistedTeamState): void {
 	ctx.ui.setTitle(DEFAULT_TEAM_CONFIG.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
 
-function clearUi(ctx: ExtensionContext): void {
-	if (!ctx.hasUI) return;
+function clearUi(ctx: ExtensionContext | undefined): void {
+	if (!ctx?.hasUI) return;
 	ctx.ui.setStatus(DEFAULT_TEAM_CONFIG.ui.statusKey, undefined);
 	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, undefined);
 }
 
+function persistSnapshot(pi: ExtensionAPI, state: PersistedTeamState): void {
+	pi.appendEntry(DEFAULT_TEAM_CONFIG.persistence.stateCustomType, createPersistedStateSnapshot(state));
+}
+
+function formatWorker(worker: WorkerRuntimeState): string {
+	const parts = [`${worker.workerId} (${worker.profileName})`, `status=${worker.status}`];
+	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
+	if (worker.lastSummary?.headline) parts.push(`summary=${worker.lastSummary.headline}`);
+	return parts.join(" · ");
+}
+
+function formatWorkers(workers: WorkerRuntimeState[]): string {
+	if (workers.length === 0) return "No active or persisted workers.";
+	return workers.map((worker) => `- ${formatWorker(worker)}`).join("\n");
+}
+
+function emitCommandOutput(pi: ExtensionAPI, ctx: ExtensionContext, text: string): void {
+	if (ctx.hasUI) {
+		pi.sendMessage({
+			customType: DEFAULT_TEAM_CONFIG.persistence.statusMessageType,
+			content: text,
+			display: true,
+		});
+		return;
+	}
+
+	console.log(text);
+}
+
 export default function (pi: ExtensionAPI): void {
+	const teamManager = new TeamManager({ config: DEFAULT_TEAM_CONFIG });
 	let teamState = createDefaultTeamState(DEFAULT_TEAM_CONFIG);
+	let activeContext: ExtensionContext | undefined;
+
+	teamManager.onStateChange((state) => {
+		teamState = state;
+		persistSnapshot(pi, teamState);
+		applyUi(activeContext, teamState);
+	});
 
 	pi.registerCommand("team-status", {
-		description: "Show the Pi Agent Team scaffold status and orchestrator contract",
+		description: "Show the Pi Agent Team scaffold status and tracked workers",
 		handler: async (_args, ctx) => {
-			teamState = syncDerivedState(teamState);
-			const text = renderTeamStatusText(teamState, DEFAULT_TEAM_CONFIG);
-			if (ctx.hasUI) {
-				pi.sendMessage({
-					customType: DEFAULT_TEAM_CONFIG.persistence.statusMessageType,
-					content: text,
-					display: true,
-					details: {
-						activeWorkers: Object.keys(teamState.activeWorkers).length,
-						sessionMode: teamState.sessionMode,
-					},
-				});
-			} else {
-				console.log(text);
+			teamState = teamManager.snapshot();
+			emitCommandOutput(pi, ctx, `${renderTeamStatusText(teamState, DEFAULT_TEAM_CONFIG)}\n${formatWorkers(teamManager.listWorkers())}`);
+		},
+	});
+
+	pi.registerCommand("agents", {
+		description: "List tracked Pi Agent Team workers",
+		handler: async (_args, ctx) => {
+			emitCommandOutput(pi, ctx, formatWorkers(teamManager.listWorkers()));
+		},
+	});
+
+	pi.registerCommand("agent-result", {
+		description: "Show the latest compact result for a worker: /agent-result <worker-id>",
+		handler: async (args, ctx) => {
+			const workerId = args.trim();
+			if (!workerId) {
+				ctx.ui.notify("Usage: /agent-result <worker-id>", "warning");
+				return;
 			}
+			const result = teamManager.getWorkerResult(workerId);
+			if (!result) {
+				ctx.ui.notify(`Unknown worker: ${workerId}`, "warning");
+				return;
+			}
+			emitCommandOutput(pi, ctx, formatWorker(result.worker));
+		},
+	});
+
+	pi.registerCommand("agent-cancel", {
+		description: "Cancel a worker: /agent-cancel <worker-id>",
+		handler: async (args, ctx) => {
+			const workerId = args.trim();
+			if (!workerId) {
+				ctx.ui.notify("Usage: /agent-cancel <worker-id>", "warning");
+				return;
+			}
+			const result = await teamManager.cancelWorker(workerId);
+			emitCommandOutput(pi, ctx, `Cancelled ${result.worker.workerId}\n${formatWorker(result.worker)}`);
+		},
+	});
+
+	pi.registerTool({
+		name: "delegate_task",
+		label: "Delegate Task",
+		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
+		parameters: DelegateTaskSchema,
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const result = await teamManager.delegateTask({
+				title: params.title,
+				goal: params.goal,
+				profileName: params.profileName,
+				cwd: params.cwd ?? ctx.cwd,
+				contextHints: params.contextHints,
+				expectedOutput: params.expectedOutput,
+			});
+			teamState = teamManager.snapshot();
+			applyUi(activeContext, teamState);
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Delegated ${result.task?.title ?? params.title} to ${result.worker.profileName} as ${result.worker.workerId}.`,
+					},
+				],
+				details: result,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "agent_status",
+		label: "Agent Status",
+		description: "Return compact status for one worker or all tracked workers.",
+		parameters: WorkerLookupSchema,
+		async execute(_toolCallId, params) {
+			const workers = params.workerId
+				? [teamManager.getWorkerStatus(params.workerId)].filter((worker): worker is WorkerRuntimeState => Boolean(worker))
+				: teamManager.listWorkers();
+			return {
+				content: [{ type: "text", text: formatWorkers(workers) }],
+				details: { workers },
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "agent_result",
+		label: "Agent Result",
+		description: "Get the latest compact result for a tracked worker.",
+		parameters: WorkerIdSchema,
+		async execute(_toolCallId, params) {
+			const result = teamManager.getWorkerResult(params.workerId);
+			if (!result) {
+				throw new Error(`Unknown worker: ${params.workerId}`);
+			}
+			return {
+				content: [{ type: "text", text: formatWorker(result.worker) }],
+				details: result,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "agent_message",
+		label: "Agent Message",
+		description: "Send a steer or follow-up message to a tracked worker.",
+		parameters: WorkerMessageSchema,
+		async execute(_toolCallId, params) {
+			const delivery = params.delivery === "steer" || params.delivery === "follow_up" ? params.delivery : "auto";
+			const result = await teamManager.messageWorker(params.workerId, params.message, delivery);
+			return {
+				content: [{ type: "text", text: `Sent message to ${result.worker.workerId}.` }],
+				details: result,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "ping_agents",
+		label: "Ping Agents",
+		description: "Return passive or active status for tracked workers.",
+		parameters: PingAgentsSchema,
+		async execute(_toolCallId, params) {
+			const mode = params.mode === "active" ? "active" : "passive";
+			const results = await teamManager.pingWorkers({ workerIds: params.workerIds, mode });
+			return {
+				content: [{ type: "text", text: formatWorkers(results.map((result) => result.worker)) }],
+				details: { mode, results },
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "agent_cancel",
+		label: "Agent Cancel",
+		description: "Abort and shut down a tracked worker.",
+		parameters: WorkerIdSchema,
+		async execute(_toolCallId, params) {
+			const result = await teamManager.cancelWorker(params.workerId);
+			return {
+				content: [{ type: "text", text: `Cancelled ${result.worker.workerId}.` }],
+				details: result,
+			};
 		},
 	});
 
 	pi.on("session_start", async (event, ctx) => {
-		const restored = restoreLatestState(ctx);
-		teamState = syncDerivedState(restored.state);
+		activeContext = ctx;
+		teamState = restoreLatestState(ctx);
+		teamManager.restore(teamState);
 		applyUi(ctx, teamState);
-
-		if (!restored.foundPersistedState) {
-			persistStateSnapshot(pi, teamState);
-		}
+		persistSnapshot(pi, teamState);
 
 		if (ctx.hasUI && event.reason === "startup") {
-			ctx.ui.notify("Pi Agent Team scaffold loaded: this session now defaults to orchestrator mode.", "info");
+			ctx.ui.notify("Pi Agent Team loaded: this session is running in orchestrator mode.", "info");
 		}
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		teamState = syncDerivedState(teamState);
+		activeContext = ctx;
+		teamState = teamManager.snapshot();
 		applyUi(ctx, teamState);
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${buildOrchestratorSystemPrompt(teamState, DEFAULT_TEAM_CONFIG)}`,
@@ -106,8 +279,10 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		teamState = syncDerivedState(teamState);
-		persistStateSnapshot(pi, teamState);
+		await teamManager.dispose();
+		teamState = teamManager.snapshot();
+		persistSnapshot(pi, teamState);
 		clearUi(ctx);
+		activeContext = undefined;
 	});
 }
