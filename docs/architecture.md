@@ -86,9 +86,16 @@ The `fixer` profile is intentionally stricter than the read-heavy roles. If `wri
 
 Persisted state survives reloads via custom-typed session entries, but live worker processes do not get silently reattached. `markRestoredWorkersExited` forces every restored worker to `exited` on session start. The operator sees what existed before the reload without being lied to about process liveness.
 
-### Wait, don't poll
+### Wait, don't poll — with mid-flight relay wake
 
-`wait_for_agents` subscribes to `state_change` events on `TeamManager` and resolves exactly once every targeted worker reaches a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`). It consumes zero tokens while waiting. The orchestrator prompt forbids `ping_agents` loops and `sleep` in bash for the same reason.
+`wait_for_agents` subscribes to `state_change` events on `TeamManager`. It resolves on one of four reasons:
+
+- `all_terminal` — every target reached a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`).
+- `relay_raised` — any target raised a new relay question while running. The response carries a `newRelays` list so the orchestrator can answer without having to enumerate workers itself. Opt out with `wakeOnRelay: false`.
+- `timeout` — default 5 min.
+- `aborted` — external abort signal.
+
+The baseline pending-relay count is snapshotted at wait-start per call, so previously-answered relays don't wake subsequent waits. Only a fresh length increase wakes. This is what lets the orchestrator juggle multiple in-flight workers: answer, go back to sleep, answer, go back to sleep, until `all_terminal`. Zero tokens between wakes.
 
 ### The `<final_answer>` contract
 
