@@ -10,7 +10,7 @@ export interface CommandRegistrationContext {
 
 export function registerTeamCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {
 	pi.registerCommand("team", {
-		description: "Open the Pi Agent Team dashboard: /team or /team <worker-id>",
+		description: "Open the Pi Agents Team dashboard: /team or /team <worker-id>",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			return dependencies.teamManager
