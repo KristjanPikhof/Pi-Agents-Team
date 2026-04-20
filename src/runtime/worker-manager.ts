@@ -178,6 +178,9 @@ export class WorkerManager {
 	async promptWorker(workerId: string, message: string): Promise<void> {
 		const record = this.requireWorker(workerId);
 		record.state.status = "running";
+		record.state.lastEventAt = Date.now();
+		record.state.lastSummary = buildSummary(record.state, record.textBuffer || message);
+		this.emitter.emit("event", this.snapshot(workerId), { type: "worker_running", timestamp: record.state.lastEventAt });
 		await record.client.prompt(message);
 	}
 
