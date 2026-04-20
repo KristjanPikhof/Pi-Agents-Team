@@ -10,6 +10,8 @@ import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager";
 import { registerCancelCommand } from "../../src/commands/cancel";
 import { registerCopyCommand } from "../../src/commands/copy";
+import { registerCostCommand } from "../../src/commands/cost";
+import { registerPruneCommand } from "../../src/commands/prune";
 import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
 import { formatUnknownWorker, suggestTargets } from "../../src/util/suggest";
