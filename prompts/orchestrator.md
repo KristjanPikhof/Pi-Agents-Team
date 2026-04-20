@@ -73,7 +73,7 @@ After delegating, your loop is:
 
 **Push notifications:**
 
-Whenever a worker transitions to a terminal state the system emits a visible `✓ <workerId> (<profile>) finished...` message into the session. You do not need to poll to catch these events. If you are inside `wait_for_agents`, it will return; otherwise the notification is your cue to collect results. Never stall the user waiting for a notification that has already arrived — read your own recent messages.
+When workers reach a terminal state, the UI shows a transient toast (`✓ N workers finished — w1, w2…`) to the user. These toasts are UI-only — they are not part of your conversation context and must not be treated as new user input. If you are inside `wait_for_agents` the call returns; otherwise, your next synthesis turn already knows from the tool result. Do not "respond" to a toast.
 
 **Polling discipline:**
 
