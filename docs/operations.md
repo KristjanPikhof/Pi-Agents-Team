@@ -56,8 +56,11 @@ Inside the `/team` overlay:
 | `PgUp` / `PgDn` | Page scroll |
 | `g` / `G` | Jump to top / bottom |
 | `r` | Re-ping workers (fresh RPC state + stats) and refresh snapshot |
+| `y` | Copy the current worker's task, summary, final answer, transcript, and console to the clipboard (in the list view, copies the highlighted worker) |
 | `esc` | Back to list (or close from list) |
 | `q` | Close overlay |
+
+The keybinding help line is pinned right under the tabs, so it stays visible even if the body scrolls or the terminal clips the overlay. A transient `» …` line shows copy/refresh status for a few seconds.
 
 The Console tab shows a bounded ring buffer of status transitions, tool starts and ends, assistant-text flushes, queue updates, errors, and exit reasons. Use it when a summary is not enough.
 
