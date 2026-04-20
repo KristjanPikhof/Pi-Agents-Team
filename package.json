@@ -1,0 +1,32 @@
+{
+  "name": "pi-agent-team",
+  "version": "0.1.0",
+  "description": "Pi package that turns the main session into an orchestrator for RPC-backed worker agents.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "extension",
+    "orchestrator",
+    "rpc"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/pi-agent-team/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.67.68",
+    "@sinclair/typebox": "latest",
+    "@types/node": "latest",
+    "typescript": "latest"
+  }
+}
