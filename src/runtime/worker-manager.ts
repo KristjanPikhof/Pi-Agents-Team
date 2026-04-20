@@ -221,6 +221,10 @@ export class WorkerManager {
 		return this.snapshot(workerId);
 	}
 
+	getWorkerTranscript(workerId: string): string | undefined {
+		return this.workers.get(workerId)?.textBuffer;
+	}
+
 	listWorkers(): ManagedWorkerRecord[] {
 		return Array.from(this.workers.keys())
 			.map((workerId) => this.snapshot(workerId))
