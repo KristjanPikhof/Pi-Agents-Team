@@ -101,6 +101,14 @@ Layering, top to bottom:
 
 **Overlay footer is pinned at the top.** Under the tabs, not the bottom. This is intentional — terminals can clip the overlay and a bottom footer would disappear. A transient `» …` status line shows copy/refresh outcomes for ~2.5s.
 
+**Autocomplete early-returns on whitespace.** Every `getArgumentCompletions(prefix)` must check `if (/\s/.test(prefix)) return [];` before suggesting anything. Without it, the dropdown keeps matching the first token while the user types the rest of the message, and `enter` picks the suggestion instead of submitting the command. This was a real user-reported bug — the reason every command-file touches `prefix` uniformly now. The pattern also enforces "single-argument commands never auto-complete after the first token," which matches operator intent.
+
+**Unknown-target errors use the did-you-mean helper.** When `resolveWorkerId` fails (or the user misspells `all` as `aal`), commands build a candidate pool (`["all", ...listWorkers().map(w.workerId)]` for message/cancel commands, just worker ids for team/copy/result) and pass it to `formatUnknownWorker(input, suggestTargets(input, candidates))`. The helper lives in `src/util/suggest.ts` and uses Levenshtein distance + prefix match. Keeps error UX consistent across every command — don't inline ad-hoc `Unknown worker: …` strings.
+
+**Prune is not cancel.** `cancelWorker`/`cancelAllWorkers` kill the RPC process and mark the registry entry as `exited` but keep it. `pruneTerminalWorkers` only removes already-terminal entries from the registry — it never touches live processes. The two are deliberate: operators want a history of finished work until they explicitly clear it. Don't auto-prune on terminal transitions; don't make cancel also remove from the registry. If you want a hard reset, the flow is `/agent-cancel all` → `/team-prune` (two steps, visible in chat).
+
+**Cost totals: agents only, not orchestrator.** `aggregateUsage()` and the widget `Σ` line sum across every tracked worker. The orchestrator's own token/cost is Pi's footer bar (`↑ input ↓ output $cost`) — do NOT pull it into the `Σ` row. Duplicating across two surfaces would double-count when the user glances at both. The separation is intentional: footer = orchestrator, widget/`team-cost` = agent team. Terminal workers are included in `Σ` until pruned — that matches "total spent in this batch" semantics.
+
 ## Conventions
 
 - Strict TypeScript, ESM (`"type": "module"`). Tests use `node:test` + `node:assert/strict`.
