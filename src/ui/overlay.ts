@@ -264,6 +264,15 @@ export async function openTeamDashboardOverlay(
 							}
 							return;
 						}
+						if (data === "y") {
+							const item = selectList.getSelectedItem();
+							if (item && item.value !== "__none__") {
+								view = { kind: "detail", workerId: item.value, tab: "summary", scrollTop: 0 };
+								copyCurrentDetail();
+								view = { kind: "list" };
+							}
+							return;
+						}
 						selectList.handleInput(data);
 						return;
 					}
