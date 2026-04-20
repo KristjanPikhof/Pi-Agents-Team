@@ -138,6 +138,8 @@ When operator-facing behavior changes (commands, dashboard keys, glyphs, tool pa
 - **Don't bypass `TeamManager` from commands.** Commands are thin wrappers over `TeamManager` methods. Keep that boundary; the control plane is the only place that touches the registry and the runtime.
 - **Don't add emojis to files** unless the user asks. The widget uses braille spinner + ASCII-like glyphs on purpose.
 - **Don't leave backward-compat shims.** If something is removed, delete it completely — no `// removed for X`, no unused re-exports, no renamed `_var` stubs. Git history is the record.
+- **Don't auto-prune terminal workers.** Operators want to see the history of a batch until they clear it. Removing entries on terminal transition would hide cancelled runs before the user inspects them and would break the `Σ` total's "spent in this batch" meaning. Prune is operator-initiated only.
+- **Don't add orchestrator tokens to the `Σ` row.** Pi's footer already shows them. Double-surfacing is worse than missing.
 
 ## What to do on each turn
 
