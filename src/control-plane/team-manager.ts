@@ -15,7 +15,20 @@ import type {
 	ThinkingLevel,
 	WorkerExtensionMode,
 	WorkerRuntimeState,
+	WorkerStatus,
 } from "../types";
+
+const TERMINAL_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
+	"idle",
+	"completed",
+	"aborted",
+	"error",
+	"exited",
+]);
+
+export function isTerminalWorkerStatus(status: WorkerStatus): boolean {
+	return TERMINAL_STATUSES.has(status);
+}
 
 export interface DelegateTaskRequest {
 	title: string;
