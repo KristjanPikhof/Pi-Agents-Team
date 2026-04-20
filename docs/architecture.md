@@ -47,7 +47,7 @@ Extension entrypoint (extensions/pi-agent-team/index.ts)
       ├─ Widget                 (buildTeamWidgetLines)
       ├─ Dashboard overlay      (list view + summary/console tabs)
       ├─ Terminal-status toasts (debounced batch per wake)
-      └─ Slash commands         (/team, /agents, /ping-agents, /agent-*)
+      └─ Slash commands         (/team, /team-copy, /team-prune, /team-cost, /agent-*)
 ```
 
 ## Delegation flow
