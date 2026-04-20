@@ -80,20 +80,27 @@ Prints the compact summary (headline, files read/changed, risks, next recommenda
 
 ```text
 /agent-steer <worker-id> narrow to src/runtime only
+/agent-steer all remember: the user cares about power, not just perf
 /agent-followup <worker-id> after that, summarize the remaining risks
+/agent-followup all when you finish, include a risks section
 ```
 
-Use `steer` while the worker is running. Use `follow-up` when the worker is idle, or when the next instruction should wait its turn.
+`/agent-steer` auto-routes per worker: steer if the target is `running`, follow-up if the target is `idle` or `waiting_followup`. It prints the mode used per worker so you can see where the message actually landed. Use `all` to broadcast to every deliverable worker at once.
 
-The orchestrator's `agent_message` tool has a third option, `delivery: "auto"`, which routes based on current status (`steer` if `running`, `follow_up` otherwise).
+`/agent-followup` always queues as follow-up. Use it when the next instruction should wait its turn.
+
+If you see "it didn't seem to go through" on a single-worker send, double-check the printed confirmation line: it names the delivery mode (`Steered w1 (reviewer:running)` vs `Queued follow-up for w1 (reviewer:idle)`). A terminal worker (`exited`, `aborted`, `error`, `completed`) cannot receive messages and is skipped.
+
+The orchestrator's `agent_message` tool exposes the same `delivery: "auto" | "steer" | "follow_up"` routing.
 
 ## Cancel a worker
 
 ```text
 /agent-cancel <worker-id>
+/agent-cancel all
 ```
 
-Aborts the RPC session and shuts down the worker process. The compact state is marked `aborted`; persisted state survives.
+Aborts the RPC session and shuts down the worker process. The compact state is marked `exited`; persisted state survives. `all` cancels every non-terminal worker in one call and prints a per-worker summary.
 
 ## Delegation notes
 
