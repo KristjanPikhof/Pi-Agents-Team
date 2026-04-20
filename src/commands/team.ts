@@ -9,9 +9,30 @@ export interface CommandRegistrationContext {
 
 export function registerTeamCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {
 	pi.registerCommand("team", {
-		description: "Open the Pi Agent Team dashboard overlay",
-		handler: async (_args, ctx) => {
-			await openTeamDashboardOverlay(ctx, dependencies.teamManager);
+		description: "Open the Pi Agent Team dashboard: /team or /team <worker-id>",
+		getArgumentCompletions: (prefix) => {
+			const token = prefix.split(/\s+/)[0] ?? "";
+			return dependencies.teamManager
+				.listWorkers()
+				.filter((worker) => worker.workerId.startsWith(token))
+				.map((worker) => ({
+					value: worker.workerId,
+					label: worker.workerId,
+					description: `${worker.profileName} · ${worker.status}${worker.currentTask?.title ? ` · ${worker.currentTask.title}` : ""}`,
+				}));
+		},
+		handler: async (args, ctx) => {
+			const input = args.trim();
+			if (!input) {
+				await openTeamDashboardOverlay(ctx, dependencies.teamManager);
+				return;
+			}
+			const workerId = dependencies.teamManager.resolveWorkerId(input);
+			if (!workerId) {
+				ctx.ui.notify(`Unknown worker: ${input}`, "warning");
+				return;
+			}
+			await openTeamDashboardOverlay(ctx, dependencies.teamManager, { initialWorkerId: workerId });
 		},
 	});
 }
