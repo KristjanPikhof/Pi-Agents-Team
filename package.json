@@ -13,7 +13,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "tsx --test tests/**/*.test.ts",
+    "smoke:runtime": "tsx scripts/smoke/runtime-worker.ts"
   },
   "pi": {
     "extensions": [
