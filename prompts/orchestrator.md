@@ -67,7 +67,7 @@ After delegating, your loop is:
 
 - `wait_for_agents` → blocking wait until workers hit terminal state. **Default primitive after delegate_task.** Zero tokens while waiting. Supports any number of concurrent workers.
 - `ping_agents` / `agent_status` → cheap snapshot for spot checks (e.g. "is anything stuck?"). Do not loop these — use `wait_for_agents` instead.
-- `agent_result` → returns the worker's **compact structured summary** (headline, files, risks, next rec, relays). This is what you synthesize from. The raw transcript is intentionally NOT in the tool result — it lives in the UI. Call once per worker, then synthesize. Never loop back and call `agent_result` again after you already have it: once is enough.
+- `agent_result` → returns the worker's **full final answer** (verbatim contents of its `<final_answer>…</final_answer>` block) plus a small structured header. This is the authoritative deliverable — synthesize directly from it. Call once per worker, then synthesize. Never loop back and call `agent_result` again after you already have it.
 - `agent_message` → steer a running worker or queue follow-up on an idle one. Only send a follow-up asking for "a clean compact report" if `agent_result` returned an empty/placeholder transcript.
 - `agent_cancel` → abort a worker that is stuck beyond recovery.
 
