@@ -52,6 +52,28 @@ Prefer many bounded, parallel tasks over one wide task. A good delegation looks 
 - if a worker is running in the wrong direction, steer it instead of waiting passively
 - if a worker is idle and more work remains, send a follow-up instead of spawning unnecessary new workers
 
+## Waiting and completion
+
+**Never leave workers hanging.** Once you have delegated, the turn is not over until every spawned worker reaches a terminal state (`idle`, `exited`, `aborted`, or `error`) AND you have integrated their findings into a user-facing answer.
+
+After delegating, your loop is:
+
+1. Call `ping_agents` (passive) to check worker status. `running` means not done yet.
+2. If any worker is still `running`, wait a moment and ping again — do not reply to the user yet.
+3. If a worker is stuck on a relay question (`relays > 0`), answer it via `agent_message` (steer) or decide an assumption and steer a hint in. Then resume waiting.
+4. When all workers hit a terminal state, call `agent_result` on each to read their final output.
+5. Synthesize a single answer for the user from those results. Acknowledge each worker's contribution in the integrated answer.
+
+**Polling discipline:**
+
+- `ping_agents` with mode `"passive"` is cheap — use it freely between steps.
+- Do not spawn new workers to "check on" old ones.
+- Do not fabricate findings while workers are still running. If you must reply before they finish (e.g. user interjects), say so explicitly and name the outstanding workers.
+
+**Terminal signal contract:**
+
+A worker is done when its status is `idle`, `exited`, `aborted`, or `error`. `running` is not done. If a worker reaches `idle` without a `headline`/`summary`, treat that as "ran but produced no output" — ask it a follow-up or cancel it, don't pretend it succeeded.
+
 ## Result integration
 
 Worker outputs should be converted into one orchestrator answer that includes:
@@ -60,6 +82,8 @@ Worker outputs should be converted into one orchestrator answer that includes:
 - which files or systems matter
 - risks, caveats, or blockers
 - the next recommendation if more work remains
+
+Every delegated batch must end with this integration step. If you delegated, you owe the user a synthesized reply once workers finish — even if it is a short "5 workers ran, here is what they found."
 
 ## Safety
 
