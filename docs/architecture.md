@@ -146,20 +146,42 @@ Persisted session state does **not** include:
 Slash commands are supervision controls, not alternate chat channels:
 
 - `/team` and `/team <worker-id>`
+- `/team-copy <worker-id>`
 - `/agent-result`, `/agent-steer`, `/agent-followup`, `/agent-cancel`
 
 The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
-The `/team` overlay has two tabs per worker: **Summary** (status, task, summary headline, relays, usage, latest assistant text) and **Console** (ring-buffered timeline of status transitions, tool starts/ends, assistant text flushes). Keys: `j/k` or arrow keys to scroll, `PgUp/PgDn`, `g/G` for top/bottom, `s/c` to switch tabs, `r` to refresh, `esc` to back out, `q` to close.
+### Widget layout rules
+
+`buildTeamWidgetLines` (`src/ui/status-widget.ts`):
+
+- **Hidden when empty.** Returns `[]` if no workers are tracked; the extension then clears the widget via `setWidget(key, undefined)`. The extension title bar still shows "Pi Agent Team (mode)" via `titleTemplate`.
+- **Single column** when ≤ 6 workers (cap at 8 visible rows). Per-worker row is one glyph + id + profile + 38-col truncated detail.
+- **Two columns** when > 6 workers: left column padded to 38 cols with visible-width-aware spaces, then `  ` + right cell. Cap at 16 visible workers (2 × 8); the rest show as `  +N more · /team to view`.
+- **Width enforcement.** Every returned line passes through `truncateToWidth(line, HEADER_WIDTH=78)`. Both widget and overlay use pi-tui's `visibleWidth` / `truncateToWidth`, not raw `.length` / `.slice`, because braille spinner glyphs, emoji, and combining chars miscount under code-unit length and previously crashed pi-tui's render validator.
+
+### Overlay layout rules
+
+`openTeamDashboardOverlay` (`src/ui/overlay.ts`):
+
+- **Sticky footer.** The keybinding help line is rendered immediately under the tab row, not at the bottom. Terminals that clip the overlay height can't hide it.
+- **Transient status line.** A `» …` line under the footer shows copy/refresh outcomes for ~2.5 s.
+- **Live ping on open** and on `r`. The overlay issues `teamManager.pingWorkers({ mode: "active" })` so token counts and streaming status are current.
+- **Direct focus.** `/team <worker-id>` opens the overlay already on that worker's Summary tab. Tab completion on the `/team` argument pulls live worker ids.
+- **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload — task, summary, relays, usage, final answer, latest assistant text, console timeline — via pbcopy / clip.exe / wl-copy / xclip / xsel.
 
 ## Notifications
 
 Two kinds of toasts fire from the extension's `onStateChange` listener:
 
 - **Terminal transitions.** When one or more workers flip to a terminal status, the listener batches them through a 400 ms debounce and emits one toast (`✓ N workers finished — w1, w2…`). The batch is filtered against current status at flush time to avoid spurious "finished" messages from transient state.
-- **New relay questions.** When a worker's `pendingRelayQuestions` count goes up, the listener emits a warning toast with a truncated preview (`❓ w3 (fixer) needs guidance: …`).
+- **New relay questions.** When a worker's `pendingRelayQuestions` count goes up **and** the newest relay has a non-empty question string, the listener emits a warning toast with a truncated preview. Placeholder and whitespace-only questions are suppressed.
 
-Both are UI-only. The orchestrator prompt explicitly instructs the model to ignore them, because `wait_for_agents` already surfaces terminal transitions as a tool result.
+Both are UI-only. The orchestrator prompt explicitly instructs the model to ignore them, because `wait_for_agents` already surfaces terminal transitions and relay wakes as a tool result.
+
+### Spinner animation
+
+A 120 ms `setInterval` animates the widget while `hasAnimatedWorkers(state)` is true (any worker in `starting`/`running`/`waiting_followup`). The tick re-applies the widget at the next frame. It starts on state change, stops when the last non-terminal worker finishes, stops on `session_shutdown`, and calls `.unref()` so it never blocks process exit.
 
 ## What to read next
 
