@@ -292,17 +292,8 @@ export default function (pi: ExtensionAPI): void {
 		emitText: (ctx: ExtensionContext, text: string) => emitCommandOutput(pi, ctx, text),
 	};
 	registerTeamCommand(pi, commandDependencies);
-	registerAgentCommands(pi, commandDependencies);
 	registerWorkerMessageCommands(pi, commandDependencies);
 	registerCancelCommand(pi, commandDependencies);
-
-	pi.registerCommand("team-status", {
-		description: "Show the Pi Agent Team scaffold status and tracked workers",
-		handler: async (_args, ctx) => {
-			teamState = teamManager.snapshot();
-			emitCommandOutput(pi, ctx, `${renderTeamStatusText(teamState, DEFAULT_TEAM_CONFIG)}\n${formatWorkers(teamManager.listWorkers())}`);
-		},
-	});
 
 	pi.registerCommand("agent-result", {
 		description: "Show the full result for a worker: /agent-result <worker-id>",
