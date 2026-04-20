@@ -49,7 +49,7 @@ export function buildWorkerTaskPrompt(task: DelegatedTaskInput): string {
 		task.expectedOutput ? `Expected output: ${task.expectedOutput}` : undefined,
 		task.contextHints.length > 0 ? `Context hints:\n- ${task.contextHints.join("\n- ")}` : undefined,
 		task.pathScope ? `Path scope:\n- ${task.pathScope.roots.join("\n- ")}` : undefined,
-		`Report back with a compact worker result containing findings, files read or changed, risks, next recommendation, and an optional relay question plus assumption if you need orchestrator guidance.`,
+		`Your final assistant message **must** wrap the complete deliverable in a single \`<final_answer>…</final_answer>\` block. Include headline, findings, files read/changed, risks, next_recommendation, and (if needed) relay_question + assumption — all inside the block. Contents outside the block are treated as internal notes and are not sent to the orchestrator.`,
 	]
 		.filter((line): line is string => Boolean(line))
 		.join("\n\n");
