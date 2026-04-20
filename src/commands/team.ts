@@ -11,7 +11,7 @@ export function registerTeamCommand(pi: ExtensionAPI, dependencies: CommandRegis
 	pi.registerCommand("team", {
 		description: "Open the Pi Agent Team dashboard overlay",
 		handler: async (_args, ctx) => {
-			await openTeamDashboardOverlay(ctx, dependencies.teamManager.snapshot());
+			await openTeamDashboardOverlay(ctx, dependencies.teamManager);
 		},
 	});
 }
