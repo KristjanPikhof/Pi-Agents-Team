@@ -1,7 +1,7 @@
-import type { PersistedTeamState } from "../types";
+import { compareWorkerIds, type PersistedTeamState } from "../types";
 
 export function buildTeamDashboardLines(state: PersistedTeamState): string[] {
-	const workers = Object.values(state.activeWorkers).sort((left, right) => right.lastEventAt - left.lastEventAt);
+	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	const lines = [
 		"Pi Agent Team Dashboard",
 		`mode: ${state.sessionMode}`,
