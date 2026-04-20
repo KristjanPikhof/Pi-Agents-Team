@@ -50,6 +50,10 @@ export interface AgentResult {
 	task?: DelegatedTaskInput;
 }
 
+export interface AgentMessageResult extends AgentResult {
+	delivery: "steer" | "follow_up";
+}
+
 export interface PingAgentsRequest {
 	workerIds?: string[];
 	mode?: "passive" | "active";
