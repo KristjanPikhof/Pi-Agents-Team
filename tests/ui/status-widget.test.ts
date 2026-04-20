@@ -26,23 +26,11 @@ function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string;
 	};
 }
 
-test("status widget renders counts and a compact tip line", () => {
+test("status widget hides itself when no workers are tracked", () => {
 	const state = createDefaultTeamState();
-	state.relayQueue.push({
-		relayId: "relay-1",
-		workerId: "w1",
-		taskId: "t1",
-		question: "Need direction?",
-		assumption: "Stay passive",
-		urgency: "medium",
-		createdAt: Date.now(),
-	});
 	const statusLine = buildTeamStatusLine(state);
-	assert.match(statusLine, /relays=1/);
-
-	const lines = buildTeamWidgetLines(state);
-	assert.equal(lines[0], "Pi Agent Team");
-	assert.match(lines[1]!, /1 relay/);
+	assert.match(statusLine, /workers=0/);
+	assert.deepEqual(buildTeamWidgetLines(state), []);
 });
 
 test("widget shows spinner frame for running workers and ✓ for finished idle workers", () => {
