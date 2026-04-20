@@ -134,9 +134,10 @@ Persisted session state does **not** include:
 
 Slash commands are supervision controls, not alternate chat channels:
 
-- `/team`, `/team-status`, `/agents`
-- `/ping-agents [active]`
+- `/team` and `/team <worker-id>`
 - `/agent-result`, `/agent-steer`, `/agent-followup`, `/agent-cancel`
+
+The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
 The `/team` overlay has two tabs per worker: **Summary** (status, task, summary headline, relays, usage, latest assistant text) and **Console** (ring-buffered timeline of status transitions, tool starts/ends, assistant text flushes). Keys: `j/k` or arrow keys to scroll, `PgUp/PgDn`, `g/G` for top/bottom, `s/c` to switch tabs, `r` to refresh, `esc` to back out, `q` to close.
 
