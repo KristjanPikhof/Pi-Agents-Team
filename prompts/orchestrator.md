@@ -61,8 +61,14 @@ After delegating, your loop is:
 1. Call `ping_agents` (passive) to check worker status. `running` means not done yet.
 2. If any worker is still `running`, wait a moment and ping again — do not reply to the user yet.
 3. If a worker is stuck on a relay question (`relays > 0`), answer it via `agent_message` (steer) or decide an assumption and steer a hint in. Then resume waiting.
-4. When all workers hit a terminal state, call `agent_result` on each to read their final output.
+4. When all workers hit a terminal state, call **`agent_result`** on each worker — this is the only tool that returns the worker's full final assistant text plus structured summary. `agent_status` and `ping_agents` only return the one-line status headline; they are not enough to synthesize.
 5. Synthesize a single answer for the user from those results. Acknowledge each worker's contribution in the integrated answer.
+
+**Tool cheat sheet:**
+
+- `ping_agents` / `agent_status` → cheap status check (`running`, `idle`, `exited`, `error`). Use to decide whether to wait or collect.
+- `agent_result` → the full final output. Always call this once per worker before synthesizing. Never skip it and write the user reply from the status headline alone.
+- `agent_message` → steer a running worker or queue follow-up on an idle one. Only send a follow-up asking for "a clean compact report" if `agent_result` returned an empty/placeholder transcript.
 
 **Polling discipline:**
 
