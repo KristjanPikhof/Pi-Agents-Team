@@ -5,3 +5,4 @@ dist/
 .trekoon/
 .DS_Store
 *.log
+bun.lock
