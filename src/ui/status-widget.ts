@@ -1,4 +1,4 @@
-import type { PersistedTeamState } from "../types";
+import { compareWorkerIds, type PersistedTeamState } from "../types";
 
 export function buildTeamStatusLine(state: PersistedTeamState): string {
 	const workerCount = Object.keys(state.activeWorkers).length;
@@ -8,7 +8,7 @@ export function buildTeamStatusLine(state: PersistedTeamState): string {
 
 export function buildTeamWidgetLines(state: PersistedTeamState): string[] {
 	const workers = Object.values(state.activeWorkers)
-		.sort((left, right) => right.lastEventAt - left.lastEventAt)
+		.sort((left, right) => compareWorkerIds(left.workerId, right.workerId))
 		.slice(0, 4);
 	const lines = ["Pi Agent Team", buildTeamStatusLine(state)];
 	if (workers.length === 0) {
