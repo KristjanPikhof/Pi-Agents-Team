@@ -55,12 +55,16 @@ const WaitForAgentsSchema = Type.Object({
 	wakeOnRelay: Type.Optional(Type.Boolean({ description: "Return early with reason=relay_raised when any target raises a new relay question. Defaults to true so the orchestrator can answer mid-flight without waiting for every worker to finish." })),
 });
 
-function restoreLatestState(ctx: ExtensionContext): PersistedTeamState {
+function restoreLatestState(
+	ctx: ExtensionContext,
+	startReason: "startup" | "reload" | "new" | "resume" | "fork",
+): { state: PersistedTeamState; markedCount: number } {
 	const restoredState = restorePersistedTeamState(
 		ctx.sessionManager.getEntries(),
 		DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
 	);
-	return markRestoredWorkersExited(restoredState);
+	const { state, markedCount } = markRestoredWorkersExited(restoredState, startReason);
+	return { state, markedCount };
 }
 
 function applyUi(ctx: ExtensionContext | undefined, state: PersistedTeamState, frame = 0): void {
