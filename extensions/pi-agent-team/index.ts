@@ -94,6 +94,44 @@ function formatWorkers(workers: WorkerRuntimeState[]): string {
 	return workers.map((worker) => `- ${formatWorker(worker)}`).join("\n");
 }
 
+function truncateList(items: string[], max: number): string {
+	if (items.length <= max) return items.join(", ");
+	return `${items.slice(0, max).join(", ")}… (+${items.length - max} more)`;
+}
+
+function formatWorkerCompact(worker: WorkerRuntimeState): string {
+	const lines = [
+		`Worker: ${worker.workerId} (${worker.profileName})`,
+		`Status: ${worker.status}`,
+	];
+	if (worker.currentTask?.title) lines.push(`Task: ${worker.currentTask.title}`);
+	if (worker.error) lines.push(`Error: ${worker.error}`);
+
+	const summary = worker.lastSummary;
+	if (summary) {
+		if (summary.headline) lines.push(`Headline: ${summary.headline}`);
+		if (summary.readFiles.length) lines.push(`Read files: ${truncateList(summary.readFiles, 10)}`);
+		if (summary.changedFiles.length) lines.push(`Changed files: ${truncateList(summary.changedFiles, 10)}`);
+		if (summary.risks.length) lines.push(`Risks: ${truncateList(summary.risks, 5)}`);
+		if (summary.nextRecommendation) lines.push(`Next: ${summary.nextRecommendation}`);
+	}
+
+	if (worker.pendingRelayQuestions.length > 0) {
+		lines.push("", "Pending relay questions:");
+		for (const relay of worker.pendingRelayQuestions) {
+			lines.push(`- [${relay.urgency}] ${relay.question}`);
+			lines.push(`  assumption: ${relay.assumption}`);
+		}
+	}
+
+	lines.push(
+		`Usage: turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens} cost=$${worker.usage.costUsd.toFixed(4)}`,
+		`Full transcript available via /team overlay → select ${worker.workerId} → Enter, or /agent-result ${worker.workerId} in the terminal. Do NOT request it unless the user explicitly asks.`,
+	);
+
+	return lines.join("\n");
+}
+
 function formatWorkerDetail(worker: WorkerRuntimeState, transcript?: string): string {
 	const lines = [
 		`Worker: ${worker.workerId}`,
