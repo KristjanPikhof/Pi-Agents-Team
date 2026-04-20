@@ -313,13 +313,14 @@ export default function (pi: ExtensionAPI): void {
 				return;
 			}
 			const resolved = teamManager.resolveWorkerId(input);
+			const candidates = teamManager.listWorkers().map((worker) => worker.workerId);
 			if (!resolved) {
-				ctx.ui.notify(`Unknown worker: ${input}`, "warning");
+				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
 				return;
 			}
 			const result = teamManager.getWorkerResult(resolved);
 			if (!result) {
-				ctx.ui.notify(`Unknown worker: ${resolved}`, "warning");
+				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
 				return;
 			}
 			const transcript = teamManager.getWorkerTranscript(resolved);
