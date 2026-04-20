@@ -237,6 +237,15 @@ export default function (pi: ExtensionAPI): void {
 				notificationTimer = setTimeout(flushTerminalNotifications, 400);
 			}
 			lastStatus.set(worker.workerId, worker.status);
+
+			const prevRelays = lastRelayCount.get(worker.workerId) ?? 0;
+			const currRelays = worker.pendingRelayQuestions.length;
+			if (currRelays > prevRelays && activeContext?.hasUI) {
+				const newest = worker.pendingRelayQuestions[worker.pendingRelayQuestions.length - 1];
+				const preview = newest?.question ? newest.question.replace(/\s+/g, " ").slice(0, 120) : "needs guidance";
+				activeContext.ui.notify(`❓ ${worker.workerId} (${worker.profileName}) needs guidance: ${preview}`, "warning");
+			}
+			lastRelayCount.set(worker.workerId, currRelays);
 		}
 	});
 
