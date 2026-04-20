@@ -1,10 +1,11 @@
 import { EventEmitter } from "node:events";
-import { DEFAULT_TEAM_CONFIG, type TeamConfig } from "../config";
+import { DEFAULT_TEAM_CONFIG } from "../config";
 import { TaskRegistry } from "./task-registry";
 import { WorkerManager } from "../runtime/worker-manager";
 import type {
 	DelegatedTaskInput,
 	PersistedTeamState,
+	TeamConfig,
 	TeamPathScope,
 	ThinkingLevel,
 	WorkerExtensionMode,
@@ -87,7 +88,7 @@ export class TeamManager {
 	}
 
 	async delegateTask(request: DelegateTaskRequest): Promise<AgentResult> {
-		const profile = this.config.profiles.find((item) => item.name === request.profileName);
+		const profile = this.config.profiles.find((item: TeamConfig["profiles"][number]) => item.name === request.profileName);
 		const taskId = createId("task");
 		const workerId = createId("worker");
 		const task: DelegatedTaskInput = {
