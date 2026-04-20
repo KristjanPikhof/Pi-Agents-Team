@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { SelectList, type SelectItem, matchesKey } from "@mariozechner/pi-tui";
 import type { TeamManager } from "../control-plane/team-manager";
-import type { PersistedTeamState, WorkerRuntimeState } from "../types";
+import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types";
 import { buildTeamDashboardText } from "./dashboard";
 
 type View =
