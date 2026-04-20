@@ -55,6 +55,20 @@ test("buildWorkerSummaryFromText extracts compact fields", () => {
 	assert.equal(summary.nextRecommendation, "add a UI surface for relay questions");
 });
 
+test("extractRelayQuestions ignores placeholder values like 'none' or 'n/a'", () => {
+	const worker = createWorker("idle");
+	for (const placeholder of ["none", "None.", "N/A", "no", "nope", "-", "—", "no question", "not needed"]) {
+		const relays = extractRelayQuestions(`relay_question: ${placeholder}\nassumption: whatever`, worker);
+		assert.equal(relays.length, 0, `expected no relay for placeholder "${placeholder}"`);
+	}
+
+	const realRelay = extractRelayQuestions(
+		"relay_question: Should I keep going?\nassumption: yes",
+		worker,
+	);
+	assert.equal(realRelay.length, 1);
+});
+
 test("extractRelayQuestions parses ask-orchestrator style output", () => {
 	const worker = createWorker("running");
 	const relays = extractRelayQuestions(
