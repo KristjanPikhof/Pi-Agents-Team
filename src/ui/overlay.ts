@@ -9,7 +9,7 @@ type View =
 	| { kind: "detail"; workerId: string; scrollTop: number };
 
 function buildWorkerItems(state: PersistedTeamState): SelectItem[] {
-	const workers = Object.values(state.activeWorkers).sort((left, right) => right.lastEventAt - left.lastEventAt);
+	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	if (workers.length === 0) {
 		return [{ value: "__none__", label: "no tracked workers", description: "run delegate_task first" }];
 	}
