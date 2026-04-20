@@ -35,7 +35,7 @@ test("extension registers control-plane tools and operator commands", () => {
 	);
 	assert.deepEqual(
 		commands.map((command) => command.name).sort(),
-		["agent-cancel", "agent-followup", "agent-result", "agent-steer", "team"],
+		["agent-cancel", "agent-followup", "agent-result", "agent-steer", "team", "team-copy"],
 	);
 	assert.ok(!commands.some((command) => command.name === "team-status"));
 	assert.ok(!commands.some((command) => command.name === "agents"));
