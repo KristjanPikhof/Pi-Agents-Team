@@ -39,6 +39,8 @@ npm run smoke:team
 |---|---|
 | `/team` | Opens the dashboard overlay (worker list + summary/console tabs). `/team <worker-id>` jumps directly to that worker's detail view. Opening triggers a live RPC refresh; press `r` inside the overlay to re-ping |
 | `/team-copy <worker-id>` | Copies the worker's task, summary, final answer, transcript, and console timeline to the system clipboard. Inside the overlay, press `y` to do the same |
+| `/team-prune` | Removes every terminal (idle/completed/aborted/error/exited) worker from the dashboard. Use after a cancelled batch to clear the slate before a fresh delegation |
+| `/team-cost` | Per-worker token usage and a `Σ` aggregate row. Orchestrator usage stays in the Pi footer |
 | `/agent-result <worker-id>` | Prints the worker's compact summary plus the verbatim `<final_answer>` block |
 | `/agent-steer <worker-id\|all> <message>` | Sends a message to one or all workers. Auto-routes (steer if running, follow-up if idle) and reports the mode used |
 | `/agent-followup <worker-id\|all> <message>` | Queues a follow-up for one or all workers |
