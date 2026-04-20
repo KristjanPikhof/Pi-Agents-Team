@@ -55,6 +55,30 @@ function padToWidth(text: string, width: number): string {
 	return `${text}${" ".repeat(gap)}`;
 }
 
+function formatTokens(value: number): string {
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+	return `${value}`;
+}
+
+function buildUsageLine(state: PersistedTeamState): string | undefined {
+	let turns = 0;
+	let inputTokens = 0;
+	let outputTokens = 0;
+	let costUsd = 0;
+	for (const worker of Object.values(state.activeWorkers)) {
+		turns += worker.usage.turns;
+		inputTokens += worker.usage.inputTokens;
+		outputTokens += worker.usage.outputTokens;
+		costUsd += worker.usage.costUsd;
+	}
+	if (turns === 0 && inputTokens === 0 && outputTokens === 0 && costUsd === 0) return undefined;
+	return truncateToWidth(
+		`Σ turns=${turns}  in=${formatTokens(inputTokens)}  out=${formatTokens(outputTokens)}  cost=$${costUsd.toFixed(4)}`,
+		HEADER_WIDTH,
+	);
+}
+
 function buildCountsLine(state: PersistedTeamState): string {
 	const counts = { running: 0, starting: 0, queued: 0, idle: 0, done: 0, ended: 0 };
 	for (const worker of Object.values(state.activeWorkers)) {
