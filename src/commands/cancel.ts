@@ -6,6 +6,7 @@ export function registerCancelCommand(pi: ExtensionAPI, dependencies: CommandReg
 	pi.registerCommand("agent-cancel", {
 		description: "Cancel one or all workers: /agent-cancel <worker-id|all>",
 		getArgumentCompletions: (prefix) => {
+			if (/\s/.test(prefix)) return [];
 			const completions = [] as { value: string; label: string; description: string }[];
 			if ("all".startsWith(prefix)) {
 				completions.push({
