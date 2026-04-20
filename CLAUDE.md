@@ -51,9 +51,9 @@ Layering, top to bottom:
 
 **Slash commands — 6 total.**
 
-- `/team` → opens the dashboard overlay (live RPC ping on open).
+- `/team` → opens the dashboard overlay (live RPC ping on open). `y` inside the overlay copies the focused worker to clipboard.
 - `/team <worker-id>` → jumps straight into that worker's detail view.
-- `/team-copy <worker-id>` → copies task + summary + final answer + transcript + console timeline to the system clipboard.
+- `/team-copy <worker-id>` → same copy payload as `y`, without opening the overlay.
 - `/agent-result <worker-id>` → prints the compact summary + verbatim `<final_answer>` block.
 - `/agent-steer <worker-id|all> <msg>` → auto-routes: `steer` if running, `follow_up` if idle/waiting_followup. Prints the mode used.
 - `/agent-followup <worker-id|all> <msg>` → always queues as `follow_up`.
