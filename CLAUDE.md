@@ -49,11 +49,13 @@ Layering, top to bottom:
 
 ## Operator surface (post-cleanup)
 
-**Slash commands — 6 total.**
+**Slash commands — 8 total.**
 
 - `/team` → opens the dashboard overlay (live RPC ping on open). `y` inside the overlay copies the focused worker to clipboard.
 - `/team <worker-id>` → jumps straight into that worker's detail view.
 - `/team-copy <worker-id>` → same copy payload as `y`, without opening the overlay.
+- `/team-prune` → removes every terminal worker from the dashboard. Use after a cancelled batch.
+- `/team-cost` → per-worker token usage plus `Σ` totals. Orchestrator cost stays in Pi's footer.
 - `/agent-result <worker-id>` → prints the compact summary + verbatim `<final_answer>` block.
 - `/agent-steer <worker-id|all> <msg>` → auto-routes: `steer` if running, `follow_up` if idle/waiting_followup. Prints the mode used.
 - `/agent-followup <worker-id|all> <msg>` → always queues as `follow_up`.
