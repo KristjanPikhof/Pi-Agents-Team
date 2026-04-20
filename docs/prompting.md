@@ -1,6 +1,6 @@
 # Prompt contracts
 
-Pi Agent Team uses Pi-native prompt contracts for the orchestrator and each worker role. Contracts are opinionated: they define what each role owns, how workers report back, and what the orchestrator must do while workers are running.
+Pi Agents Team uses Pi-native prompt contracts for the orchestrator and each worker role. Contracts are opinionated: they define what each role owns, how workers report back, and what the orchestrator must do while workers are running.
 
 ## Design principle
 
