@@ -108,13 +108,11 @@ function formatWorkerCompact(worker: WorkerRuntimeState): string {
 	if (worker.error) lines.push(`Error: ${worker.error}`);
 
 	const summary = worker.lastSummary;
-	if (summary) {
-		if (summary.headline) lines.push(`Headline: ${summary.headline}`);
-		if (summary.readFiles.length) lines.push(`Read files: ${truncateList(summary.readFiles, 10)}`);
-		if (summary.changedFiles.length) lines.push(`Changed files: ${truncateList(summary.changedFiles, 10)}`);
-		if (summary.risks.length) lines.push(`Risks: ${truncateList(summary.risks, 5)}`);
-		if (summary.nextRecommendation) lines.push(`Next: ${summary.nextRecommendation}`);
-	}
+	if (summary?.headline) lines.push(`Headline: ${summary.headline}`);
+	if (summary?.readFiles.length) lines.push(`Read files: ${truncateList(summary.readFiles, 10)}`);
+	if (summary?.changedFiles.length) lines.push(`Changed files: ${truncateList(summary.changedFiles, 10)}`);
+	if (summary?.risks.length) lines.push(`Risks: ${truncateList(summary.risks, 5)}`);
+	if (summary?.nextRecommendation) lines.push(`Next: ${summary.nextRecommendation}`);
 
 	if (worker.pendingRelayQuestions.length > 0) {
 		lines.push("", "Pending relay questions:");
@@ -124,10 +122,16 @@ function formatWorkerCompact(worker: WorkerRuntimeState): string {
 		}
 	}
 
-	lines.push(
-		`Usage: turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens} cost=$${worker.usage.costUsd.toFixed(4)}`,
-		`Full transcript available via /team overlay → select ${worker.workerId} → Enter, or /agent-result ${worker.workerId} in the terminal. Do NOT request it unless the user explicitly asks.`,
-	);
+	lines.push(`Usage: turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens} cost=$${worker.usage.costUsd.toFixed(4)}`);
+
+	if (worker.finalAnswer && worker.finalAnswer.trim()) {
+		lines.push("", "--- Final answer (from worker's <final_answer> block) ---", worker.finalAnswer.trim());
+	} else {
+		lines.push(
+			"",
+			`No <final_answer> block extracted yet. If the worker is idle and this is empty, it did not follow the final-answer contract — re-delegate or steer it with: \`Please wrap your final deliverable in <final_answer>…</final_answer> tags.\``,
+		);
+	}
 
 	return lines.join("\n");
 }
