@@ -132,13 +132,9 @@ function buildWorkerLines(workers: WorkerRuntimeState[], frame: number): { lines
 export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetRenderOptions = {}): string[] {
 	const frame = options.frame ?? 0;
 	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
+	if (workers.length === 0) return [];
+
 	const lines = ["Pi Agent Team", buildCountsLine(state)];
-
-	if (workers.length === 0) {
-		lines.push(truncateToWidth("no tracked workers · delegate via the orchestrator, then /team to inspect", HEADER_WIDTH));
-		return lines;
-	}
-
 	const { lines: workerLines, hiddenCount } = buildWorkerLines(workers, frame);
 	lines.push(...workerLines);
 	if (hiddenCount > 0) {
