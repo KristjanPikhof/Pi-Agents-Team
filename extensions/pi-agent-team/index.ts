@@ -1,11 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import {
-	DEFAULT_TEAM_CONFIG,
-	buildTeamWidgetLines,
-	createDefaultTeamState,
-	renderTeamStatusText,
-} from "../../src/config";
+import { DEFAULT_TEAM_CONFIG, createDefaultTeamState, renderTeamStatusText } from "../../src/config";
 import {
 	createPersistedStateSnapshot,
 	markRestoredWorkersExited,
@@ -13,6 +8,11 @@ import {
 } from "../../src/control-plane/persistence";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { TeamManager } from "../../src/control-plane/team-manager";
+import { registerAgentCommands } from "../../src/commands/agents";
+import { registerCancelCommand } from "../../src/commands/cancel";
+import { registerWorkerMessageCommands } from "../../src/commands/steer";
+import { registerTeamCommand } from "../../src/commands/team";
+import { buildTeamStatusLine, buildTeamWidgetLines } from "../../src/ui/status-widget";
 import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
 const DelegateTaskSchema = Type.Object({
@@ -56,10 +56,8 @@ function restoreLatestState(ctx: ExtensionContext): PersistedTeamState {
 function applyUi(ctx: ExtensionContext | undefined, state: PersistedTeamState): void {
 	if (!ctx?.hasUI) return;
 
-	const workerCount = Object.keys(state.activeWorkers).length;
-	const workerLabel = workerCount === 1 ? "worker" : "workers";
-	ctx.ui.setStatus(DEFAULT_TEAM_CONFIG.ui.statusKey, `${state.sessionMode} · ${workerCount} ${workerLabel}`);
-	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, buildTeamWidgetLines(state, DEFAULT_TEAM_CONFIG));
+	ctx.ui.setStatus(DEFAULT_TEAM_CONFIG.ui.statusKey, buildTeamStatusLine(state));
+	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, buildTeamWidgetLines(state));
 	ctx.ui.setTitle(DEFAULT_TEAM_CONFIG.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
 
@@ -110,18 +108,20 @@ export default function (pi: ExtensionAPI): void {
 		applyUi(activeContext, teamState);
 	});
 
+	const commandDependencies = {
+		teamManager,
+		emitText: (ctx: ExtensionContext, text: string) => emitCommandOutput(pi, ctx, text),
+	};
+	registerTeamCommand(pi, commandDependencies);
+	registerAgentCommands(pi, commandDependencies);
+	registerWorkerMessageCommands(pi, commandDependencies);
+	registerCancelCommand(pi, commandDependencies);
+
 	pi.registerCommand("team-status", {
 		description: "Show the Pi Agent Team scaffold status and tracked workers",
 		handler: async (_args, ctx) => {
 			teamState = teamManager.snapshot();
 			emitCommandOutput(pi, ctx, `${renderTeamStatusText(teamState, DEFAULT_TEAM_CONFIG)}\n${formatWorkers(teamManager.listWorkers())}`);
-		},
-	});
-
-	pi.registerCommand("agents", {
-		description: "List tracked Pi Agent Team workers",
-		handler: async (_args, ctx) => {
-			emitCommandOutput(pi, ctx, formatWorkers(teamManager.listWorkers()));
 		},
 	});
 
@@ -139,19 +139,6 @@ export default function (pi: ExtensionAPI): void {
 				return;
 			}
 			emitCommandOutput(pi, ctx, formatWorker(result.worker));
-		},
-	});
-
-	pi.registerCommand("agent-cancel", {
-		description: "Cancel a worker: /agent-cancel <worker-id>",
-		handler: async (args, ctx) => {
-			const workerId = args.trim();
-			if (!workerId) {
-				ctx.ui.notify("Usage: /agent-cancel <worker-id>", "warning");
-				return;
-			}
-			const result = await teamManager.cancelWorker(workerId);
-			emitCommandOutput(pi, ctx, `Cancelled ${result.worker.workerId}\n${formatWorker(result.worker)}`);
 		},
 	});
 
