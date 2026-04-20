@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { DEFAULT_TEAM_CONFIG, createDefaultTeamState, renderTeamStatusText } from "../../src/config";
+import { DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config";
 import {
 	createPersistedStateSnapshot,
 	markRestoredWorkersExited,
