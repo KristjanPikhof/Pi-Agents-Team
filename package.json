@@ -14,7 +14,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
-    "smoke:runtime": "tsx scripts/smoke/runtime-worker.ts"
+    "smoke:runtime": "tsx scripts/smoke/runtime-worker.ts",
+    "smoke:team": "tsx scripts/smoke/team-flow.ts"
   },
   "pi": {
     "extensions": [
