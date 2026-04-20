@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { buildCopyPayload } from "../ui/copy-payload";
 import { copyToClipboard } from "../util/clipboard";
+import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
 
 export function registerCopyCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {
