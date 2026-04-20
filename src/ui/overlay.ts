@@ -299,6 +299,10 @@ export async function openTeamDashboardOverlay(
 						refreshSnapshot();
 						return;
 					}
+					if (data === "y") {
+						copyCurrentDetail();
+						return;
+					}
 					if (data === "j" || matchesKey(data, "down")) {
 						view = { ...view, scrollTop: view.scrollTop + 1 };
 						return;
