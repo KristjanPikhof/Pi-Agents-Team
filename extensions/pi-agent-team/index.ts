@@ -156,6 +156,7 @@ export default function (pi: ExtensionAPI): void {
 					allowWrite: params.pathScopeAllowWrite === true,
 				}
 				: undefined;
+			const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
 			const result = await teamManager.delegateTask({
 				title: params.title,
 				goal: params.goal,
@@ -164,6 +165,7 @@ export default function (pi: ExtensionAPI): void {
 				contextHints: params.contextHints,
 				expectedOutput: params.expectedOutput,
 				pathScope,
+				model: params.model ?? orchestratorModel,
 			});
 			teamState = teamManager.snapshot();
 			applyUi(activeContext, teamState);
