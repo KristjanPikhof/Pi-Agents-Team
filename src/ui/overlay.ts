@@ -215,7 +215,7 @@ export async function openTeamDashboardOverlay(
 
 					if (view.kind === "list") {
 						const header = [
-							"Pi Agent Team · workers",
+							"Pi Agents Team · workers",
 							`mode=${snapshot.sessionMode} · active=${Object.keys(snapshot.activeWorkers).length} · relays=${snapshot.relayQueue.length}`,
 							LIST_FOOTER,
 							...statusLine,
