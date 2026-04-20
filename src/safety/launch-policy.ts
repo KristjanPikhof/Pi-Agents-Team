@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
-import { DEFAULT_TEAM_CONFIG, type TeamConfig } from "../config";
+import { DEFAULT_TEAM_CONFIG } from "../config";
 import { getWorkerPromptPath } from "../prompts/contracts";
 import { ensureWriteScope, normalizePathScope } from "./path-scope";
-import type { TeamPathScope, TeamProfileSpec, ThinkingLevel, WorkerExtensionMode } from "../types";
+import type { TeamConfig, TeamPathScope, TeamProfileSpec, ThinkingLevel, WorkerExtensionMode } from "../types";
 
 export interface LaunchPolicyRequest {
 	cwd: string;
