@@ -62,8 +62,9 @@ function restoreLatestState(ctx: ExtensionContext): PersistedTeamState {
 function applyUi(ctx: ExtensionContext | undefined, state: PersistedTeamState, frame = 0): void {
 	if (!ctx?.hasUI) return;
 
+	const widgetLines = buildTeamWidgetLines(state, { frame });
 	ctx.ui.setStatus(DEFAULT_TEAM_CONFIG.ui.statusKey, buildTeamStatusLine(state));
-	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, buildTeamWidgetLines(state, { frame }));
+	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
 	ctx.ui.setTitle(DEFAULT_TEAM_CONFIG.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
 
