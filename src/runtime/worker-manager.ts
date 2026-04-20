@@ -88,6 +88,33 @@ function trimSummary(text: string, maxLength = 160): string {
 	return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
+function snippet(value: unknown, maxLength = 200): string {
+	if (value === undefined || value === null) return "";
+	let text: string;
+	if (typeof value === "string") {
+		text = value;
+	} else {
+		try {
+			text = JSON.stringify(value);
+		} catch {
+			text = String(value);
+		}
+	}
+	return trimSummary(text, maxLength);
+}
+
+function extractResultText(result: Record<string, unknown>): string {
+	const content = result?.content;
+	if (Array.isArray(content)) {
+		const pieces = content
+			.filter((part): part is { type: string; text?: string } => typeof part === "object" && part !== null)
+			.filter((part) => part.type === "text" && typeof part.text === "string")
+			.map((part) => part.text as string);
+		if (pieces.length > 0) return pieces.join("\n");
+	}
+	return snippet(result);
+}
+
 function extractAssistantText(message: Record<string, unknown>): string {
 	const content = Array.isArray(message.content) ? message.content : [];
 	return content
