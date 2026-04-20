@@ -109,7 +109,7 @@ The initial `refreshState` fires before `promptWorker` is called, so the RPC ses
 
 ### Placeholder relays are filtered at parse time
 
-Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) instead of omitting the field when they have nothing to ask. `extractRelayQuestions` (`src/comms/summary.ts`) normalizes the value and returns an empty array for any known placeholder. The extension's relay-toast listener has a second-line guard: it refuses to notify when the question string is empty or whitespace-only. Workers are told in `buildWorkerTaskPrompt` to omit the field entirely — both guards exist because models drift.
+Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) instead of omitting the field when they have nothing to ask. `extractRelayQuestions` (`src/comms/summary.ts`) normalizes the value and returns an empty array for any known placeholder. The extension's relay-toast listener has a second-line guard: it refuses to notify when the question string is empty or whitespace-only. Workers are told in `buildWorkerTaskPrompt` to omit the field entirely. Both guards exist because models drift.
 
 ## Compact runtime state
 
