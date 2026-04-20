@@ -1,6 +1,7 @@
 {
-  "name": "pi-agent-team",
+  "name": "pi-agents-team",
   "version": "2026.04.20",
+  "private": true,
   "description": "Pi package that turns the main session into an orchestrator for RPC-backed worker agents.",
   "license": "MIT",
   "type": "module",
@@ -11,9 +12,21 @@
     "orchestrator",
     "rpc"
   ],
+  "homepage": "https://github.com/KristjanPikhof/pi-agents-team",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KristjanPikhof/pi-agents-team.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KristjanPikhof/pi-agents-team/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
+    "check": "npm run typecheck && npm test",
     "smoke:runtime": "tsx scripts/smoke/runtime-worker.ts",
     "smoke:team": "tsx scripts/smoke/team-flow.ts"
   },
@@ -28,11 +41,11 @@
     "@sinclair/typebox": "*"
   },
   "devDependencies": {
-    "@mariozechner/pi-coding-agent": "^0.67.68",
-    "@mariozechner/pi-tui": "^0.67.68",
-    "@sinclair/typebox": "latest",
-    "@types/node": "latest",
-    "tsx": "latest",
-    "typescript": "latest"
+    "@mariozechner/pi-coding-agent": "^0.68.0",
+    "@mariozechner/pi-tui": "^0.68.0",
+    "@sinclair/typebox": "^0.34.49",
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
   }
 }
