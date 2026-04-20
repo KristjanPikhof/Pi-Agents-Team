@@ -51,7 +51,7 @@ The orchestrator does not drive workers through slash commands. It calls these t
 | Tool | Use for |
 |---|---|
 | `delegate_task` | Launch a worker with a bounded task, chosen profile, and optional path scope |
-| `wait_for_agents` | Block until every targeted worker reaches a terminal status. Zero-token wait, no polling |
+| `wait_for_agents` | Block until every target hits terminal status **or** any target raises a new relay question. Zero-token wait. Wakes early on `relay_raised` so the orchestrator can answer mid-flight without waiting for the batch to finish |
 | `agent_result` | Read the worker's structured summary plus the verbatim `<final_answer>` block |
 | `agent_status` / `ping_agents` | Cheap one-line snapshots. Use for spot checks, not loops |
 | `agent_message` | Steer a running worker or queue follow-up on an idle one (auto-routes based on status) |
