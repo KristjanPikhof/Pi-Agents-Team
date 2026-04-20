@@ -213,6 +213,7 @@ export async function openTeamDashboardOverlay(
 							return;
 						}
 						if (data === "r") {
+							refreshActive();
 							rebuildList();
 							return;
 						}
