@@ -60,7 +60,7 @@ export function registerWorkerMessageCommands(pi: ExtensionAPI, dependencies: Co
 
 			const workerId = dependencies.teamManager.resolveWorkerId(rawTarget);
 			if (!workerId) {
-				ctx.ui.notify(`Unknown worker: ${rawTarget}`, "warning");
+				ctx.ui.notify(unknownTargetMessage(dependencies.teamManager, rawTarget), "warning");
 				return;
 			}
 			const result = await dependencies.teamManager.messageWorker(workerId, message, "auto");
@@ -87,7 +87,7 @@ export function registerWorkerMessageCommands(pi: ExtensionAPI, dependencies: Co
 
 			const workerId = dependencies.teamManager.resolveWorkerId(rawTarget);
 			if (!workerId) {
-				ctx.ui.notify(`Unknown worker: ${rawTarget}`, "warning");
+				ctx.ui.notify(unknownTargetMessage(dependencies.teamManager, rawTarget), "warning");
 				return;
 			}
 			const result = await dependencies.teamManager.messageWorker(workerId, message, "follow_up");
