@@ -31,10 +31,15 @@ When the user asks for N workers or parallel analysis, the orchestrator spawns t
 
 The loop after `delegate_task`:
 
-1. Call `wait_for_agents` with the new worker ids. This blocks until every named worker reaches a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`) or the timeout elapses. Zero tokens while waiting.
-2. If a worker raises a relay question and parks in `waiting_followup`/`idle`, answer via `agent_message` and call `wait_for_agents` again.
-3. When workers are terminal, call `agent_result` once per worker. This returns the structured summary plus the verbatim `<final_answer>` block.
-4. Synthesize one user-facing answer from those results.
+1. Call `wait_for_agents` with the new worker ids. Zero tokens while waiting. Returns on one of four reasons:
+   - `all_terminal` — every target reached a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`).
+   - `relay_raised` — at least one running worker raised a new relay question; other targets may still be running.
+   - `timeout` — default 5 min elapsed.
+   - `aborted` — the wait was cancelled.
+2. If `reason === "relay_raised"`, read `details.newRelays` (each entry has `workerId`, `profileName`, `question`, `urgency`), answer each via `agent_message` (auto-routed), then call `wait_for_agents` again with the same ids to go back to sleep. Do **not** wait for every worker to finish before answering a mid-flight relay.
+3. If `reason === "all_terminal"`, call `agent_result` once per worker and synthesize.
+
+The wait resumes cleanly because `waitForTerminal` re-snapshots each target's pending-relay count on every call — already-answered relays don't wake it again, only new ones do.
 
 Forbidden: looping `ping_agents`, sleeping in bash, spawning new workers to "check on" old ones, running bash/read/grep directly to "help" a running worker, treating `interim=…` text in a running worker as a finding.
 
