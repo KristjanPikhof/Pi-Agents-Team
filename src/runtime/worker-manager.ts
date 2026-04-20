@@ -46,8 +46,28 @@ export interface ManagedWorkerRecord {
 	state: WorkerRuntimeState;
 }
 
+export interface WorkerConsoleEvent {
+	ts: number;
+	kind:
+		| "status"
+		| "tool_start"
+		| "tool_end"
+		| "assistant_text"
+		| "assistant_message"
+		| "queue"
+		| "error"
+		| "exit";
+	text: string;
+}
+
+const CONSOLE_BUFFER_LIMIT = 500;
+const ASSISTANT_TEXT_BATCH_MS = 400;
+
 interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	textBuffer: string;
+	console: WorkerConsoleEvent[];
+	pendingTextDelta: string;
+	pendingTextFlushAt: number;
 	unsubscribers: Array<() => void>;
 }
 
