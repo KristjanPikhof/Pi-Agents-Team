@@ -51,7 +51,7 @@ Forbidden: looping `ping_agents`, sleeping in bash, spawning new workers to "che
 
 ### Worker toasts are UI-only
 
-When workers reach a terminal state, the extension shows transient toasts (`✓ N workers finished — w1, w2…`). These are not part of the orchestrator's conversation. The orchestrator must not reply to them or re-call `agent_result` after it already has the summary.
+When workers reach a terminal state, the extension shows transient toasts (`✓ N workers finished: w1, w2…`). These are not part of the orchestrator's conversation. The orchestrator must not reply to them or re-call `agent_result` after it already has the summary.
 
 ## Worker contracts
 
