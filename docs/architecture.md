@@ -155,7 +155,7 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 
 `buildTeamWidgetLines` (`src/ui/status-widget.ts`):
 
-- **Hidden when empty.** Returns `[]` if no workers are tracked; the extension then clears the widget via `setWidget(key, undefined)`. The extension title bar still shows "Pi Agent Team (mode)" via `titleTemplate`.
+- **Hidden when empty.** Returns `[]` if no workers are tracked; the extension then clears the widget via `setWidget(key, undefined)`. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
 - **Single column** when ≤ 6 workers (cap at 8 visible rows). Per-worker row is one glyph + id + profile + 38-col truncated detail.
 - **Two columns** when > 6 workers: left column padded to 38 cols with visible-width-aware spaces, then `  ` + right cell. Cap at 16 visible workers (2 × 8); the rest show as `  +N more · /team to view`.
 - **Width enforcement.** Every returned line passes through `truncateToWidth(line, HEADER_WIDTH=78)`. Both widget and overlay use pi-tui's `visibleWidth` / `truncateToWidth`, not raw `.length` / `.slice`, because braille spinner glyphs, emoji, and combining chars miscount under code-unit length and previously crashed pi-tui's render validator.
