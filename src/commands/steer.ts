@@ -3,9 +3,9 @@ import type { AgentMessageResult } from "../control-plane/team-manager";
 import type { CommandRegistrationContext } from "./team";
 
 function completeWorkerTargets(teamManager: CommandRegistrationContext["teamManager"], prefix: string) {
-	const token = prefix.split(/\s+/)[0] ?? "";
+	if (/\s/.test(prefix)) return [];
 	const completions = [] as { value: string; label: string; description: string }[];
-	if ("all".startsWith(token)) {
+	if ("all".startsWith(prefix)) {
 		completions.push({
 			value: "all",
 			label: "all",
@@ -13,7 +13,7 @@ function completeWorkerTargets(teamManager: CommandRegistrationContext["teamMana
 		});
 	}
 	for (const worker of teamManager.listWorkers()) {
-		if (!worker.workerId.startsWith(token)) continue;
+		if (!worker.workerId.startsWith(prefix)) continue;
 		completions.push({
 			value: worker.workerId,
 			label: worker.workerId,
