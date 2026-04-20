@@ -61,29 +61,32 @@ test("markRestoredWorkersExited converts live workers into exited snapshots", ()
 });
 
 test("markRestoredWorkersExited maps session-start reasons to specific messages", () => {
-	const base = createDefaultTeamState();
-	base.activeWorkers["worker-1"] = {
-		workerId: "worker-1",
-		profileName: "fixer",
-		sessionMode: "worker",
-		status: "running",
-		startedAt: Date.now(),
-		lastEventAt: Date.now(),
-		pendingRelayQuestions: [],
-		usage: {
-			turns: 0,
-			inputTokens: 0,
-			outputTokens: 0,
-			cacheReadTokens: 0,
-			cacheWriteTokens: 0,
-			costUsd: 0,
-		},
+	const buildLiveState = () => {
+		const s = createDefaultTeamState();
+		s.activeWorkers["worker-1"] = {
+			workerId: "worker-1",
+			profileName: "fixer",
+			sessionMode: "worker",
+			status: "running",
+			startedAt: Date.now(),
+			lastEventAt: Date.now(),
+			pendingRelayQuestions: [],
+			usage: {
+				turns: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				costUsd: 0,
+			},
+		};
+		return s;
 	};
 
-	const resumed = markRestoredWorkersExited(base, "resume");
+	const resumed = markRestoredWorkersExited(buildLiveState(), "resume");
 	assert.match(resumed.state.activeWorkers["worker-1"]?.error ?? "", /resumed/);
 
-	const forked = markRestoredWorkersExited(base, "fork");
+	const forked = markRestoredWorkersExited(buildLiveState(), "fork");
 	assert.match(forked.state.activeWorkers["worker-1"]?.error ?? "", /forked/);
 });
 
