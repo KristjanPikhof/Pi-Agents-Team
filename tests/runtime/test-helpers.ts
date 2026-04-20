@@ -11,6 +11,7 @@ interface MockCommand {
 export interface MockTransportOptions {
 	initialState?: Record<string, unknown>;
 	onCommand?: (command: MockCommand) => void;
+	promptText?: string | ((command: MockCommand) => string);
 }
 
 export class MockWorkerTransport extends EventEmitter implements WorkerTransport {
@@ -89,6 +90,10 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 				this.respond(command, undefined);
 				this.state.isStreaming = true;
 				queueMicrotask(() => {
+					const promptText =
+						typeof this.options.promptText === "function"
+							? this.options.promptText(command)
+							: this.options.promptText ?? `Completed ${command.message ?? "task"}`;
 					this.writeEvent({ type: "agent_start" });
 					this.writeEvent({
 						type: "message_update",
@@ -98,7 +103,7 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 						type: "message_end",
 						message: {
 							role: "assistant",
-							content: [{ type: "text", text: `Completed ${command.message ?? "task"}` }],
+							content: [{ type: "text", text: promptText }],
 							usage: {
 								input: 10,
 								output: 5,
