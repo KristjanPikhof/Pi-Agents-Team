@@ -59,11 +59,11 @@ function restoreLatestState(ctx: ExtensionContext): PersistedTeamState {
 	return markRestoredWorkersExited(restoredState);
 }
 
-function applyUi(ctx: ExtensionContext | undefined, state: PersistedTeamState): void {
+function applyUi(ctx: ExtensionContext | undefined, state: PersistedTeamState, frame = 0): void {
 	if (!ctx?.hasUI) return;
 
 	ctx.ui.setStatus(DEFAULT_TEAM_CONFIG.ui.statusKey, buildTeamStatusLine(state));
-	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, buildTeamWidgetLines(state));
+	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, buildTeamWidgetLines(state, { frame }));
 	ctx.ui.setTitle(DEFAULT_TEAM_CONFIG.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
 
