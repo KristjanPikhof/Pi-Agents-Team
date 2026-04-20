@@ -100,6 +100,14 @@ export class TeamManager {
 
 	restore(state: PersistedTeamState): void {
 		this.registry.restore(state);
+		for (const worker of this.registry.listWorkers()) {
+			const match = /^w(\d+)$/.exec(worker.workerId);
+			if (match) this.workerCounter = Math.max(this.workerCounter, Number(match[1]));
+		}
+		for (const taskId of Object.keys(state.taskRegistry ?? {})) {
+			const match = /^t(\d+)$/.exec(taskId);
+			if (match) this.taskCounter = Math.max(this.taskCounter, Number(match[1]));
+		}
 		this.events.emit("state_change", this.snapshot());
 	}
 
