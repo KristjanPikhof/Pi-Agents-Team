@@ -22,6 +22,8 @@ const DelegateTaskSchema = Type.Object({
 	cwd: Type.Optional(Type.String({ description: "Working directory for the worker. Defaults to the current session cwd." })),
 	contextHints: Type.Optional(Type.Array(Type.String(), { description: "Compact context bullets to pass into the worker" })),
 	expectedOutput: Type.Optional(Type.String({ description: "Describe the output contract the worker should return" })),
+	pathScopeRoots: Type.Optional(Type.Array(Type.String(), { description: "Allowed path roots for scoped workers, especially write-capable profiles." })),
+	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
 });
 
 const WorkerLookupSchema = Type.Object({
@@ -159,6 +161,13 @@ export default function (pi: ExtensionAPI): void {
 		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
 		parameters: DelegateTaskSchema,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const pathScope = params.pathScopeRoots?.length
+				? {
+					roots: params.pathScopeRoots,
+					allowReadOutsideRoots: false,
+					allowWrite: params.pathScopeAllowWrite === true,
+				}
+				: undefined;
 			const result = await teamManager.delegateTask({
 				title: params.title,
 				goal: params.goal,
@@ -166,6 +175,7 @@ export default function (pi: ExtensionAPI): void {
 				cwd: params.cwd ?? ctx.cwd,
 				contextHints: params.contextHints,
 				expectedOutput: params.expectedOutput,
+				pathScope,
 			});
 			teamState = teamManager.snapshot();
 			applyUi(activeContext, teamState);
