@@ -517,14 +517,14 @@ export default function (pi: ExtensionAPI): void {
 		if (!ctx.hasUI) return;
 
 		if (event.reason === "startup") {
-			ctx.ui.notify("Pi Agent Team loaded: this session is running in orchestrator mode.", "info");
+			ctx.ui.notify("Pi Agents Team loaded: this session is running in orchestrator mode.", "info");
 			return;
 		}
 
 		if (markedCount > 0) {
 			const noun = markedCount === 1 ? "worker" : "workers";
 			ctx.ui.notify(
-				`Pi Agent Team: ${markedCount} ${noun} from prior session marked exited (${event.reason}). Relaunch via delegate_task if still needed.`,
+				`Pi Agents Team: ${markedCount} ${noun} from prior session marked exited (${event.reason}). Relaunch via delegate_task if still needed.`,
 				"warning",
 			);
 		}
