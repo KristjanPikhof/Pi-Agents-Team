@@ -5,7 +5,7 @@ import { resolveWorkerMessageDelivery } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
 import { resolveProfile } from "../profiles/loader";
-import { WorkerManager } from "../runtime/worker-manager";
+import { WorkerManager, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
 import type {
 	DelegatedTaskInput,
