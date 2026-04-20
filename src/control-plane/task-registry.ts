@@ -1,4 +1,4 @@
-import { buildDashboardEntries, createDefaultTeamState, normalizePersistedTeamState, type DEFAULT_TEAM_CONFIG } from "../config";
+import { buildDashboardEntries, createDefaultTeamState, normalizePersistedTeamState } from "../config";
 import type { DelegatedTaskInput, PersistedTeamState, WorkerRuntimeState } from "../types";
 
 export class TaskRegistry {
