@@ -42,9 +42,9 @@ npm run smoke:team
 | `/agents` | Lists tracked workers as one line each |
 | `/ping-agents [active]` | Returns passive worker snapshots, or refreshes runtime state and stats in `active` mode |
 | `/agent-result <worker-id>` | Prints the worker's compact summary plus the verbatim `<final_answer>` block |
-| `/agent-steer <worker-id> <message>` | Sends a steer message to a running worker |
-| `/agent-followup <worker-id> <message>` | Queues follow-up work for an idle worker |
-| `/agent-cancel <worker-id>` | Aborts and shuts down a worker |
+| `/agent-steer <worker-id\|all> <message>` | Sends a message to one or all workers. Auto-routes (steer if running, follow-up if idle) and reports the mode used |
+| `/agent-followup <worker-id\|all> <message>` | Queues a follow-up for one or all workers |
+| `/agent-cancel <worker-id\|all>` | Aborts and shuts down one worker, or every non-terminal worker |
 
 ## Orchestrator tools
 
