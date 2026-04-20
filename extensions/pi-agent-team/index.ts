@@ -203,6 +203,19 @@ export default function (pi: ExtensionAPI): void {
 	let teamState = createDefaultTeamState(DEFAULT_TEAM_CONFIG);
 	let activeContext: ExtensionContext | undefined;
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
+	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
+	let notificationTimer: NodeJS.Timeout | undefined;
+
+	function flushTerminalNotifications(): void {
+		notificationTimer = undefined;
+		if (pendingTerminalTransitions.length === 0) return;
+		const items = pendingTerminalTransitions.splice(0);
+		if (!activeContext?.hasUI) return;
+		const message = items.length === 1
+			? `✓ ${items[0].workerId} (${items[0].profileName}) finished — status=${items[0].status}`
+			: `✓ ${items.length} workers finished — ${items.map((i) => i.workerId).join(", ")}`;
+		activeContext.ui.notify(message, "info");
+	}
 
 	teamManager.onStateChange((state) => {
 		teamState = state;
@@ -214,11 +227,13 @@ export default function (pi: ExtensionAPI): void {
 			const nowTerminal = isTerminalWorkerStatus(worker.status);
 			const wasTerminal = previous ? isTerminalWorkerStatus(previous) : false;
 			if (previous !== worker.status && nowTerminal && !wasTerminal) {
-				pi.sendMessage({
-					customType: DEFAULT_TEAM_CONFIG.persistence.statusMessageType,
-					content: `✓ ${worker.workerId} (${worker.profileName}) finished with status=${worker.status}. Call agent_result ${worker.workerId} to read findings.`,
-					display: true,
+				pendingTerminalTransitions.push({
+					workerId: worker.workerId,
+					profileName: worker.profileName,
+					status: worker.status,
 				});
+				if (notificationTimer) clearTimeout(notificationTimer);
+				notificationTimer = setTimeout(flushTerminalNotifications, 400);
 			}
 			lastStatus.set(worker.workerId, worker.status);
 		}
