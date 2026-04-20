@@ -351,12 +351,16 @@ export class WorkerManager {
 				const assistantText = extractAssistantText(event.message);
 				if (assistantText) {
 					record.textBuffer = assistantText;
+					const finalAnswer = extractFinalAnswer(assistantText);
+					if (finalAnswer) {
+						record.state.finalAnswer = finalAnswer;
+					}
 					record.state.pendingRelayQuestions = extractRelayQuestions(assistantText, record.state);
 					record.state.lastSummary = buildSummary(record.state, assistantText);
 					this.appendConsole(record, {
 						ts: event.timestamp,
 						kind: "assistant_message",
-						text: trimSummary(assistantText, 600),
+						text: trimSummary(finalAnswer ?? assistantText, 600),
 					});
 				}
 				const messageUsage = event.message.usage as Record<string, unknown> | undefined;
