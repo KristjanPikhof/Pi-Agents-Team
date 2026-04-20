@@ -324,18 +324,31 @@ export class WorkerManager {
 			case "worker_started":
 			case "worker_running":
 				record.state.status = "running";
+				this.flushPendingText(record);
+				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: "running" });
 				break;
 			case "worker_text_delta":
 				record.textBuffer += event.delta;
 				record.state.status = "running";
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				record.pendingTextDelta += event.delta;
+				record.pendingTextFlushAt = record.pendingTextFlushAt || event.timestamp;
+				if (event.timestamp - record.pendingTextFlushAt >= ASSISTANT_TEXT_BATCH_MS || record.pendingTextDelta.length > 320) {
+					this.flushPendingText(record);
+				}
 				break;
 			case "worker_message": {
+				this.flushPendingText(record);
 				const assistantText = extractAssistantText(event.message);
 				if (assistantText) {
 					record.textBuffer = assistantText;
 					record.state.pendingRelayQuestions = extractRelayQuestions(assistantText, record.state);
 					record.state.lastSummary = buildSummary(record.state, assistantText);
+					this.appendConsole(record, {
+						ts: event.timestamp,
+						kind: "assistant_message",
+						text: trimSummary(assistantText, 600),
+					});
 				}
 				const messageUsage = event.message.usage as Record<string, unknown> | undefined;
 				if (messageUsage) {
@@ -354,22 +367,44 @@ export class WorkerManager {
 				record.state.status = "running";
 				record.state.lastToolName = event.toolName;
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				this.flushPendingText(record);
+				this.appendConsole(record, {
+					ts: event.timestamp,
+					kind: "tool_start",
+					text: `${event.toolName} ${snippet(event.args, 180)}`.trim(),
+				});
 				break;
 			case "worker_tool_finished":
 				record.state.lastToolName = event.toolName;
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				this.appendConsole(record, {
+					ts: event.timestamp,
+					kind: "tool_end",
+					text: `${event.toolName}${event.isError ? " [error]" : ""} → ${snippet(extractResultText(event.result), 260)}`,
+				});
 				break;
 			case "worker_queue_updated":
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				if (event.steering.length > 0 || event.followUp.length > 0) {
+					this.appendConsole(record, {
+						ts: event.timestamp,
+						kind: "queue",
+						text: `steering=${event.steering.length} followUp=${event.followUp.length}`,
+					});
+				}
 				break;
 			case "worker_idle":
 				record.state.status = record.state.status === "aborted" ? "aborted" : "idle";
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				this.flushPendingText(record);
+				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: record.state.status });
 				break;
 			case "worker_error":
 				record.state.status = "error";
 				record.state.error = event.error;
 				record.state.lastSummary = buildSummary(record.state, event.error);
+				this.flushPendingText(record);
+				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
 				break;
 			case "worker_state":
 				record.state.status = deriveStatusFromSessionState(event.state);
@@ -382,6 +417,12 @@ export class WorkerManager {
 					record.state.error = event.stderr || `Worker exited with code ${event.code}`;
 				}
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer || event.stderr || "Worker exited");
+				this.flushPendingText(record);
+				this.appendConsole(record, {
+					ts: event.timestamp,
+					kind: "exit",
+					text: `status=${record.state.status}${event.code !== null ? ` code=${event.code}` : ""}${event.signal ? ` signal=${event.signal}` : ""}`,
+				});
 				record.client.dispose(`Worker exited: ${event.code ?? "signal"}`);
 				break;
 		}
