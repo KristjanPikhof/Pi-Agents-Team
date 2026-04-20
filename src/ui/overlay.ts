@@ -222,16 +222,19 @@ export async function openTeamDashboardOverlay(
 							"",
 						];
 						const listLines = selectList.render(width);
-						return [...header, ...listLines];
+						return enforceWidth([...header, ...listLines], width);
 					}
 
 					const worker = snapshot.activeWorkers[view.workerId];
 					if (!worker) {
-						return [
-							`Worker ${view.workerId} is no longer tracked.`,
-							"[esc back]",
-							...statusLine,
-						];
+						return enforceWidth(
+							[
+								`Worker ${view.workerId} is no longer tracked.`,
+								"[esc back]",
+								...statusLine,
+							],
+							width,
+						);
 					}
 
 					const tabs = view.tab === "summary"
@@ -249,7 +252,7 @@ export async function openTeamDashboardOverlay(
 					const top = Math.min(view.scrollTop, maxTop);
 					view = { ...view, scrollTop: top };
 					const visibleBody = wrappedBody.slice(top, top + pageHeight);
-					return [...headerLines, ...visibleBody];
+					return enforceWidth([...headerLines, ...visibleBody], width);
 				},
 				invalidate() {
 					selectList.invalidate();
