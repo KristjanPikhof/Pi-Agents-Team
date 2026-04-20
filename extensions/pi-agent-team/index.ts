@@ -244,11 +244,12 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_status",
 		label: "Agent Status",
-		description: "Return compact status for one worker or all tracked workers.",
+		description: "Return compact status (running/idle/exited) for one worker or all tracked workers. Use this to decide if a worker is done. For the worker's actual output, call agent_result.",
 		parameters: WorkerLookupSchema,
 		async execute(_toolCallId, params) {
-			const workers = params.workerId
-				? [teamManager.getWorkerStatus(params.workerId)].filter((worker): worker is WorkerRuntimeState => Boolean(worker))
+			const resolvedId = params.workerId ? teamManager.resolveWorkerId(params.workerId) ?? params.workerId : undefined;
+			const workers = resolvedId
+				? [teamManager.getWorkerStatus(resolvedId)].filter((worker): worker is WorkerRuntimeState => Boolean(worker))
 				: teamManager.listWorkers();
 			return {
 				content: [{ type: "text", text: formatWorkers(workers) }],
