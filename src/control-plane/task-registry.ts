@@ -42,7 +42,7 @@ export class TaskRegistry {
 
 	listWorkers(): WorkerRuntimeState[] {
 		return Object.values(this.state.activeWorkers)
-			.sort((left, right) => right.lastEventAt - left.lastEventAt)
+			.sort((left, right) => compareWorkerIds(left.workerId, right.workerId))
 			.map((worker) => structuredClone(worker));
 	}
 
