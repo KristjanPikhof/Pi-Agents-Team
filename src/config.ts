@@ -410,27 +410,6 @@ export function buildTeamWidgetLines(
 	return lines;
 }
 
-export function renderTeamStatusText(
-	state: PersistedTeamState,
-	config: TeamConfig = DEFAULT_TEAM_CONFIG,
-): string {
-	const workerEntries = state.ui.dashboardEntries.length > 0 ? state.ui.dashboardEntries : buildDashboardEntries(state.activeWorkers);
-	const lines = [
-		`${config.orchestration.packageName}`,
-		`session mode: ${state.sessionMode}`,
-		`rpc launch: ${[config.rpc.command, ...config.rpc.args].join(" ")}`,
-		`profiles: ${config.profiles.map((profile) => profile.name).join(", ")}`,
-		`active workers: ${workerEntries.length}`,
-		"runtime status: orchestrator prompt, runtime RPC worker control, and compact state tracking are active.",
-	];
-
-	for (const worker of workerEntries.slice(0, config.ui.maxVisibleWorkers)) {
-		lines.push(`- ${formatWorkerLabel(worker)}`);
-	}
-
-	return lines.join("\n");
-}
-
 export function buildOrchestratorSystemPrompt(
 	state: PersistedTeamState,
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
