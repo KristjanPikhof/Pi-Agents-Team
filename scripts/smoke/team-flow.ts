@@ -31,7 +31,7 @@ async function main(): Promise<void> {
 			contextHints: [
 				"Use bash exactly once with the provided python command so the orchestrator can steer you while the command is running.",
 			],
-			model: process.env.PI_AGENT_TEAM_SMOKE_MODEL,
+			model: process.env.PI_AGENT_TEAM_SMOKE_MODEL ?? "",
 		});
 		workerId = delegated.worker.workerId;
 
