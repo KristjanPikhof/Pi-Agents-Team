@@ -1,0 +1,7 @@
+node_modules/
+coverage/
+dist/
+.pi/
+.trekoon/
+.DS_Store
+*.log
