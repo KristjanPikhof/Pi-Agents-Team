@@ -107,6 +107,10 @@ Why: gives the orchestrator a single, predictable deliverable; keeps compact sta
 
 The initial `refreshState` fires before `promptWorker` is called, so the RPC session reports `isStreaming: false`. Naively that maps to `idle`, which is terminal and would trigger a "worker finished" toast before the worker has done anything. `applyNormalizedEvent`'s `worker_state` branch keeps a `starting` worker as `starting` while `isStreaming` is false. `flushTerminalNotifications` re-checks each queued entry's current status before firing the batched toast so any race that slips past is dropped.
 
+### Placeholder relays are filtered at parse time
+
+Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) instead of omitting the field when they have nothing to ask. `extractRelayQuestions` (`src/comms/summary.ts`) normalizes the value and returns an empty array for any known placeholder. The extension's relay-toast listener has a second-line guard: it refuses to notify when the question string is empty or whitespace-only. Workers are told in `buildWorkerTaskPrompt` to omit the field entirely — both guards exist because models drift.
+
 ## Compact runtime state
 
 `WorkerRuntimeState` (see `src/types.ts`) is the canonical view of a worker:
