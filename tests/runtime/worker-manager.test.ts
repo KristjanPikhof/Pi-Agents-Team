@@ -31,7 +31,7 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 		extensionMode: "worker-minimal",
 	});
 
-	assert.equal(worker.state.status, "idle");
+	assert.equal(worker.state.status, "starting");
 
 	await manager.promptWorker("worker-1", "build the runtime layer");
 	await waitForMicrotasks();
