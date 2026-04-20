@@ -255,8 +255,8 @@ export default function (pi: ExtensionAPI): void {
 		});
 		if (items.length === 0) return;
 		const message = items.length === 1
-			? `✓ ${items[0].workerId} (${items[0].profileName}) finished — status=${items[0].status}`
-			: `✓ ${items.length} workers finished — ${items.map((i) => i.workerId).join(", ")}`;
+			? `✓ ${items[0].workerId} (${items[0].profileName}) finished: ${items[0].status}`
+			: `✓ ${items.length} workers finished: ${items.map((i) => i.workerId).join(", ")}`;
 		activeContext.ui.notify(message, "info");
 	}
 
