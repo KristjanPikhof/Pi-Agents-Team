@@ -7,7 +7,7 @@ import {
 	restorePersistedTeamState,
 } from "../../src/control-plane/persistence";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
-import { TeamManager } from "../../src/control-plane/team-manager";
+import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager";
 import { registerAgentCommands } from "../../src/commands/agents";
 import { registerCancelCommand } from "../../src/commands/cancel";
 import { registerWorkerMessageCommands } from "../../src/commands/steer";
