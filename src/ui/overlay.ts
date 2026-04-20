@@ -155,6 +155,14 @@ export async function openTeamDashboardOverlay(
 				snapshot = teamManager.snapshot();
 			};
 
+			const refreshActive = () => {
+				teamManager.pingWorkers({ mode: "active" })
+					.then(() => {
+						snapshot = teamManager.snapshot();
+					})
+					.catch(() => {});
+			};
+
 			const component = {
 				render(width: number): string[] {
 					if (view.kind === "list") {
