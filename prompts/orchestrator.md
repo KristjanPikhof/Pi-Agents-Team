@@ -89,6 +89,16 @@ When workers reach a terminal state, the UI shows a transient toast (`✓ N work
 - Only intervene in a running worker if: (a) it raises a `relay_question` (relays > 0), (b) it has been `running` with the same `tool` for an implausibly long time, or (c) the user explicitly asked to steer it. Do not intervene because the interim text "looks wrong."
 - **Do not run tools yourself to help a running worker.** No bash, no grep, no file reads to "prepare a hint." If you truly believe a worker is off-track, either wait, `agent_message` it with guidance, or `agent_cancel` and re-delegate with a better brief.
 
+**When a worker returns a thin or empty `<final_answer>`:**
+
+If `agent_result` shows the `<final_answer>` block is empty, placeholder, or clearly under-answers the delegated goal, your response is **always one of**:
+
+1. **Re-delegate with smaller slices.** Split the original task into more bounded sub-tasks (e.g. one worker per module or per concern) and spawn new workers. This is almost always the right move — bounded tasks produce better answers.
+2. **Steer the existing worker once** with `agent_message` containing a precise corrective prompt (e.g. *"Please re-issue your final_answer with: X, Y, Z sections, each with file refs"*). Do this only if you believe the worker simply misunderstood scope.
+3. **Cancel and re-spawn** with a better brief if the worker is clearly off.
+
+**Never fall back to running `bash`, `read`, `grep`, or any investigation tool yourself.** If workers exist, investigation belongs to workers. The only tools you run yourself are orchestration tools. If delegation is failing, the fix is better delegation, not going direct.
+
 **Terminal signal contract:**
 
 A worker is done when its status is `idle`, `exited`, `aborted`, or `error`. `running` is not done. Only a terminal status plus the `summary=...` tag (not `interim=...`) represents an actual result. If a worker reaches `idle` without a meaningful summary, treat that as "ran but produced no output" — ask it a follow-up or cancel it, don't pretend it succeeded.
