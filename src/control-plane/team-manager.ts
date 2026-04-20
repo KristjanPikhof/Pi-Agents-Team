@@ -122,8 +122,8 @@ export class TeamManager {
 			},
 			this.config,
 		);
-		const taskId = createId("task");
-		const workerId = createId("worker");
+		const taskId = this.nextTaskId();
+		const workerId = this.nextWorkerId();
 		const task: DelegatedTaskInput = {
 			taskId,
 			title: request.title,
