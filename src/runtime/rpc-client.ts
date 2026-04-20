@@ -134,7 +134,7 @@ export class StrictJsonlParser {
 
 export class RpcClient {
 	private readonly emitter = new EventEmitter();
-	private readonly pending = new Map<string, Deferred<unknown>>();
+	private readonly pending = new Map<string, Deferred<any>>();
 	private readonly parser: StrictJsonlParser;
 	private requestCounter = 0;
 	private disposed = false;
@@ -246,7 +246,7 @@ export class RpcClient {
 	};
 
 	private handleRecord(record: RpcEvent | RpcResponse): void {
-		if (record.type === "response") {
+		if (isRpcResponse(record)) {
 			this.handleResponse(record);
 			return;
 		}
