@@ -46,6 +46,11 @@ const WorkerIdSchema = Type.Object({
 	workerId: Type.String({ description: "Target worker id" }),
 });
 
+const WaitForAgentsSchema = Type.Object({
+	workerIds: Type.Optional(Type.Array(Type.String(), { description: "Worker ids to wait on. Omit to wait on every tracked worker." })),
+	timeoutMs: Type.Optional(Type.Number({ description: "Maximum wait in milliseconds. Defaults to 300000 (5 min)." })),
+});
+
 function restoreLatestState(ctx: ExtensionContext): PersistedTeamState {
 	const restoredState = restorePersistedTeamState(
 		ctx.sessionManager.getEntries(),
