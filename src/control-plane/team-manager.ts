@@ -263,6 +263,63 @@ export class TeamManager {
 		await this.workerManager.dispose();
 	}
 
+	async waitForTerminal(
+		targetIds: string[],
+		options: { timeoutMs?: number; signal?: AbortSignal } = {},
+	): Promise<{ reason: "all_terminal" | "timeout" | "aborted"; workers: WorkerRuntimeState[] }> {
+		const resolved = targetIds
+			.map((id) => this.resolveWorkerId(id) ?? id)
+			.filter((id, index, arr) => arr.indexOf(id) === index);
+
+		const snapshotTargets = (): WorkerRuntimeState[] =>
+			resolved
+				.map((id) => this.registry.getWorker(id))
+				.filter((worker): worker is WorkerRuntimeState => Boolean(worker));
+
+		const allTerminal = (): boolean => {
+			const workers = snapshotTargets();
+			if (workers.length < resolved.length) return false;
+			return workers.every((worker) => isTerminalWorkerStatus(worker.status));
+		};
+
+		if (allTerminal()) {
+			return { reason: "all_terminal", workers: snapshotTargets() };
+		}
+
+		return new Promise((resolve) => {
+			let settled = false;
+			const timeoutMs = options.timeoutMs ?? 300_000;
+
+			const cleanup = () => {
+				this.events.off("state_change", listener);
+				if (timer) clearTimeout(timer);
+				if (options.signal) options.signal.removeEventListener("abort", onAbort);
+			};
+
+			const finish = (reason: "all_terminal" | "timeout" | "aborted") => {
+				if (settled) return;
+				settled = true;
+				cleanup();
+				resolve({ reason, workers: snapshotTargets() });
+			};
+
+			const listener = () => {
+				if (allTerminal()) finish("all_terminal");
+			};
+			const onAbort = () => finish("aborted");
+			const timer = setTimeout(() => finish("timeout"), timeoutMs);
+
+			this.events.on("state_change", listener);
+			if (options.signal) {
+				if (options.signal.aborted) {
+					finish("aborted");
+					return;
+				}
+				options.signal.addEventListener("abort", onAbort);
+			}
+		});
+	}
+
 	private requireWorker(workerId: string): WorkerRuntimeState {
 		const worker = this.registry.getWorker(workerId);
 		if (!worker) {
