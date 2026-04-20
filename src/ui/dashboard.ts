@@ -3,7 +3,7 @@ import { compareWorkerIds, type PersistedTeamState } from "../types";
 export function buildTeamDashboardLines(state: PersistedTeamState): string[] {
 	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	const lines = [
-		"Pi Agent Team Dashboard",
+		"Pi Agents Team Dashboard",
 		`mode: ${state.sessionMode}`,
 		`workers: ${workers.length}`,
 		`relay questions: ${state.relayQueue.length}`,
