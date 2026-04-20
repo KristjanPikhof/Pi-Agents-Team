@@ -25,13 +25,14 @@ export function registerCopyCommand(pi: ExtensionAPI, dependencies: CommandRegis
 				return;
 			}
 			const workerId = dependencies.teamManager.resolveWorkerId(input);
+			const candidates = dependencies.teamManager.listWorkers().map((worker) => worker.workerId);
 			if (!workerId) {
-				ctx.ui.notify(`Unknown worker: ${input}`, "warning");
+				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
 				return;
 			}
 			const result = dependencies.teamManager.getWorkerResult(workerId);
 			if (!result) {
-				ctx.ui.notify(`Unknown worker: ${input}`, "warning");
+				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
 				return;
 			}
 			const payload = buildCopyPayload(
