@@ -284,7 +284,8 @@ export default function (pi: ExtensionAPI): void {
 		parameters: WorkerMessageSchema,
 		async execute(_toolCallId, params) {
 			const delivery = params.delivery === "steer" || params.delivery === "follow_up" ? params.delivery : "auto";
-			const result = await teamManager.messageWorker(params.workerId, params.message, delivery);
+			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
+			const result = await teamManager.messageWorker(workerId, params.message, delivery);
 			return {
 				content: [{ type: "text", text: `Sent message to ${result.worker.workerId}.` }],
 				details: result,
