@@ -36,6 +36,7 @@ test("buildWorkerTaskPrompt includes relay guidance and scope", () => {
 		pathScope: { roots: ["src/comms"], allowReadOutsideRoots: false, allowWrite: false },
 		createdAt: Date.now(),
 	});
-	assert.match(prompt, /relay question/i);
+	assert.match(prompt, /relay_question/i);
+	assert.match(prompt, /<final_answer>/);
 	assert.match(prompt, /src\/comms/);
 });
