@@ -108,8 +108,12 @@ export class TeamManager {
 
 		this.registry.upsertWorker(worker.state);
 		await this.workerManager.promptWorker(workerId, buildWorkerTaskPrompt(task));
+		const liveWorker = this.workerManager.getWorker(workerId);
+		if (liveWorker) {
+			this.registry.upsertWorker(liveWorker.state);
+		}
 		this.events.emit("state_change", this.snapshot());
-		return { worker: worker.state, task };
+		return { worker: liveWorker?.state ?? worker.state, task };
 	}
 
 	listWorkers(): WorkerRuntimeState[] {
