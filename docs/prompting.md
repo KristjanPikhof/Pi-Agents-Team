@@ -1,60 +1,123 @@
-# Prompt Contracts
+# Prompt contracts
 
-Pi Agent Team uses **Pi-native prompt contracts** for the orchestrator and worker roles.
+Pi Agent Team uses Pi-native prompt contracts for the orchestrator and each worker role. Contracts are opinionated: they define what each role owns, how workers report back, and what the orchestrator must do while workers are running.
 
 ## Design principle
 
-These prompts reuse delegation ideas such as role separation, compact reporting, escalation, and bounded specialist work. They do **not** copy prompt text, branding, or persona flavor from other systems.
+These prompts reuse delegation ideas (role separation, compact reporting, escalation, bounded specialist work) but do not copy prompt text, branding, or persona flavor from other systems.
 
-The package goal is simple:
+The package goal stays simple:
 
 - one visible orchestrator session
 - many subordinate RPC workers
 - compact worker outputs
-- explicit supervision through steer, follow-up, ping, and relay behavior
+- explicit supervision through steer, follow-up, ping, relay, and result tools
 
 ## Orchestrator contract
 
-The orchestrator prompt owns:
+Full text: [`../prompts/orchestrator.md`](../prompts/orchestrator.md). Key commitments:
 
-- user dialogue
-- delegation decisions
-- worker selection
-- compact result integration
-- relay-question resolution
-- supervision of running and idle workers
+### Identity
 
-The orchestrator must never present delegated workers as separate user-facing agents.
+The orchestrator is the only agent that speaks to the user. Workers are background specialists under its supervision.
+
+### Delegate by default
+
+Any investigation, mapping, review, multi-file change, or context-hungry task belongs to a worker. The orchestrator only works directly on trivial single-step asks or cheap operator commands.
+
+When the user asks for N workers or parallel analysis, the orchestrator spawns them immediately in one batch, each with its own focused slice. It does not pre-explore the repo to "figure out what to delegate."
+
+### Wait, don't poll
+
+The loop after `delegate_task`:
+
+1. Call `wait_for_agents` with the new worker ids. This blocks until every named worker reaches a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`) or the timeout elapses. Zero tokens while waiting.
+2. If a worker raises a relay question and parks in `waiting_followup`/`idle`, answer via `agent_message` and call `wait_for_agents` again.
+3. When workers are terminal, call `agent_result` once per worker. This returns the structured summary plus the verbatim `<final_answer>` block.
+4. Synthesize one user-facing answer from those results.
+
+Forbidden: looping `ping_agents`, sleeping in bash, spawning new workers to "check on" old ones, running bash/read/grep directly to "help" a running worker, treating `interim=…` text in a running worker as a finding.
+
+### Reading status
+
+- `running` means not done. `interim=` text is a streaming fragment, not a result.
+- A worker is done only when its status is `idle`, `completed`, `exited`, `aborted`, or `error`.
+- A worker with `status=idle` and an empty `<final_answer>` is "ran but produced no output." Re-delegate, steer, or cancel, don't pretend it succeeded.
+
+### Worker toasts are UI-only
+
+When workers reach a terminal state, the extension shows transient toasts (`✓ N workers finished — w1, w2…`). These are not part of the orchestrator's conversation. The orchestrator must not reply to them or re-call `agent_result` after it already has the summary.
 
 ## Worker contracts
 
-Each worker prompt assumes:
+Every worker prompt (see `prompts/agents/*.md`) assumes:
 
 - it is subordinate to the orchestrator
-- it should not speak to the user directly
-- it should keep output compact and structured
-- it should raise relay questions with an assumption instead of blocking forever
+- it does not speak to the user directly
+- it keeps output compact and structured
+- it raises a relay question with an assumption rather than blocking forever
+- it wraps its final deliverable in a single `<final_answer>…</final_answer>` block
 
-## Result conventions
+### Result shape
 
-Worker prompts intentionally use short, machine-friendly result sections such as:
+Each role uses short, machine-friendly fields:
 
-- goal
-- findings or changed_files
-- risks
-- next_recommendation
-- relay_question plus assumption
+- `goal`
+- `findings` or `changed_files`
+- `risks`
+- `next_recommendation`
+- `relay_question` plus `assumption` when the orchestrator's input is needed
 
-The exact field names vary by role, but the compact reporting principle stays the same.
+Exact field names vary by role. The compact-reporting principle stays the same.
+
+## The `<final_answer>` contract
+
+Every delegated task prompt (`buildWorkerTaskPrompt` in `src/prompts/contracts.ts`) tells the worker that its final assistant message must wrap the complete deliverable in a single `<final_answer>…</final_answer>` block.
+
+Example:
+
+```text
+<final_answer>
+headline: one-sentence summary of the outcome
+
+findings:
+- bullet 1
+- bullet 2
+
+files:
+- path/one.ts
+- path/two.ts
+
+risks:
+- edge case worth flagging
+
+next_recommendation:
+- what to do next
+</final_answer>
+```
+
+### Why a hard block
+
+- **One authoritative surface.** `agent_result` returns the block verbatim. The orchestrator never has to scrape transcripts.
+- **Compact state stays honest.** Contents outside the block are internal notes and are not forwarded, which keeps orchestrator context small.
+- **Failure is explicit.** An empty block is a clear signal the worker did not follow the contract; the orchestrator's response is to re-delegate, steer, or cancel, not to fall back to doing the work itself.
+
+### What the runtime does
+
+`extractFinalAnswer` pulls the block from the worker's final assistant message and stores it on `WorkerRuntimeState.finalAnswer`. `agent_result` and `/agent-result` both render it under a `--- Final answer ---` section. If the block is missing, the output explicitly says so and tells the caller to re-delegate or steer.
 
 ## Current worker set
 
-- explorer
-- librarian
-- oracle
-- designer
-- fixer
-- reviewer
-- observer
+- `explorer`
+- `librarian`
+- `oracle`
+- `designer`
+- `fixer`
+- `reviewer`
+- `observer`
 
-These prompt files live under `prompts/` and are loaded by `src/prompts/contracts.ts`.
+Prompt files live under [`../prompts/agents/`](../prompts/agents/) and are loaded by `src/prompts/contracts.ts`. The orchestrator prompt is at [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
+
+## Injection point
+
+On `before_agent_start`, the extension replaces the orchestrator session's system prompt with `${originalSystemPrompt}\n\n${buildOrchestratorPromptBundle(state, config)}`. The bundle concatenates the markdown contract with a live status header (active worker count, relay count, transport, safety flags, available profiles). Worker prompts are loaded via `systemPromptPath` at launch time.
