@@ -334,6 +334,37 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.registerTool({
+		name: "wait_for_agents",
+		label: "Wait for Agents",
+		description: "Block until the specified workers all reach a terminal status (idle, exited, aborted, error), or until the timeout elapses. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting and returns exactly once when workers are done. Use it after delegate_task.",
+		parameters: WaitForAgentsSchema,
+		async execute(_toolCallId, params, signal) {
+			const targetIds = params.workerIds?.length
+				? params.workerIds.map((id) => teamManager.resolveWorkerId(id) ?? id)
+				: teamManager.listWorkers().map((worker) => worker.workerId);
+			if (targetIds.length === 0) {
+				return {
+					content: [{ type: "text", text: "No tracked workers to wait on." }],
+					details: { reason: "no_workers", workers: [] },
+				};
+			}
+			const result = await teamManager.waitForTerminal(targetIds, {
+				timeoutMs: params.timeoutMs ?? 300_000,
+				signal,
+			});
+			const header = result.reason === "all_terminal"
+				? `All ${result.workers.length} worker(s) reached terminal status.`
+				: result.reason === "timeout"
+					? `Wait timed out; some workers may still be running.`
+					: `Wait aborted.`;
+			return {
+				content: [{ type: "text", text: `${header}\n${formatWorkers(result.workers)}` }],
+				details: { reason: result.reason, workers: result.workers },
+			};
+		},
+	});
+
+	pi.registerTool({
 		name: "agent_cancel",
 		label: "Agent Cancel",
 		description: "Abort and shut down a tracked worker.",
