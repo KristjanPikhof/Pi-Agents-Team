@@ -30,7 +30,8 @@ export function registerTeamCommand(pi: ExtensionAPI, dependencies: CommandRegis
 			}
 			const workerId = dependencies.teamManager.resolveWorkerId(input);
 			if (!workerId) {
-				ctx.ui.notify(`Unknown worker: ${input}`, "warning");
+				const candidates = dependencies.teamManager.listWorkers().map((worker) => worker.workerId);
+				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
 				return;
 			}
 			await openTeamDashboardOverlay(ctx, dependencies.teamManager, { initialWorkerId: workerId });
