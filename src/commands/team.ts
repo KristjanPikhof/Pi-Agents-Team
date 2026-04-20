@@ -11,10 +11,10 @@ export function registerTeamCommand(pi: ExtensionAPI, dependencies: CommandRegis
 	pi.registerCommand("team", {
 		description: "Open the Pi Agent Team dashboard: /team or /team <worker-id>",
 		getArgumentCompletions: (prefix) => {
-			const token = prefix.split(/\s+/)[0] ?? "";
+			if (/\s/.test(prefix)) return [];
 			return dependencies.teamManager
 				.listWorkers()
-				.filter((worker) => worker.workerId.startsWith(token))
+				.filter((worker) => worker.workerId.startsWith(prefix))
 				.map((worker) => ({
 					value: worker.workerId,
 					label: worker.workerId,
