@@ -49,7 +49,8 @@ export function buildWorkerTaskPrompt(task: DelegatedTaskInput): string {
 		task.expectedOutput ? `Expected output: ${task.expectedOutput}` : undefined,
 		task.contextHints.length > 0 ? `Context hints:\n- ${task.contextHints.join("\n- ")}` : undefined,
 		task.pathScope ? `Path scope:\n- ${task.pathScope.roots.join("\n- ")}` : undefined,
-		`Your final assistant message **must** wrap the complete deliverable in a single \`<final_answer>…</final_answer>\` block. Include headline, findings, files read/changed, risks, next_recommendation, and (if needed) relay_question + assumption — all inside the block. Contents outside the block are treated as internal notes and are not sent to the orchestrator.`,
+		`Your final assistant message **must** wrap the complete deliverable in a single \`<final_answer>…</final_answer>\` block. Include headline, findings, files read/changed, risks, next_recommendation inside the block. Contents outside the block are treated as internal notes and are not sent to the orchestrator.`,
+		`Add \`relay_question:\` + \`assumption:\` inside the block **only if you genuinely need the orchestrator to decide something**. If you do not, **omit those fields entirely** — do not write \`relay_question: none\`, \`relay_question: n/a\`, \`relay_question: -\`, or any placeholder. Placeholders are treated as real questions and waste the orchestrator's attention.`,
 	]
 		.filter((line): line is string => Boolean(line))
 		.join("\n\n");
