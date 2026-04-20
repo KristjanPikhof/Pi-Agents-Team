@@ -42,14 +42,12 @@ export interface PingAgentsRequest {
 	mode?: "passive" | "active";
 }
 
-function createId(prefix: string): string {
-	return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 export class TeamManager {
 	private readonly events = new EventEmitter();
 	private readonly registry: TaskRegistry;
 	private readonly workerManager: WorkerManager;
+	private workerCounter = 0;
+	private taskCounter = 0;
 
 	constructor(options?: { config?: TeamConfig; registry?: TaskRegistry; workerManager?: WorkerManager }) {
 		this.config = options?.config ?? DEFAULT_TEAM_CONFIG;
@@ -59,6 +57,38 @@ export class TeamManager {
 			this.registry.upsertWorker(worker.state);
 			this.events.emit("state_change", this.snapshot());
 		});
+	}
+
+	private nextWorkerId(): string {
+		do {
+			this.workerCounter += 1;
+			const candidate = `w${this.workerCounter}`;
+			if (!this.registry.getWorker(candidate)) return candidate;
+		} while (this.workerCounter < 10000);
+		throw new Error("Could not allocate worker id");
+	}
+
+	private nextTaskId(): string {
+		this.taskCounter += 1;
+		return `t${this.taskCounter}`;
+	}
+
+	resolveWorkerId(input: string): string | undefined {
+		const trimmed = input.trim();
+		if (!trimmed) return undefined;
+		const direct = this.registry.getWorker(trimmed);
+		if (direct) return direct.workerId;
+
+		const numeric = /^\d+$/.test(trimmed) ? `w${trimmed}` : undefined;
+		if (numeric) {
+			const byNumeric = this.registry.getWorker(numeric);
+			if (byNumeric) return byNumeric.workerId;
+		}
+
+		const lowered = trimmed.toLowerCase();
+		const matches = this.registry.listWorkers().filter((worker) => worker.workerId.toLowerCase().startsWith(lowered));
+		if (matches.length === 1) return matches[0].workerId;
+		return undefined;
 	}
 
 	readonly config: TeamConfig;
