@@ -192,6 +192,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		systemPromptNotes: [
 			"The visible Pi session is the orchestrator and owns all user-facing dialogue.",
 			"Worker agents are subordinate RPC peers that report compact summaries instead of raw transcripts.",
+			"Delegation is the default. Only act directly on trivial single-step asks; all investigation, review, mapping, and multi-file work goes to workers via delegate_task.",
+			"When the user asks for N workers or parallel analysis, spawn them immediately in one batch — do not pre-explore the repo yourself to decide what to delegate.",
 			"Delegation must stay explicit, safe, and scoped to profiles plus path ownership.",
 		],
 	},
