@@ -40,9 +40,34 @@ function fallbackHeadline(text: string, worker: WorkerRuntimeState): string {
 	return compact.length <= 160 ? compact : `${compact.slice(0, 159)}…`;
 }
 
+const PLACEHOLDER_RELAY_VALUES = new Set([
+	"",
+	"none",
+	"no",
+	"nope",
+	"n/a",
+	"na",
+	"not needed",
+	"not applicable",
+	"no question",
+	"no questions",
+	"no relay",
+	"no relay needed",
+	"no relay_question",
+	"-",
+	"—",
+	"null",
+	"undefined",
+]);
+
+function isPlaceholderRelay(value: string): boolean {
+	const normalized = value.trim().toLowerCase().replace(/[.!?]+$/, "");
+	return PLACEHOLDER_RELAY_VALUES.has(normalized);
+}
+
 export function extractRelayQuestions(text: string, worker: WorkerRuntimeState): RelayQuestion[] {
 	const relayQuestion = findScalar(text, "relay_question") ?? findScalar(text, "relay question");
-	if (!relayQuestion) return [];
+	if (!relayQuestion || isPlaceholderRelay(relayQuestion)) return [];
 
 	const assumption =
 		findScalar(text, "assumption") ?? "No assumption supplied by the worker; orchestrator should decide the next step.";
