@@ -275,6 +275,31 @@ export class WorkerManager {
 		return this.workers.get(workerId)?.textBuffer;
 	}
 
+	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined {
+		const record = this.workers.get(workerId);
+		if (!record) return undefined;
+		this.flushPendingText(record);
+		return record.console.slice();
+	}
+
+	private appendConsole(record: WorkerRuntimeRecord, event: WorkerConsoleEvent): void {
+		record.console.push(event);
+		if (record.console.length > CONSOLE_BUFFER_LIMIT) {
+			record.console.splice(0, record.console.length - CONSOLE_BUFFER_LIMIT);
+		}
+	}
+
+	private flushPendingText(record: WorkerRuntimeRecord): void {
+		if (!record.pendingTextDelta) return;
+		this.appendConsole(record, {
+			ts: record.pendingTextFlushAt || Date.now(),
+			kind: "assistant_text",
+			text: trimSummary(record.pendingTextDelta, 400),
+		});
+		record.pendingTextDelta = "";
+		record.pendingTextFlushAt = 0;
+	}
+
 	listWorkers(): ManagedWorkerRecord[] {
 		return Array.from(this.workers.keys())
 			.map((workerId) => this.snapshot(workerId))
