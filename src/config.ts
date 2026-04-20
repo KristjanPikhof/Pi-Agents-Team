@@ -188,9 +188,9 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 	version: TEAM_STATE_VERSION,
 	sessionMode: "orchestrator",
 	orchestration: {
-		packageName: "Pi Agent Team",
+		packageName: "Pi Agents Team",
 		extensionName: "pi-agent-team",
-		systemPromptTitle: "Pi Agent Team Orchestrator Mode",
+		systemPromptTitle: "Pi Agents Team Orchestrator Mode",
 		systemPromptNotes: [
 			"The visible Pi session is the orchestrator and owns all user-facing dialogue.",
 			"Worker agents are subordinate RPC peers that report compact summaries instead of raw transcripts.",
