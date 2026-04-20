@@ -60,6 +60,10 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 		this.stdout.write(`${JSON.stringify(event)}\n`);
 	}
 
+	setState(patch: Record<string, unknown>): void {
+		this.state = { ...this.state, ...patch };
+	}
+
 	completePrompt(promptText = this.pendingPromptText ?? "Completed task"): void {
 		this.writeEvent({
 			type: "message_end",
