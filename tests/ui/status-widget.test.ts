@@ -108,6 +108,64 @@ test("widget shows spinner frame for running workers and ✓ for finished idle w
 	assert.match(countsLine, /1 ended/);
 });
 
+test("widget switches to two-column layout above six workers and caps visible count", () => {
+	const state = createDefaultTeamState();
+	for (let i = 1; i <= 20; i += 1) {
+		const id = `w${i}`;
+		state.activeWorkers[id] = makeWorker({
+			workerId: id,
+			profileName: "reviewer",
+			status: "running",
+			lastSummary: {
+				workerId: id,
+				taskId: `t${i}`,
+				headline: `detail for ${id} — ${"x".repeat(120)}`,
+				status: "running",
+				readFiles: [],
+				changedFiles: [],
+				risks: [],
+				relayQuestionCount: 0,
+				updatedAt: Date.now(),
+			},
+		});
+	}
+
+	const lines = buildTeamWidgetLines(state, { frame: 0 });
+	const workerRows = lines.filter((line) => / w\d+ reviewer /.test(line));
+	assert.equal(workerRows.length, 8);
+	const twoColRows = workerRows.filter((line) => /w\d+ reviewer.*w\d+ reviewer/.test(line));
+	assert.ok(twoColRows.length > 0, "expected at least one two-column row");
+	assert.ok(lines.some((line) => /\+4 more/.test(line)), "expected spillover marker");
+
+	for (const line of lines) {
+		assert.ok(visibleWidth(line) <= 78, `line exceeds 78 cols (${visibleWidth(line)}): ${line}`);
+	}
+});
+
+test("widget enforces a hard cap on visible width even with long headlines", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = makeWorker({
+		workerId: "w1",
+		profileName: "reviewer",
+		status: "running",
+		lastSummary: {
+			workerId: "w1",
+			taskId: "t1",
+			headline: "x".repeat(500),
+			status: "running",
+			readFiles: [],
+			changedFiles: [],
+			risks: [],
+			relayQuestionCount: 0,
+			updatedAt: Date.now(),
+		},
+	});
+	const lines = buildTeamWidgetLines(state, { frame: 0 });
+	for (const line of lines) {
+		assert.ok(visibleWidth(line) <= 78, `line exceeds 78 cols (${visibleWidth(line)}): ${line}`);
+	}
+});
+
 test("hasAnimatedWorkers flips with non-terminal status", () => {
 	const state = createDefaultTeamState();
 	assert.equal(hasAnimatedWorkers(state), false);
