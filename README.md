@@ -1,107 +1,107 @@
 # Pi Agent Team
 
-Pi Agent Team is a Pi package that turns the **main session** into an **orchestrator-led team session**.
+Pi Agent Team turns one Pi session into an orchestrator that can launch and supervise RPC-backed worker agents.
 
-The package is designed around one core promise:
+## What it does
 
-- the visible Pi session stays the **single user-facing orchestrator**
-- delegated specialists run as **separate Pi RPC workers**
-- workers report back with **compact summaries, relay questions, and results**
-- raw worker transcripts stay out of the main session unless an operator explicitly asks for them
+- keeps the visible Pi session as the only user-facing orchestrator
+- launches background workers with isolated context windows
+- tracks workers with compact summaries instead of dumping raw transcripts into the main session
+- supports operator controls for status, ping, steer, follow-up, and cancel flows
+- enforces profile-based launch policy and scoped-write safety
 
-This repository currently contains the **foundation scaffold** for that package: package metadata, orchestrator-mode session takeover wiring, and shared runtime/config contracts for profiles, workers, tasks, summaries, persistence, and UI state.
+## Quick start
 
-## Session contract
-
-When the package is loaded, the active Pi session should behave like an orchestrator by default.
-
-That means:
-
-1. the main session owns all user dialogue
-2. worker sessions are subordinate RPC peers, not separate user chats
-3. delegation must stay explicit, bounded, and profile-driven
-4. the orchestrator should preserve its own context by keeping worker output compact
-5. workers must not recursively relaunch the full orchestrator runtime unless explicitly allowed in a future advanced mode
-
-The current scaffold enforces that contract by:
-
-- loading an orchestrator-mode system prompt addition on every turn
-- exposing a starter `/team-status` command for diagnostics
-- registering stable config/state contracts for later runtime, control-plane, comms, UI, and quality lanes
-- publishing a Pi package manifest that points Pi at the extension entrypoint
-
-## Current package layout
-
-```text
-package.json
-README.md
-extensions/
-  pi-agent-team/
-    index.ts
-src/
-  config.ts
-  types.ts
-docs/
-  architecture.md
-```
-
-Additional directories from the architecture plan will land in later tasks:
-
-- `src/runtime/`
-- `src/control-plane/`
-- `src/comms/`
-- `src/profiles/`
-- `src/safety/`
-- `src/ui/`
-- `prompts/`
-- `tests/`
-- `scripts/smoke/`
-
-## Install and load
-
-Install the package from a local path:
+Install dependencies and run the checks:
 
 ```bash
-pi install /absolute/path/to/pi-agent-team
+npm install
+npm run typecheck
+npm test
 ```
 
-Or test the extension entry directly during development:
+Load the extension directly in Pi:
 
 ```bash
 pi -e ./extensions/pi-agent-team/index.ts -p "/team-status"
 ```
 
-## Development
-
-Install development dependencies and run typecheck:
+Run the smoke scripts:
 
 ```bash
-npm install
-npm run typecheck
+npm run smoke:runtime
+npm run smoke:team
 ```
 
-## Architecture reference
+## Operator commands
 
-The source-of-truth runtime design lives in [docs/architecture.md](docs/architecture.md).
+| Command | What it does |
+|---|---|
+| `/team` | Opens the dashboard overlay in interactive mode, prints the dashboard in print mode |
+| `/team-status` | Prints the current orchestrator status and tracked workers |
+| `/agents` | Lists tracked workers |
+| `/ping-agents [active]` | Returns passive worker status, or refreshes runtime state and stats in `active` mode |
+| `/agent-steer <worker-id> <message>` | Sends a steer message to a running worker |
+| `/agent-followup <worker-id> <message>` | Queues follow-up work for an idle worker |
+| `/agent-cancel <worker-id>` | Aborts and shuts down a worker |
+| `/agent-result <worker-id>` | Prints the latest compact result for one worker |
 
-Highlights:
+## How delegation works
 
-- one visible orchestrator session
-- many subordinate RPC worker sessions
-- compact result and relay contracts
-- explicit launch safety and path scoping
-- Pi-native extension, package, RPC, and TUI integration
+1. The orchestrator chooses a profile.
+2. The control plane resolves launch policy.
+3. Pi starts a worker with `pi --mode rpc`.
+4. The worker receives a Pi-native prompt contract plus a bounded task prompt.
+5. Runtime events are normalized into compact worker state.
+6. The operator can inspect or control the worker without leaving Pi.
 
-## Planned specialist profiles
+## Profiles and safety
 
-The initial profile contract includes:
+Profiles live in [`profiles/`](profiles/) and prompts live in [`prompts/`](prompts/).
 
-- `explorer`
-- `librarian`
-- `oracle`
-- `designer`
-- `fixer`
-- `reviewer`
-- `observer`
+A few important rules:
 
-The foundation scaffold defines their config shape and starter defaults. Later tasks will add prompt files, launch policy, and actual worker execution logic.
+- workers never talk to the user directly
+- recursive orchestrator launches are blocked by default
+- read-only profiles can inspect broadly
+- write-capable profiles, especially `fixer`, require an explicit writable path scope
+
+See [`docs/profiles.md`](docs/profiles.md) for the full profile table and customization notes.
+
+## Documentation map
+
+- [`docs/architecture.md`](docs/architecture.md): system structure and key decisions
+- [`docs/operations.md`](docs/operations.md): install, run, inspect, ping, steer, and troubleshoot
+- [`docs/profiles.md`](docs/profiles.md): default profiles and safety policy
+- [`docs/prompting.md`](docs/prompting.md): orchestrator and worker prompt contracts
+
+## Package layout
+
+```text
+extensions/pi-agent-team/index.ts    # extension entrypoint
+src/runtime/                         # RPC transport and worker manager
+src/control-plane/                   # task registry, persistence, team orchestration
+src/comms/                           # steer/follow-up, ping, summary, relay helpers
+src/profiles/                        # packaged profile loader
+src/safety/                          # launch policy and path-scope validation
+src/ui/                              # status widget, dashboard, overlay
+src/commands/                        # operator slash commands
+prompts/                             # orchestrator and worker prompt contracts
+profiles/                            # packaged worker profile definitions
+tests/                               # unit and integration coverage
+scripts/smoke/                       # local smoke scripts
+```
+
+## Current status
+
+The package now includes:
+
+- real RPC worker launch and lifecycle management
+- delegation tools and persisted compact worker state
+- Pi-native orchestrator and worker prompt contracts
+- profile loading plus launch safety checks
+- communication helpers for steer, follow-up, ping, and relay capture
+- operator dashboard helpers and slash commands
+- test coverage plus local smoke scripts
+
+If you want the implementation details, start with [`docs/architecture.md`](docs/architecture.md).
