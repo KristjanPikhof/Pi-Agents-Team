@@ -1,5 +1,6 @@
 import { Type, type TSchema } from "@sinclair/typebox";
 import {
+	compareWorkerIds,
 	PING_MODES,
 	RELAY_URGENCIES,
 	TEAM_PROFILE_NAMES,
