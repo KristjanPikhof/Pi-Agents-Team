@@ -16,7 +16,9 @@ import {
 	type WorkerRuntimeState,
 } from "./types";
 
-function enumSchema<const T extends readonly [string, ...string[]]>(values: T) {
+function enumSchema<const T extends readonly [string, ...string[]]>(
+	values: T,
+): ReturnType<typeof Type.Union> {
 	return Type.Union(values.map((value) => Type.Literal(value)) as []);
 }
 
