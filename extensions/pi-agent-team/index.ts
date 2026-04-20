@@ -210,6 +210,29 @@ export default function (pi: ExtensionAPI): void {
 	const lastRelayCount = new Map<string, number>();
 	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
 	let notificationTimer: NodeJS.Timeout | undefined;
+	let spinnerTimer: NodeJS.Timeout | undefined;
+	let spinnerFrame = 0;
+	const SPINNER_INTERVAL_MS = 120;
+
+	function ensureSpinnerRunning(): void {
+		if (spinnerTimer || !activeContext?.hasUI) return;
+		if (!hasAnimatedWorkers(teamState)) return;
+		spinnerTimer = setInterval(() => {
+			spinnerFrame = (spinnerFrame + 1) % 10;
+			if (!activeContext?.hasUI || !hasAnimatedWorkers(teamState)) {
+				stopSpinner();
+				return;
+			}
+			applyUi(activeContext, teamState, spinnerFrame);
+		}, SPINNER_INTERVAL_MS);
+		if (typeof spinnerTimer.unref === "function") spinnerTimer.unref();
+	}
+
+	function stopSpinner(): void {
+		if (!spinnerTimer) return;
+		clearInterval(spinnerTimer);
+		spinnerTimer = undefined;
+	}
 
 	function flushTerminalNotifications(): void {
 		notificationTimer = undefined;
