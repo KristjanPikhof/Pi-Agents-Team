@@ -106,8 +106,19 @@ function wrapLines(text: string, width: number): string[] {
 	return out;
 }
 
-export async function openTeamDashboardOverlay(ctx: ExtensionContext, teamManager: TeamManager): Promise<void> {
+export interface OpenTeamDashboardOptions {
+	initialWorkerId?: string;
+}
+
+export async function openTeamDashboardOverlay(
+	ctx: ExtensionContext,
+	teamManager: TeamManager,
+	options: OpenTeamDashboardOptions = {},
+): Promise<void> {
 	const state = teamManager.snapshot();
+	const focusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
+		? options.initialWorkerId
+		: undefined;
 
 	if (!ctx.hasUI) {
 		console.log(buildTeamDashboardText(state));
@@ -116,7 +127,9 @@ export async function openTeamDashboardOverlay(ctx: ExtensionContext, teamManage
 
 	await ctx.ui.custom<void>(
 		(_tui, _theme, _keybindings, done) => {
-			let view: View = { kind: "list" };
+			let view: View = focusWorkerId
+				? { kind: "detail", workerId: focusWorkerId, tab: "summary", scrollTop: 0 }
+				: { kind: "list" };
 			let snapshot = state;
 			const maxVisible = 12;
 
