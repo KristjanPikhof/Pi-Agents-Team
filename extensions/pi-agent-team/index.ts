@@ -12,7 +12,7 @@ import { registerAgentCommands } from "../../src/commands/agents";
 import { registerCancelCommand } from "../../src/commands/cancel";
 import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
-import { buildTeamStatusLine, buildTeamWidgetLines } from "../../src/ui/status-widget";
+import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
 const DelegateTaskSchema = Type.Object({
