@@ -1,12 +1,15 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { SelectList, type SelectItem, matchesKey } from "@mariozechner/pi-tui";
 import type { TeamManager } from "../control-plane/team-manager";
+import type { WorkerConsoleEvent } from "../runtime/worker-manager";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types";
 import { buildTeamDashboardText } from "./dashboard";
 
+type DetailTab = "summary" | "console";
+
 type View =
 	| { kind: "list" }
-	| { kind: "detail"; workerId: string; scrollTop: number };
+	| { kind: "detail"; workerId: string; tab: DetailTab; scrollTop: number };
 
 function buildWorkerItems(state: PersistedTeamState): SelectItem[] {
 	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
@@ -20,7 +23,7 @@ function buildWorkerItems(state: PersistedTeamState): SelectItem[] {
 	}));
 }
 
-function buildDetailText(worker: WorkerRuntimeState, transcript: string | undefined): string {
+function buildSummaryText(worker: WorkerRuntimeState, transcript: string | undefined): string {
 	const lines = [
 		`Worker: ${worker.workerId}`,
 		`Profile: ${worker.profileName}`,
@@ -59,8 +62,31 @@ function buildDetailText(worker: WorkerRuntimeState, transcript: string | undefi
 		lines.push("", "No assistant text captured yet.");
 	}
 
-	lines.push("", "[j/k or ↑/↓ scroll · PgUp/PgDn page · g/G top/bottom · esc back · q quit]");
 	return lines.join("\n");
+}
+
+function formatTimestamp(ts: number): string {
+	const d = new Date(ts);
+	const hh = String(d.getHours()).padStart(2, "0");
+	const mm = String(d.getMinutes()).padStart(2, "0");
+	const ss = String(d.getSeconds()).padStart(2, "0");
+	return `${hh}:${mm}:${ss}`;
+}
+
+function formatConsoleEvent(event: WorkerConsoleEvent): string {
+	return `[${formatTimestamp(event.ts)}] [${event.kind}] ${event.text}`;
+}
+
+function buildConsoleText(worker: WorkerRuntimeState, events: WorkerConsoleEvent[] | undefined): string {
+	const header = [
+		`Console — ${worker.workerId} (${worker.profileName}) · status=${worker.status}`,
+		`Events captured: ${events?.length ?? 0}`,
+		"",
+	];
+	if (!events || events.length === 0) {
+		return [...header, "No events recorded yet."].join("\n");
+	}
+	return [...header, ...events.map(formatConsoleEvent)].join("\n");
 }
 
 function wrapLines(text: string, width: number): string[] {
@@ -109,6 +135,10 @@ export async function openTeamDashboardOverlay(ctx: ExtensionContext, teamManage
 				selectList = new SelectList(buildWorkerItems(snapshot), maxVisible, theme);
 			};
 
+			const refreshSnapshot = () => {
+				snapshot = teamManager.snapshot();
+			};
+
 			const component = {
 				render(width: number): string[] {
 					if (view.kind === "list") {
@@ -130,14 +160,24 @@ export async function openTeamDashboardOverlay(ctx: ExtensionContext, teamManage
 							"[esc back]",
 						];
 					}
-					const transcript = teamManager.getWorkerTranscript(worker.workerId);
-					const text = buildDetailText(worker, transcript);
-					const wrapped = wrapLines(text, width);
-					const pageHeight = 20;
-					const maxTop = Math.max(0, wrapped.length - pageHeight);
+
+					const tabs = view.tab === "summary"
+						? "[Summary] (c) Console"
+						: "(s) Summary [Console]";
+					const footerLine = "[j/k or ↑/↓ scroll · PgUp/PgDn page · g/G top/bottom · s/c switch tab · r refresh · esc back · q quit]";
+
+					const bodyText = view.tab === "summary"
+						? buildSummaryText(worker, teamManager.getWorkerTranscript(worker.workerId))
+						: buildConsoleText(worker, teamManager.getWorkerConsole(worker.workerId));
+
+					const headerLines = [tabs, ""];
+					const wrappedBody = wrapLines(bodyText, width);
+					const pageHeight = Math.max(6, 22 - headerLines.length - 1);
+					const maxTop = Math.max(0, wrappedBody.length - pageHeight);
 					const top = Math.min(view.scrollTop, maxTop);
 					view = { ...view, scrollTop: top };
-					return wrapped.slice(top, top + pageHeight);
+					const visibleBody = wrappedBody.slice(top, top + pageHeight);
+					return [...headerLines, ...visibleBody, "", footerLine];
 				},
 				invalidate() {
 					selectList.invalidate();
@@ -155,7 +195,7 @@ export async function openTeamDashboardOverlay(ctx: ExtensionContext, teamManage
 						if (matchesKey(data, "enter")) {
 							const item = selectList.getSelectedItem();
 							if (item && item.value !== "__none__") {
-								view = { kind: "detail", workerId: item.value, scrollTop: 0 };
+								view = { kind: "detail", workerId: item.value, tab: "summary", scrollTop: 0 };
 							}
 							return;
 						}
@@ -170,6 +210,18 @@ export async function openTeamDashboardOverlay(ctx: ExtensionContext, teamManage
 					}
 					if (data === "q") {
 						done();
+						return;
+					}
+					if (data === "s") {
+						view = { ...view, tab: "summary", scrollTop: 0 };
+						return;
+					}
+					if (data === "c") {
+						view = { ...view, tab: "console", scrollTop: 0 };
+						return;
+					}
+					if (data === "r") {
+						refreshSnapshot();
 						return;
 					}
 					if (data === "j" || matchesKey(data, "down")) {
@@ -195,9 +247,6 @@ export async function openTeamDashboardOverlay(ctx: ExtensionContext, teamManage
 					if (data === "G") {
 						view = { ...view, scrollTop: Number.MAX_SAFE_INTEGER };
 						return;
-					}
-					if (data === "r") {
-						snapshot = teamManager.snapshot();
 					}
 				},
 			};
