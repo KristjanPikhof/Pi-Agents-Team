@@ -159,6 +159,8 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	if (workers.length === 0) return [];
 
 	const lines = ["Pi Agent Team", buildCountsLine(state)];
+	const usageLine = buildUsageLine(state);
+	if (usageLine) lines.push(usageLine);
 	const { lines: workerLines, hiddenCount } = buildWorkerLines(workers, frame);
 	lines.push(...workerLines);
 	if (hiddenCount > 0) {
