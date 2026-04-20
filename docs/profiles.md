@@ -1,6 +1,6 @@
 # Profiles
 
-Pi Agent Team ships with seven default worker profiles. Each one is a combination of role prompt, default tools, thinking level, extension mode, and write policy.
+Pi Agents Team ships with seven default worker profiles. Each one is a combination of role prompt, default tools, thinking level, extension mode, and write policy.
 
 ## Default profiles
 
