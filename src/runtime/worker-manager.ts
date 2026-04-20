@@ -115,6 +115,15 @@ function extractResultText(result: Record<string, unknown>): string {
 	return snippet(result);
 }
 
+const FINAL_ANSWER_PATTERN = /<final[_\s-]?answer>([\s\S]*?)<\/final[_\s-]?answer>/i;
+
+export function extractFinalAnswer(text: string): string | undefined {
+	const match = FINAL_ANSWER_PATTERN.exec(text);
+	if (!match) return undefined;
+	const content = match[1]?.trim();
+	return content && content.length > 0 ? content : undefined;
+}
+
 function extractAssistantText(message: Record<string, unknown>): string {
 	const content = Array.isArray(message.content) ? message.content : [];
 	return content
