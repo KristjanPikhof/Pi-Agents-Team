@@ -19,9 +19,11 @@ function restoreLatestState(ctx: ExtensionContext): { state: PersistedTeamState;
 		latestState = normalizePersistedTeamState(entry.data, DEFAULT_TEAM_CONFIG);
 	}
 
-	return latestState
-		? { state: latestState, foundPersistedState: true }
-		: { state: createDefaultTeamState(DEFAULT_TEAM_CONFIG), foundPersistedState: false };
+	if (latestState) {
+		return { state: latestState, foundPersistedState: true };
+	}
+
+	return { state: createDefaultTeamState(DEFAULT_TEAM_CONFIG), foundPersistedState: false };
 }
 
 function syncDerivedState(state: PersistedTeamState): PersistedTeamState {
@@ -57,7 +59,7 @@ function clearUi(ctx: ExtensionContext): void {
 	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, undefined);
 }
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
 	let teamState = createDefaultTeamState(DEFAULT_TEAM_CONFIG);
 
 	pi.registerCommand("team-status", {
