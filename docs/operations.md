@@ -163,7 +163,7 @@ The worker inherits your Pi auth setup. Fix the missing provider key first, then
 
 ### A worker is restored after reload but not actually running
 
-Expected. Persisted workers are force-marked `exited` on restore so the operator sees what existed before the reload without being misled about process liveness. On a warm session start (`reload`, `resume`, `fork`, `new`) a one-line warning toast announces how many workers were flipped and the session-start reason — e.g. `Pi Agent Team: 3 workers from prior session marked exited (resume). Relaunch via delegate_task if still needed.` Cold `startup` keeps the original info toast ("Pi Agent Team loaded…"). Each flipped worker's `error` field carries a reason-specific message ("session resumed…", "session forked…"), which surfaces in `/team` detail view and copy payloads.
+Expected. Persisted workers are force-marked `exited` on restore so the operator sees what existed before the reload without being misled about process liveness. On a warm session start (`reload`, `resume`, `fork`, `new`) a one-line warning toast announces how many workers were flipped and the session-start reason — e.g. `Pi Agents Team: 3 workers from prior session marked exited (resume). Relaunch via delegate_task if still needed.` Cold `startup` keeps the original info toast ("Pi Agents Team loaded…"). Each flipped worker's `error` field carries a reason-specific message ("session resumed…", "session forked…"), which surfaces in `/team` detail view and copy payloads.
 
 ### Steer does nothing
 
