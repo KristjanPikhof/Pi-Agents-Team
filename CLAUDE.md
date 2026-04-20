@@ -85,7 +85,7 @@ Layering, top to bottom:
 
 **Non-recursive workers.** Default `extensionMode` is `worker-minimal`. `config.safety.preventRecursiveOrchestrator` is `true` and `launch-policy.ts` hard-rejects `extensionMode: "inherit"` so workers never boot the orchestrator package recursively.
 
-**Session restore is honest.** `markRestoredWorkersExited` forces every restored worker to `exited` on session start. Do not try to reattach live RPC processes silently — orphaned state is worse than forcing a relaunch.
+**Session restore is honest.** `markRestoredWorkersExited` forces every restored worker to `exited` on session start and returns `{ state, markedCount }`. Do not try to reattach live RPC processes silently — orphaned state is worse than forcing a relaunch. The session-start handler threads Pi's `SessionStartEvent.reason` through so the error message on each flipped worker reflects the real cause (`resume`, `fork`, `reload`, `new`). When the session did not come from a cold `startup` and at least one worker was flipped, the handler emits a single `warning` toast — operators should never be surprised that prior workers went away. Keep that toast *one line* and decorative (not conversational); the orchestrator prompt still tells the LLM to ignore UI notifications.
 
 **Broadcasts swallow per-worker errors.** `messageAllWorkers` and `cancelAllWorkers` collect failures into the returned result array (setting `error`) rather than throwing. One bad worker must never abort the whole broadcast. Preserve this when extending.
 
