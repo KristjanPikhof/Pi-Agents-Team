@@ -165,45 +165,83 @@ export async function openTeamDashboardOverlay(
 					.catch(() => {});
 			};
 
+			let statusMessage: string | undefined;
+			let statusExpires = 0;
+			const setStatus = (message: string, durationMs = 2500) => {
+				statusMessage = message;
+				statusExpires = Date.now() + durationMs;
+			};
+			const activeStatus = (): string | undefined => {
+				if (!statusMessage) return undefined;
+				if (Date.now() > statusExpires) {
+					statusMessage = undefined;
+					return undefined;
+				}
+				return statusMessage;
+			};
+
+			const copyCurrentDetail = () => {
+				if (view.kind !== "detail") return;
+				const worker = snapshot.activeWorkers[view.workerId];
+				if (!worker) {
+					setStatus("Worker no longer tracked — nothing to copy");
+					return;
+				}
+				const payload = buildCopyPayload(
+					worker,
+					teamManager.getWorkerTranscript(worker.workerId),
+					teamManager.getWorkerConsole(worker.workerId),
+				);
+				copyToClipboard(payload)
+					.then(() => setStatus(`Copied ${worker.workerId} (${payload.length.toLocaleString()} chars) to clipboard`))
+					.catch((error) => setStatus(`Copy failed: ${error instanceof Error ? error.message : String(error)}`, 4000));
+			};
+
+			const LIST_FOOTER = "[↑/↓ navigate · enter open · r refresh · esc close]";
+			const DETAIL_FOOTER = "[j/k·↑↓ scroll · PgUp/PgDn page · g/G top/bottom · s/c tabs · y copy · r refresh · esc back · q quit]";
+
 			const component = {
 				render(width: number): string[] {
+					const status = activeStatus();
+					const statusLine = status ? [`» ${status}`] : [];
+
 					if (view.kind === "list") {
 						const header = [
 							"Pi Agent Team · workers",
 							`mode=${snapshot.sessionMode} · active=${Object.keys(snapshot.activeWorkers).length} · relays=${snapshot.relayQueue.length}`,
+							LIST_FOOTER,
+							...statusLine,
 							"",
 						];
 						const listLines = selectList.render(width);
-						const footer = ["", "[↑/↓ navigate · enter open · r refresh · esc close]"];
-						return [...header, ...listLines, ...footer];
+						return [...header, ...listLines];
 					}
 
 					const worker = snapshot.activeWorkers[view.workerId];
 					if (!worker) {
 						return [
 							`Worker ${view.workerId} is no longer tracked.`,
-							"",
 							"[esc back]",
+							...statusLine,
 						];
 					}
 
 					const tabs = view.tab === "summary"
 						? "[Summary] (c) Console"
 						: "(s) Summary [Console]";
-					const footerLine = "[j/k or ↑/↓ scroll · PgUp/PgDn page · g/G top/bottom · s/c switch tab · r refresh · esc back · q quit]";
 
 					const bodyText = view.tab === "summary"
 						? buildSummaryText(worker, teamManager.getWorkerTranscript(worker.workerId))
 						: buildConsoleText(worker, teamManager.getWorkerConsole(worker.workerId));
 
-					const headerLines = [tabs, ""];
+					const headerLines = [tabs, DETAIL_FOOTER, ...statusLine, ""];
 					const wrappedBody = wrapLines(bodyText, width);
-					const pageHeight = Math.max(6, 22 - headerLines.length - 1);
+					const pageHeight = Math.max(6, 22 - headerLines.length);
 					const maxTop = Math.max(0, wrappedBody.length - pageHeight);
 					const top = Math.min(view.scrollTop, maxTop);
 					view = { ...view, scrollTop: top };
 					const visibleBody = wrappedBody.slice(top, top + pageHeight);
-					return [...headerLines, ...visibleBody, "", footerLine];
+					return [...headerLines, ...visibleBody];
 				},
 				invalidate() {
 					selectList.invalidate();
