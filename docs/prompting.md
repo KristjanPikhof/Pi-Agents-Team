@@ -77,7 +77,7 @@ Exact field names vary by role. The compact-reporting principle stays the same.
 
 ### Placeholder relays are filtered
 
-Workers must **omit** `relay_question` entirely when they have nothing to ask. `extractRelayQuestions` treats values like `none`, `no`, `n/a`, `not needed`, `-`, `—`, `null`, `undefined` (case-insensitive, trailing punctuation stripped) as "no relay" and drops them. Writing `relay_question: none` is not a way to signal "no question" — it just gets ignored. The extension's relay toast also refuses to fire for empty/whitespace-only questions as a second line of defense.
+Workers must **omit** `relay_question` entirely when they have nothing to ask. `extractRelayQuestions` treats values like `none`, `no`, `n/a`, `not needed`, `-`, `—`, `null`, `undefined` (case-insensitive, trailing punctuation stripped) as "no relay" and drops them. Writing `relay_question: none` is not a way to signal "no question"; it just gets ignored. The extension's relay toast also refuses to fire for empty/whitespace-only questions as a second line of defense.
 
 ## The `<final_answer>` contract
 
