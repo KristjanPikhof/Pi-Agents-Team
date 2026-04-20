@@ -420,6 +420,9 @@ export class WorkerManager {
 				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
 				break;
 			case "worker_state":
+				if (record.state.status === "starting" && !event.state.isStreaming) {
+					break;
+				}
 				record.state.status = deriveStatusFromSessionState(event.state);
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				break;
