@@ -7,10 +7,10 @@ export function registerCopyCommand(pi: ExtensionAPI, dependencies: CommandRegis
 	pi.registerCommand("team-copy", {
 		description: "Copy a worker's task, summary, final answer, transcript, and console to the clipboard: /team-copy <worker-id>",
 		getArgumentCompletions: (prefix) => {
-			const token = prefix.split(/\s+/)[0] ?? "";
+			if (/\s/.test(prefix)) return [];
 			return dependencies.teamManager
 				.listWorkers()
-				.filter((worker) => worker.workerId.startsWith(token))
+				.filter((worker) => worker.workerId.startsWith(prefix))
 				.map((worker) => ({
 					value: worker.workerId,
 					label: worker.workerId,
