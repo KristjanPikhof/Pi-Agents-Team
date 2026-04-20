@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isTerminalWorkerStatus } from "../control-plane/team-manager";
+import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
 
 export function registerCancelCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {
