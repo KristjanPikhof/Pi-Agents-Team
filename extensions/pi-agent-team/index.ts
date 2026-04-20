@@ -24,6 +24,7 @@ const DelegateTaskSchema = Type.Object({
 	expectedOutput: Type.Optional(Type.String({ description: "Describe the output contract the worker should return" })),
 	pathScopeRoots: Type.Optional(Type.Array(Type.String(), { description: "Allowed path roots for scoped workers, especially write-capable profiles." })),
 	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
+	model: Type.Optional(Type.String({ description: "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model." })),
 });
 
 const WorkerLookupSchema = Type.Object({
