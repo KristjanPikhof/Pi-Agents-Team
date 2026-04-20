@@ -40,6 +40,7 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(commands.some((command) => command.name === "agent-steer"));
 	assert.ok(commands.some((command) => command.name === "agent-followup"));
 	assert.ok(commands.some((command) => command.name === "agent-cancel"));
+	assert.ok(commands.some((command) => command.name === "agent-result"));
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("before_agent_start"));
 });
