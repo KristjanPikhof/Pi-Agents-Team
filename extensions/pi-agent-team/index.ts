@@ -180,19 +180,26 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("agent-result", {
-		description: "Show the latest compact result for a worker: /agent-result <worker-id>",
+		description: "Show the full result for a worker: /agent-result <worker-id>",
+		getArgumentCompletions: (prefix) => workerIdCompletions(teamManager, prefix),
 		handler: async (args, ctx) => {
-			const workerId = args.trim();
-			if (!workerId) {
+			const input = args.trim();
+			if (!input) {
 				ctx.ui.notify("Usage: /agent-result <worker-id>", "warning");
 				return;
 			}
-			const result = teamManager.getWorkerResult(workerId);
-			if (!result) {
-				ctx.ui.notify(`Unknown worker: ${workerId}`, "warning");
+			const resolved = teamManager.resolveWorkerId(input);
+			if (!resolved) {
+				ctx.ui.notify(`Unknown worker: ${input}`, "warning");
 				return;
 			}
-			emitCommandOutput(pi, ctx, formatWorker(result.worker));
+			const result = teamManager.getWorkerResult(resolved);
+			if (!result) {
+				ctx.ui.notify(`Unknown worker: ${resolved}`, "warning");
+				return;
+			}
+			const transcript = teamManager.getWorkerTranscript(resolved);
+			emitCommandOutput(pi, ctx, formatWorkerDetail(result.worker, transcript));
 		},
 	});
 
