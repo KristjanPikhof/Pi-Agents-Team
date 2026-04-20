@@ -253,7 +253,13 @@ export default function (pi: ExtensionAPI): void {
 	teamManager.onStateChange((state) => {
 		teamState = state;
 		persistSnapshot(pi, teamState);
-		applyUi(activeContext, teamState);
+		applyUi(activeContext, teamState, spinnerFrame);
+
+		if (hasAnimatedWorkers(teamState)) {
+			ensureSpinnerRunning();
+		} else {
+			stopSpinner();
+		}
 
 		for (const worker of Object.values(state.activeWorkers)) {
 			const previous = lastStatus.get(worker.workerId);
