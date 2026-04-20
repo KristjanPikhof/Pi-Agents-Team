@@ -1,4 +1,4 @@
-# Pi Agent Team architecture
+# Pi Agents Team architecture
 
 ## TL;DR
 
