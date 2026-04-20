@@ -211,7 +211,7 @@ export class TeamManager {
 		return this.workerManager.getWorkerConsole(workerId);
 	}
 
-	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentResult> {
+	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult> {
 		const worker = this.requireWorker(workerId);
 		const nextDelivery = resolveWorkerMessageDelivery(worker.status, delivery);
 
@@ -222,7 +222,45 @@ export class TeamManager {
 		}
 
 		await this.workerManager.refreshState(workerId);
-		return this.requireResult(workerId);
+		const result = this.requireResult(workerId);
+		return { ...result, delivery: nextDelivery };
+	}
+
+	async messageAllWorkers(message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult[]> {
+		const targets = this.listWorkers().filter((worker) => !isTerminalWorkerStatus(worker.status) || worker.status === "idle" || worker.status === "waiting_followup");
+		const results: AgentMessageResult[] = [];
+		for (const worker of targets) {
+			try {
+				results.push(await this.messageWorker(worker.workerId, message, delivery));
+			} catch (error) {
+				const latest = this.registry.getWorker(worker.workerId);
+				if (!latest) continue;
+				results.push({
+					worker: { ...latest, error: error instanceof Error ? error.message : String(error) },
+					task: latest.currentTask ? this.registry.getTask(latest.currentTask.taskId) : undefined,
+					delivery: delivery === "follow_up" ? "follow_up" : "steer",
+				});
+			}
+		}
+		return results;
+	}
+
+	async cancelAllWorkers(): Promise<AgentResult[]> {
+		const targets = this.listWorkers().filter((worker) => !isTerminalWorkerStatus(worker.status));
+		const results: AgentResult[] = [];
+		for (const worker of targets) {
+			try {
+				results.push(await this.cancelWorker(worker.workerId));
+			} catch (error) {
+				const latest = this.registry.getWorker(worker.workerId);
+				if (!latest) continue;
+				results.push({
+					worker: { ...latest, error: error instanceof Error ? error.message : String(error) },
+					task: latest.currentTask ? this.registry.getTask(latest.currentTask.taskId) : undefined,
+				});
+			}
+		}
+		return results;
 	}
 
 	async pingWorkers(request: PingAgentsRequest = {}): Promise<AgentResult[]> {
