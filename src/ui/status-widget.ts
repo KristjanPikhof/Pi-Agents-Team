@@ -1,8 +1,16 @@
+import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 const NON_TERMINAL_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
+
+const HEADER_WIDTH = 78;
+const COLUMN_WIDTH = 38;
+const COLUMN_SEPARATOR = "  ";
+const COLUMN_THRESHOLD = 6;
+const MAX_COLUMN_ROWS = 8;
+const MAX_SINGLE_COL_WORKERS = 8;
 
 export function hasAnimatedWorkers(state: PersistedTeamState): boolean {
 	for (const worker of Object.values(state.activeWorkers)) {
@@ -13,13 +21,12 @@ export function hasAnimatedWorkers(state: PersistedTeamState): boolean {
 
 export interface WidgetRenderOptions {
 	frame?: number;
-	maxVisibleWorkers?: number;
 }
 
 export function buildTeamStatusLine(state: PersistedTeamState): string {
 	const workerCount = Object.keys(state.activeWorkers).length;
 	const relayCount = state.relayQueue.length;
-	return `${state.sessionMode} · workers=${workerCount} · relays=${relayCount}`;
+	return truncateToWidth(`${state.sessionMode} · workers=${workerCount} · relays=${relayCount}`, HEADER_WIDTH);
 }
 
 function statusGlyph(worker: WorkerRuntimeState, frame: number): string {
@@ -43,9 +50,9 @@ function statusGlyph(worker: WorkerRuntimeState, frame: number): string {
 	}
 }
 
-function truncate(text: string, max: number): string {
-	if (text.length <= max) return text;
-	return `${text.slice(0, Math.max(0, max - 1))}…`;
+function padToWidth(text: string, width: number): string {
+	const gap = Math.max(0, width - visibleWidth(text));
+	return `${text}${" ".repeat(gap)}`;
 }
 
 function buildCountsLine(state: PersistedTeamState): string {
@@ -86,36 +93,57 @@ function buildCountsLine(state: PersistedTeamState): string {
 	if (counts.done) parts.push(`✓ ${counts.done} done`);
 	if (counts.ended) parts.push(`✗ ${counts.ended} ended`);
 	if (state.relayQueue.length) parts.push(`? ${state.relayQueue.length} relay${state.relayQueue.length === 1 ? "" : "s"}`);
-	if (parts.length === 0) return "no workers tracked";
-	return parts.join("  ");
+	return truncateToWidth(parts.length === 0 ? "no workers tracked" : parts.join("  "), HEADER_WIDTH);
 }
 
-function buildWorkerLine(worker: WorkerRuntimeState, frame: number): string {
+function buildWorkerCell(worker: WorkerRuntimeState, frame: number, cellWidth: number): string {
 	const glyph = statusGlyph(worker, frame);
 	const detail = worker.lastSummary?.headline
 		?? worker.currentTask?.title
 		?? (worker.error ? `error: ${worker.error}` : worker.status);
-	return `${glyph} ${worker.workerId} ${worker.profileName} — ${truncate(detail, 48)}`;
+	const logical = `${glyph} ${worker.workerId} ${worker.profileName} — ${detail}`;
+	return truncateToWidth(logical, cellWidth, "…");
+}
+
+function buildWorkerLines(workers: WorkerRuntimeState[], frame: number): { lines: string[]; hiddenCount: number } {
+	if (workers.length === 0) return { lines: [], hiddenCount: 0 };
+
+	if (workers.length <= COLUMN_THRESHOLD) {
+		const visible = workers.slice(0, MAX_SINGLE_COL_WORKERS);
+		const lines = visible.map((worker) => buildWorkerCell(worker, frame, HEADER_WIDTH));
+		return { lines, hiddenCount: workers.length - visible.length };
+	}
+
+	const maxWorkers = MAX_COLUMN_ROWS * 2;
+	const visible = workers.slice(0, maxWorkers);
+	const rowCount = Math.ceil(visible.length / 2);
+	const left = visible.slice(0, rowCount);
+	const right = visible.slice(rowCount);
+	const lines: string[] = [];
+	for (let i = 0; i < rowCount; i += 1) {
+		const leftCell = left[i] ? buildWorkerCell(left[i]!, frame, COLUMN_WIDTH) : "";
+		const rightCell = right[i] ? buildWorkerCell(right[i]!, frame, COLUMN_WIDTH) : "";
+		const paddedLeft = padToWidth(leftCell, COLUMN_WIDTH);
+		lines.push(truncateToWidth(`${paddedLeft}${COLUMN_SEPARATOR}${rightCell}`, HEADER_WIDTH));
+	}
+	return { lines, hiddenCount: workers.length - visible.length };
 }
 
 export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetRenderOptions = {}): string[] {
 	const frame = options.frame ?? 0;
-	const maxVisible = options.maxVisibleWorkers ?? 6;
 	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	const lines = ["Pi Agent Team", buildCountsLine(state)];
 
 	if (workers.length === 0) {
-		lines.push("no tracked workers · /delegate via the orchestrator, then /team to inspect");
+		lines.push(truncateToWidth("no tracked workers · delegate via the orchestrator, then /team to inspect", HEADER_WIDTH));
 		return lines;
 	}
 
-	const visible = workers.slice(0, maxVisible);
-	for (const worker of visible) {
-		lines.push(buildWorkerLine(worker, frame));
+	const { lines: workerLines, hiddenCount } = buildWorkerLines(workers, frame);
+	lines.push(...workerLines);
+	if (hiddenCount > 0) {
+		lines.push(truncateToWidth(`  +${hiddenCount} more · /team to view`, HEADER_WIDTH));
 	}
-	if (workers.length > visible.length) {
-		lines.push(`  +${workers.length - visible.length} more · /team to view`);
-	}
-	lines.push("tip: /team · /agent-result <id>");
-	return lines;
+	lines.push("tip: /team · /agent-result <id> · /team-copy <id>");
+	return lines.map((line) => truncateToWidth(line, HEADER_WIDTH));
 }
