@@ -47,7 +47,8 @@ export function registerCancelCommand(pi: ExtensionAPI, dependencies: CommandReg
 
 			const workerId = dependencies.teamManager.resolveWorkerId(input);
 			if (!workerId) {
-				ctx.ui.notify(`Unknown worker: ${input}`, "warning");
+				const candidates = ["all", ...dependencies.teamManager.listWorkers().map((worker) => worker.workerId)];
+				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
 				return;
 			}
 			const result = await dependencies.teamManager.cancelWorker(workerId);
