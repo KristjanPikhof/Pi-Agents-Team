@@ -1,4 +1,4 @@
-import { createDefaultTeamState, normalizePersistedTeamState, type DEFAULT_TEAM_CONFIG } from "../config";
+import { createDefaultTeamState, normalizePersistedTeamState } from "../config";
 import type { PersistedTeamState } from "../types";
 
 interface SessionLikeEntry {
