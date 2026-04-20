@@ -37,7 +37,7 @@ npm run smoke:team
 
 | Command | What it does |
 |---|---|
-| `/team` | Opens the dashboard overlay (worker list + summary/console tabs) in interactive mode, prints the dashboard in print mode |
+| `/team` | Opens the dashboard overlay (worker list + summary/console tabs). `/team <worker-id>` jumps straight into that worker's detail view |
 | `/team-status` | Prints the current orchestrator status and tracked workers |
 | `/agents` | Lists tracked workers as one line each |
 | `/ping-agents [active]` | Returns passive worker snapshots, or refreshes runtime state and stats in `active` mode |
