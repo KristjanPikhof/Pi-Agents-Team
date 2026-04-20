@@ -58,24 +58,29 @@ Prefer many bounded, parallel tasks over one wide task. A good delegation looks 
 
 After delegating, your loop is:
 
-1. Call `ping_agents` (passive) to check worker status. `running` means not done yet.
-2. If any worker is still `running`, wait a moment and ping again — do not reply to the user yet.
-3. If a worker is stuck on a relay question (`relays > 0`), answer it via `agent_message` (steer) or decide an assumption and steer a hint in. Then resume waiting.
-4. When all workers hit a terminal state, call **`agent_result`** on each worker — this is the only tool that returns the worker's full final assistant text plus structured summary. `agent_status` and `ping_agents` only return the one-line status headline; they are not enough to synthesize.
-5. Synthesize a single answer for the user from those results. Acknowledge each worker's contribution in the integrated answer.
+1. Immediately call **`wait_for_agents`** with the worker ids you just spawned (or omit ids to wait on all). This tool blocks without burning tokens and returns exactly once when every named worker has reached a terminal state, or when the timeout elapses. It is the primary waiting primitive — use it instead of polling.
+2. If a worker raised a relay question during the wait, `wait_for_agents` will still return when the worker parks in `waiting_followup`/`idle`; answer any relays via `agent_message` and, if needed, call `wait_for_agents` again to resume waiting.
+3. When workers are terminal, call **`agent_result`** on each one — this is the only tool that returns the full final assistant text plus structured summary. `agent_status` / `ping_agents` only return the one-line headline; they are not enough to synthesize.
+4. Synthesize a single answer for the user from those results. Acknowledge each worker's contribution in the integrated answer.
 
 **Tool cheat sheet:**
 
-- `ping_agents` / `agent_status` → cheap status check (`running`, `idle`, `exited`, `error`). Use to decide whether to wait or collect.
+- `wait_for_agents` → blocking wait until workers hit terminal state. **Default primitive after delegate_task.** Zero tokens while waiting. Supports any number of concurrent workers.
+- `ping_agents` / `agent_status` → cheap snapshot for spot checks (e.g. "is anything stuck?"). Do not loop these — use `wait_for_agents` instead.
 - `agent_result` → the full final output. Always call this once per worker before synthesizing. Never skip it and write the user reply from the status headline alone.
 - `agent_message` → steer a running worker or queue follow-up on an idle one. Only send a follow-up asking for "a clean compact report" if `agent_result` returned an empty/placeholder transcript.
+- `agent_cancel` → abort a worker that is stuck beyond recovery.
+
+**Push notifications:**
+
+Whenever a worker transitions to a terminal state the system emits a visible `✓ <workerId> (<profile>) finished...` message into the session. You do not need to poll to catch these events. If you are inside `wait_for_agents`, it will return; otherwise the notification is your cue to collect results. Never stall the user waiting for a notification that has already arrived — read your own recent messages.
 
 **Polling discipline:**
 
-- `ping_agents` with mode `"passive"` is cheap — use it freely between steps.
 - Do not spawn new workers to "check on" old ones.
 - Do not fabricate findings while workers are still running. If you must reply before they finish (e.g. user interjects), say so explicitly and name the outstanding workers.
-- **Pace your pings.** Back-to-back pings on a running worker tell you nothing new. If a ping returns `running`, do at most one more check in the same turn; then reply to the user explaining workers are still in progress, or wait for the next user turn. Never burst 3+ pings in a single turn on a worker that has not changed state.
+- **Do not poll.** `wait_for_agents` is the right tool. If you find yourself calling `ping_agents` more than once in a turn without intervening state changes, stop and call `wait_for_agents` instead.
+- **Never `sleep` in bash to pass time.** It burns orchestrator context and does not observe worker events. Use `wait_for_agents`.
 
 **How to read `running`:**
 
