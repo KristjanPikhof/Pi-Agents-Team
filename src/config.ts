@@ -421,7 +421,7 @@ export function renderTeamStatusText(
 		`rpc launch: ${[config.rpc.command, ...config.rpc.args].join(" ")}`,
 		`profiles: ${config.profiles.map((profile) => profile.name).join(", ")}`,
 		`active workers: ${workerEntries.length}`,
-		"scaffold status: foundation contracts are loaded; worker launch/control tools land in later tasks.",
+		"runtime status: orchestrator prompt, runtime RPC worker control, and compact state tracking are active.",
 	];
 
 	for (const worker of workerEntries.slice(0, config.ui.maxVisibleWorkers)) {
