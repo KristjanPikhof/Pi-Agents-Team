@@ -203,6 +203,7 @@ export default function (pi: ExtensionAPI): void {
 	let teamState = createDefaultTeamState(DEFAULT_TEAM_CONFIG);
 	let activeContext: ExtensionContext | undefined;
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
+	const lastRelayCount = new Map<string, number>();
 	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
 	let notificationTimer: NodeJS.Timeout | undefined;
 
