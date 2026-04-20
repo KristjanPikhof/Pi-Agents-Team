@@ -67,6 +67,10 @@ interface Deferred<TValue> {
 	reject: (error: Error) => void;
 }
 
+function isRpcResponse(record: RpcEvent | RpcResponse): record is RpcResponse {
+	return record.type === "response" && "command" in record && "success" in record;
+}
+
 export interface PromptRpcCommand extends RpcCommandBase {
 	type: "prompt";
 	message: string;
