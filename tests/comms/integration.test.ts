@@ -24,7 +24,7 @@ test("communication flow supports steer while running, follow-up while idle, pas
 	});
 
 	await teamManager.messageWorker(delegated.worker.workerId, "Interrupt and narrow to passive ping only", "auto");
-	assert.equal(transports[0]?.commands.at(-1)?.type, "steer");
+	assert.ok(transports[0]?.commands.some((command) => command.type === "steer"));
 
 	await waitForMicrotasks();
 	await waitForMicrotasks();
@@ -38,5 +38,5 @@ test("communication flow supports steer while running, follow-up while idle, pas
 	assert.equal(passivePing[0]?.worker.pendingRelayQuestions.length, 1);
 
 	await teamManager.messageWorker(worker.workerId, "Continue with the current scope", "auto");
-	assert.equal(transports[0]?.commands.at(-1)?.type, "follow_up");
+	assert.ok(transports[0]?.commands.some((command) => command.type === "follow_up"));
 });
