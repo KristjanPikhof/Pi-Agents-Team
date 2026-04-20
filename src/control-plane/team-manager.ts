@@ -148,6 +148,10 @@ export class TeamManager {
 		};
 	}
 
+	getWorkerTranscript(workerId: string): string | undefined {
+		return this.workerManager.getWorkerTranscript(workerId);
+	}
+
 	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentResult> {
 		const worker = this.requireWorker(workerId);
 		const nextDelivery = resolveWorkerMessageDelivery(worker.status, delivery);
