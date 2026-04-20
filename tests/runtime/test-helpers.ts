@@ -12,6 +12,7 @@ export interface MockTransportOptions {
 	initialState?: Record<string, unknown>;
 	onCommand?: (command: MockCommand) => void;
 	promptText?: string | ((command: MockCommand) => string);
+	autoCompletePrompt?: boolean;
 }
 
 export class MockWorkerTransport extends EventEmitter implements WorkerTransport {
@@ -22,6 +23,7 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 	private buffer = "";
 	private state: Record<string, unknown>;
 	readonly commands: MockCommand[] = [];
+	private pendingPromptText: string | null = null;
 
 	constructor(private readonly options: MockTransportOptions = {}) {
 		super();
@@ -56,6 +58,27 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 
 	writeEvent(event: Record<string, unknown>): void {
 		this.stdout.write(`${JSON.stringify(event)}\n`);
+	}
+
+	completePrompt(promptText = this.pendingPromptText ?? "Completed task"): void {
+		this.writeEvent({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: promptText }],
+				usage: {
+					input: 10,
+					output: 5,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 15,
+					cost: { total: 0.01 },
+				},
+			},
+		});
+		this.state.isStreaming = false;
+		this.writeEvent({ type: "agent_end", messages: [] });
+		this.pendingPromptText = null;
 	}
 
 	private flush(): void {
@@ -94,28 +117,15 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 						typeof this.options.promptText === "function"
 							? this.options.promptText(command)
 							: this.options.promptText ?? `Completed ${command.message ?? "task"}`;
+					this.pendingPromptText = promptText;
 					this.writeEvent({ type: "agent_start" });
 					this.writeEvent({
 						type: "message_update",
 						assistantMessageEvent: { type: "text_delta", delta: `Working on: ${command.message ?? ""}` },
 					});
-					this.writeEvent({
-						type: "message_end",
-						message: {
-							role: "assistant",
-							content: [{ type: "text", text: promptText }],
-							usage: {
-								input: 10,
-								output: 5,
-								cacheRead: 0,
-								cacheWrite: 0,
-								totalTokens: 15,
-								cost: { total: 0.01 },
-							},
-						},
-					});
-					this.state.isStreaming = false;
-					this.writeEvent({ type: "agent_end", messages: [] });
+					if (this.options.autoCompletePrompt !== false) {
+						this.completePrompt(promptText);
+					}
 				});
 				break;
 			case "steer":
