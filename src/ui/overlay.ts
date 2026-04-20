@@ -246,6 +246,7 @@ export async function openTeamDashboardOverlay(
 						return;
 					}
 					if (data === "r") {
+						refreshActive();
 						refreshSnapshot();
 						return;
 					}
