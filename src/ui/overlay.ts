@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { SelectList, type SelectItem, matchesKey } from "@mariozechner/pi-tui";
+import { SelectList, type SelectItem, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { TeamManager } from "../control-plane/team-manager";
 import type { WorkerConsoleEvent } from "../runtime/worker-manager";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types";
