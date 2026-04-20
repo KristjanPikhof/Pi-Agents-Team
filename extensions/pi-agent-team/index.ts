@@ -433,13 +433,18 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "wait_for_agents",
 		label: "Wait for Agents",
-		description: "Block until the specified workers all reach a terminal status (idle, exited, aborted, error), or until the timeout elapses. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting and returns exactly once when workers are done. Use it after delegate_task.",
+		description: "Block until every target worker reaches a terminal status (idle, exited, aborted, error) or until a target raises a new relay question. Also honors a timeout. Returns reason=all_terminal, relay_raised (with newRelays listed), timeout, or aborted. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting. Use it after delegate_task; when it returns relay_raised, answer via agent_message and call wait_for_agents again to resume.",
 		parameters: WaitForAgentsSchema,
 		async execute(_toolCallId, params, signal) {
 			const targetIds = params.workerIds?.length
 				? params.workerIds.map((id) => teamManager.resolveWorkerId(id) ?? id)
 				: teamManager.listWorkers().map((worker) => worker.workerId);
-			type WaitDetails = { reason: "all_terminal" | "timeout" | "aborted" | "no_workers"; workers: WorkerRuntimeState[] };
+			type NewRelay = { workerId: string; profileName: string; question: string; urgency: string };
+			type WaitDetails = {
+				reason: "all_terminal" | "timeout" | "aborted" | "relay_raised" | "no_workers";
+				workers: WorkerRuntimeState[];
+				newRelays?: NewRelay[];
+			};
 			if (targetIds.length === 0) {
 				const details: WaitDetails = { reason: "no_workers", workers: [] };
 				return {
@@ -450,15 +455,26 @@ export default function (pi: ExtensionAPI): void {
 			const result = await teamManager.waitForTerminal(targetIds, {
 				timeoutMs: params.timeoutMs ?? 300_000,
 				signal,
+				wakeOnRelay: params.wakeOnRelay !== false,
 			});
-			const header = result.reason === "all_terminal"
-				? `All ${result.workers.length} worker(s) reached terminal status.`
-				: result.reason === "timeout"
-					? `Wait timed out; some workers may still be running.`
-					: `Wait aborted.`;
+			let header: string;
+			if (result.reason === "all_terminal") {
+				header = `All ${result.workers.length} worker(s) reached terminal status.`;
+			} else if (result.reason === "relay_raised") {
+				const count = result.newRelays?.length ?? 0;
+				header = `${count} new relay question(s) raised — answer via agent_message, then call wait_for_agents again to resume.`;
+			} else if (result.reason === "timeout") {
+				header = "Wait timed out; some workers may still be running.";
+			} else {
+				header = "Wait aborted.";
+			}
+			const relayLines = (result.newRelays ?? []).map(
+				(relay) => `  ! ${relay.workerId} (${relay.profileName}) [${relay.urgency}] ${relay.question}`,
+			);
 			const details: WaitDetails = { reason: result.reason, workers: result.workers };
+			if (result.newRelays) details.newRelays = result.newRelays;
 			return {
-				content: [{ type: "text", text: `${header}\n${formatWorkers(result.workers)}` }],
+				content: [{ type: "text", text: [header, ...relayLines, formatWorkers(result.workers)].join("\n") }],
 				details,
 			};
 		},
