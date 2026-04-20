@@ -75,10 +75,18 @@ After delegating, your loop is:
 - `ping_agents` with mode `"passive"` is cheap — use it freely between steps.
 - Do not spawn new workers to "check on" old ones.
 - Do not fabricate findings while workers are still running. If you must reply before they finish (e.g. user interjects), say so explicitly and name the outstanding workers.
+- **Pace your pings.** Back-to-back pings on a running worker tell you nothing new. If a ping returns `running`, do at most one more check in the same turn; then reply to the user explaining workers are still in progress, or wait for the next user turn. Never burst 3+ pings in a single turn on a worker that has not changed state.
+
+**How to read `running`:**
+
+- `status=running` means **not done**. Whatever is in `interim=...` is a streaming fragment — usually the worker's last sentence or last tool's output. It is NOT the worker's answer and MUST NOT be treated as a finding or a failure signal.
+- A running worker showing `interim=No files found matching pattern` or `interim=grep: ...` is just mid-tool-call. Do not intervene based on interim text. Let the worker continue.
+- Only intervene in a running worker if: (a) it raises a `relay_question` (relays > 0), (b) it has been `running` with the same `tool` for an implausibly long time, or (c) the user explicitly asked to steer it. Do not intervene because the interim text "looks wrong."
+- **Do not run tools yourself to help a running worker.** No bash, no grep, no file reads to "prepare a hint." If you truly believe a worker is off-track, either wait, `agent_message` it with guidance, or `agent_cancel` and re-delegate with a better brief.
 
 **Terminal signal contract:**
 
-A worker is done when its status is `idle`, `exited`, `aborted`, or `error`. `running` is not done. If a worker reaches `idle` without a `headline`/`summary`, treat that as "ran but produced no output" — ask it a follow-up or cancel it, don't pretend it succeeded.
+A worker is done when its status is `idle`, `exited`, `aborted`, or `error`. `running` is not done. Only a terminal status plus the `summary=...` tag (not `interim=...`) represents an actual result. If a worker reaches `idle` without a meaningful summary, treat that as "ran but produced no output" — ask it a follow-up or cancel it, don't pretend it succeeded.
 
 ## Result integration
 
