@@ -7,6 +7,23 @@ interface SessionLikeEntry {
 	data?: unknown;
 }
 
+export type SessionStartReason = "startup" | "reload" | "new" | "resume" | "fork";
+
+export interface MarkRestoredWorkersExitedResult {
+	state: PersistedTeamState;
+	markedCount: number;
+}
+
+const LIVE_WORKER_STATUSES: readonly string[] = ["running", "starting", "idle", "waiting_followup"];
+
+const REASON_MESSAGE: Record<SessionStartReason, string> = {
+	startup: "Pi Agent Team session restored; relaunch required for live worker control.",
+	reload: "Pi Agent Team session reloaded; relaunch required for live worker control.",
+	resume: "Pi Agent Team session resumed; relaunch required for live worker control.",
+	fork: "Pi Agent Team session forked; relaunch required for live worker control.",
+	new: "Pi Agent Team new session started; prior workers are no longer attached.",
+};
+
 export function restorePersistedTeamState(
 	entries: Iterable<SessionLikeEntry>,
 	stateCustomType: string,
@@ -24,13 +41,18 @@ export function restorePersistedTeamState(
 
 export function markRestoredWorkersExited(
 	state: PersistedTeamState,
-	reason = "Pi Agent Team session reloaded; relaunch required for live worker control.",
-): PersistedTeamState {
+	reasonOrStartReason: string | SessionStartReason = "reload",
+): MarkRestoredWorkersExitedResult {
 	const nextState = normalizePersistedTeamState(state);
 	const timestamp = Date.now();
+	const reason =
+		reasonOrStartReason in REASON_MESSAGE
+			? REASON_MESSAGE[reasonOrStartReason as SessionStartReason]
+			: reasonOrStartReason;
 
+	let markedCount = 0;
 	for (const worker of Object.values(nextState.activeWorkers)) {
-		if (["running", "starting", "idle", "waiting_followup"].includes(worker.status)) {
+		if (LIVE_WORKER_STATUSES.includes(worker.status)) {
 			worker.status = "exited";
 			worker.error = reason;
 			worker.lastEventAt = timestamp;
@@ -39,12 +61,13 @@ export function markRestoredWorkersExited(
 				worker.lastSummary.headline = reason;
 				worker.lastSummary.updatedAt = timestamp;
 			}
+			markedCount += 1;
 		}
 	}
 
 	nextState.updatedAt = timestamp;
 	nextState.ui.lastRenderAt = timestamp;
-	return nextState;
+	return { state: nextState, markedCount };
 }
 
 export function createPersistedStateSnapshot(state: PersistedTeamState): PersistedTeamState {
