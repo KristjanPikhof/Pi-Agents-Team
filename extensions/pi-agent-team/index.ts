@@ -338,7 +338,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_result",
 		label: "Agent Result",
-		description: "Get the worker's final assistant text plus structured summary. Call this after the worker reaches a terminal status (idle/exited/aborted/error) to read its full findings.",
+		description: "Get the worker's structured compact summary (headline, files touched, risks, next recommendation, relay questions). This is what you synthesize from. The full raw transcript is NOT returned here — it lives in the /team UI overlay and the /agent-result slash command so it does not pollute the main conversation. Only request the transcript via another channel if the user explicitly asks to see it.",
 		parameters: WorkerIdSchema,
 		async execute(_toolCallId, params) {
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
@@ -346,10 +346,9 @@ export default function (pi: ExtensionAPI): void {
 			if (!result) {
 				throw new Error(`Unknown worker: ${params.workerId}`);
 			}
-			const transcript = teamManager.getWorkerTranscript(workerId);
 			return {
-				content: [{ type: "text", text: formatWorkerDetail(result.worker, transcript) }],
-				details: { ...result, transcript },
+				content: [{ type: "text", text: formatWorkerCompact(result.worker) }],
+				details: result,
 			};
 		},
 	});
