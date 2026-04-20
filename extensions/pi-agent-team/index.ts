@@ -75,7 +75,11 @@ function persistSnapshot(pi: ExtensionAPI, state: PersistedTeamState): void {
 function formatWorker(worker: WorkerRuntimeState): string {
 	const parts = [`${worker.workerId} (${worker.profileName})`, `status=${worker.status}`];
 	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
-	if (worker.lastSummary?.headline) parts.push(`summary=${worker.lastSummary.headline}`);
+	if (worker.lastToolName && worker.status === "running") parts.push(`tool=${worker.lastToolName}`);
+	if (worker.lastSummary?.headline) {
+		const tag = worker.status === "running" ? "interim" : "summary";
+		parts.push(`${tag}=${worker.lastSummary.headline}`);
+	}
 	if (worker.pendingRelayQuestions.length > 0) parts.push(`relays=${worker.pendingRelayQuestions.length}`);
 	return parts.join(" · ");
 }
