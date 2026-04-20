@@ -33,13 +33,15 @@ tsx --test tests/runtime/worker-manager.test.ts
 
 ```text
 /team
-/team-status
-/agents
+/team <worker-id>
 ```
 
-- `/team` opens the interactive dashboard overlay in TUI mode, or prints the dashboard text in print mode. `/team <worker-id>` skips the list and opens the overlay directly on that worker's detail view (tab completion suggests live worker ids).
-- `/team-status` prints the orchestrator snapshot, launch config, and active-worker lines.
-- `/agents` prints one line per tracked worker (`wN · profile · status`).
+- `/team` opens the interactive dashboard overlay in TUI mode, or prints the dashboard text in print mode.
+- `/team <worker-id>` skips the list and opens the overlay directly on that worker's detail view (tab completion suggests live worker ids).
+
+Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
+
+The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) so there is no separate "status" slash command. Use `/team` when you need the full view.
 
 ### Dashboard keys
 
@@ -53,20 +55,11 @@ Inside the `/team` overlay:
 | `j`/`k` or `↑`/`↓` | Scroll detail view |
 | `PgUp` / `PgDn` | Page scroll |
 | `g` / `G` | Jump to top / bottom |
-| `r` | Refresh snapshot |
+| `r` | Re-ping workers (fresh RPC state + stats) and refresh snapshot |
 | `esc` | Back to list (or close from list) |
 | `q` | Close overlay |
 
 The Console tab shows a bounded ring buffer of status transitions, tool starts and ends, assistant-text flushes, queue updates, errors, and exit reasons. Use it when a summary is not enough.
-
-## Ping workers
-
-```text
-/ping-agents
-/ping-agents active
-```
-
-Use passive ping first. It reads cached state, summaries, and relay counts without hitting the worker process. Use `active` when you want fresh runtime state and refreshed token stats (it issues RPC `getState` + `getSessionStats` per worker).
 
 ## Inspect a worker's result
 
