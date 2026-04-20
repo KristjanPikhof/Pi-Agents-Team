@@ -8,6 +8,7 @@ test("communication flow supports steer while running, follow-up while idle, pas
 	const transports: MockWorkerTransport[] = [];
 	const workerManager = new WorkerManager(() => {
 		const transport = new MockWorkerTransport({
+			autoCompletePrompt: false,
 			promptText:
 				"headline: Worker finished first pass\nrelay_question: Should I widen the search scope?\nassumption: I will keep the current scope unless told otherwise.",
 		});
@@ -26,6 +27,7 @@ test("communication flow supports steer while running, follow-up while idle, pas
 	await teamManager.messageWorker(delegated.worker.workerId, "Interrupt and narrow to passive ping only", "auto");
 	assert.ok(transports[0]?.commands.some((command) => command.type === "steer"));
 
+	transports[0]?.completePrompt();
 	await waitForMicrotasks();
 	await waitForMicrotasks();
 
