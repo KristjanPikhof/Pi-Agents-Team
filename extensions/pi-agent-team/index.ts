@@ -164,11 +164,26 @@ export default function (pi: ExtensionAPI): void {
 	const teamManager = new TeamManager({ config: DEFAULT_TEAM_CONFIG });
 	let teamState = createDefaultTeamState(DEFAULT_TEAM_CONFIG);
 	let activeContext: ExtensionContext | undefined;
+	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 
 	teamManager.onStateChange((state) => {
 		teamState = state;
 		persistSnapshot(pi, teamState);
 		applyUi(activeContext, teamState);
+
+		for (const worker of Object.values(state.activeWorkers)) {
+			const previous = lastStatus.get(worker.workerId);
+			const nowTerminal = isTerminalWorkerStatus(worker.status);
+			const wasTerminal = previous ? isTerminalWorkerStatus(previous) : false;
+			if (previous !== worker.status && nowTerminal && !wasTerminal) {
+				pi.sendMessage({
+					customType: DEFAULT_TEAM_CONFIG.persistence.statusMessageType,
+					content: `✓ ${worker.workerId} (${worker.profileName}) finished with status=${worker.status}. Call agent_result ${worker.workerId} to read findings.`,
+					display: true,
+				});
+			}
+			lastStatus.set(worker.workerId, worker.status);
+		}
 	});
 
 	const commandDependencies = {
