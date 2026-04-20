@@ -217,8 +217,9 @@ export class RpcClient {
 			}
 
 			this.transport.stdin.write(body, (error) => {
-				if (!signal) return;
-				signal.removeEventListener("abort", onAbort);
+				if (signal) {
+					signal.removeEventListener("abort", onAbort);
+				}
 				if (!error) return;
 				this.pending.delete(id);
 				reject(error instanceof Error ? error : new Error(String(error)));
