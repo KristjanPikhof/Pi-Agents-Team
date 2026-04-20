@@ -12,7 +12,8 @@
     "rpc"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts"
   },
   "pi": {
     "extensions": [
@@ -27,6 +28,7 @@
     "@mariozechner/pi-coding-agent": "^0.67.68",
     "@sinclair/typebox": "latest",
     "@types/node": "latest",
+    "tsx": "latest",
     "typescript": "latest"
   }
 }
