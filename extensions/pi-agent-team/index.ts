@@ -508,13 +508,25 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (event, ctx) => {
 		activeContext = ctx;
-		teamState = restoreLatestState(ctx);
+		const { state, markedCount } = restoreLatestState(ctx, event.reason);
+		teamState = state;
 		teamManager.restore(teamState);
 		applyUi(ctx, teamState);
 		persistSnapshot(pi, teamState);
 
-		if (ctx.hasUI && event.reason === "startup") {
+		if (!ctx.hasUI) return;
+
+		if (event.reason === "startup") {
 			ctx.ui.notify("Pi Agent Team loaded: this session is running in orchestrator mode.", "info");
+			return;
+		}
+
+		if (markedCount > 0) {
+			const noun = markedCount === 1 ? "worker" : "workers";
+			ctx.ui.notify(
+				`Pi Agent Team: ${markedCount} ${noun} from prior session marked exited (${event.reason}). Relaunch via delegate_task if still needed.`,
+				"warning",
+			);
 		}
 	});
 
