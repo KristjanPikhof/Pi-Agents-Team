@@ -3,6 +3,8 @@ import { SelectList, type SelectItem, matchesKey } from "@mariozechner/pi-tui";
 import type { TeamManager } from "../control-plane/team-manager";
 import type { WorkerConsoleEvent } from "../runtime/worker-manager";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types";
+import { copyToClipboard } from "../util/clipboard";
+import { buildCopyPayload } from "./copy-payload";
 import { buildTeamDashboardText } from "./dashboard";
 
 type DetailTab = "summary" | "console";
