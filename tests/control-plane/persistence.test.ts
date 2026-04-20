@@ -54,7 +54,59 @@ test("markRestoredWorkersExited converts live workers into exited snapshots", ()
 		},
 	};
 
-	const marked = markRestoredWorkersExited(base, "restore needed");
+	const { state: marked, markedCount } = markRestoredWorkersExited(base, "restore needed");
 	assert.equal(marked.activeWorkers["worker-1"]?.status, "exited");
 	assert.equal(marked.activeWorkers["worker-1"]?.error, "restore needed");
+	assert.equal(markedCount, 1);
+});
+
+test("markRestoredWorkersExited maps session-start reasons to specific messages", () => {
+	const base = createDefaultTeamState();
+	base.activeWorkers["worker-1"] = {
+		workerId: "worker-1",
+		profileName: "fixer",
+		sessionMode: "worker",
+		status: "running",
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		pendingRelayQuestions: [],
+		usage: {
+			turns: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0,
+		},
+	};
+
+	const resumed = markRestoredWorkersExited(base, "resume");
+	assert.match(resumed.state.activeWorkers["worker-1"]?.error ?? "", /resumed/);
+
+	const forked = markRestoredWorkersExited(base, "fork");
+	assert.match(forked.state.activeWorkers["worker-1"]?.error ?? "", /forked/);
+});
+
+test("markRestoredWorkersExited reports zero when no workers were live", () => {
+	const base = createDefaultTeamState();
+	base.activeWorkers["worker-1"] = {
+		workerId: "worker-1",
+		profileName: "fixer",
+		sessionMode: "worker",
+		status: "exited",
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		pendingRelayQuestions: [],
+		usage: {
+			turns: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0,
+		},
+	};
+
+	const { markedCount } = markRestoredWorkersExited(base, "reload");
+	assert.equal(markedCount, 0);
 });
