@@ -1,6 +1,10 @@
-# Pi Agent Team
+# Pi Agents Team
 
-Pi Agent Team turns one Pi session into an orchestrator that launches and supervises background RPC-backed worker agents.
+Pi Agents Team turns one Pi session into an orchestrator that launches and supervises background RPC-backed worker agents.
+
+- **Repo:** `git@github.com:KristjanPikhof/pi-agents-team.git`
+- **Runtime:** [`@mariozechner/pi-coding-agent`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent) `>=0.68.0` (global `pi` CLI)
+- **Node:** `>=20`
 
 ## What it does
 
@@ -9,24 +13,35 @@ Pi Agent Team turns one Pi session into an orchestrator that launches and superv
 - tracks workers with compact summaries and a verbatim `<final_answer>` block, never full transcripts
 - exposes operator controls for status, ping, steer, follow-up, cancel, and result inspection
 - enforces profile-based launch policy and scoped-write safety
+- on warm session starts (`reload`/`resume`/`fork`/`new`), flags prior workers that were force-marked `exited` with a single warning toast so you never silently lose track of a batch
 
 ## Quick start
 
-Install dependencies and run the checks:
+Clone and install:
 
 ```bash
+git clone git@github.com:KristjanPikhof/pi-agents-team.git
+cd pi-agents-team
 npm install
+```
+
+Run the combined typecheck + tests:
+
+```bash
+npm run check          # runs typecheck + all 53 tests
+# or individually:
 npm run typecheck
 npm test
 ```
 
-Load the extension directly in Pi:
+Load the extension directly in Pi (requires `pi` on your PATH):
 
 ```bash
-pi -e ./extensions/pi-agent-team/index.ts -p "/team-status"
+pi -e ./extensions/pi-agent-team/index.ts              # open an orchestrator session
+pi -e ./extensions/pi-agent-team/index.ts -p "/team"   # open straight into the dashboard overlay
 ```
 
-Run the smoke scripts:
+Run the smoke scripts (these spawn real Pi RPC workers):
 
 ```bash
 npm run smoke:runtime
@@ -88,6 +103,16 @@ Key rules:
 
 See [`docs/profiles.md`](docs/profiles.md) for the full profile table and customization notes.
 
+## Session restore
+
+Persisted state survives reloads via custom-typed session entries, but live worker processes are never silently reattached. Every worker that was live in the previous session (`running`, `starting`, `idle`, `waiting_followup`) is force-marked `exited` on the new session start. The session-start handler threads Pi's `SessionStartEvent.reason` (`startup` / `reload` / `new` / `resume` / `fork`) through, so:
+
+- cold `startup` keeps the existing info toast (`Pi Agents Team loaded…`)
+- any warm start (`reload` / `resume` / `fork` / `new`) with ≥1 flipped worker surfaces a single warning toast naming the count and reason, e.g. `Pi Agents Team: 3 workers from prior session marked exited (resume). Relaunch via delegate_task if still needed.`
+- each flipped worker's `error` field in `/team` detail view carries a reason-specific message (`session resumed…`, `session forked…`, etc.)
+
+Relaunch via `delegate_task` if you still need that work. This is deliberately honest — orphaned state is worse than forcing a relaunch.
+
 ## Documentation map
 
 - [`docs/architecture.md`](docs/architecture.md): system structure, runtime flow, state contract
@@ -111,3 +136,9 @@ profiles/                            # markdown profile definitions
 tests/                               # unit + integration coverage (node:test)
 scripts/smoke/                       # runtime-worker and team-flow smokes
 ```
+
+## Contributing
+
+Issues and PRs welcome at [github.com/KristjanPikhof/pi-agents-team](https://github.com/KristjanPikhof/pi-agents-team).
+
+Before opening a PR: run `npm run check` (typecheck + 53 tests must be green) and update the relevant doc if operator-facing behavior or contract-level rules change. See [`CLAUDE.md`](CLAUDE.md) for the "what to do on each turn" checklist.
