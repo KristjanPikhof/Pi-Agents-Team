@@ -312,11 +312,22 @@ export class TeamManager {
 
 	async waitForTerminal(
 		targetIds: string[],
-		options: { timeoutMs?: number; signal?: AbortSignal } = {},
-	): Promise<{ reason: "all_terminal" | "timeout" | "aborted"; workers: WorkerRuntimeState[] }> {
+		options: { timeoutMs?: number; signal?: AbortSignal; wakeOnRelay?: boolean } = {},
+	): Promise<{
+		reason: "all_terminal" | "timeout" | "aborted" | "relay_raised";
+		workers: WorkerRuntimeState[];
+		newRelays?: Array<{ workerId: string; profileName: string; question: string; urgency: string }>;
+	}> {
 		const resolved = targetIds
 			.map((id) => this.resolveWorkerId(id) ?? id)
 			.filter((id, index, arr) => arr.indexOf(id) === index);
+		const wakeOnRelay = options.wakeOnRelay !== false;
+
+		const baselineRelays = new Map<string, number>();
+		for (const id of resolved) {
+			const worker = this.registry.getWorker(id);
+			baselineRelays.set(id, worker?.pendingRelayQuestions.length ?? 0);
+		}
 
 		const snapshotTargets = (): WorkerRuntimeState[] =>
 			resolved
@@ -327,6 +338,24 @@ export class TeamManager {
 			const workers = snapshotTargets();
 			if (workers.length < resolved.length) return false;
 			return workers.every((worker) => isTerminalWorkerStatus(worker.status));
+		};
+
+		const collectNewRelays = (): Array<{ workerId: string; profileName: string; question: string; urgency: string }> => {
+			const newRelays: Array<{ workerId: string; profileName: string; question: string; urgency: string }> = [];
+			for (const worker of snapshotTargets()) {
+				const baseline = baselineRelays.get(worker.workerId) ?? 0;
+				if (worker.pendingRelayQuestions.length > baseline) {
+					for (const relay of worker.pendingRelayQuestions.slice(baseline)) {
+						newRelays.push({
+							workerId: worker.workerId,
+							profileName: worker.profileName,
+							question: relay.question,
+							urgency: relay.urgency,
+						});
+					}
+				}
+			}
+			return newRelays;
 		};
 
 		if (allTerminal()) {
@@ -343,15 +372,27 @@ export class TeamManager {
 				if (options.signal) options.signal.removeEventListener("abort", onAbort);
 			};
 
-			const finish = (reason: "all_terminal" | "timeout" | "aborted") => {
+			const finish = (reason: "all_terminal" | "timeout" | "aborted" | "relay_raised") => {
 				if (settled) return;
 				settled = true;
 				cleanup();
-				resolve({ reason, workers: snapshotTargets() });
+				const payload: {
+					reason: typeof reason;
+					workers: WorkerRuntimeState[];
+					newRelays?: Array<{ workerId: string; profileName: string; question: string; urgency: string }>;
+				} = { reason, workers: snapshotTargets() };
+				if (reason === "relay_raised") payload.newRelays = collectNewRelays();
+				resolve(payload);
 			};
 
 			const listener = () => {
-				if (allTerminal()) finish("all_terminal");
+				if (allTerminal()) {
+					finish("all_terminal");
+					return;
+				}
+				if (wakeOnRelay && collectNewRelays().length > 0) {
+					finish("relay_raised");
+				}
 			};
 			const onAbort = () => finish("aborted");
 			const timer = setTimeout(() => finish("timeout"), timeoutMs);
