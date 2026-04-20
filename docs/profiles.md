@@ -1,52 +1,64 @@
 # Profiles
 
-Pi Agent Team ships with a small set of default worker profiles.
+Pi Agent Team ships with seven default worker profiles. Each one is a combination of role prompt, default tools, thinking level, extension mode, and write policy.
 
 ## Default profiles
 
-| Profile | Best for | Tools | Write policy |
-|---|---|---|---|
-| `explorer` | fast codebase reconnaissance | `read`, `grep`, `find`, `ls`, `bash` | read-only |
-| `librarian` | documentation and API research | `read`, `grep`, `find`, `ls`, `bash` | read-only |
-| `oracle` | architecture and debugging judgement | `read`, `grep`, `find`, `ls`, `bash` | read-only |
-| `designer` | UI and operator experience review | `read`, `grep`, `find`, `ls`, `bash` | read-only |
-| `fixer` | bounded implementation and tests | `read`, `bash`, `edit`, `write` | scoped-write |
-| `reviewer` | validation and regression review | `read`, `grep`, `find`, `ls`, `bash` | read-only |
-| `observer` | visual or runtime observation | `read`, `grep`, `find`, `ls`, `bash` | read-only |
+| Profile | Best for | Tools | Thinking | Write policy |
+|---|---|---|---|---|
+| `explorer` | Fast codebase reconnaissance and file discovery | `read`, `grep`, `find`, `ls`, `bash` | low | read-only |
+| `librarian` | Docs, APIs, and version-sensitive reference research | `read`, `grep`, `find`, `ls`, `bash` | medium | read-only |
+| `oracle` | Architecture, debugging, and review-heavy judgement | `read`, `grep`, `find`, `ls`, `bash` | high | read-only |
+| `designer` | UI and interaction design guidance | `read`, `grep`, `find`, `ls`, `bash` | medium | read-only |
+| `reviewer` | Validation, critique, and regression review | `read`, `grep`, `find`, `ls`, `bash` | medium | read-only |
+| `observer` | Observation for screenshots or non-code artifacts | `read`, `grep`, `find`, `ls`, `bash` | low | read-only |
+| `fixer` | Bounded implementation, tests, and targeted edits | `read`, `bash`, `edit`, `write` | medium | scoped-write |
+
+All profiles default to `extensionMode: worker-minimal` and `canSpawnWorkers: false`.
 
 ## Where profiles live
 
-Packaged profiles live in [`profiles/`](../profiles/). The loader reads the markdown frontmatter and resolves:
+Packaged profiles live in [`../profiles/`](../profiles/). The loader reads the markdown frontmatter and resolves:
 
-- model
-- thinking level
-- tools
-- prompt path
-- extension mode
-- write policy
-- whether the worker may spawn more workers
+- `name`
+- `description`
+- `model` (optional; inherits the orchestrator's model when omitted)
+- `thinkingLevel`
+- `tools`
+- `promptPath`
+- `extensionMode`
+- `writePolicy`
+- `canSpawnWorkers`
+
+The full profile spec is defined by `TeamProfileSpecSchema` in `src/config.ts`.
+
+## Launch policy
+
+Launch policy (`src/safety/launch-policy.ts`) runs for every `delegate_task` and resolves:
+
+1. **Extension mode.** Defaults to the profile's mode (`worker-minimal`). If `preventRecursiveOrchestrator` is on (default) and the caller tries `inherit`, it throws.
+2. **Path scope.** For `scoped-write` profiles, `ensureWriteScope` requires explicit writable roots. Read-only profiles go through `normalizePathScope`, which permits broad inspection without granting write capability.
+3. **Model, thinking level, tools, prompt path.** The caller can override; the profile is the default.
 
 ## Safety rules
 
-### No recursive orchestrators by default
+### No recursive orchestrators
 
-Worker launches default to `worker-minimal`. That blocks the full extension discovery path and keeps subordinate workers from re-entering orchestrator mode.
+Workers launch with `worker-minimal`, which disables extension discovery inside the worker. That stops a worker from re-instantiating the full orchestrator package and from spawning its own subordinate workers through this extension. `canSpawnWorkers` on the default profiles is `false` to match.
 
 ### Scoped write policy
 
-`fixer` is intentionally stricter than the read-only roles.
+`fixer` is intentionally stricter. If you launch a write-capable worker without a writable path scope, launch policy rejects the task. This is the simplest guardrail against two workers stepping on the same files.
 
-If you launch a write-capable worker, provide a writable path scope. Without that scope, launch policy rejects the task.
+If you need writes, pass `pathScopeRoots` and set `pathScopeAllowWrite: true` on the `delegate_task` call (or bake the scope into the profile spec).
 
 ### Read-only profiles stay simple
 
-Read-only profiles can inspect broadly and summarize findings. They do not need writable scopes.
+Read-only profiles can inspect broadly and summarize findings. They do not need writable scopes and will not block on their absence.
 
 ## Customizing profiles
 
-Edit or replace the markdown files in `profiles/`.
-
-Each file uses frontmatter like this:
+Edit or replace the markdown files in `profiles/`. Each file uses frontmatter like this:
 
 ```yaml
 ---
@@ -62,4 +74,15 @@ canSpawnWorkers: false
 ---
 ```
 
-If you change profile names or prompt paths, keep them aligned with the files in [`prompts/agents/`](../prompts/agents/).
+If you rename a profile or its prompt file, keep the spec and the file in [`../prompts/agents/`](../prompts/agents/) aligned. Tests in `tests/profiles/loader.test.ts` and `tests/prompts/prompt-files.test.ts` will fail fast if they drift.
+
+## Profile prompt contract
+
+Every role prompt in `prompts/agents/*.md` has the same shape:
+
+- mission statement
+- working-style rules (stay in scope, verify, report compactly)
+- result shape (goal, findings/changed_files, risks, next_recommendation)
+- `<final_answer>…</final_answer>` block contract in the final assistant message
+
+See [`prompting.md`](prompting.md) for the full contract and why it matters.
