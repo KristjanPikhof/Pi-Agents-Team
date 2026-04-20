@@ -342,11 +342,12 @@ export default function (pi: ExtensionAPI): void {
 			const targetIds = params.workerIds?.length
 				? params.workerIds.map((id) => teamManager.resolveWorkerId(id) ?? id)
 				: teamManager.listWorkers().map((worker) => worker.workerId);
+			type WaitDetails = { reason: "all_terminal" | "timeout" | "aborted" | "no_workers"; workers: WorkerRuntimeState[] };
 			if (targetIds.length === 0) {
-				const empty: WorkerRuntimeState[] = [];
+				const details: WaitDetails = { reason: "no_workers", workers: [] };
 				return {
 					content: [{ type: "text", text: "No tracked workers to wait on." }],
-					details: { reason: "no_workers" as const, workers: empty },
+					details,
 				};
 			}
 			const result = await teamManager.waitForTerminal(targetIds, {
@@ -358,9 +359,10 @@ export default function (pi: ExtensionAPI): void {
 				: result.reason === "timeout"
 					? `Wait timed out; some workers may still be running.`
 					: `Wait aborted.`;
+			const details: WaitDetails = { reason: result.reason, workers: result.workers };
 			return {
 				content: [{ type: "text", text: `${header}\n${formatWorkers(result.workers)}` }],
-				details: { reason: result.reason, workers: result.workers },
+				details,
 			};
 		},
 	});
