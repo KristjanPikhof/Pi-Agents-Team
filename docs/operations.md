@@ -116,6 +116,25 @@ If a profile can write files (today, only `fixer`), provide an explicit writable
 
 The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
+## Mid-flight relay handling
+
+`wait_for_agents` now wakes up early when any target raises a new relay question while others are still running (`wakeOnRelay: true` by default). When that happens the tool returns `reason: "relay_raised"` and `details.newRelays` lists which worker raised what.
+
+The orchestrator's pattern:
+
+```
+wait_for_agents          ← asleep, zero tokens
+  ↑                        returns "relay_raised" + newRelays list
+  │
+  │  agent_message (answer the relay)
+  │
+  └─ wait_for_agents     ← back to sleep
+```
+
+Each call re-snapshots the baseline relay count, so an already-answered relay never wakes a subsequent wait. Only fresh relays do. The orchestrator keeps cycling until every worker reaches a terminal status (`reason: "all_terminal"`).
+
+Pass `wakeOnRelay: false` if you explicitly want the old "wait for everyone" behavior.
+
 ## Troubleshooting
 
 ### A worker fails immediately with an API-key error
