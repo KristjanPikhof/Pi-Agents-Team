@@ -60,6 +60,69 @@ test("waitForTerminal resolves all_terminal once every target finishes", async (
 	assert.equal(resolved.workers[0]?.status, "idle");
 });
 
+test("waitForTerminal wakes early when a running worker raises a new relay", async () => {
+	const transports: MockWorkerTransport[] = [];
+	const workerManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport({
+			autoCompletePrompt: false,
+			promptText: "headline: partial\nrelay_question: Should I narrow scope?\nassumption: keep broad.",
+		});
+		transports.push(transport);
+		return new MockWorkerHandle(transport);
+	});
+	const teamManager = new TeamManager({ workerManager });
+
+	const running = await teamManager.delegateTask({
+		title: "Relay wake",
+		goal: "stay running until completePrompt",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	const raiser = await teamManager.delegateTask({
+		title: "Relay source",
+		goal: "emit a relay mid-flight",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+
+	const pending = teamManager.waitForTerminal(
+		[running.worker.workerId, raiser.worker.workerId],
+		{ timeoutMs: 1000 },
+	);
+	transports[1]?.completePrompt();
+	const resolved = await pending;
+
+	assert.equal(resolved.reason, "relay_raised");
+	assert.ok(resolved.newRelays && resolved.newRelays.length >= 1);
+	assert.equal(resolved.newRelays![0]?.workerId, raiser.worker.workerId);
+	assert.match(resolved.newRelays![0]?.question ?? "", /narrow scope/);
+});
+
+test("waitForTerminal with wakeOnRelay:false ignores relays and waits for terminal", async () => {
+	const transports: MockWorkerTransport[] = [];
+	const workerManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport({
+			autoCompletePrompt: false,
+			promptText: "headline: done\nrelay_question: Should I keep going?\nassumption: yes",
+		});
+		transports.push(transport);
+		return new MockWorkerHandle(transport);
+	});
+	const teamManager = new TeamManager({ workerManager });
+
+	const { worker } = await teamManager.delegateTask({
+		title: "Opt-out wake",
+		goal: "verify wakeOnRelay:false still waits for terminal",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+
+	const pending = teamManager.waitForTerminal([worker.workerId], { timeoutMs: 1000, wakeOnRelay: false });
+	transports[0]?.completePrompt();
+	const resolved = await pending;
+	assert.equal(resolved.reason, "all_terminal");
+});
+
 test("waitForTerminal times out while the worker stays running", async () => {
 	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
 	const teamManager = new TeamManager({ workerManager });
