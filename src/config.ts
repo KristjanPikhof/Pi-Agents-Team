@@ -105,6 +105,7 @@ export const WorkerRuntimeStateSchema = Type.Object({
 	lastToolName: Type.Optional(Type.String()),
 	currentTask: Type.Optional(DelegatedTaskInputSchema),
 	lastSummary: Type.Optional(WorkerSummarySchema),
+	finalAnswer: Type.Optional(Type.String()),
 	pendingRelayQuestions: Type.Array(RelayQuestionSchema),
 	usage: WorkerUsageStatsSchema,
 	error: Type.Optional(Type.String()),
