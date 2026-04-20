@@ -360,7 +360,7 @@ export function normalizePersistedTeamState(
 
 export function buildDashboardEntries(activeWorkers: Record<string, WorkerRuntimeState>): TeamDashboardEntry[] {
 	return Object.values(activeWorkers)
-		.sort((left, right) => right.lastEventAt - left.lastEventAt)
+		.sort((left, right) => compareWorkerIds(left.workerId, right.workerId))
 		.map((worker) => ({
 			workerId: worker.workerId,
 			profileName: worker.profileName,
