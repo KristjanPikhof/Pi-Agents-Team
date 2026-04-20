@@ -218,7 +218,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 	ui: {
 		statusKey: "pi-agent-team",
 		widgetKey: "pi-agent-team",
-		titleTemplate: "pi - Pi Agent Team ({mode})",
+		titleTemplate: "pi - Pi Agents Team ({mode})",
 		maxVisibleWorkers: 4,
 		showProfileNames: true,
 	},
