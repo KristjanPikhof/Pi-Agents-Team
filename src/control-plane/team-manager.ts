@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
 import { DEFAULT_TEAM_CONFIG } from "../config";
 import { TaskRegistry } from "./task-registry";
+import { resolveWorkerMessageDelivery } from "../comms/agent-messaging";
+import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt, getWorkerPromptPath } from "../prompts/contracts";
 import { WorkerManager } from "../runtime/worker-manager";
 import type {
@@ -129,7 +131,7 @@ export class TeamManager {
 
 	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentResult> {
 		const worker = this.requireWorker(workerId);
-		const nextDelivery = delivery === "auto" ? (worker.status === "running" ? "steer" : "follow_up") : delivery;
+		const nextDelivery = resolveWorkerMessageDelivery(worker.status, delivery);
 
 		if (nextDelivery === "steer") {
 			await this.workerManager.steerWorker(workerId, message);
@@ -154,7 +156,22 @@ export class TeamManager {
 			);
 		}
 
-		return workerIds.map((workerId) => this.requireResult(workerId));
+		return workerIds.map((workerId) => {
+			const result = this.requireResult(workerId);
+			result.worker.lastSummary = result.worker.lastSummary ?? {
+				workerId: result.worker.workerId,
+				taskId: result.worker.currentTask?.taskId ?? result.worker.workerId,
+				headline: buildPassivePing(result.worker).lastSummary ?? `${result.worker.profileName}:${result.worker.status}`,
+				status: result.worker.status,
+				currentToolName: result.worker.lastToolName,
+				readFiles: [],
+				changedFiles: [],
+				risks: [],
+				relayQuestionCount: result.worker.pendingRelayQuestions.length,
+				updatedAt: Date.now(),
+			};
+			return result;
+		});
 	}
 
 	async cancelWorker(workerId: string): Promise<AgentResult> {
