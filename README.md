@@ -104,4 +104,4 @@ The orchestrator picks a profile (explorer, fixer, reviewer, librarian, observer
 
 ## License
 
-MIT.
+[MIT](LICENSE). Copyright © 2026 Kristjan Pikhof.
