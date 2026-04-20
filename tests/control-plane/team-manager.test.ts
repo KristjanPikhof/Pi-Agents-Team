@@ -199,6 +199,64 @@ test("messageAllWorkers broadcasts to every deliverable worker", async () => {
 	assert.equal(byId.get(second.worker.workerId)?.delivery, "follow_up");
 });
 
+test("pruneTerminalWorkers removes only terminal workers and leaves live ones alone", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
+	const teamManager = new TeamManager({ workerManager });
+
+	const live = await teamManager.delegateTask({
+		title: "Still running",
+		goal: "stay alive",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	const doomed = await teamManager.delegateTask({
+		title: "Will be cancelled",
+		goal: "get pruned",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await teamManager.cancelWorker(doomed.worker.workerId);
+
+	assert.equal(teamManager.listWorkers().length, 2);
+	const removed = teamManager.pruneTerminalWorkers();
+	assert.equal(removed.length, 1);
+	assert.equal(removed[0]?.workerId, doomed.worker.workerId);
+	const remaining = teamManager.listWorkers();
+	assert.equal(remaining.length, 1);
+	assert.equal(remaining[0]?.workerId, live.worker.workerId);
+});
+
+test("aggregateUsage sums token and cost fields across every tracked worker", async () => {
+	const transports: MockWorkerTransport[] = [];
+	const workerManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport();
+		transports.push(transport);
+		return new MockWorkerHandle(transport);
+	});
+	const teamManager = new TeamManager({ workerManager });
+
+	await teamManager.delegateTask({
+		title: "Usage aggregation A",
+		goal: "produce some tokens",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await teamManager.delegateTask({
+		title: "Usage aggregation B",
+		goal: "produce some more tokens",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	await teamManager.pingWorkers({ mode: "active" });
+	const agg = teamManager.aggregateUsage();
+	assert.equal(agg.workers, 2);
+	assert.ok(agg.inputTokens >= 20);
+	assert.ok(agg.costUsd >= 0.02);
+});
+
 test("cancelAllWorkers aborts only non-terminal workers and skips the rest", async () => {
 	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
 	const teamManager = new TeamManager({ workerManager });
