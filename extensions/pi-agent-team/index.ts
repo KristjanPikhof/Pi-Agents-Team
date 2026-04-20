@@ -352,7 +352,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_result",
 		label: "Agent Result",
-		description: "Get the worker's structured compact summary (headline, files touched, risks, next recommendation, relay questions). This is what you synthesize from. The full raw transcript is NOT returned here — it lives in the /team UI overlay and the /agent-result slash command so it does not pollute the main conversation. Only request the transcript via another channel if the user explicitly asks to see it.",
+		description: "Get the worker's final deliverable: structured summary header (headline/files/risks/next) plus the verbatim contents of the worker's <final_answer>…</final_answer> block. This is the authoritative answer — synthesize directly from it. If the final_answer block is empty, the worker did not follow the contract; re-delegate with smaller scope instead of reading files yourself.",
 		parameters: WorkerIdSchema,
 		async execute(_toolCallId, params) {
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
