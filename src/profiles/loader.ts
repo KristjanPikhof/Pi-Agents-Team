@@ -34,7 +34,7 @@ export function loadProfiles(profilesDir = DEFAULT_PROFILES_DIR): TeamProfileSpe
 	for (const entry of readdirSync(profilesDir, { withFileTypes: true })) {
 		if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
 		const content = readFileSync(resolve(profilesDir, entry.name), "utf8");
-		const { frontmatter } = parseFrontmatter<ProfileFrontmatter>(content);
+		const { frontmatter } = parseFrontmatter<Record<string, unknown> & ProfileFrontmatter>(content);
 		if (!frontmatter.name || !frontmatter.description || !frontmatter.prompt) continue;
 
 		const fallback = getDefaultProfile(frontmatter.name);
