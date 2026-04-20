@@ -37,7 +37,7 @@ tsx --test tests/runtime/worker-manager.test.ts
 /agents
 ```
 
-- `/team` opens the interactive dashboard overlay in TUI mode, or prints the dashboard text in print mode.
+- `/team` opens the interactive dashboard overlay in TUI mode, or prints the dashboard text in print mode. `/team <worker-id>` skips the list and opens the overlay directly on that worker's detail view (tab completion suggests live worker ids).
 - `/team-status` prints the orchestrator snapshot, launch config, and active-worker lines.
 - `/agents` prints one line per tracked worker (`wN · profile · status`).
 
