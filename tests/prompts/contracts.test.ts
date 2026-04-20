@@ -20,7 +20,7 @@ test("prompt contract loader resolves orchestrator and worker prompts", () => {
 test("buildOrchestratorPromptBundle combines file contract with runtime state", () => {
 	const state = createDefaultTeamState();
 	const bundle = buildOrchestratorPromptBundle(state);
-	assert.match(bundle, /Pi Agent Team Orchestrator Contract/);
+	assert.match(bundle, /Pi Agents Team Orchestrator Contract/);
 	assert.match(bundle, /Active worker count/);
 });
 
