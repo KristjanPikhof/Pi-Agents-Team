@@ -92,20 +92,28 @@ function buildConsoleText(worker: WorkerRuntimeState, events: WorkerConsoleEvent
 }
 
 function wrapLines(text: string, width: number): string[] {
+	if (width <= 0) return [];
 	const out: string[] = [];
 	for (const raw of text.split("\n")) {
-		if (raw.length <= width) {
+		if (visibleWidth(raw) <= width) {
 			out.push(raw);
 			continue;
 		}
 		let remaining = raw;
-		while (remaining.length > width) {
-			out.push(remaining.slice(0, width));
-			remaining = remaining.slice(width);
+		let guard = 0;
+		while (visibleWidth(remaining) > width && guard < 1000) {
+			const head = truncateToWidth(remaining, width, "");
+			out.push(head);
+			remaining = remaining.slice(head.length);
+			guard += 1;
 		}
 		if (remaining.length > 0) out.push(remaining);
 	}
 	return out;
+}
+
+function enforceWidth(lines: string[], width: number): string[] {
+	return lines.map((line) => (visibleWidth(line) > width ? truncateToWidth(line, width, "…") : line));
 }
 
 export interface OpenTeamDashboardOptions {
