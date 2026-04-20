@@ -17,11 +17,11 @@ export interface MarkRestoredWorkersExitedResult {
 const LIVE_WORKER_STATUSES: readonly string[] = ["running", "starting", "idle", "waiting_followup"];
 
 const REASON_MESSAGE: Record<SessionStartReason, string> = {
-	startup: "Pi Agent Team session restored; relaunch required for live worker control.",
-	reload: "Pi Agent Team session reloaded; relaunch required for live worker control.",
-	resume: "Pi Agent Team session resumed; relaunch required for live worker control.",
-	fork: "Pi Agent Team session forked; relaunch required for live worker control.",
-	new: "Pi Agent Team new session started; prior workers are no longer attached.",
+	startup: "Pi Agents Team session restored; relaunch required for live worker control.",
+	reload: "Pi Agents Team session reloaded; relaunch required for live worker control.",
+	resume: "Pi Agents Team session resumed; relaunch required for live worker control.",
+	fork: "Pi Agents Team session forked; relaunch required for live worker control.",
+	new: "Pi Agents Team new session started; prior workers are no longer attached.",
 };
 
 export function restorePersistedTeamState(
