@@ -281,8 +281,11 @@ export default function (pi: ExtensionAPI): void {
 			const currRelays = worker.pendingRelayQuestions.length;
 			if (currRelays > prevRelays && activeContext?.hasUI) {
 				const newest = worker.pendingRelayQuestions[worker.pendingRelayQuestions.length - 1];
-				const preview = newest?.question ? newest.question.replace(/\s+/g, " ").slice(0, 120) : "needs guidance";
-				activeContext.ui.notify(`❓ ${worker.workerId} (${worker.profileName}) needs guidance: ${preview}`, "warning");
+				const question = newest?.question?.trim();
+				if (question) {
+					const preview = question.replace(/\s+/g, " ").slice(0, 120);
+					activeContext.ui.notify(`❓ ${worker.workerId} (${worker.profileName}) needs guidance: ${preview}`, "warning");
+				}
 			}
 			lastRelayCount.set(worker.workerId, currRelays);
 		}
