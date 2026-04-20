@@ -3,8 +3,10 @@ import { DEFAULT_TEAM_CONFIG } from "../config";
 import { TaskRegistry } from "./task-registry";
 import { resolveWorkerMessageDelivery } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
-import { buildWorkerTaskPrompt, getWorkerPromptPath } from "../prompts/contracts";
+import { buildWorkerTaskPrompt } from "../prompts/contracts";
+import { resolveProfile } from "../profiles/loader";
 import { WorkerManager } from "../runtime/worker-manager";
+import { applyLaunchPolicy } from "../safety/launch-policy";
 import type {
 	DelegatedTaskInput,
 	PersistedTeamState,
@@ -76,7 +78,20 @@ export class TeamManager {
 	}
 
 	async delegateTask(request: DelegateTaskRequest): Promise<AgentResult> {
-		const profile = this.config.profiles.find((item: TeamConfig["profiles"][number]) => item.name === request.profileName);
+		const profile = resolveProfile(request.profileName);
+		const launchPlan = applyLaunchPolicy(
+			{
+				cwd: request.cwd,
+				profile,
+				pathScope: request.pathScope,
+				model: request.model,
+				thinkingLevel: request.thinkingLevel,
+				tools: request.tools,
+				extensionMode: request.extensionMode,
+				systemPromptPath: request.systemPromptPath,
+			},
+			this.config,
+		);
 		const taskId = createId("task");
 		const workerId = createId("worker");
 		const task: DelegatedTaskInput = {
@@ -88,7 +103,7 @@ export class TeamManager {
 			cwd: request.cwd,
 			contextHints: request.contextHints ?? [],
 			expectedOutput: request.expectedOutput,
-			pathScope: request.pathScope,
+			pathScope: launchPlan.pathScope,
 			createdAt: Date.now(),
 		};
 
@@ -98,12 +113,12 @@ export class TeamManager {
 			workerId,
 			profileName: request.profileName,
 			task,
-			cwd: request.cwd,
-			model: request.model ?? profile?.model,
-			thinkingLevel: request.thinkingLevel ?? profile?.thinkingLevel,
-			tools: request.tools ?? profile?.tools,
-			systemPromptPath: request.systemPromptPath ?? getWorkerPromptPath(request.profileName, this.config),
-			extensionMode: request.extensionMode ?? profile?.extensionMode ?? this.config.safety.defaultWorkerExtensionMode,
+			cwd: launchPlan.cwd,
+			model: launchPlan.model,
+			thinkingLevel: launchPlan.thinkingLevel,
+			tools: launchPlan.tools,
+			systemPromptPath: launchPlan.systemPromptPath,
+			extensionMode: launchPlan.extensionMode,
 		});
 
 		this.registry.upsertWorker(worker.state);
