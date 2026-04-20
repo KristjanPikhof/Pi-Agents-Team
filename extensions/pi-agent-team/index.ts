@@ -343,9 +343,10 @@ export default function (pi: ExtensionAPI): void {
 				? params.workerIds.map((id) => teamManager.resolveWorkerId(id) ?? id)
 				: teamManager.listWorkers().map((worker) => worker.workerId);
 			if (targetIds.length === 0) {
+				const empty: WorkerRuntimeState[] = [];
 				return {
 					content: [{ type: "text", text: "No tracked workers to wait on." }],
-					details: { reason: "no_workers", workers: [] },
+					details: { reason: "no_workers" as const, workers: empty },
 				};
 			}
 			const result = await teamManager.waitForTerminal(targetIds, {
