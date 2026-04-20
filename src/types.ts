@@ -142,6 +142,7 @@ export interface WorkerRuntimeState {
 	lastToolName?: string;
 	currentTask?: DelegatedTaskInput;
 	lastSummary?: WorkerSummary;
+	finalAnswer?: string;
 	pendingRelayQuestions: RelayQuestion[];
 	usage: WorkerUsageStats;
 	error?: string;
