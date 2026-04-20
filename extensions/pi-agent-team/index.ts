@@ -181,6 +181,7 @@ function formatWorkerDetail(worker: WorkerRuntimeState, transcript?: string): st
 }
 
 function workerIdCompletions(teamManager: TeamManager, prefix: string) {
+	if (/\s/.test(prefix)) return [];
 	return teamManager
 		.listWorkers()
 		.filter((worker) => worker.workerId.startsWith(prefix))
