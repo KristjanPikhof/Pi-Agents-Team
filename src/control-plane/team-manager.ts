@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { DEFAULT_TEAM_CONFIG } from "../config";
 import { TaskRegistry } from "./task-registry";
+import { buildWorkerTaskPrompt, getWorkerPromptPath } from "../prompts/contracts";
 import { WorkerManager } from "../runtime/worker-manager";
 import type {
 	DelegatedTaskInput,
@@ -39,21 +40,6 @@ export interface PingAgentsRequest {
 
 function createId(prefix: string): string {
 	return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function buildDelegationPrompt(task: DelegatedTaskInput): string {
-	return [
-		"You are a subordinate Pi Agent Team worker.",
-		"Report only to the orchestrator. Do not address the end user directly.",
-		`Task title: ${task.title}`,
-		`Goal: ${task.goal}`,
-		task.expectedOutput ? `Expected output: ${task.expectedOutput}` : undefined,
-		task.contextHints.length > 0 ? `Context hints:\n- ${task.contextHints.join("\n- ")}` : undefined,
-		task.pathScope ? `Path scope: ${task.pathScope.roots.join(", ")}` : undefined,
-		"Return a compact summary that includes findings, touched files, risks, and a next recommendation.",
-	]
-		.filter((line): line is string => Boolean(line))
-		.join("\n\n");
 }
 
 export class TeamManager {
@@ -114,12 +100,12 @@ export class TeamManager {
 			model: request.model ?? profile?.model,
 			thinkingLevel: request.thinkingLevel ?? profile?.thinkingLevel,
 			tools: request.tools ?? profile?.tools,
-			systemPromptPath: request.systemPromptPath,
+			systemPromptPath: request.systemPromptPath ?? getWorkerPromptPath(request.profileName, this.config),
 			extensionMode: request.extensionMode ?? profile?.extensionMode ?? this.config.safety.defaultWorkerExtensionMode,
 		});
 
 		this.registry.upsertWorker(worker.state);
-		await this.workerManager.promptWorker(workerId, buildDelegationPrompt(task));
+		await this.workerManager.promptWorker(workerId, buildWorkerTaskPrompt(task));
 		this.events.emit("state_change", this.snapshot());
 		return { worker: worker.state, task };
 	}
