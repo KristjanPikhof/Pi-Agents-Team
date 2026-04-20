@@ -310,6 +310,35 @@ export class TeamManager {
 		await this.workerManager.dispose();
 	}
 
+	pruneTerminalWorkers(): WorkerRuntimeState[] {
+		const terminal = this.registry.listWorkers().filter((worker) => isTerminalWorkerStatus(worker.status));
+		const removed: WorkerRuntimeState[] = [];
+		for (const worker of terminal) {
+			const result = this.registry.removeWorker(worker.workerId);
+			if (result) removed.push(result);
+		}
+		if (removed.length > 0) {
+			this.events.emit("state_change", this.snapshot());
+		}
+		return removed;
+	}
+
+	aggregateUsage(): { workers: number; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; costUsd: number } {
+		const workers = this.registry.listWorkers();
+		return workers.reduce(
+			(acc, worker) => ({
+				workers: acc.workers + 1,
+				turns: acc.turns + worker.usage.turns,
+				inputTokens: acc.inputTokens + worker.usage.inputTokens,
+				outputTokens: acc.outputTokens + worker.usage.outputTokens,
+				cacheReadTokens: acc.cacheReadTokens + worker.usage.cacheReadTokens,
+				cacheWriteTokens: acc.cacheWriteTokens + worker.usage.cacheWriteTokens,
+				costUsd: acc.costUsd + worker.usage.costUsd,
+			}),
+			{ workers: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+		);
+	}
+
 	async waitForTerminal(
 		targetIds: string[],
 		options: { timeoutMs?: number; signal?: AbortSignal; wakeOnRelay?: boolean } = {},
