@@ -191,6 +191,9 @@ export class WorkerManager {
 			handle,
 			state: createInitialState(options),
 			textBuffer: "",
+			console: [],
+			pendingTextDelta: "",
+			pendingTextFlushAt: 0,
 			unsubscribers: [],
 		};
 		this.workers.set(options.workerId, record);
