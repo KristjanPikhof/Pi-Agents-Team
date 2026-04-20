@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type, type TSchema } from "@sinclair/typebox";
 import {
 	PING_MODES,
 	RELAY_URGENCIES,
@@ -16,9 +16,7 @@ import {
 	type WorkerRuntimeState,
 } from "./types";
 
-function enumSchema<const T extends readonly [string, ...string[]]>(
-	values: T,
-): ReturnType<typeof Type.Union> {
+function enumSchema<const T extends readonly [string, ...string[]]>(values: T): TSchema {
 	return Type.Union(values.map((value) => Type.Literal(value)) as []);
 }
 
