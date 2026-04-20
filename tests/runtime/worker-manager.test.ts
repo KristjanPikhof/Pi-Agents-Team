@@ -58,3 +58,20 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	const abortedWorker = manager.getWorker("worker-1");
 	assert.equal(abortedWorker?.state.status, "aborted");
 });
+
+test("extractFinalAnswer pulls content from <final_answer> tag", async () => {
+	const { extractFinalAnswer } = await import("../../src/runtime/worker-manager");
+	const text = "preamble thinking\n<final_answer>\nheadline: done\nfindings:\n- x\n</final_answer>\ntrailing notes";
+	const result = extractFinalAnswer(text);
+	assert.ok(result);
+	assert.match(result!, /headline: done/);
+	assert.match(result!, /findings:/);
+	assert.doesNotMatch(result!, /trailing notes/);
+	assert.doesNotMatch(result!, /preamble/);
+});
+
+test("extractFinalAnswer returns undefined when tag missing", async () => {
+	const { extractFinalAnswer } = await import("../../src/runtime/worker-manager");
+	assert.equal(extractFinalAnswer("just some text with no tags"), undefined);
+	assert.equal(extractFinalAnswer("<final_answer></final_answer>"), undefined);
+});
