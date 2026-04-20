@@ -1,4 +1,5 @@
 import { buildDashboardEntries, createDefaultTeamState, normalizePersistedTeamState } from "../config";
+import { collectPendingRelayQuestions } from "../comms/relay-queue";
 import type { DelegatedTaskInput, PersistedTeamState, WorkerRuntimeState } from "../types";
 
 export class TaskRegistry {
@@ -68,5 +69,6 @@ export class TaskRegistry {
 	private refreshDerivedState(): void {
 		this.state.ui.dashboardEntries = buildDashboardEntries(this.state.activeWorkers);
 		this.state.ui.lastRenderAt = Date.now();
+		this.state.relayQueue = collectPendingRelayQuestions(this.state.activeWorkers);
 	}
 }
