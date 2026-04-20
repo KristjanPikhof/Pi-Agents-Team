@@ -40,6 +40,17 @@ export class TaskRegistry {
 		return structuredClone(worker);
 	}
 
+	removeWorker(workerId: string): WorkerRuntimeState | undefined {
+		const worker = this.state.activeWorkers[workerId];
+		if (!worker) return undefined;
+		delete this.state.activeWorkers[workerId];
+		if (worker.currentTask?.taskId) {
+			delete this.state.taskRegistry[worker.currentTask.taskId];
+		}
+		this.touch();
+		return structuredClone(worker);
+	}
+
 	listWorkers(): WorkerRuntimeState[] {
 		return Object.values(this.state.activeWorkers)
 			.sort((left, right) => compareWorkerIds(left.workerId, right.workerId))
