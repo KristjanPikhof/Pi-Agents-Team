@@ -84,7 +84,7 @@ The `fixer` profile is intentionally stricter than the read-heavy roles. If `wri
 
 ### Session restore is honest
 
-Persisted state survives reloads via custom-typed session entries, but live worker processes do not get silently reattached. `markRestoredWorkersExited` forces every restored worker to `exited` on session start. The operator sees what existed before the reload without being lied to about process liveness.
+Persisted state survives reloads via custom-typed session entries, but live worker processes do not get silently reattached. `markRestoredWorkersExited` forces every restored worker to `exited` on session start and returns the count that was flipped. The session-start handler reads Pi's `SessionStartEvent.reason` (`startup`/`reload`/`new`/`resume`/`fork`) to craft a reason-specific error string ("session resumed…", "session forked…", etc.) and, when `reason !== "startup"` and `markedCount > 0`, emits a single warning toast so the operator learns that prior workers are gone. The operator sees what existed before the reload without being lied to about process liveness.
 
 ### Wait, don't poll — with mid-flight relay wake
 
