@@ -49,6 +49,7 @@ const WorkerIdSchema = Type.Object({
 const WaitForAgentsSchema = Type.Object({
 	workerIds: Type.Optional(Type.Array(Type.String(), { description: "Worker ids to wait on. Omit to wait on every tracked worker." })),
 	timeoutMs: Type.Optional(Type.Number({ description: "Maximum wait in milliseconds. Defaults to 300000 (5 min)." })),
+	wakeOnRelay: Type.Optional(Type.Boolean({ description: "Return early with reason=relay_raised when any target raises a new relay question. Defaults to true so the orchestrator can answer mid-flight without waiting for every worker to finish." })),
 });
 
 function restoreLatestState(ctx: ExtensionContext): PersistedTeamState {
