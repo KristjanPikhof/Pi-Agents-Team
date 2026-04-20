@@ -58,9 +58,9 @@ Prefer many bounded, parallel tasks over one wide task. A good delegation looks 
 
 After delegating, your loop is:
 
-1. Immediately call **`wait_for_agents`** with the worker ids you just spawned (or omit ids to wait on all). This tool blocks without burning tokens and returns exactly once when every named worker has reached a terminal state, or when the timeout elapses. It is the primary waiting primitive — use it instead of polling.
-2. If a worker raised a relay question during the wait, `wait_for_agents` will still return when the worker parks in `waiting_followup`/`idle`; answer any relays via `agent_message` and, if needed, call `wait_for_agents` again to resume waiting.
-3. When workers are terminal, call **`agent_result`** on each one — this is the only tool that returns the full final assistant text plus structured summary. `agent_status` / `ping_agents` only return the one-line headline; they are not enough to synthesize.
+1. Immediately call **`wait_for_agents`** with the worker ids you just spawned (or omit ids to wait on all). This tool blocks without burning tokens and returns on one of four reasons: `all_terminal`, `relay_raised`, `timeout`, or `aborted`.
+2. **If `reason=relay_raised`**, `wait_for_agents.details.newRelays` lists the worker, urgency, and question for every relay that came in while you were waiting. Other workers may still be running. Answer each relay via `agent_message` (auto-routed), then call `wait_for_agents` again with the same ids to resume waiting. You do not need to re-delegate and you must not wait for every worker to finish before answering a mid-flight relay.
+3. **If `reason=all_terminal`**, call **`agent_result`** on each worker — this is the only tool that returns the full final assistant text plus structured summary.
 4. Synthesize a single answer for the user from those results. Acknowledge each worker's contribution in the integrated answer.
 
 **Tool cheat sheet:**
