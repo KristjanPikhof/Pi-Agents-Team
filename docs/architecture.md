@@ -168,7 +168,7 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 - **Transient status line.** A `» …` line under the footer shows copy/refresh outcomes for ~2.5 s.
 - **Live ping on open** and on `r`. The overlay issues `teamManager.pingWorkers({ mode: "active" })` so token counts and streaming status are current.
 - **Direct focus.** `/team <worker-id>` opens the overlay already on that worker's Summary tab. Tab completion on the `/team` argument pulls live worker ids.
-- **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload — task, summary, relays, usage, final answer, latest assistant text, console timeline — via pbcopy / clip.exe / wl-copy / xclip / xsel.
+- **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload (task, summary, relays, usage, final answer, latest assistant text, console timeline) via pbcopy / clip.exe / wl-copy / xclip / xsel.
 
 ## Notifications
 
