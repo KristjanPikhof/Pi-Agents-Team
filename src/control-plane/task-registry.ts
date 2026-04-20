@@ -1,6 +1,6 @@
 import { buildDashboardEntries, createDefaultTeamState, normalizePersistedTeamState } from "../config";
 import { collectPendingRelayQuestions } from "../comms/relay-queue";
-import type { DelegatedTaskInput, PersistedTeamState, WorkerRuntimeState } from "../types";
+import { compareWorkerIds, type DelegatedTaskInput, type PersistedTeamState, type WorkerRuntimeState } from "../types";
 
 export class TaskRegistry {
 	private state: PersistedTeamState;
