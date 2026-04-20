@@ -203,6 +203,10 @@ export class TeamManager {
 		return this.workerManager.getWorkerTranscript(workerId);
 	}
 
+	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined {
+		return this.workerManager.getWorkerConsole(workerId);
+	}
+
 	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentResult> {
 		const worker = this.requireWorker(workerId);
 		const nextDelivery = resolveWorkerMessageDelivery(worker.status, delivery);
