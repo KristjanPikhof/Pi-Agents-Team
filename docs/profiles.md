@@ -149,7 +149,7 @@ The schema is partial — omit roles you don't need to customize. The smallest v
 { "version": 1, "enabled": false }
 ```
 
-`/team-init local` writes this minimum plus an empty `roles: {}` object. Expand only the roles you want to change:
+`/team-init local` writes a richer file that pre-populates every builtin role so the schema is discoverable. The minimum valid file above still works — the scaffold is a convenience, not a requirement. Delete any role block from the scaffold to fall back to built-in defaults for that role:
 
 ```json
 {
