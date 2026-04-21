@@ -3,6 +3,16 @@ export const TEAM_STATE_VERSION = 1 as const;
 export const TEAM_SESSION_MODES = ["orchestrator", "worker"] as const;
 export type TeamSessionMode = (typeof TEAM_SESSION_MODES)[number];
 
+/**
+ * Names the plugin ships packaged `prompts/agents/<name>.md` prompts for.
+ * In schema v2, these are NOT a ceiling — users may rename, drop, or add roles
+ * freely. This list is only used for two things:
+ *   1. The default `/team-init` scaffold seeds these role keys so first-time
+ *      operators see a sensible starting point.
+ *   2. When `role.prompt === "default"`, the loader looks for a packaged prompt
+ *      at `prompts/agents/<roleName>.md`. Matching names get the packaged file;
+ *      custom names get the generic worker template.
+ */
 export const TEAM_PROFILE_NAMES = [
 	"explorer",
 	"librarian",
@@ -13,6 +23,10 @@ export const TEAM_PROFILE_NAMES = [
 	"observer",
 ] as const;
 export type TeamProfileName = (typeof TEAM_PROFILE_NAMES)[number];
+
+export function isPackagedProfileName(name: string): name is TeamProfileName {
+	return (TEAM_PROFILE_NAMES as readonly string[]).includes(name);
+}
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
