@@ -609,13 +609,25 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		};
 	}
 
-	// Schema v2: pick a single winning layer — project overrides global completely
-	// when both are valid. The winning layer fully owns the role list. Built-ins
-	// are only used when no valid layer is present, or when a layer explicitly
-	// declares no roles.
+	// Pick the winning layer based on FILE PRESENCE first, not validity. If a
+	// project file exists (valid or mismatched), project wins — a
+	// schema-mismatched project must NOT let global silently take over, because
+	// that would let a stale local config resurface broader global roles in a
+	// repo that explicitly narrowed them. Rule: project > global by presence;
+	// invalid winning layer → built-in fallback for that scope, never
+	// downshift-to-other-layer.
 	const projectLayer = parsedLayers.find((layer) => layer.scope === "project");
 	const globalLayer = parsedLayers.find((layer) => layer.scope === "global");
-	const winningLayer = projectLayer ?? globalLayer;
+	const projectFilePresent = projectPath !== undefined;
+
+	let winningLayer: ParsedLayer | undefined;
+	if (projectFilePresent) {
+		// Project wins by presence. If it parsed cleanly, use it; otherwise we
+		// explicitly fall through to built-ins (winningLayer stays undefined).
+		winningLayer = projectLayer;
+	} else {
+		winningLayer = globalLayer;
+	}
 
 	let profiles: TeamProfileSpec[];
 	if (!winningLayer || !winningLayer.parsed.roles || Object.keys(winningLayer.parsed.roles).length === 0) {
