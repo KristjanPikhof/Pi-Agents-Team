@@ -239,7 +239,16 @@ function normalizeFlatWritePolicy(write: boolean | undefined): WorkerWritePolicy
  * - advanced: { extensionMode, canSpawnWorkers, pathScope } rolls into permissions.
  */
 export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleConfig {
-	if (isLegacyRoleShape(raw)) return raw;
+	if (isLegacyRoleShape(raw)) {
+		// Legacy v1 shape. `prompt` is required by the current ProjectRoleConfig
+		// type, but older hand-authored files may have omitted it (permissions-only
+		// roles were accepted pre-v2). Default to the builtin sentinel so
+		// `resolveRolePrompt` never dereferences `prompt.source` on `undefined`.
+		if (!raw.prompt) {
+			return { ...raw, prompt: { source: "builtin", path: null } };
+		}
+		return raw;
+	}
 
 	const flat = raw as ProjectRoleFlatConfig;
 	const advanced = flat.advanced ?? {};
