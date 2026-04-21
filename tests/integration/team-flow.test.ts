@@ -32,8 +32,11 @@ test("team flow delegates, steers, pings, follows up, and exposes relay state en
 	assert.equal(ping.length, 1);
 	assert.equal(ping[0]?.worker.pendingRelayQuestions.length, 1);
 
-	await teamManager.messageWorker(result.worker.workerId, "Thanks, stay idle", "follow_up");
+	await teamManager.messageWorker(result.worker.workerId, "Thanks, next step please", "follow_up");
 	const listed = teamManager.listWorkers();
 	assert.equal(listed.length, 1);
 	assert.equal(listed[0]?.profileName, "reviewer");
+	const promptCommands = transport?.commands.filter((c) => c.type === "prompt") ?? [];
+	assert.equal(promptCommands.length, 2);
+	assert.equal(promptCommands.at(-1)?.message, "Thanks, next step please");
 });
