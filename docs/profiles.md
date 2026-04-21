@@ -107,8 +107,10 @@ The `prompt` field has three forms. The loader picks one by checking what the st
 | `"default"` or omitted | matches a built-in (`fixer`, `explorer`, etc.) | Loads the packaged prompt at `prompts/agents/<name>.md`. |
 | `"default"` or omitted | custom (e.g. `api-scout`) | Loads `prompts/agents/_generic-worker.md` and substitutes `{NAME}` + `{DESCRIPTION}` (the role's `whenToUse`). |
 | Any string that resolves to a readable file | any | Loads that file's contents as the worker prompt. |
-| Any string that does not resolve to a file | any | Treated as inline prompt text. Stored verbatim on the profile. |
-| Path that escapes the project root (project config only) | any | Hard error. Layer is marked invalid, delegation disabled until fixed. |
+| Any string that does not resolve to a file, path-shaped (`./`, `~/`, `http(s)://`, ends in `.md`, contains `/` without whitespace) | any | Treated as inline prompt text, but emits a `project_prompt_missing` warning. The warning catches typos — `prompts/reviewr.md` silently becoming a 21-char inline prompt is worse than surfacing it. |
+| Any string that does not resolve to a file, prose-shaped | any | Treated as inline prompt text, no warning. This is the explicit escape hatch for "I want to write the prompt inline." |
+| Empty / whitespace-only string | any | Warning (`project_prompt_empty`), falls back to the generic worker template. |
+| Path that escapes the project root (including symlinks whose realpath is outside the real project root) | any | Hard error (`project_path_escape`). Layer is marked invalid, delegation disabled until fixed. |
 
 Inline text is the escape hatch when you don't want to maintain a separate markdown file:
 
