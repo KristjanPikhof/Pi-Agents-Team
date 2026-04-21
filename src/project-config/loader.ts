@@ -365,7 +365,7 @@ function resolveRolePrompt(
 	}
 
 	const raw = prompt.path;
-	if (!raw) {
+	if (!raw || raw.trim().length === 0) {
 		return {
 			promptPath: GENERIC_WORKER_PROMPT_SENTINEL,
 			diagnostics: [
@@ -388,12 +388,48 @@ function resolveRolePrompt(
 		return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, diagnostics: [resolved.diagnostic] };
 	}
 	if (resolved.path && existsSync(resolved.path)) {
+		// Existing path — verify it's a regular file. A directory would crash
+		// `readFileSync` at worker launch with EISDIR; catch it here instead.
+		try {
+			if (!statSync(resolved.path).isFile()) {
+				return {
+					promptPath: GENERIC_WORKER_PROMPT_SENTINEL,
+					diagnostics: [
+						makeDiagnostic(
+							"warning",
+							"project_prompt_not_a_file",
+							`Prompt path resolves to a directory (or non-file) for role "${roleName}": ${raw} — using the generic worker template.`,
+							fieldPath,
+						),
+					],
+				};
+			}
+		} catch {
+			// stat failed — treat as not-a-file, fall through to inline/warning path
+		}
 		return { promptPath: resolved.path, diagnostics: [] };
 	}
 
-	// Not a readable file: treat the string as inline prompt text. This is the
-	// user's explicit escape hatch ("I want to write the prompt inline").
-	return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, promptInline: raw, diagnostics: [] };
+	// Not a readable file. Two cases:
+	//  - string looks like a path (has separators, `.md` suffix, `./`, `~/`,
+	//    http(s)://, Windows drive) — very likely a typo or a wrong scope; warn
+	//    so operators see it, but still fall through to inline rather than
+	//    hard-failing (escape hatch for intentional inline prompts that happen
+	//    to contain `/`).
+	//  - string looks like prose — silent fallback to inline is the user's
+	//    explicit escape hatch.
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	if (looksLikePathString(raw)) {
+		diagnostics.push(
+			makeDiagnostic(
+				"warning",
+				"project_prompt_missing",
+				`Prompt string for role "${roleName}" looks like a path but no file was found at ${raw} — treating it as inline prompt text. If you meant a file, fix the path; if you meant literal text, ignore this warning.`,
+				fieldPath,
+			),
+		);
+	}
+	return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, promptInline: raw, diagnostics };
 }
 
 /**
