@@ -75,8 +75,14 @@ function applyUi(
 	state: PersistedTeamState,
 	frame = 0,
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
+	active = true,
 ): void {
 	if (!ctx?.hasUI) return;
+	if (!active) {
+		ctx.ui.setStatus(config.ui.statusKey, undefined);
+		ctx.ui.setWidget(config.ui.widgetKey, undefined);
+		return;
+	}
 
 	const widgetLines = buildTeamWidgetLines(state, { frame });
 	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state));
