@@ -2,14 +2,14 @@
 
 **TL;DR.** Pi Agents Team ships with seven default worker roles. Drop a file at `.pi/agent/agents-team.json` to customize them, add new ones, or cut the list down. The orchestrator only delegates to roles that exist in the loaded config, so the file is a direct knob on what your team of workers can do.
 
-The fastest path: run `/team-init local` in a repo, edit the resulting file, run `/reload-plugins`. Done.
+The fastest path: run `/team-init local` in a repo, edit the resulting file, run `/reload`. Done.
 
 ## When to reach for this
 
 | Goal | What to do |
 |---|---|
 | Use the extension as-is with sensible defaults | Nothing. No config file needed. |
-| Tune one role (e.g. pin a model for `oracle`) | `/team-init local`, edit that one role block, `/reload-plugins`. |
+| Tune one role (e.g. pin a model for `oracle`) | `/team-init local`, edit that one role block, `/reload`. |
 | Swap the default names for your own vocabulary | Edit the `roles` keys after `/team-init local`. |
 | Build a repo-specific team from scratch | `/team-init local`, delete every role you don't want, add the ones you do. |
 | Share a config with your team | Commit `.pi/agent/agents-team.json`. Teammates pick it up on next session start. |
@@ -229,7 +229,7 @@ Both commands are non-destructive:
 - If the file parses as JSON but drifts from the current schema (unknown fields, future fields, old-shape roles), the toggle preserves your raw object and only patches `enabled`. A warning surfaces that the file still needs a schema-level fix.
 - If the file isn't parseable JSON at all, the toggle backs it up to `YYYY-MM-DD-HHMM-agents-team.json` in the same directory before writing a minimal `{ schemaVersion, enabled }` replacement.
 
-Follow any toggle with `/reload-plugins` to apply the change in the current Pi session.
+Follow any toggle with `/reload` to apply the change in the current Pi session.
 
 ## Files that package this
 
