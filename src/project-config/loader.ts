@@ -258,8 +258,11 @@ export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleCo
 		prompt = { source: "project", path: flat.prompt };
 	}
 
+	// whenToUse is the canonical v2 field; description is a legacy alias.
+	const whenToUseOrDescription = flat.whenToUse ?? flat.description ?? null;
+
 	return {
-		description: flat.description ?? null,
+		description: whenToUseOrDescription,
 		model,
 		thinkingLevel: flat.thinkingLevel,
 		permissions: {
