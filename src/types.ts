@@ -183,6 +183,10 @@ export interface TeamProjectConfigLayer {
 	enabled?: boolean;
 	defaultsVersion?: number;
 	defaultsStale?: boolean;
+	/** True when the file's `version` field is outside TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED. */
+	schemaMismatch?: boolean;
+	/** The raw `version` value found in the file, for toast messaging. */
+	rawSchemaVersion?: number;
 }
 
 export interface ProjectConfigDiagnostic {
