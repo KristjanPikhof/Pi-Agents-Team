@@ -65,7 +65,7 @@ The extension reads **two optional** config files and layers them on top of the 
 - **Global**: `~/.pi/agent/agents-team.json` — user-level defaults shared across projects.
 - **Project**: `<project>/.pi/agent/agents-team.json` — nearest ancestor of the current working directory wins.
 
-Both files follow the same schema. Either may be absent. Use `/team-init global` or `/team-init local` to write a minimal skeleton in the right spot.
+Both files follow the same schema. Either may be absent. Use `/team-init global` or `/team-init local` to scaffold a full file with every builtin role stamped in place in the right spot.
 
 ### Resolution order
 
