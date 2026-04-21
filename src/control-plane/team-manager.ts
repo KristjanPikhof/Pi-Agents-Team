@@ -136,7 +136,10 @@ export class TeamManager {
 	async delegateTask(request: DelegateTaskRequest): Promise<AgentResult> {
 		const profile = this.config.profiles.find((item) => item.name === request.profileName);
 		if (!profile) {
-			throw new Error(`Unknown team profile: ${request.profileName}`);
+			const available = this.config.profiles.map((item) => item.name).join(", ") || "(none)";
+			throw new Error(
+				`Unknown team profile: ${request.profileName}. Configured profiles: ${available}.`,
+			);
 		}
 		const launchPlan = applyLaunchPolicy(
 			{
