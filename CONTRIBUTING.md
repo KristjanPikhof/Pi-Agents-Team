@@ -38,7 +38,7 @@ Run a single test file with `tsx --test tests/runtime/worker-manager.test.ts`.
 
 ## Test discipline
 
-The current test count is **53**. If your change reduces that without a corresponding deletion, something regressed.
+The current test count is **56**. If your change reduces that without a corresponding deletion, something regressed.
 
 Unit tests lean on `MockWorkerTransport` / `MockWorkerHandle` in `tests/runtime/test-helpers.ts` instead of spawning real `pi` processes. Use `setState(patch)` to drive `isStreaming` from outside; `autoCompletePrompt: false` lets tests emit the exit event manually via `completePrompt()`. When you change the transport shape, check which tests rely on `autoCompletePrompt`, `promptText`, and `setState`. Those are the only seams for testing runtime behavior without a real Pi process.
 
@@ -46,6 +46,7 @@ Unit tests lean on `MockWorkerTransport` / `MockWorkerHandle` in `tests/runtime/
 
 1. `npm run check` is green.
 2. If you changed operator-facing behavior (commands, dashboard keys, glyphs, tool parameters, delivery semantics), update [`README.md`](README.md) and [`docs/operations.md`](docs/operations.md) in the same commit.
+2.5. If you changed project role config discovery, rights ceilings, prompt lookup, or invalid-config behavior, update [`docs/profiles.md`](docs/profiles.md) and any affected tests under `tests/project-config/`, `tests/control-plane/`, or `tests/prompts/` in the same commit.
 3. If you changed contract-level behavior (final_answer shape, worker responsibilities, wait semantics), update [`prompts/orchestrator.md`](prompts/orchestrator.md) or the relevant [`prompts/agents/*.md`](prompts/agents/). The LLM reads those directly.
 4. If you added or dropped a slash command, update the sorted list assertion in `tests/extension-wiring.test.ts`.
 5. If you added or renamed a profile, update both `profiles/*.md` and `src/profiles/default-profiles.ts` (the loader test enforces parity).
