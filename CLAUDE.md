@@ -177,7 +177,7 @@ The legacy top-level field names `version` (mapped to `schemaVersion`) and `defa
 - [`docs/operations.md`](docs/operations.md) — install, smoke, dashboard keys, copy flow, steer/followup semantics, troubleshooting.
 - [`docs/profiles.md`](docs/profiles.md) — default profile table, launch policy, customization.
 - [`docs/prompting.md`](docs/prompting.md) — orchestrator + worker prompt contracts, the `<final_answer>` block rules, wait-don't-poll discipline.
-- [`prompts/orchestrator.md`](prompts/orchestrator.md) — the orchestrator contract injected on `before_agent_start`. This is shipped to the LLM, not just the user.
+- [`prompts/orchestrator.md`](prompts/orchestrator.md) — the orchestrator contract injected on `before_agent_start`. This is shipped to the LLM, not just the user. Includes a **Planning loop** (restate ask → inventory knowns/unknowns → pick work shape → pick specialists → write briefs → decide batch size) and a **Task brief template** that every `delegate_task` call should satisfy. When updating orchestrator behavior, keep these two sections aligned — the planning loop decides *what* to delegate, the brief template decides *how* to hand it off.
 - [`prompts/agents/*.md`](prompts/agents/) — per-role worker contracts, loaded at worker launch.
 
 When operator-facing behavior changes (commands, dashboard keys, glyphs, tool parameters, delivery semantics) update the README command table and the operations guide in the same change. When contract-level behavior changes (final_answer shape, worker responsibilities, wait semantics) update `prompts/orchestrator.md` or the relevant `prompts/agents/*.md` too — the LLM reads those directly.
