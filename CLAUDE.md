@@ -36,7 +36,7 @@ Current test count is 90. If a change reduces that without a corresponding delet
 
 Layering, top to bottom:
 
-- `extensions/pi-agent-team/index.ts` — extension entrypoint. Registers 7 tools, 6 slash commands, lifecycle hooks, the state-change listener that drives UI + notifications + spinner animation, and the terminal-toast batcher.
+- `extensions/pi-agent-team/index.ts` — extension entrypoint. Registers 7 tools, 11 slash commands, lifecycle hooks, the state-change listener that drives UI + notifications + spinner animation, and the terminal-toast batcher.
 - `src/control-plane/team-manager.ts` — `TeamManager` is the single coordination boundary. Owns a `TaskRegistry` and a `WorkerManager`. Public shape: `delegateTask`, `messageWorker` / `messageAllWorkers`, `cancelWorker` / `cancelAllWorkers`, `pingWorkers`, `waitForTerminal`, `getWorkerResult`, `getWorkerTranscript`, `getWorkerConsole`.
 - `src/runtime/` — RPC transport. `worker-process.ts` spawns the Pi rpc process, `rpc-client.ts` wraps the line-delimited JSON protocol, `event-normalizer.ts` collapses raw RPC events into a stable `NormalizedWorkerEvent` union, `worker-manager.ts` applies those events to `WorkerRuntimeState` and emits snapshots.
 - `src/comms/` — message shaping. `summary.ts` parses the worker's structured summary, `relay-queue.ts` extracts `relay_question` + `assumption`, `agent-messaging.ts` picks `steer` vs `follow_up` based on status, `ping.ts` builds passive snapshots.
