@@ -4,9 +4,11 @@ import { basename, dirname, join } from "node:path";
 import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG } from "../config";
 import { getProjectConfigPathForScope } from "../project-config/loader";
 import {
+	DEFAULT_MODEL_SENTINEL,
+	DEFAULT_PROMPT_SENTINEL,
 	TEAM_PROJECT_CONFIG_VERSION,
-	type PartialProjectRoleConfigMap,
-	type ProjectRoleConfig,
+	type PartialRawProjectRoleConfigMap,
+	type ProjectRoleFlatConfig,
 	type TeamConfigScope,
 	type TeamProfileSpec,
 	type TeamProjectConfigFile,
