@@ -4,15 +4,20 @@ import { dirname, isAbsolute, resolve, relative } from "node:path";
 import { Value } from "@sinclair/typebox/value";
 import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
 import {
+	DEFAULT_MODEL_SENTINEL,
+	DEFAULT_PROMPT_SENTINEL,
 	PROJECT_CONFIG_DIAGNOSTIC_SEVERITIES,
 	PROJECT_CONFIG_STATUSES,
 	TEAM_PROJECT_CONFIG_DIR,
 	TEAM_PROJECT_CONFIG_FILE,
 	TEAM_PROJECT_CONFIG_RELATIVE_PATH,
 	type LoadedTeamProjectConfig,
-	type PartialProjectRoleConfigMap,
+	type PartialRawProjectRoleConfigMap,
 	type ProjectConfigDiagnostic,
 	type ProjectRoleConfig,
+	type ProjectRoleFlatConfig,
+	type ProjectRolePromptConfig,
+	type RawProjectRoleConfig,
 	type TeamConfig,
 	type TeamConfigScope,
 	type TeamEnabledSource,
@@ -20,6 +25,7 @@ import {
 	type TeamProfileSpec,
 	type TeamProjectConfigFile,
 	type TeamProjectConfigLayer,
+	type WorkerWritePolicy,
 } from "../types";
 
 function clonePathScope(pathScope: TeamPathScope | undefined): TeamPathScope | undefined {
