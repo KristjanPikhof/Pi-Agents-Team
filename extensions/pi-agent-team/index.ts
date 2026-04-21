@@ -438,6 +438,9 @@ export default function (pi: ExtensionAPI): void {
 		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
 		parameters: DelegateTaskSchema,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!activeProjectConfig.enabled) {
+				throw new Error(getDisabledMessage(activeProjectConfig));
+			}
 			if (!activeProjectConfig.delegationEnabled) {
 				throw new Error(getDelegationDisabledMessage(activeProjectConfig));
 			}
