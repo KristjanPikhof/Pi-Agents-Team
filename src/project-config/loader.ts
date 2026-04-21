@@ -273,105 +273,122 @@ export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleCo
 	};
 }
 
-function applyRoleLayer(
-	ceiling: TeamProfileSpec,
-	roleConfig: ProjectRoleConfig,
+const DEFAULT_READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "bash"];
+
+/**
+ * Schema v2 prompt resolution. The input `prompt` may be:
+ *  - source: "builtin" (user wrote `"default"` / null / absent in JSON) →
+ *    if the role name matches a packaged profile, use the packaged file;
+ *    otherwise use the generic-worker sentinel.
+ *  - source: "project" with a path that resolves to a readable file → use the file.
+ *  - source: "project" with a string that does NOT resolve to a file → treat as
+ *    inline prompt text (populates TeamProfileSpec.promptInline).
+ *  - source: "project" with no path → warn and fall back to generic-worker.
+ */
+function resolveRolePrompt(
+	roleName: string,
+	prompt: ProjectRolePromptConfig,
 	layer: LayerApplication,
-	profileName: string,
-): { profile: TeamProfileSpec; diagnostics: ProjectConfigDiagnostic[] } {
-	const diagnostics: ProjectConfigDiagnostic[] = [];
-	const permissions = roleConfig.permissions;
-	const fieldBase = `roles.${profileName}`;
+): { promptPath: string; promptInline?: string; diagnostics: ProjectConfigDiagnostic[] } {
+	const fieldPath = `roles.${roleName}.prompt`;
 
-	const prompt = normalizePromptPath(ceiling, roleConfig, layer.layerRoot, `${fieldBase}.prompt`, {
+	if (prompt.source === "builtin") {
+		if (isPackagedProfileName(roleName)) {
+			return { promptPath: `prompts/agents/${roleName}.md`, diagnostics: [] };
+		}
+		return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, diagnostics: [] };
+	}
+
+	const raw = prompt.path;
+	if (!raw) {
+		return {
+			promptPath: GENERIC_WORKER_PROMPT_SENTINEL,
+			diagnostics: [
+				makeDiagnostic(
+					"warning",
+					"project_prompt_empty",
+					`Prompt is empty for role "${roleName}" — using the generic worker template.`,
+					fieldPath,
+				),
+			],
+		};
+	}
+
+	const resolved = resolveLayerPath(layer.layerRoot, raw, fieldPath, {
 		requireInsideLayerRoot: layer.requireInsideLayerRoot,
-		layerScope: layer.scope,
-		layerPath: layer.layerPath,
 	});
-	diagnostics.push(...prompt.diagnostics);
+	if (!resolved.diagnostic && resolved.path && existsSync(resolved.path)) {
+		return { promptPath: resolved.path, diagnostics: [] };
+	}
 
-	const resolvedPathScope = normalizePathScope(permissions.pathScope, layer.layerRoot, `${fieldBase}.permissions.pathScope`, {
+	// Not a readable file: treat the string as inline prompt text. No diagnostic —
+	// this is the user's explicit escape hatch ("I want to write the prompt inline").
+	return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, promptInline: raw, diagnostics: [] };
+}
+
+/**
+ * Schema v2: build a TeamProfileSpec from a user-authored role config, with
+ * sensible defaults for omitted fields. No ceiling enforcement — the user's
+ * JSON is the source of truth. Platform-level safety (recursion guard, pathScope
+ * for writes) still applies at delegate time via launch-policy.
+ */
+function materializeRoleProfile(
+	roleName: string,
+	raw: RawProjectRoleConfig,
+	layer: LayerApplication,
+): { profile: TeamProfileSpec; diagnostics: ProjectConfigDiagnostic[] } {
+	const normalized = normalizeRawRoleConfig(raw);
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	const permissions = normalized.permissions;
+	const fieldBase = `roles.${roleName}`;
+
+	const resolvedPathScope = normalizePathScope(permissions.pathScope, layer.layerRoot, `${fieldBase}.advanced.pathScope`, {
 		requireInsideLayerRoot: layer.requireInsideLayerRoot,
 	});
 	diagnostics.push(...resolvedPathScope.diagnostics);
 
-	const writePolicy = permissions.writePolicy ?? ceiling.writePolicy;
-	if (permissions.writePolicy === "scoped-write" && ceiling.writePolicy === "read-only") {
-		diagnostics.push(
-			makeDiagnostic(
-				"error",
-				"write_policy_broaden_forbidden",
-				"Project role config may narrow write policy but cannot upgrade a read-only role to scoped-write.",
-				`${fieldBase}.permissions.writePolicy`,
-			),
-		);
-	}
+	const writePolicy: WorkerWritePolicy = permissions.writePolicy ?? "read-only";
 	if (writePolicy === "read-only" && resolvedPathScope.pathScope?.allowWrite) {
 		diagnostics.push(
 			makeDiagnostic(
 				"error",
 				"read_only_scope_write_forbidden",
-				"Read-only roles cannot declare a writable path scope.",
-				`${fieldBase}.permissions.pathScope.allowWrite`,
-			),
-		);
-	}
-	if (permissions.tools && permissions.tools.some((tool) => !ceiling.tools.includes(tool))) {
-		diagnostics.push(
-			makeDiagnostic(
-				"error",
-				"tools_broaden_forbidden",
-				"Project role config may only remove tools from the default role; it cannot add new tools.",
-				`${fieldBase}.permissions.tools`,
-			),
-		);
-	}
-	const extensionMode = permissions.extensionMode ?? ceiling.extensionMode;
-	if (permissions.extensionMode && !isExtensionModeNarrowerOrEqual(extensionMode, ceiling.extensionMode)) {
-		diagnostics.push(
-			makeDiagnostic(
-				"error",
-				"extension_mode_broaden_forbidden",
-				"Project role config may only keep or narrow extension mode rights; inherit is not allowed here.",
-				`${fieldBase}.permissions.extensionMode`,
-			),
-		);
-	}
-	if (permissions.canSpawnWorkers === true && !ceiling.canSpawnWorkers) {
-		diagnostics.push(
-			makeDiagnostic(
-				"error",
-				"spawn_workers_broaden_forbidden",
-				"Project role config cannot grant worker-spawning rights to a role that defaults to false.",
-				`${fieldBase}.permissions.canSpawnWorkers`,
-			),
-		);
-	}
-	if (resolvedPathScope.pathScope && !isPathScopeNarrowerOrEqual(resolvedPathScope.pathScope, ceiling.pathScope)) {
-		diagnostics.push(
-			makeDiagnostic(
-				"error",
-				"path_scope_broaden_forbidden",
-				"Project role config may only narrow the default path scope; it cannot broaden it.",
-				`${fieldBase}.permissions.pathScope`,
+				`Role "${roleName}" is read-only but declares a writable path scope.`,
+				`${fieldBase}.advanced.pathScope.allowWrite`,
 			),
 		);
 	}
 
-	const nextProfile: TeamProfileSpec = {
-		...cloneProfile(ceiling),
-		description: roleConfig.description ?? ceiling.description,
-		model: roleConfig.model ?? ceiling.model,
-		thinkingLevel: roleConfig.thinkingLevel ?? ceiling.thinkingLevel,
-		tools: permissions.tools ? [...permissions.tools] : [...ceiling.tools],
+	const extensionMode = permissions.extensionMode ?? "worker-minimal";
+	if (extensionMode === "inherit") {
+		diagnostics.push(
+			makeDiagnostic(
+				"error",
+				"extension_mode_inherit_forbidden",
+				`Role "${roleName}" uses extensionMode "inherit", which would let workers recursively boot the orchestrator. Use "worker-minimal" or "disable".`,
+				`${fieldBase}.advanced.extensionMode`,
+			),
+		);
+	}
+
+	const prompt = resolveRolePrompt(roleName, normalized.prompt, layer);
+	diagnostics.push(...prompt.diagnostics);
+
+	const profile: TeamProfileSpec = {
+		name: roleName,
+		description: normalized.description ?? "",
+		model: normalized.model ?? undefined,
+		thinkingLevel: normalized.thinkingLevel ?? "medium",
+		tools: permissions.tools ? [...permissions.tools] : [...DEFAULT_READ_ONLY_TOOLS],
 		promptPath: prompt.promptPath,
+		promptInline: prompt.promptInline,
 		extensionMode,
 		writePolicy,
-		pathScope: resolvedPathScope.pathScope ?? clonePathScope(ceiling.pathScope),
-		canSpawnWorkers: permissions.canSpawnWorkers ?? ceiling.canSpawnWorkers,
+		pathScope: resolvedPathScope.pathScope,
+		canSpawnWorkers: permissions.canSpawnWorkers ?? false,
 	};
 
-	return { profile: nextProfile, diagnostics };
+	return { profile, diagnostics };
 }
 
 export function findNearestProjectConfigPath(cwd: string): string | undefined {
