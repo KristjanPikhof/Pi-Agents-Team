@@ -288,10 +288,32 @@ function getDelegationDisabledMessage(result: LoadedTeamProjectConfig): string {
 
 export default function (pi: ExtensionAPI): void {
 	let activeProjectConfig = loadActiveTeamConfig({ cwd: process.cwd(), baseConfig: DEFAULT_TEAM_CONFIG });
+
+	// Mutate the profileName description to surface the current role list right
+	// in the tool schema. Pi's ToolDefinition.parameters is frozen at
+	// registerTool time with no dynamic-enum seam, but the `description` string
+	// is read by the orchestrator LLM every turn; seeding it here gives the
+	// model a schema-level hint of which names are valid. On /reload the
+	// plugin re-initializes and the description refreshes.
+	const profileListSnapshot = activeProjectConfig.config.profiles.map((profile) => profile.name);
+	const profileListSummary = profileListSnapshot.length > 0 ? profileListSnapshot.join(", ") : "(none declared)";
+	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
+		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
+
 	let teamManager = new TeamManager({ config: activeProjectConfig.config });
 	let teamState = createDefaultTeamState(activeProjectConfig.config);
 	let activeContext: ExtensionContext | undefined;
 	let detachTeamManagerListener = () => {};
+	// Gate for session_start swap window — tool bodies reject during reload so
+	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
+	// resolve against a disposed TeamManager.
+	let reloading = false;
+	// De-dup scaffold-stale toasts across session_start events. Pi fires
+	// session_start on startup, reload, new, resume, fork; without de-dup,
+	// operators iterating with /reload see the same warnings per scope per
+	// reload. We emit once per (scope, scaffoldVersion) combination per
+	// process and again when the scaffold version changes.
+	const toastedScaffoldStale = new Map<string, number | "ok">();
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 	const lastRelayCount = new Map<string, number>();
 	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
