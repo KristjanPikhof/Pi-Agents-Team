@@ -3,9 +3,9 @@ import {
 	compareWorkerIds,
 	PING_MODES,
 	RELAY_URGENCIES,
-	TEAM_DEFAULTS_VERSION,
+	TEAM_SCAFFOLD_VERSION,
 	TEAM_PROFILE_NAMES,
-	TEAM_PROJECT_CONFIG_VERSION,
+	TEAM_PROJECT_SCHEMA_VERSION,
 	TEAM_PROMPT_SOURCES,
 	TEAM_SESSION_MODES,
 	TEAM_STATE_VERSION,
@@ -21,8 +21,8 @@ import {
 } from "./types";
 
 // Re-export so consumers (/team-init, loader) can import from config.ts alongside DEFAULT_TEAM_CONFIG.
-export { TEAM_DEFAULTS_VERSION };
-export const CURRENT_DEFAULTS_VERSION = TEAM_DEFAULTS_VERSION;
+export { TEAM_SCAFFOLD_VERSION };
+export const CURRENT_SCAFFOLD_VERSION = TEAM_SCAFFOLD_VERSION;
 
 function enumSchema<const T extends readonly [string, ...string[]]>(values: T): TSchema {
 	return Type.Union(values.map((value) => Type.Literal(value)) as []);
