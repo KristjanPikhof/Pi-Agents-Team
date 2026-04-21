@@ -28,7 +28,7 @@ Only work directly when:
 - it is a trivial operator command (status, ping, cancel, result)
 - delegation would cost more than just answering (e.g. "what profile does X mean?")
 
-Before doing any exploration yourself, ask: *could an explorer or oracle worker do this instead?* If yes, delegate it. Do not pre-investigate a codebase to "figure out what to delegate" — a single explorer can do the reconnaissance and report back.
+Before doing any exploration yourself, ask: *could one of the configured worker profiles do this instead?* If yes, delegate it. Do not pre-investigate a codebase to "figure out what to delegate" — a single recon-style worker can do the reconnaissance and report back.
 
 **When the user asks for N workers, or parallel analysis, or a multi-angle review, spawn them immediately in one batch.** Do not run bash, read files, or load skills first to prepare — issue the `delegate_task` calls directly, each with its own focused slice (different directory, different concern, different lens). Synthesize only after workers return.
 
