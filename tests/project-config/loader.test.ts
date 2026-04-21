@@ -325,32 +325,73 @@ test("loadActiveTeamConfig accepts the flat v2 role shape (tools / write / promp
 	assert.deepEqual(fixer?.tools, ["read", "bash", "edit", "write"]);
 });
 
-test("loadActiveTeamConfig warns (not errors) when a flat prompt path is unreadable and keeps the builtin", () => {
-	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-missing-prompt-"));
+test("loadActiveTeamConfig v2: a string prompt that doesn't resolve to a file is stored as inline text", () => {
+	// User writes `"prompt": "You are a specialized agent..."` directly in JSON.
+	// Since no file matches that string, the loader treats it as inline prompt
+	// text and surfaces it via promptInline. This is the user's escape hatch for
+	// per-repo role prompts without having to create a .md file.
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-inline-prompt-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
 		version: 2,
 		roles: {
-			reviewer: {
-				tools: ["read", "grep", "find", "ls", "bash"],
+			"custom-scout": {
+				description: "Fast repo recon.",
+				tools: ["read", "grep", "find", "ls"],
 				write: false,
-				prompt: "prompts/custom-reviewer.md",
+				prompt: "You are a specialized repo-recon agent. Return file paths only.",
 			} as any,
 		},
 	});
 
 	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
-	assert.equal(result.status, "project", "missing prompt file must not invalidate the whole layer");
+	assert.equal(result.status, "project");
 	assert.equal(result.delegationEnabled, true);
-	const missingWarning = result.diagnostics.find((diagnostic) => diagnostic.code === "project_prompt_missing");
-	assert.ok(missingWarning, "expected a project_prompt_missing warning");
-	assert.equal(missingWarning?.severity, "warning");
-	assert.match(missingWarning!.message, /custom-reviewer\.md/);
-	assert.match(missingWarning!.message, /falling back/i);
+	const scout = result.config.profiles.find((profile) => profile.name === "custom-scout");
+	assert.ok(scout);
+	assert.equal(scout?.promptInline, "You are a specialized repo-recon agent. Return file paths only.");
+});
 
-	const reviewer = result.config.profiles.find((profile) => profile.name === "reviewer");
-	assert.ok(reviewer?.promptPath);
-	assert.match(reviewer!.promptPath, /prompts\/agents\/reviewer\.md$/, "should fall back to the built-in reviewer prompt path");
+test("loadActiveTeamConfig v2: custom role name with prompt 'default' uses the generic-worker sentinel", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-custom-default-prompt-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		version: 2,
+		roles: {
+			"custom-name": {
+				description: "A totally custom worker.",
+				tools: ["read"],
+				write: false,
+				prompt: "default",
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	const role = result.config.profiles.find((profile) => profile.name === "custom-name");
+	assert.equal(role?.promptPath, "<generic-worker>");
+	assert.equal(role?.promptInline, undefined);
+});
+
+test("loadActiveTeamConfig v2: schema version mismatch warns and falls back to built-in", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v1-file-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	// Write a file with schema version 1 — obsolete under v2
+	const path = projectConfigPath(root);
+	mkdirSync(resolve(path, ".."), { recursive: true });
+	writeFileSync(path, JSON.stringify({ version: 1, enabled: true, roles: {} }, null, 2));
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "builtin", "unsupported schema version falls back to built-in roles");
+	assert.equal(result.delegationEnabled, true);
+	const mismatch = result.diagnostics.find((diagnostic) => diagnostic.code === "schema_version_mismatch");
+	assert.ok(mismatch, "expected a schema_version_mismatch warning");
+	assert.equal(mismatch?.severity, "warning");
+	assert.match(mismatch!.message, /\/team-init local --force/);
+	const layer = result.layers.find((entry) => entry.scope === "project");
+	assert.equal(layer?.schemaMismatch, true);
+	assert.equal(layer?.rawSchemaVersion, 1);
 });
 
 test("loadActiveTeamConfig marks config invalid if any layer fails to parse", () => {
