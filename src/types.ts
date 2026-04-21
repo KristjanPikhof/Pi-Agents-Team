@@ -188,8 +188,8 @@ export type PartialProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
 export type PartialRawProjectRoleConfigMap = Record<string, RawProjectRoleConfig>;
 
 export interface TeamProjectConfigFile {
-	version: typeof TEAM_PROJECT_CONFIG_VERSION;
-	defaultsVersion?: number;
+	schemaVersion: typeof TEAM_PROJECT_SCHEMA_VERSION;
+	scaffoldVersion?: number;
 	enabled?: boolean;
 	roles?: PartialRawProjectRoleConfigMap;
 }
@@ -198,11 +198,11 @@ export interface TeamProjectConfigLayer {
 	scope: TeamConfigScope;
 	path: string;
 	enabled?: boolean;
-	defaultsVersion?: number;
-	defaultsStale?: boolean;
-	/** True when the file's `version` field is outside TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED. */
+	scaffoldVersion?: number;
+	scaffoldStale?: boolean;
+	/** True when the file's `schemaVersion` is outside TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED. */
 	schemaMismatch?: boolean;
-	/** The raw `version` value found in the file, for toast messaging. */
+	/** The raw `schemaVersion` value found in the file, for toast messaging. */
 	rawSchemaVersion?: number;
 }
 
