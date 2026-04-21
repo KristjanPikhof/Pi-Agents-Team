@@ -558,6 +558,7 @@ export default function (pi: ExtensionAPI): void {
 			"Send a message to a tracked worker. Running workers receive it as a mid-stream steer (or a follow_up queued onto the live stream when delivery=follow_up). Idle/waiting_followup workers wake up and start a new turn with the message as the next user prompt — terminal workers (exited/aborted/error/completed) cannot receive messages.",
 		parameters: WorkerMessageSchema,
 		async execute(_toolCallId, params) {
+			ensureNotReloading();
 			const delivery = params.delivery === "steer" || params.delivery === "follow_up" ? params.delivery : "auto";
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
 			const result = await teamManager.messageWorker(workerId, params.message, delivery);
