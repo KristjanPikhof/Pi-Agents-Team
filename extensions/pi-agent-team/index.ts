@@ -463,12 +463,19 @@ export default function (pi: ExtensionAPI): void {
 		},
 	});
 
+	function ensureNotReloading(): void {
+		if (reloading) {
+			throw new Error("Pi Agents Team is reloading its project config — retry in a moment.");
+		}
+	}
+
 	pi.registerTool({
 		name: "delegate_task",
 		label: "Delegate Task",
 		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
 		parameters: DelegateTaskSchema,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			ensureNotReloading();
 			if (!activeProjectConfig.enabled) {
 				throw new Error(getDisabledMessage(activeProjectConfig));
 			}
