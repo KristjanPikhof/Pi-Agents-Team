@@ -78,7 +78,7 @@ Launch-time overrides may only narrow the role's declared rights (fewer tools, n
   "enabled": true,
   "roles": {
     "explorer": {
-      "description": "Fast codebase reconnaissance and file discovery.",
+      "whenToUse": "Use for fast codebase reconnaissance. Best for 'where is X?', 'how does Y work?', 'list all files that touch Z' questions. Read-only.",
       "model": "default",
       "thinkingLevel": "low",
       "tools": ["read", "grep", "find", "ls", "bash"],
@@ -86,7 +86,7 @@ Launch-time overrides may only narrow the role's declared rights (fewer tools, n
       "prompt": "default"
     },
     "fixer": {
-      "description": "Bounded implementation, tests, and targeted edits.",
+      "whenToUse": "Use for bounded code changes: implement a specific fix, add a test, refactor a single file. Requires an explicit pathScope at delegate time. Write-capable — do not use for questions or analysis.",
       "model": "default",
       "thinkingLevel": "medium",
       "tools": ["read", "bash", "edit", "write"],
