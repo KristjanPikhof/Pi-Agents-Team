@@ -120,10 +120,18 @@ export interface ProjectRoleConfig {
 }
 
 export type ProjectRoleConfigMap = Record<TeamProfileName, ProjectRoleConfig>;
+export type PartialProjectRoleConfigMap = Partial<Record<TeamProfileName, ProjectRoleConfig>>;
 
 export interface TeamProjectConfigFile {
 	version: typeof TEAM_PROJECT_CONFIG_VERSION;
-	roles: ProjectRoleConfigMap;
+	enabled?: boolean;
+	roles?: PartialProjectRoleConfigMap;
+}
+
+export interface TeamProjectConfigLayer {
+	scope: TeamConfigScope;
+	path: string;
+	enabled?: boolean;
 }
 
 export interface ProjectConfigDiagnostic {
