@@ -258,9 +258,11 @@ function getDelegationDisabledMessage(result: LoadedTeamProjectConfig): string {
 }
 
 export default function (pi: ExtensionAPI): void {
-	const teamManager = new TeamManager({ config: DEFAULT_TEAM_CONFIG });
-	let teamState = createDefaultTeamState(DEFAULT_TEAM_CONFIG);
+	let activeProjectConfig = loadActiveTeamConfig({ cwd: process.cwd(), baseConfig: DEFAULT_TEAM_CONFIG });
+	let teamManager = new TeamManager({ config: activeProjectConfig.config });
+	let teamState = createDefaultTeamState(activeProjectConfig.config);
 	let activeContext: ExtensionContext | undefined;
+	let detachTeamManagerListener = () => {};
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 	const lastRelayCount = new Map<string, number>();
 	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
@@ -278,7 +280,7 @@ export default function (pi: ExtensionAPI): void {
 				stopSpinner();
 				return;
 			}
-			applyUi(activeContext, teamState, spinnerFrame);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config);
 		}, SPINNER_INTERVAL_MS);
 		if (typeof spinnerTimer.unref === "function") spinnerTimer.unref();
 	}
@@ -287,6 +289,16 @@ export default function (pi: ExtensionAPI): void {
 		if (!spinnerTimer) return;
 		clearInterval(spinnerTimer);
 		spinnerTimer = undefined;
+	}
+
+	function resetUiTracking(): void {
+		lastStatus.clear();
+		lastRelayCount.clear();
+		pendingTerminalTransitions.length = 0;
+		if (notificationTimer) {
+			clearTimeout(notificationTimer);
+			notificationTimer = undefined;
+		}
 	}
 
 	function flushTerminalNotifications(): void {
@@ -305,49 +317,66 @@ export default function (pi: ExtensionAPI): void {
 		activeContext.ui.notify(message, "info");
 	}
 
-	teamManager.onStateChange((state) => {
-		teamState = state;
-		persistSnapshot(pi, teamState);
-		applyUi(activeContext, teamState, spinnerFrame);
+	function attachTeamManagerListener(manager: TeamManager): void {
+		detachTeamManagerListener();
+		resetUiTracking();
+		detachTeamManagerListener = manager.onStateChange((state) => {
+			teamState = state;
+			persistSnapshot(pi, teamState, activeProjectConfig.config);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config);
 
-		if (hasAnimatedWorkers(teamState)) {
-			ensureSpinnerRunning();
-		} else {
-			stopSpinner();
-		}
-
-		for (const worker of Object.values(state.activeWorkers)) {
-			const previous = lastStatus.get(worker.workerId);
-			const nowTerminal = isTerminalWorkerStatus(worker.status);
-			const wasTerminal = previous ? isTerminalWorkerStatus(previous) : false;
-			if (previous !== worker.status && nowTerminal && !wasTerminal) {
-				pendingTerminalTransitions.push({
-					workerId: worker.workerId,
-					profileName: worker.profileName,
-					status: worker.status,
-				});
-				if (notificationTimer) clearTimeout(notificationTimer);
-				notificationTimer = setTimeout(flushTerminalNotifications, 400);
+			if (hasAnimatedWorkers(teamState)) {
+				ensureSpinnerRunning();
+			} else {
+				stopSpinner();
 			}
-			lastStatus.set(worker.workerId, worker.status);
 
-			const prevRelays = lastRelayCount.get(worker.workerId) ?? 0;
-			const currRelays = worker.pendingRelayQuestions.length;
-			if (currRelays > prevRelays && activeContext?.hasUI) {
-				const newest = worker.pendingRelayQuestions[worker.pendingRelayQuestions.length - 1];
-				const question = newest?.question?.trim();
-				if (question) {
-					const preview = question.replace(/\s+/g, " ").slice(0, 120);
-					activeContext.ui.notify(`❓ ${worker.workerId} (${worker.profileName}) needs guidance: ${preview}`, "warning");
+			for (const worker of Object.values(state.activeWorkers)) {
+				const previous = lastStatus.get(worker.workerId);
+				const nowTerminal = isTerminalWorkerStatus(worker.status);
+				const wasTerminal = previous ? isTerminalWorkerStatus(previous) : false;
+				if (previous !== worker.status && nowTerminal && !wasTerminal) {
+					pendingTerminalTransitions.push({
+						workerId: worker.workerId,
+						profileName: worker.profileName,
+						status: worker.status,
+					});
+					if (notificationTimer) clearTimeout(notificationTimer);
+					notificationTimer = setTimeout(flushTerminalNotifications, 400);
 				}
+				lastStatus.set(worker.workerId, worker.status);
+
+				const prevRelays = lastRelayCount.get(worker.workerId) ?? 0;
+				const currRelays = worker.pendingRelayQuestions.length;
+				if (currRelays > prevRelays && activeContext?.hasUI) {
+					const newest = worker.pendingRelayQuestions[worker.pendingRelayQuestions.length - 1];
+					const question = newest?.question?.trim();
+					if (question) {
+						const preview = question.replace(/\s+/g, " ").slice(0, 120);
+						activeContext.ui.notify(`❓ ${worker.workerId} (${worker.profileName}) needs guidance: ${preview}`, "warning");
+					}
+				}
+				lastRelayCount.set(worker.workerId, currRelays);
 			}
-			lastRelayCount.set(worker.workerId, currRelays);
-		}
-	});
+		});
+	}
+
+	async function replaceTeamManager(config: TeamConfig): Promise<void> {
+		detachTeamManagerListener();
+		await teamManager.dispose();
+		teamManager = new TeamManager({ config });
+		attachTeamManagerListener(teamManager);
+		teamState = createDefaultTeamState(config);
+		applyUi(activeContext, teamState, spinnerFrame, config);
+	}
+
+	attachTeamManagerListener(teamManager);
 
 	const commandDependencies = {
-		teamManager,
-		emitText: (ctx: ExtensionContext, text: string) => emitCommandOutput(pi, ctx, text),
+		get teamManager() {
+			return teamManager;
+		},
+		emitText: (ctx: ExtensionContext, text: string) => emitCommandOutput(pi, ctx, text, activeProjectConfig.config),
 	};
 	registerTeamCommand(pi, commandDependencies);
 	registerWorkerMessageCommands(pi, commandDependencies);
