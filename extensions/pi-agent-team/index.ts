@@ -225,7 +225,22 @@ function emitCommandOutput(
 	console.log(text);
 }
 
+function isTeamActive(config: LoadedTeamProjectConfig): boolean {
+	return config.enabled && config.delegationEnabled;
+}
+
+function getDisabledMessage(config: LoadedTeamProjectConfig): string {
+	const sourceLayer = config.layers.find((layer) => layer.scope === config.enabledSource);
+	const path = sourceLayer?.path;
+	const enableScope = config.enabledSource === "project" ? "local" : "global";
+	const pathSuffix = path ? ` (source: ${path})` : "";
+	return `Pi Agents Team is disabled${pathSuffix}. Use /team-enable ${enableScope} then /reload-plugins to turn it on.`;
+}
+
 function getProjectConfigNotice(result: LoadedTeamProjectConfig): { level: "info" | "warning"; message: string } | undefined {
+	if (!result.enabled) {
+		return { level: "info", message: getDisabledMessage(result) };
+	}
 	if (result.status === "project" && result.sourcePath) {
 		return {
 			level: "info",
