@@ -231,7 +231,7 @@ Both commands are non-destructive:
 
 - If the file is valid, `enabled` is patched in place. Your roles, prompts, models, and scopes stay untouched.
 - If the file parses as JSON but drifts from the current schema (unknown fields, future fields, old-shape roles), the toggle preserves your raw object and only patches `enabled`. A warning surfaces that the file still needs a schema-level fix.
-- If the file isn't parseable JSON at all, the toggle backs it up to `YYYY-MM-DD-HHMM-agents-team.json` in the same directory before writing a minimal `{ schemaVersion, enabled }` replacement.
+- If the file isn't parseable JSON at all, the toggle copies it to `YYYY-MM-DD-HHMMSS-agents-team.json` in the same directory (seconds included so same-minute reruns don't collide; exclusive-create so concurrent runs don't clobber each other's backups; original stays in place until the new write succeeds) before writing a minimal `{ schemaVersion, enabled }` replacement. All config writes are atomic via staged `<path>.tmp.<pid>.<ts>` → `renameSync`, so a ctrl-C mid-write leaves the original file intact.
 
 Follow any toggle with `/reload` to apply the change in the current Pi session.
 
