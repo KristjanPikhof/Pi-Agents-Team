@@ -24,6 +24,10 @@ export const WORKER_WRITE_POLICIES = ["read-only", "scoped-write"] as const;
 export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 
 export const TEAM_PROJECT_CONFIG_VERSION = 1 as const;
+// Snapshot freshness marker stamped into scaffolded configs. Bump whenever
+// DEFAULT_TEAM_CONFIG.profiles changes so previously-scaffolded agents-team.json
+// files are detected as stale and the operator is nudged to re-run /team-init.
+export const TEAM_DEFAULTS_VERSION = 1 as const;
 export const TEAM_PROJECT_CONFIG_FILE = "agents-team.json";
 export const TEAM_PROJECT_CONFIG_DIR = ".pi/agent";
 export const TEAM_PROJECT_CONFIG_RELATIVE_PATH = `${TEAM_PROJECT_CONFIG_DIR}/${TEAM_PROJECT_CONFIG_FILE}`;
