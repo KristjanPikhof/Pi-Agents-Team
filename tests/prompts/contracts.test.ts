@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDefaultTeamState } from "../../src/config";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config";
 import {
 	buildOrchestratorPromptBundle,
 	buildWorkerTaskPrompt,
@@ -39,4 +42,44 @@ test("buildWorkerTaskPrompt includes relay guidance and scope", () => {
 	assert.match(prompt, /relay_question/i);
 	assert.match(prompt, /<final_answer>/);
 	assert.match(prompt, /src\/comms/);
+	assert.doesNotMatch(prompt, /Pi skills to invoke/);
+});
+
+test("buildWorkerTaskPrompt injects skills section only when skills are provided", () => {
+	const base = {
+		taskId: "task-2",
+		title: "Draft doc",
+		goal: "Write it clearly",
+		requestedBy: "orchestrator" as const,
+		profileName: "librarian",
+		cwd: process.cwd(),
+		contextHints: [],
+		createdAt: Date.now(),
+	};
+
+	const withSkills = buildWorkerTaskPrompt({ ...base, skills: ["writer", "documenting-systems"] });
+	assert.match(withSkills, /Pi skills to invoke for this task/);
+	assert.match(withSkills, /- writer/);
+	assert.match(withSkills, /- documenting-systems/);
+	assert.match(withSkills, /Skill tool/);
+
+	const withoutSkills = buildWorkerTaskPrompt(base);
+	assert.doesNotMatch(withoutSkills, /Pi skills to invoke/);
+
+	const emptySkills = buildWorkerTaskPrompt({ ...base, skills: ["  ", ""] });
+	assert.doesNotMatch(emptySkills, /Pi skills to invoke/);
+});
+
+test("worker prompt lookup honors resolved absolute project prompt paths", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-prompts-"));
+	const promptPath = join(root, "reviewer.md");
+	writeFileSync(promptPath, "# reviewer project override\n");
+	const config = {
+		...DEFAULT_TEAM_CONFIG,
+		profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) =>
+			profile.name === "reviewer" ? { ...profile, promptPath } : profile),
+	};
+
+	assert.equal(getWorkerPromptPath("reviewer", config), promptPath);
+	assert.match(loadWorkerPrompt("reviewer", config), /project override/i);
 });
