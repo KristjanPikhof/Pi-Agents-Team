@@ -640,12 +640,17 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	const diagnostics: ProjectConfigDiagnostic[] = [];
 	const parsedLayers: ParsedLayer[] = [];
 	const fatalScopes = new Set<TeamConfigScope>();
+	// Hold per-scope fatal-parse diagnostics until we know which scope wins.
+	// Only the winning scope's fatal diagnostic counts toward the "has errors →
+	// invalid" gate below; a fatal global in a project-winning session is
+	// diagnostic-only so the valid project config still loads.
+	const fatalDiagnosticsByScope = new Map<TeamConfigScope, ProjectConfigDiagnostic[]>();
 
 	for (const [scope, path] of [["global", globalPath], ["project", projectPath]] as const) {
 		if (!path) continue;
 		const result = parseLayer(scope, path);
 		if (isFatalLayerParse(result)) {
-			diagnostics.push(...result.fatalDiagnostics);
+			fatalDiagnosticsByScope.set(result.scope, result.fatalDiagnostics);
 			layers.push({ scope: result.scope, path: result.path });
 			fatalScopes.add(result.scope);
 			continue;
