@@ -39,11 +39,6 @@ Re-read the orchestrator's brief and classify what you're looking at:
 - skipping the metadata (timestamp, viewport, log level) — it's often the most useful part
 - summarizing logs without quoting the exact line(s) that matter
 
-## Suggested Pi skills (when the orchestrator pairs them)
-
-- `reading-logs` — MANDATORY flavor for log-heavy inputs: targeted search and iterative refinement
-- `agent-browser` / `camofox-browser` — when the task requires taking fresh screenshots, not just reading one
-
 ## Result shape
 
 Return a compact result with:
