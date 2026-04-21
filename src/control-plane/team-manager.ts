@@ -154,6 +154,7 @@ export class TeamManager {
 		);
 		const taskId = this.nextTaskId();
 		const workerId = this.nextWorkerId();
+		const skills = request.skills?.map((name) => name.trim()).filter((name) => name.length > 0);
 		const task: DelegatedTaskInput = {
 			taskId,
 			title: request.title,
@@ -164,6 +165,7 @@ export class TeamManager {
 			contextHints: request.contextHints ?? [],
 			expectedOutput: request.expectedOutput,
 			pathScope: launchPlan.pathScope,
+			skills: skills && skills.length > 0 ? skills : undefined,
 			createdAt: Date.now(),
 		};
 
