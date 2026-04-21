@@ -427,7 +427,14 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			continue;
 		}
 		parsedLayers.push(result);
-		layers.push({ scope: result.scope, path: result.path, enabled: result.parsed.enabled });
+		const layerDefaultsVersion = typeof result.parsed.defaultsVersion === "number" ? result.parsed.defaultsVersion : undefined;
+		layers.push({
+			scope: result.scope,
+			path: result.path,
+			enabled: result.parsed.enabled,
+			defaultsVersion: layerDefaultsVersion,
+			defaultsStale: layerDefaultsVersion !== undefined && layerDefaultsVersion !== CURRENT_DEFAULTS_VERSION,
+		});
 	}
 
 	let enabled = true;
