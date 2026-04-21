@@ -62,11 +62,7 @@ export function atomicWriteFileSync(path: string, body: string, options?: { mode
 		writeFileSync(tmp, body, options);
 		renameSync(tmp, path);
 	} catch (error) {
-		// Best-effort cleanup of a partial tmp file if the rename failed. Errors
-		// from unlink are intentionally swallowed — original file is still intact.
 		try {
-			// biome-ignore lint/style/noUnusedTemplateLiteral: intentional eager-require-free import
-			const { unlinkSync } = require("node:fs") as typeof import("node:fs");
 			unlinkSync(tmp);
 		} catch {
 			/* tmp already gone — fine */
