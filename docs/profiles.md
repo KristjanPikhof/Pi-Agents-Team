@@ -241,6 +241,6 @@ Follow any toggle with `/reload-plugins` to apply the change in the current Pi s
 
 ## Related docs
 
-- [`operations.md`](operations.md) — dashboard keys, steer/follow-up semantics, troubleshooting toggles and stale configs.
-- [`prompting.md`](prompting.md) — the `<final_answer>` contract every worker prompt must uphold.
-- [`architecture.md`](architecture.md) — runtime flow, state contract, animation layer.
+- [`operations.md`](operations.md): dashboard keys, steer/follow-up semantics, troubleshooting toggles and stale configs.
+- [`prompting.md`](prompting.md): the `<final_answer>` contract every worker prompt must uphold.
+- [`architecture.md`](architecture.md): runtime flow, state contract, animation layer.
