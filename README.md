@@ -86,8 +86,8 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 | `/team-enable global\|local` | Set `enabled: true` in the scoped config file. Run `/reload-plugins` to apply. |
 | `/team-disable global\|local` | Set `enabled: false` in the scoped config file. The extension stays loaded but goes dormant (no tools, no prompt, no UI) until re-enabled. |
 | `/agent-result <worker-id>` | Print the compact summary plus the verbatim `<final_answer>` block. |
-| `/agent-steer <worker-id\|all> <msg>` | Send a message. Auto-routes: `steer` if running, `follow_up` if idle. |
-| `/agent-followup <worker-id\|all> <msg>` | Always queue as `follow_up`. |
+| `/agent-steer <worker-id\|all> <msg>` | Send a message. Routes by status: `steer` if running, re-`prompt` if idle/waiting_followup (wakes the session). |
+| `/agent-followup <worker-id\|all> <msg>` | Queue onto the live stream if running; re-`prompt` if idle/waiting_followup. |
 | `/agent-cancel <worker-id\|all>` | Abort one worker, or every non-terminal worker. |
 
 ## How it works (in one paragraph)
