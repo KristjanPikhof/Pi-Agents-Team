@@ -146,6 +146,9 @@ export interface LoadedTeamProjectConfig {
 	config: TeamConfig;
 	sourcePath?: string;
 	projectRoot?: string;
+	layers: TeamProjectConfigLayer[];
+	enabled: boolean;
+	enabledSource: TeamEnabledSource;
 	diagnostics: ProjectConfigDiagnostic[];
 	delegationEnabled: boolean;
 }
