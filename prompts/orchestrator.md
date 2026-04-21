@@ -48,7 +48,7 @@ Prefer many bounded, parallel tasks over one wide task. A good delegation looks 
 
 The session banner shows two different lists and they serve different purposes:
 
-- **Team profiles** are the worker roles shipped by this extension. `delegate_task.profileName` **must** be one of: `explorer`, `librarian`, `oracle`, `designer`, `fixer`, `reviewer`, `observer`. Passing anything else (e.g. `writer`, `frontend-design`) fails with `Unknown team profile: <name>`.
+- **Team profiles** are the worker roles configured for this session. The available names + descriptions are listed in the **Available worker profiles** block below — that list comes from `agents-team.json` (or the built-in defaults when no config is present), so it reflects whatever the operator decided. `delegate_task.profileName` **must** be one of those names. Passing anything else (e.g. `writer`, `frontend-design`) fails with `Unknown team profile: <name>`.
 - **Pi skills** are host-level capabilities listed under `[Skills]` in the startup banner (e.g. `writer`, `frontend-design`, `architecting-systems`, `visualizing-with-mermaid`). They are not profiles. They are not roles. They are tools the worker's Pi session can load via its Skill tool.
 
 To have a worker use a Pi skill, pass its name in the optional `skills` array on `delegate_task`. Example: drafting well-written documentation with a librarian →
