@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { Value } from "@sinclair/typebox/value";
 import { TeamProjectConfigSchema } from "../config";
 import { getProjectConfigPathForScope } from "../project-config/loader";
-import type { TeamConfigScope, TeamProjectConfigFile } from "../types";
+import { TEAM_PROJECT_CONFIG_VERSION, type TeamConfigScope, type TeamProjectConfigFile } from "../types";
 
 interface ToggleCommandDependencies {
 	emitText: (ctx: ExtensionContext, text: string) => void;
