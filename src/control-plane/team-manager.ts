@@ -52,7 +52,7 @@ export interface AgentResult {
 }
 
 export interface AgentMessageResult extends AgentResult {
-	delivery: "steer" | "follow_up";
+	delivery: WorkerMessageDeliveryResolved;
 }
 
 export interface PingAgentsRequest {
