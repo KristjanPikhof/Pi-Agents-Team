@@ -69,16 +69,40 @@ function hasWriteTools(tools: string[]): boolean {
 	return tools.some((tool) => WRITE_CAPABLE_TOOLS.has(tool));
 }
 
+/**
+ * Materialize an inline or generic-sentinel prompt to a temp file so Pi's
+ * `--append-system-prompt` can read real file contents. Inline prompts (set
+ * via `"prompt": "<prose>"` in agents-team.json) and the generic-worker
+ * sentinel (used when a user-named role has no packaged contract) both need
+ * this indirection: the sentinel is a synthetic path that is never a real file,
+ * and `loadWorkerPrompt` does the `{NAME}`/`{DESCRIPTION}` substitution and
+ * inline-text trimming. Without this materialization step, Pi would try to
+ * read the sentinel path and crash, OR read the unrendered template with the
+ * placeholders intact — both observed in review. Temp directories are left
+ * for OS cleanup to reap; they are single-file prompts under a dedicated
+ * prefix in `os.tmpdir()`.
+ */
+function materializeInlinePrompt(profileName: string, body: string): string {
+	const dir = mkdtempSync(join(tmpdir(), `pi-agents-team-prompt-${profileName}-`));
+	const path = join(dir, "prompt.md");
+	writeFileSync(path, body, { mode: 0o600 });
+	return path;
+}
+
 function resolveSystemPromptPath(request: LaunchPolicyRequest, config: TeamConfig): string {
-	if (!request.systemPromptPath) {
-		return getWorkerPromptPath(request.profile.name, config);
+	if (request.systemPromptPath) {
+		const resolvedPromptPath = resolve(request.cwd, request.systemPromptPath);
+		const projectRoot = config.safety.projectRoot;
+		if (projectRoot && !isPathWithinProjectRoot(resolvedPromptPath, projectRoot, request.cwd)) {
+			throw new Error("Worker prompt paths must stay within the discovered project root.");
+		}
+		return resolvedPromptPath;
 	}
-	const resolvedPromptPath = resolve(request.cwd, request.systemPromptPath);
-	const projectRoot = config.safety.projectRoot;
-	if (projectRoot && !isPathWithinProjectRoot(resolvedPromptPath, projectRoot, request.cwd)) {
-		throw new Error("Worker prompt paths must stay within the discovered project root.");
+	if (request.profile.promptInline || request.profile.promptPath === GENERIC_WORKER_PROMPT_SENTINEL) {
+		const rendered = loadWorkerPrompt(request.profile.name, config);
+		return materializeInlinePrompt(request.profile.name, rendered);
 	}
-	return resolvedPromptPath;
+	return getWorkerPromptPath(request.profile.name, config);
 }
 
 function resolvePathScope(
