@@ -25,9 +25,13 @@ export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 
 export const TEAM_PROJECT_CONFIG_VERSION = 1 as const;
 // Snapshot freshness marker stamped into scaffolded configs. Bump whenever
-// DEFAULT_TEAM_CONFIG.profiles changes so previously-scaffolded agents-team.json
-// files are detected as stale and the operator is nudged to re-run /team-init.
-export const TEAM_DEFAULTS_VERSION = 1 as const;
+// DEFAULT_TEAM_CONFIG.profiles changes, or when the scaffold shape changes
+// (e.g. v1 nested "permissions"/"prompt.source" → v2 flat "tools"/"write"/"prompt")
+// so previously-scaffolded agents-team.json files are detected as stale and the
+// operator is nudged to re-run /team-init.
+export const TEAM_DEFAULTS_VERSION = 2 as const;
+export const DEFAULT_MODEL_SENTINEL = "default" as const;
+export const DEFAULT_PROMPT_SENTINEL = "default" as const;
 export const TEAM_PROJECT_CONFIG_FILE = "agents-team.json";
 export const TEAM_PROJECT_CONFIG_DIR = ".pi/agent";
 export const TEAM_PROJECT_CONFIG_RELATIVE_PATH = `${TEAM_PROJECT_CONFIG_DIR}/${TEAM_PROJECT_CONFIG_FILE}`;
