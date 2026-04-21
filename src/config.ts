@@ -66,12 +66,30 @@ export const ProjectRolePromptSchema = Type.Object({
 	path: Type.Optional(NullableStringSchema),
 }, { additionalProperties: false });
 
+export const ProjectRoleAdvancedSchema = Type.Object({
+	extensionMode: Type.Optional(enumSchema(WORKER_EXTENSION_MODES)),
+	canSpawnWorkers: Type.Optional(Type.Boolean()),
+	pathScope: Type.Optional(TeamPathScopeSchema),
+}, { additionalProperties: false });
+
+const FlatPromptValueSchema = Type.Union([Type.String(), Type.Null(), ProjectRolePromptSchema]);
+
+/**
+ * Accepts both the v1 nested shape ({ permissions, prompt: { source, path } })
+ * and the v2 flat shape ({ tools, write, prompt: "default" | "<path>", advanced }).
+ * Normalization into the internal ProjectRoleConfig happens in the loader.
+ */
 export const ProjectRoleConfigSchema = Type.Object({
 	description: Type.Optional(NullableStringSchema),
 	model: Type.Optional(NullableStringSchema),
 	thinkingLevel: Type.Optional(enumSchema(THINKING_LEVELS)),
-	permissions: ProjectRolePermissionsSchema,
-	prompt: ProjectRolePromptSchema,
+	// v2 flat fields
+	tools: Type.Optional(Type.Array(Type.String())),
+	write: Type.Optional(Type.Boolean()),
+	prompt: Type.Optional(FlatPromptValueSchema),
+	advanced: Type.Optional(ProjectRoleAdvancedSchema),
+	// v1 legacy fields
+	permissions: Type.Optional(ProjectRolePermissionsSchema),
 }, { additionalProperties: false });
 
 const ProjectRoleMapProperties = Object.fromEntries(
