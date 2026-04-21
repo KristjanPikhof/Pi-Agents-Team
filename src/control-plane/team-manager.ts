@@ -265,6 +265,8 @@ export class TeamManager {
 	}
 
 	async messageAllWorkers(message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult[]> {
+		// Explicitly excludes UNREACHABLE_STATUSES (completed/aborted/error/exited)
+		// so broadcast never tries to prompt a disposed RPC client.
 		const deliverable: WorkerStatus[] = ["running", "idle", "waiting_followup"];
 		const targets = this.listWorkers().filter((worker) => deliverable.includes(worker.status));
 		const results: AgentMessageResult[] = [];
