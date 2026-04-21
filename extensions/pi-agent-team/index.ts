@@ -302,7 +302,7 @@ export default function (pi: ExtensionAPI): void {
 				stopSpinner();
 				return;
 			}
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
 		}, SPINNER_INTERVAL_MS);
 		if (typeof spinnerTimer.unref === "function") spinnerTimer.unref();
 	}
@@ -345,7 +345,7 @@ export default function (pi: ExtensionAPI): void {
 		detachTeamManagerListener = manager.onStateChange((state) => {
 			teamState = state;
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
 
 			if (hasAnimatedWorkers(teamState)) {
 				ensureSpinnerRunning();
@@ -389,7 +389,7 @@ export default function (pi: ExtensionAPI): void {
 		teamManager = new TeamManager({ config });
 		attachTeamManagerListener(teamManager);
 		teamState = createDefaultTeamState(config);
-		applyUi(activeContext, teamState, spinnerFrame, config);
+		applyUi(activeContext, teamState, spinnerFrame, config, isTeamActive(activeProjectConfig));
 	}
 
 	attachTeamManagerListener(teamManager);
@@ -462,7 +462,7 @@ export default function (pi: ExtensionAPI): void {
 				orchestratorModel,
 			});
 			teamState = teamManager.snapshot();
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
 			return {
 				content: [
 					{
@@ -614,7 +614,7 @@ export default function (pi: ExtensionAPI): void {
 		const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 		teamState = state;
 		teamManager.restore(teamState);
-		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config);
+		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
 		persistSnapshot(pi, teamState, activeProjectConfig.config);
 
 		if (!ctx.hasUI) return;
@@ -637,7 +637,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		activeContext = ctx;
 		teamState = teamManager.snapshot();
-		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config);
+		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
 		const projectConfigPromptNote = getProjectConfigPromptNote(activeProjectConfig);
 		return {
 			systemPrompt: [
