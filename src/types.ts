@@ -166,11 +166,17 @@ export interface ProjectRoleAdvancedConfig {
 }
 
 /**
- * Flat shape emitted by /team-init (defaultsVersion=2+). Easier for operators:
+ * Flat shape emitted by /team-init (schemaVersion 3+). Easier for operators:
  * top-level `tools`, `write: true|false`, `prompt: "default" | "<path>"`,
  * `model: "default" | "<provider/id>"`. Power-user knobs live in `advanced`.
+ *
+ * `whenToUse` is the canonical field for telling the orchestrator when to
+ * delegate to this role — write it as a trigger sentence ("Use when..."),
+ * not a passive description of capability. The legacy `description` alias is
+ * accepted for backcompat; `whenToUse` wins when both are present.
  */
 export interface ProjectRoleFlatConfig {
+	whenToUse?: string | null;
 	description?: string | null;
 	model?: string | null;
 	thinkingLevel?: ThinkingLevel;
