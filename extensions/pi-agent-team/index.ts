@@ -641,10 +641,10 @@ export default function (pi: ExtensionAPI): void {
 		}
 
 		for (const layer of activeProjectConfig.layers) {
-			if (!layer.defaultsStale || layer.defaultsVersion === undefined) continue;
+			if (!layer.scaffoldStale || layer.scaffoldVersion === undefined) continue;
 			const scopeLabel = layer.scope === "project" ? "local" : "global";
 			ctx.ui.notify(
-				`Pi Agents Team: ${scopeLabel} agents-team.json is defaults v${layer.defaultsVersion}, plugin is v${CURRENT_DEFAULTS_VERSION}. Run /team-init ${scopeLabel} --force to refresh (old file is backed up first).`,
+				`Pi Agents Team: ${scopeLabel} agents-team.json is scaffoldVersion ${layer.scaffoldVersion}, plugin is ${CURRENT_SCAFFOLD_VERSION}. Run /team-init ${scopeLabel} --force to refresh (old file is backed up first).`,
 				"warning",
 			);
 		}
