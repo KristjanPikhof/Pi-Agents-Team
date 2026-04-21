@@ -49,13 +49,16 @@ Layering, top to bottom:
 
 ## Operator surface (post-cleanup)
 
-**Slash commands — 8 total.**
+**Slash commands — 11 total.**
 
 - `/team` → opens the dashboard overlay (live RPC ping on open). `y` inside the overlay copies the focused worker to clipboard.
 - `/team <worker-id>` → jumps straight into that worker's detail view.
 - `/team-copy <worker-id>` → same copy payload as `y`, without opening the overlay.
 - `/team-prune` → removes every terminal worker from the dashboard. Use after a cancelled batch.
 - `/team-cost` → per-worker token usage plus `Σ` totals. Orchestrator cost stays in Pi's footer.
+- `/team-init global|local [--force]` → writes a minimal `agents-team.json` skeleton to `~/.pi/agent/` or `./.pi/agent/`. Refuses to overwrite without `--force`.
+- `/team-enable global|local` → sets `enabled: true` in the scoped config file (creating it if missing). Run `/reload-plugins` to apply.
+- `/team-disable global|local` → sets `enabled: false` in the scoped config file. The extension stays loaded but skips tool execution, prompt injection, and UI rendering until re-enabled.
 - `/agent-result <worker-id>` → prints the compact summary + verbatim `<final_answer>` block.
 - `/agent-steer <worker-id|all> <msg>` → auto-routes: `steer` if running, `follow_up` if idle/waiting_followup. Prints the mode used.
 - `/agent-followup <worker-id|all> <msg>` → always queues as `follow_up`.
