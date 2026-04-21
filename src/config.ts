@@ -312,7 +312,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 	profiles: [
 		{
 			name: TEAM_PROFILE_NAMES[0],
-			description: "Fast codebase reconnaissance and file discovery.",
+			description:
+				"Use for fast codebase reconnaissance. Best for 'where is X?', 'how does Y work?', 'list all files that touch Z', or 'map the structure of this directory' questions. Read-only.",
 			thinkingLevel: "low",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/explorer.md",
@@ -322,7 +323,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		},
 		{
 			name: TEAM_PROFILE_NAMES[1],
-			description: "Docs, APIs, and version-sensitive reference research.",
+			description:
+				"Use for library/API/documentation research. Best for 'how do I use this dependency?', 'what changed in vX.Y?', or 'find the canonical reference for...' questions. Read-only.",
 			thinkingLevel: "medium",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/librarian.md",
@@ -332,7 +334,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		},
 		{
 			name: TEAM_PROFILE_NAMES[2],
-			description: "Architecture, debugging, and review-heavy judgement.",
+			description:
+				"Use for deep reasoning tasks: architecture tradeoffs, root-cause analysis of hard bugs, or judgment calls that need careful thought. Thinks slowly, answers carefully. Read-only.",
 			thinkingLevel: "high",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/oracle.md",
@@ -342,7 +345,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		},
 		{
 			name: TEAM_PROFILE_NAMES[3],
-			description: "UI and interaction design guidance.",
+			description:
+				"Use for UI/UX guidance: component layout critique, visual flow suggestions, design-system consistency checks. Read-only.",
 			thinkingLevel: "medium",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/designer.md",
@@ -352,7 +356,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		},
 		{
 			name: TEAM_PROFILE_NAMES[4],
-			description: "Bounded implementation, tests, and targeted edits.",
+			description:
+				"Use for bounded code changes: implement a specific fix, add a test, refactor a single file, apply a targeted edit. Requires an explicit pathScope at delegate time. Write-capable — do not use for questions or analysis.",
 			thinkingLevel: "medium",
 			tools: ["read", "bash", "edit", "write"],
 			promptPath: "prompts/agents/fixer.md",
@@ -362,7 +367,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		},
 		{
 			name: TEAM_PROFILE_NAMES[5],
-			description: "Validation, critique, and regression review.",
+			description:
+				"Use to validate a change, critique a PR, hunt for regressions, or confirm that tests actually cover what they claim. Reports confirmed issues vs softer suggestions. Read-only.",
 			thinkingLevel: "medium",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/reviewer.md",
