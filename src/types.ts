@@ -41,11 +41,12 @@ export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 // counters. To bump either one, edit ./project-config/versions.ts — no other
 // file needs changing. See CLAUDE.md "Schema versioning" for which counter to
 // bump in which situation.
-export {
+import {
 	TEAM_PROJECT_SCHEMA_VERSION,
 	TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED,
 	TEAM_SCAFFOLD_VERSION,
 } from "./project-config/versions";
+export { TEAM_PROJECT_SCHEMA_VERSION, TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED, TEAM_SCAFFOLD_VERSION };
 export const DEFAULT_MODEL_SENTINEL = "default" as const;
 export const DEFAULT_PROMPT_SENTINEL = "default" as const;
 export const TEAM_PROJECT_CONFIG_FILE = "agents-team.json";
