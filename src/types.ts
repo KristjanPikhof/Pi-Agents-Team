@@ -37,14 +37,19 @@ export type WorkerExtensionMode = (typeof WORKER_EXTENSION_MODES)[number];
 export const WORKER_WRITE_POLICIES = ["read-only", "scoped-write"] as const;
 export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 
-export const TEAM_PROJECT_CONFIG_VERSION = 2 as const;
-export const TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED = [2] as const;
-// Snapshot freshness marker stamped into scaffolded configs. Bump when
-// DEFAULT_TEAM_CONFIG.profiles or scaffold content changes so previously-
-// scaffolded agents-team.json files are nudged toward re-init. `version`
-// (above) is the shape contract — a mismatch triggers a warning and built-in
-// fallback. `defaultsVersion` is softer — it just flags the file as stale.
-export const TEAM_DEFAULTS_VERSION = 3 as const;
+// The JSON field name for the schema contract is `schemaVersion`. Bump this
+// when the shape of agents-team.json changes in a way an older loader can't
+// correctly interpret (renamed fields, new required fields, changed semantics).
+// Mismatched files emit a warning toast and fall back to built-in roles for
+// that layer until the user runs /team-init <scope> --force.
+export const TEAM_PROJECT_SCHEMA_VERSION = 3 as const;
+export const TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED = [3] as const;
+// The JSON field name for the freshness marker is `scaffoldVersion`. Bump this
+// when /team-init would write different defaults (new role, tweaked tool list,
+// new default description) even though the shape is identical. Older files
+// keep loading; each layer where scaffoldVersion < CURRENT_SCAFFOLD_VERSION
+// gets a soft "stale scaffold" toast suggesting re-init.
+export const TEAM_SCAFFOLD_VERSION = 3 as const;
 export const DEFAULT_MODEL_SENTINEL = "default" as const;
 export const DEFAULT_PROMPT_SENTINEL = "default" as const;
 export const TEAM_PROJECT_CONFIG_FILE = "agents-team.json";
