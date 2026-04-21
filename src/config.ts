@@ -70,12 +70,13 @@ export const ProjectRoleConfigSchema = Type.Object({
 }, { additionalProperties: false });
 
 const ProjectRoleMapProperties = Object.fromEntries(
-	TEAM_PROFILE_NAMES.map((profileName) => [profileName, ProjectRoleConfigSchema]),
+	TEAM_PROFILE_NAMES.map((profileName) => [profileName, Type.Optional(ProjectRoleConfigSchema)]),
 ) as Record<string, TSchema>;
 
 export const TeamProjectConfigSchema = Type.Object({
 	version: Type.Literal(TEAM_PROJECT_CONFIG_VERSION),
-	roles: Type.Object(ProjectRoleMapProperties, { additionalProperties: false }),
+	enabled: Type.Optional(Type.Boolean()),
+	roles: Type.Optional(Type.Object(ProjectRoleMapProperties, { additionalProperties: false })),
 }, { additionalProperties: false });
 
 export const WorkerUsageStatsSchema = Type.Object({
@@ -199,6 +200,7 @@ export const TeamConfigSchema = Type.Object({
 		defaultWorkerExtensionMode: enumSchema(WORKER_EXTENSION_MODES),
 		requirePathScopeForWrites: Type.Boolean({ default: true }),
 		allowProjectProfiles: Type.Boolean({ default: false }),
+		projectRoot: Type.Optional(Type.String()),
 	}),
 	persistence: Type.Object({
 		stateCustomType: Type.String(),
