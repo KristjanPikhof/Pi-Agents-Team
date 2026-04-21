@@ -122,7 +122,7 @@ test("/team-init --force backs up the old file before overwriting", async () => 
 
 	const contents = JSON.parse(readFileSync(targetPath, "utf8"));
 	assert.equal(contents.enabled, true);
-	assert.equal(contents.defaultsVersion, CURRENT_SCAFFOLD_VERSION);
+	assert.equal(contents.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.ok(contents.roles && Object.keys(contents.roles).length === DEFAULT_TEAM_CONFIG.profiles.length);
 
 	const siblings = readdirSync(join(root, TEAM_PROJECT_CONFIG_DIR));
