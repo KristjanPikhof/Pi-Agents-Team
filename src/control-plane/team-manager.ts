@@ -29,6 +29,21 @@ export function isTerminalWorkerStatus(status: WorkerStatus): boolean {
 	return TERMINAL_STATUSES.has(status);
 }
 
+/**
+ * Statuses where the worker's RPC client has been (or is about to be) disposed.
+ * `idle` and `waiting_followup` are terminal for UI purposes but the client is
+ * still alive and can legitimately accept a new prompt. The statuses below are
+ * "truly done" — prompting them would hit a disposed client and confusingly
+ * flip the dashboard back to `running` before throwing. Callers that receive
+ * a message for one of these must cancel + re-delegate.
+ */
+const UNREACHABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
+	"completed",
+	"aborted",
+	"error",
+	"exited",
+]);
+
 export interface DelegateTaskRequest {
 	title: string;
 	goal: string;
