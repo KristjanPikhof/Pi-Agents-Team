@@ -1,4 +1,4 @@
-import { constants, copyFileSync, renameSync, writeFileSync } from "node:fs";
+import { constants, copyFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 /**
