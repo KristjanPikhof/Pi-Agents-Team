@@ -129,10 +129,12 @@ Inline text is the escape hatch when you don't want to maintain a separate markd
 
 ```json
 "oracle": {
-  "model": "anthropic/claude-opus-4-7",
+  "model": "<provider>/<model-id>",
   "thinkingLevel": "xhigh"
 }
 ```
+
+Replace `<provider>/<model-id>` with an actual canonical Pi model ID (check your Pi install's available models — the exact set depends on configured providers).
 
 Everything else (tools, write, prompt) falls through to the built-in `oracle` defaults because the role name matches a packaged one.
 
