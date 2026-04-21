@@ -436,6 +436,7 @@ export default function (pi: ExtensionAPI): void {
 				contextHints: params.contextHints,
 				expectedOutput: params.expectedOutput,
 				pathScope,
+				skills: params.skills,
 				model: params.model,
 				orchestratorModel,
 			});
