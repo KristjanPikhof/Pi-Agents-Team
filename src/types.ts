@@ -146,6 +146,7 @@ export interface DelegatedTaskInput {
 	contextHints: string[];
 	expectedOutput?: string;
 	pathScope?: TeamPathScope;
+	skills?: string[];
 	createdAt: number;
 }
 
@@ -257,6 +258,7 @@ export interface TeamConfig {
 		defaultWorkerExtensionMode: WorkerExtensionMode;
 		requirePathScopeForWrites: boolean;
 		allowProjectProfiles: boolean;
+		projectRoot?: string;
 	};
 	persistence: {
 		stateCustomType: string;
