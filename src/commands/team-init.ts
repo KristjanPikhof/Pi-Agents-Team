@@ -116,8 +116,8 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 			}
 			lines.push(
 				`Wrote ${parsed.scope} agents-team.json scaffold (schemaVersion ${TEAM_PROJECT_SCHEMA_VERSION}, scaffoldVersion ${CURRENT_SCAFFOLD_VERSION}) to ${targetPath}.`,
-				`Per-role knobs: model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel, tools (subset of the role's default tools), write (true/false — writable roles still need an explicit pathScope at delegate time), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md).`,
-				"Delete a role block entirely to fall back to the built-in defaults.",
+				`Per-role knobs: whenToUse (a trigger sentence — "Use when..." — shown to the orchestrator so it picks the right role), model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel, tools (the role's tool set), write (true/false — writable roles need an explicit pathScope at delegate time), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md, or the prompt text inline).`,
+				"Rename, remove, or add roles freely — the orchestrator sees exactly what you declare. Delete a role block to fall back to the built-in defaults for that name.",
 				"Run /reload-plugins to apply changes in this session.",
 			);
 			dependencies.emitText(ctx, lines.join("\n"));
