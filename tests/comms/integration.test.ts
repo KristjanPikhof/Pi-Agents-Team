@@ -40,5 +40,8 @@ test("communication flow supports steer while running, follow-up while idle, pas
 	assert.equal(passivePing[0]?.worker.pendingRelayQuestions.length, 1);
 
 	await teamManager.messageWorker(worker.workerId, "Continue with the current scope", "auto");
-	assert.ok(transports[0]?.commands.some((command) => command.type === "follow_up"));
+	const promptCommands = transports[0]?.commands.filter((command) => command.type === "prompt") ?? [];
+	assert.equal(promptCommands.length, 2, "idle worker should receive the message as a fresh prompt (wakes the session)");
+	assert.equal(promptCommands.at(-1)?.message, "Continue with the current scope");
+	assert.ok(!transports[0]?.commands.some((command) => command.type === "follow_up"));
 });
