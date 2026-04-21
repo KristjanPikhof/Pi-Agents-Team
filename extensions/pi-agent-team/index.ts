@@ -643,6 +643,9 @@ export default function (pi: ExtensionAPI): void {
 		activeContext = ctx;
 		teamState = teamManager.snapshot();
 		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
+		if (!activeProjectConfig.enabled) {
+			return { systemPrompt: event.systemPrompt };
+		}
 		const projectConfigPromptNote = getProjectConfigPromptNote(activeProjectConfig);
 		return {
 			systemPrompt: [
