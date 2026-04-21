@@ -28,6 +28,7 @@ const DelegateTaskSchema = Type.Object({
 	expectedOutput: Type.Optional(Type.String({ description: "Describe the output contract the worker should return" })),
 	pathScopeRoots: Type.Optional(Type.Array(Type.String(), { description: "Allowed path roots for scoped workers, especially write-capable profiles." })),
 	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
+	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of Pi skill names (e.g. \"writer\", \"frontend-design\") the worker should invoke via its Skill tool. Skills come from the host Pi install (the [Skills] banner), not from team profiles. Omit if no specialized skill is needed." })),
 	model: Type.Optional(Type.String({ description: "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model." })),
 });
 
@@ -435,7 +436,8 @@ export default function (pi: ExtensionAPI): void {
 				contextHints: params.contextHints,
 				expectedOutput: params.expectedOutput,
 				pathScope,
-				model: params.model ?? orchestratorModel,
+				model: params.model,
+				orchestratorModel,
 			});
 			teamState = teamManager.snapshot();
 			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config);
