@@ -399,7 +399,16 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	} else if (typeof options.globalConfigPath === "string") {
 		globalPath = existsSync(options.globalConfigPath) ? options.globalConfigPath : undefined;
 	} else {
-		globalPath = findGlobalProjectConfigPath();
+		const envOverride = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+		if (envOverride !== undefined) {
+			if (envOverride === "" || envOverride === "null" || envOverride === "none") {
+				globalPath = undefined;
+			} else {
+				globalPath = existsSync(envOverride) ? envOverride : undefined;
+			}
+		} else {
+			globalPath = findGlobalProjectConfigPath();
+		}
 	}
 	const projectPath = findNearestProjectConfigPath(options.cwd);
 
