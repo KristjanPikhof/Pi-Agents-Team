@@ -328,8 +328,16 @@ interface ParsedLayer {
 	diagnostics: ProjectConfigDiagnostic[];
 }
 
+function computeLayerRoot(scope: TeamConfigScope, path: string): string {
+	if (scope === "project") {
+		// Config lives at <projectRoot>/.pi/agent/agents-team.json → root is two dirs up.
+		return dirname(dirname(dirname(path)));
+	}
+	return dirname(path);
+}
+
 function parseLayer(scope: TeamConfigScope, path: string): ParsedLayer | { fatalDiagnostics: ProjectConfigDiagnostic[]; scope: TeamConfigScope; path: string } {
-	const layerRoot = dirname(path);
+	const layerRoot = computeLayerRoot(scope, path);
 	const requireInsideLayerRoot = scope === "project";
 
 	let parsedJson: unknown;
