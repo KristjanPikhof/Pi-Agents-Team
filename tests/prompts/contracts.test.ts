@@ -42,7 +42,7 @@ test("buildWorkerTaskPrompt includes relay guidance and scope", () => {
 	assert.match(prompt, /relay_question/i);
 	assert.match(prompt, /<final_answer>/);
 	assert.match(prompt, /src\/comms/);
-	assert.doesNotMatch(prompt, /Pi skills to invoke/);
+	assert.doesNotMatch(prompt, /Pi skills to use/);
 });
 
 test("buildWorkerTaskPrompt injects skills section only when skills are provided", () => {
