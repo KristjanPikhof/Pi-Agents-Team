@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { backupExisting, formatBackupTimestamp } from "../util/backup";
+import { atomicWriteFileSync, backupExisting, formatBackupTimestamp } from "../util/backup";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG } from "../config";
 import { getProjectConfigPathForScope } from "../project-config/loader";
 import {
