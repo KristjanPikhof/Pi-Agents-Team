@@ -585,23 +585,30 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		};
 	}
 
-	let profiles = baseConfig.profiles.map(cloneProfile);
-	for (const layer of parsedLayers) {
-		const roles = layer.parsed.roles ?? {};
-		profiles = profiles.map((profile) => {
-			const rawRoleConfig = roles[profile.name as keyof typeof roles];
-			if (!rawRoleConfig) return profile;
-			const roleConfig = normalizeRawRoleConfig(rawRoleConfig);
-			const application: LayerApplication = {
-				scope: layer.scope,
-				layerRoot: layer.layerRoot,
-				layerPath: layer.path,
-				requireInsideLayerRoot: layer.requireInsideLayerRoot,
-				roles,
-			};
-			const normalized = applyRoleLayer(profile, roleConfig, application, profile.name);
-			diagnostics.push(...normalized.diagnostics);
-			return normalized.profile;
+	// Schema v2: pick a single winning layer — project overrides global completely
+	// when both are valid. The winning layer fully owns the role list. Built-ins
+	// are only used when no valid layer is present, or when a layer explicitly
+	// declares no roles.
+	const projectLayer = parsedLayers.find((layer) => layer.scope === "project");
+	const globalLayer = parsedLayers.find((layer) => layer.scope === "global");
+	const winningLayer = projectLayer ?? globalLayer;
+
+	let profiles: TeamProfileSpec[];
+	if (!winningLayer || !winningLayer.parsed.roles || Object.keys(winningLayer.parsed.roles).length === 0) {
+		profiles = baseConfig.profiles.map(cloneProfile);
+	} else {
+		const roles = winningLayer.parsed.roles as Record<string, RawProjectRoleConfig>;
+		const application: LayerApplication = {
+			scope: winningLayer.scope,
+			layerRoot: winningLayer.layerRoot,
+			layerPath: winningLayer.path,
+			requireInsideLayerRoot: winningLayer.requireInsideLayerRoot,
+			roles,
+		};
+		profiles = Object.entries(roles).map(([roleName, rawRoleConfig]) => {
+			const { profile, diagnostics: profileDiagnostics } = materializeRoleProfile(roleName, rawRoleConfig, application);
+			diagnostics.push(...profileDiagnostics);
+			return profile;
 		});
 	}
 
