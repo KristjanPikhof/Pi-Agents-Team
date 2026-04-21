@@ -134,7 +134,8 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 			}
 			lines.push(
 				`Wrote ${parsed.scope} agents-team.json scaffold (defaultsVersion ${CURRENT_DEFAULTS_VERSION}) to ${targetPath}.`,
-				"Every builtin role is listed with its defaults — tweak fields in place, switch prompt.source to \"project\" and set prompt.path to use your own .md, or delete a role block to fall back to builtins.",
+				`Per-role knobs: model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel, tools (subset of the role's default tools), write (true/false — writable roles still need an explicit pathScope at delegate time), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md).`,
+				"Delete a role block entirely to fall back to the built-in defaults.",
 				"Run /reload-plugins to apply changes in this session.",
 			);
 			dependencies.emitText(ctx, lines.join("\n"));
