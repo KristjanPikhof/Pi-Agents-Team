@@ -256,6 +256,77 @@ test("loadActiveTeamConfig layers project config on top of global with rights na
 	assert.equal(oracle?.thinkingLevel, "medium");
 });
 
+test("loadActiveTeamConfig accepts the flat v2 role shape (tools / write / prompt / advanced)", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-flat-shape-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		version: 1,
+		defaultsVersion: 2,
+		roles: {
+			// flat role: tools/write/prompt at the top level, no `permissions` wrapper
+			reviewer: {
+				description: "custom",
+				model: "default",
+				thinkingLevel: "high",
+				tools: ["read", "grep", "find", "ls"],
+				write: false,
+				prompt: "default",
+			} as any,
+			// write:true should translate to writePolicy scoped-write
+			fixer: {
+				tools: ["read", "bash", "edit", "write"],
+				write: true,
+				prompt: "default",
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.equal(result.delegationEnabled, true);
+
+	const reviewer = result.config.profiles.find((profile) => profile.name === "reviewer");
+	assert.ok(reviewer);
+	assert.equal(reviewer?.description, "custom");
+	assert.equal(reviewer?.thinkingLevel, "high");
+	assert.deepEqual(reviewer?.tools, ["read", "grep", "find", "ls"]);
+	assert.equal(reviewer?.writePolicy, "read-only");
+	assert.equal(reviewer?.model, undefined, "model:'default' should map to undefined (inherit)");
+
+	const fixer = result.config.profiles.find((profile) => profile.name === "fixer");
+	assert.ok(fixer);
+	assert.equal(fixer?.writePolicy, "scoped-write");
+	assert.deepEqual(fixer?.tools, ["read", "bash", "edit", "write"]);
+});
+
+test("loadActiveTeamConfig warns (not errors) when a flat prompt path is unreadable and keeps the builtin", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-missing-prompt-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		version: 1,
+		roles: {
+			reviewer: {
+				tools: ["read", "grep", "find", "ls", "bash"],
+				write: false,
+				prompt: "prompts/custom-reviewer.md",
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project", "missing prompt file must not invalidate the whole layer");
+	assert.equal(result.delegationEnabled, true);
+	const missingWarning = result.diagnostics.find((diagnostic) => diagnostic.code === "project_prompt_missing");
+	assert.ok(missingWarning, "expected a project_prompt_missing warning");
+	assert.equal(missingWarning?.severity, "warning");
+	assert.match(missingWarning!.message, /custom-reviewer\.md/);
+	assert.match(missingWarning!.message, /falling back/i);
+
+	const reviewer = result.config.profiles.find((profile) => profile.name === "reviewer");
+	assert.ok(reviewer?.promptPath);
+	assert.match(reviewer!.promptPath, /prompts\/agents\/reviewer\.md$/, "should fall back to the built-in reviewer prompt path");
+});
+
 test("loadActiveTeamConfig marks config invalid if any layer fails to parse", () => {
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-invalid-global-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
