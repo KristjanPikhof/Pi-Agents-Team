@@ -280,6 +280,8 @@ function applyRoleLayer(
 
 	const prompt = normalizePromptPath(ceiling, roleConfig, layer.layerRoot, `${fieldBase}.prompt`, {
 		requireInsideLayerRoot: layer.requireInsideLayerRoot,
+		layerScope: layer.scope,
+		layerPath: layer.layerPath,
 	});
 	diagnostics.push(...prompt.diagnostics);
 
