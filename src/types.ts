@@ -165,9 +165,10 @@ export interface ProjectRoleFlatConfig {
 
 export type RawProjectRoleConfig = ProjectRoleConfig | ProjectRoleFlatConfig;
 
-export type ProjectRoleConfigMap = Record<TeamProfileName, ProjectRoleConfig>;
-export type PartialProjectRoleConfigMap = Partial<Record<TeamProfileName, ProjectRoleConfig>>;
-export type PartialRawProjectRoleConfigMap = Partial<Record<TeamProfileName, RawProjectRoleConfig>>;
+// Schema v2: role keys are free-form strings. The user owns the map.
+export type ProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
+export type PartialProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
+export type PartialRawProjectRoleConfigMap = Record<string, RawProjectRoleConfig>;
 
 export interface TeamProjectConfigFile {
 	version: typeof TEAM_PROJECT_CONFIG_VERSION;
