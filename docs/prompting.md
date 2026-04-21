@@ -27,6 +27,12 @@ Any investigation, mapping, review, multi-file change, or context-hungry task be
 
 When the user asks for N workers or parallel analysis, the orchestrator spawns them immediately in one batch, each with its own focused slice. It does not pre-explore the repo to "figure out what to delegate."
 
+### Profiles vs skills
+
+`delegate_task.profileName` must be one of the seven team profiles (`explorer`, `librarian`, `oracle`, `designer`, `fixer`, `reviewer`, `observer`). These are the worker roles shipped by this extension.
+
+Pi skills (the `[Skills]` list shown in the Pi startup banner — e.g. `writer`, `frontend-design`, `architecting-systems`) are host-level capabilities, not profiles. To have a worker load one during its task, pass the names through the optional `delegate_task.skills` array. The worker task prompt injects an explicit instruction to invoke each listed skill via its Skill tool before emitting the `<final_answer>`. Omit `skills` when no specialized skill is needed — that's the correct default for most delegations. Never pass a skill name as `profileName` (it fails with `Unknown team profile: <name>`).
+
 ### Wait, don't poll
 
 The loop after `delegate_task`:
@@ -126,6 +132,16 @@ next_recommendation:
 - `observer`
 
 Prompt files live under [`../prompts/agents/`](../prompts/agents/) and are loaded by `src/prompts/contracts.ts`. The orchestrator prompt is at [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
+
+## Prompt path resolution
+
+Worker prompt lookup follows the active runtime config, not the packaged profile loader alone:
+
+1. explicit `delegate_task.systemPromptPath` if provided
+2. otherwise the resolved role `promptPath` from the active config
+3. packaged prompt path from the built-in role when no project override is active
+
+When a session-frozen project config is active, both project prompt overrides and explicit launch-time `systemPromptPath` values must stay within the discovered project root.
 
 ## Injection point
 
