@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve, relative } from "node:path";
 import { Value } from "@sinclair/typebox/value";
-import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
 import {
 	DEFAULT_MODEL_SENTINEL,
 	DEFAULT_PROMPT_SENTINEL,
@@ -11,8 +11,8 @@ import {
 	TEAM_PROJECT_CONFIG_DIR,
 	TEAM_PROJECT_CONFIG_FILE,
 	TEAM_PROJECT_CONFIG_RELATIVE_PATH,
-	TEAM_PROJECT_CONFIG_VERSION,
-	TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED,
+	TEAM_PROJECT_SCHEMA_VERSION,
+	TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED,
 	isPackagedProfileName,
 	type LoadedTeamProjectConfig,
 	type PartialRawProjectRoleConfigMap,
