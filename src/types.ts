@@ -23,6 +23,17 @@ export type WorkerExtensionMode = (typeof WORKER_EXTENSION_MODES)[number];
 export const WORKER_WRITE_POLICIES = ["read-only", "scoped-write"] as const;
 export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 
+export const TEAM_PROJECT_CONFIG_VERSION = 1 as const;
+export const TEAM_PROJECT_CONFIG_FILE = "agents-team.json";
+export const TEAM_PROMPT_SOURCES = ["builtin", "project"] as const;
+export type TeamPromptSource = (typeof TEAM_PROMPT_SOURCES)[number];
+
+export const PROJECT_CONFIG_STATUSES = ["builtin", "project", "invalid"] as const;
+export type ProjectConfigStatus = (typeof PROJECT_CONFIG_STATUSES)[number];
+
+export const PROJECT_CONFIG_DIAGNOSTIC_SEVERITIES = ["info", "warning", "error"] as const;
+export type ProjectConfigDiagnosticSeverity = (typeof PROJECT_CONFIG_DIAGNOSTIC_SEVERITIES)[number];
+
 export const WORKER_STATUSES = [
 	"created",
 	"starting",
@@ -79,6 +90,50 @@ export interface TeamProfileSpec {
 	writePolicy: WorkerWritePolicy;
 	pathScope?: TeamPathScope;
 	canSpawnWorkers: boolean;
+}
+
+export interface ProjectRolePermissions {
+	tools?: string[] | null;
+	extensionMode?: WorkerExtensionMode;
+	writePolicy?: WorkerWritePolicy;
+	pathScope?: TeamPathScope;
+	canSpawnWorkers?: boolean;
+}
+
+export interface ProjectRolePromptConfig {
+	source: TeamPromptSource;
+	path?: string | null;
+}
+
+export interface ProjectRoleConfig {
+	description?: string | null;
+	model?: string | null;
+	thinkingLevel?: ThinkingLevel;
+	permissions: ProjectRolePermissions;
+	prompt: ProjectRolePromptConfig;
+}
+
+export type ProjectRoleConfigMap = Record<TeamProfileName, ProjectRoleConfig>;
+
+export interface TeamProjectConfigFile {
+	version: typeof TEAM_PROJECT_CONFIG_VERSION;
+	roles: ProjectRoleConfigMap;
+}
+
+export interface ProjectConfigDiagnostic {
+	severity: ProjectConfigDiagnosticSeverity;
+	code: string;
+	message: string;
+	fieldPath?: string;
+}
+
+export interface LoadedTeamProjectConfig {
+	status: ProjectConfigStatus;
+	config: TeamConfig;
+	sourcePath?: string;
+	projectRoot?: string;
+	diagnostics: ProjectConfigDiagnostic[];
+	delegationEnabled: boolean;
 }
 
 export interface DelegatedTaskInput {
