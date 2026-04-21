@@ -33,7 +33,7 @@ Re-read the orchestrator's brief and identify:
 
 - quoting docs without naming the source ("the docs say X" — which docs? which version?)
 - using the latest-release API shape when the project is pinned to an older version
-- guessing when a `Context7` skill is available to fetch real docs — use it
+- guessing the API when a documentation-fetching skill exists in this session (check the `[Skills]` banner — use one if it's there, otherwise fall back to reading installed source in `node_modules` / `vendor` / the equivalent)
 - conflating v1 and v2 semantics of the same library
 - answering "does X work?" with prose when a 3-line code snippet would be clearer
 
