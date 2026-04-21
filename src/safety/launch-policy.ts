@@ -49,8 +49,21 @@ function isExtensionModeNarrowerOrEqual(candidate: WorkerExtensionMode, baseline
 	return extensionModeRank(candidate) >= extensionModeRank(baseline);
 }
 
+/**
+ * Tools that can mutate filesystem state. `bash` is included because Pi's shell
+ * tool runs arbitrary commands in the worker's cwd — it can `rm`, `>`, `cp`,
+ * `git reset --hard`, or invoke any editor. Requiring an explicit writable
+ * `pathScope` for bash-enabled profiles puts the role on the same footing as
+ * edit/write and gives launch-policy a real chokepoint. Note: Pi does not
+ * currently enforce pathScope at the tool layer (it's a prompt-convention +
+ * orchestrator-discipline boundary, not an OS sandbox) — the guard still
+ * forces operators to declare intent, which is the best containment we have
+ * without wrapping Pi's tools.
+ */
+const WRITE_CAPABLE_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "bash"]);
+
 function hasWriteTools(tools: string[]): boolean {
-	return tools.includes("edit") || tools.includes("write");
+	return tools.some((tool) => WRITE_CAPABLE_TOOLS.has(tool));
 }
 
 function resolveSystemPromptPath(request: LaunchPolicyRequest, config: TeamConfig): string {
