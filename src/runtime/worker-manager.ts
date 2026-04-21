@@ -33,6 +33,7 @@ export interface LaunchWorkerOptions {
 	tools?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
+	allowSkills?: boolean;
 	command?: string;
 	baseArgs?: string[];
 	extraArgs?: string[];
