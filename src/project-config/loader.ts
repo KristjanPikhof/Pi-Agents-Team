@@ -317,12 +317,17 @@ function resolveRolePrompt(
 	const resolved = resolveLayerPath(layer.layerRoot, raw, fieldPath, {
 		requireInsideLayerRoot: layer.requireInsideLayerRoot,
 	});
-	if (!resolved.diagnostic && resolved.path && existsSync(resolved.path)) {
+	if (resolved.diagnostic) {
+		// A path-shaped string that escapes the project root. Never silent-fallback
+		// — users explicitly typed a path, so surface the error.
+		return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, diagnostics: [resolved.diagnostic] };
+	}
+	if (resolved.path && existsSync(resolved.path)) {
 		return { promptPath: resolved.path, diagnostics: [] };
 	}
 
-	// Not a readable file: treat the string as inline prompt text. No diagnostic —
-	// this is the user's explicit escape hatch ("I want to write the prompt inline").
+	// Not a readable file: treat the string as inline prompt text. This is the
+	// user's explicit escape hatch ("I want to write the prompt inline").
 	return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, promptInline: raw, diagnostics: [] };
 }
 
