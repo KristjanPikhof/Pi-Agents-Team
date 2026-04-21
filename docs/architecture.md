@@ -78,6 +78,12 @@ Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, f
 
 The default launch mode is `worker-minimal`. That disables recursive extension discovery and keeps workers from accidentally booting the full orchestrator package again. `preventRecursiveOrchestrator: true` in the safety config hard-rejects any attempt to launch with `extensionMode: "inherit"`.
 
+### Project role config is discovered once, then frozen
+
+On session start the extension calls `loadActiveTeamConfig({ cwd })`. If it finds the nearest ancestor `agents-team.json`, it resolves project prompt paths and scope roots relative to that file's directory, merges the result onto the built-in profiles, and hands the merged config to `TeamManager`. That merged config is the active runtime authority for the session.
+
+The runtime does **not** hot-reload `agents-team.json` mid-session. This avoids a class of bugs where active workers were launched under one role definition and later supervision/tooling reads a different one. If the file is invalid, the extension keeps packaged defaults available for display but marks delegation disabled until the next fixed session start.
+
 ### Write-capable profiles need path scope
 
 The `fixer` profile is intentionally stricter than the read-heavy roles. If `writePolicy` is `scoped-write`, `ensureWriteScope` requires explicit writable roots; launch policy throws without them. Read-only profiles use `normalizePathScope`, which permits broad inspection without write capability.
