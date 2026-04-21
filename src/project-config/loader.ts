@@ -370,10 +370,29 @@ function isFatalLayerParse(value: ParsedLayer | { fatalDiagnostics: ProjectConfi
 	return "fatalDiagnostics" in value;
 }
 
-export function loadActiveTeamConfig(options: { cwd: string; baseConfig?: TeamConfig } = { cwd: process.cwd() }): LoadedTeamProjectConfig {
+export interface LoadActiveTeamConfigOptions {
+	cwd: string;
+	baseConfig?: TeamConfig;
+	/**
+	 * Override the global config lookup.
+	 * - `undefined` (default): probe `~/.pi/agent/agents-team.json`.
+	 * - `null`: skip the global probe entirely (used by tests for isolation).
+	 * - `string`: treat this as the global config path; load if the file exists.
+	 */
+	globalConfigPath?: string | null;
+}
+
+export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cwd: process.cwd() }): LoadedTeamProjectConfig {
 	const baseConfig = cloneTeamConfig(options.baseConfig ?? DEFAULT_TEAM_CONFIG);
 
-	const globalPath = findGlobalProjectConfigPath();
+	let globalPath: string | undefined;
+	if (options.globalConfigPath === null) {
+		globalPath = undefined;
+	} else if (typeof options.globalConfigPath === "string") {
+		globalPath = existsSync(options.globalConfigPath) ? options.globalConfigPath : undefined;
+	} else {
+		globalPath = findGlobalProjectConfigPath();
+	}
 	const projectPath = findNearestProjectConfigPath(options.cwd);
 
 	const layers: TeamProjectConfigLayer[] = [];
