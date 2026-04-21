@@ -92,7 +92,7 @@ test("/team-disable backs up an unparsable file before writing a minimal replace
 	const siblings = readdirSync(configDir);
 	const backup = siblings.find((name) => name !== TEAM_PROJECT_CONFIG_FILE && name.endsWith(TEAM_PROJECT_CONFIG_FILE));
 	assert.ok(backup, `expected a timestamped backup alongside ${TEAM_PROJECT_CONFIG_FILE}, saw: ${siblings.join(", ")}`);
-	assert.match(backup!, /^\d{4}-\d{2}-\d{2}-\d{4}(-\d+)?-agents-team\.json$/);
+	assert.match(backup!, /^\d{4}-\d{2}-\d{2}-\d{6}(-\d+)?-agents-team\.json$/);
 	assert.equal(readFileSync(join(configDir, backup!), "utf8"), originalContents);
 	assert.ok(emitted[0]?.match(/unparsable/i));
 	assert.ok(emitted[0]?.includes(backup!));
