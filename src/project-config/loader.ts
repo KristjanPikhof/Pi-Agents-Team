@@ -746,10 +746,15 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 
 	// A fatal parse error on the WINNING layer disables delegation (the user's
 	// intended config is broken and they need a diagnostic). A fatal parse on a
-	// non-winning layer is only a diagnostic — it must not block the winning
-	// layer from taking effect. Pre-fix, any fatal parse (including a broken
-	// global) short-circuited here and disabled delegation machine-wide.
+	// non-winning layer is surfaced as a diagnostic but doesn't block the
+	// winning layer from taking effect. Pre-fix, any fatal parse (including a
+	// broken global) short-circuited here and disabled delegation machine-wide.
 	if (fatalScopes.has(winningScope)) {
+		// Promote every fatal diagnostic to the main stream — the user needs to
+		// see both the winning-layer parse error AND any non-winning ones.
+		for (const fatalDiagnostics of fatalDiagnosticsByScope.values()) {
+			diagnostics.push(...fatalDiagnostics);
+		}
 		return {
 			status: "invalid",
 			config: baseConfig,
@@ -761,6 +766,14 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			diagnostics,
 			delegationEnabled: false,
 		};
+	}
+
+	// Non-winning fatal diagnostics are still worth showing — but they must not
+	// trigger the "has errors → invalid" gate below. We add them to the main
+	// diagnostics stream AFTER the gate.
+	const nonWinningFatalDiagnostics: ProjectConfigDiagnostic[] = [];
+	for (const [scope, fatalDiagnostics] of fatalDiagnosticsByScope) {
+		if (scope !== winningScope) nonWinningFatalDiagnostics.push(...fatalDiagnostics);
 	}
 
 	let profiles: TeamProfileSpec[];
