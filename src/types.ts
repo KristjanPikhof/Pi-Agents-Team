@@ -158,7 +158,7 @@ export interface TeamProjectConfigFile {
 	version: typeof TEAM_PROJECT_CONFIG_VERSION;
 	defaultsVersion?: number;
 	enabled?: boolean;
-	roles?: PartialProjectRoleConfigMap;
+	roles?: PartialRawProjectRoleConfigMap;
 }
 
 export interface TeamProjectConfigLayer {
