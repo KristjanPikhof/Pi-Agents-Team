@@ -247,7 +247,7 @@ function getDisabledMessage(config: LoadedTeamProjectConfig): string {
 	const path = sourceLayer?.path;
 	const enableScope = config.enabledSource === "project" ? "local" : "global";
 	const pathSuffix = path ? ` (source: ${path})` : "";
-	return `Pi Agents Team is disabled${pathSuffix}. Use /team-enable ${enableScope} then /reload-plugins to turn it on.`;
+	return `Pi Agents Team is disabled${pathSuffix}. Use /team-enable ${enableScope} then /reload to turn it on.`;
 }
 
 function getProjectConfigNotice(result: LoadedTeamProjectConfig): { level: "info" | "warning"; message: string } | undefined {
