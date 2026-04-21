@@ -243,8 +243,10 @@ Follow any toggle with `/reload` to apply the change in the current Pi session.
 
 - [`src/project-config/versions.ts`](../src/project-config/versions.ts): schema + scaffold version constants. Single place to bump.
 - [`src/config.ts`](../src/config.ts): `DEFAULT_TEAM_CONFIG` including the seven built-in role specs.
-- [`src/project-config/loader.ts`](../src/project-config/loader.ts): `loadActiveTeamConfig`, schema validation, role materialization.
-- [`src/safety/launch-policy.ts`](../src/safety/launch-policy.ts): the two platform invariants.
+- [`src/project-config/loader.ts`](../src/project-config/loader.ts): `loadActiveTeamConfig`, schema validation, role materialization, realpath containment, `resolveGlobalConfigPath` (honors `PI_AGENT_TEAM_GLOBAL_CONFIG_PATH`).
+- [`src/safety/launch-policy.ts`](../src/safety/launch-policy.ts): platform invariants (recursion guard, write-scope enforcement, project-root containment).
+- [`src/safety/path-scope.ts`](../src/safety/path-scope.ts): `realpath`-based path containment helpers.
+- [`src/util/backup.ts`](../src/util/backup.ts): `atomicWriteFileSync` and exclusive-create backup (`copyFileSync` with `COPYFILE_EXCL`).
 - [`prompts/agents/*.md`](../prompts/agents/): packaged worker prompts (including `_generic-worker.md`).
 
 ## Related docs
