@@ -528,29 +528,48 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			anyFatal = true;
 			continue;
 		}
-		const layerDefaultsVersion = typeof result.parsed.defaultsVersion === "number" ? result.parsed.defaultsVersion : undefined;
-		const rawSchemaVersion = typeof result.parsed.version === "number" ? result.parsed.version : undefined;
+		// Accept the current field names; also read legacy field names so old files
+		// can be detected and warned about rather than parse-failing silently.
+		const parsedAny = result.parsed as unknown as {
+			schemaVersion?: unknown;
+			version?: unknown;
+			scaffoldVersion?: unknown;
+			defaultsVersion?: unknown;
+		};
+		const layerScaffoldVersion =
+			typeof parsedAny.scaffoldVersion === "number"
+				? parsedAny.scaffoldVersion
+				: typeof parsedAny.defaultsVersion === "number"
+					? parsedAny.defaultsVersion
+					: undefined;
+		const rawSchemaVersion =
+			typeof parsedAny.schemaVersion === "number"
+				? parsedAny.schemaVersion
+				: typeof parsedAny.version === "number"
+					? parsedAny.version
+					: undefined;
 		const schemaMismatch =
 			rawSchemaVersion === undefined ||
-			!(TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED as readonly number[]).includes(rawSchemaVersion);
+			!(TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED as readonly number[]).includes(rawSchemaVersion);
 
 		if (schemaMismatch) {
-			// Don't use this layer's roles — warn and let the remaining layers (or
-			// built-ins) take over. Users re-scaffold via /team-init <scope> --force.
+			// Don't use this layer's roles. For the project scope this intentionally
+			// does NOT let a valid global layer take over — see finding 1 fix in the
+			// winning-layer selection below. Users re-scaffold via /team-init.
 			const initSubcommand = scope === "project" ? "local" : "global";
 			diagnostics.push(
 				makeDiagnostic(
 					"warning",
 					"schema_version_mismatch",
-					`${scope} ${TEAM_PROJECT_CONFIG_FILE} at ${path} uses schema version ${rawSchemaVersion ?? "?"} (supported: ${TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED.join(", ")}). Run /team-init ${initSubcommand} --force to regenerate with current best-practice defaults (the old file will be backed up first).`,
+					`${scope} ${TEAM_PROJECT_CONFIG_FILE} at ${path} uses schemaVersion ${rawSchemaVersion ?? "?"} (supported: ${TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED.join(", ")}). Run /team-init ${initSubcommand} --force to regenerate with current best-practice defaults (the old file will be backed up first).`,
 				),
 			);
 			layers.push({
 				scope: result.scope,
 				path: result.path,
 				enabled: result.parsed.enabled,
-				defaultsVersion: layerDefaultsVersion,
-				defaultsStale: layerDefaultsVersion !== undefined && layerDefaultsVersion !== CURRENT_DEFAULTS_VERSION,
+				scaffoldVersion: layerScaffoldVersion,
+				scaffoldStale: layerScaffoldVersion !== undefined && layerScaffoldVersion !== CURRENT_SCAFFOLD_VERSION,
 				schemaMismatch: true,
 				rawSchemaVersion,
 			});
@@ -562,8 +581,8 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			scope: result.scope,
 			path: result.path,
 			enabled: result.parsed.enabled,
-			defaultsVersion: layerDefaultsVersion,
-			defaultsStale: layerDefaultsVersion !== undefined && layerDefaultsVersion !== CURRENT_DEFAULTS_VERSION,
+			scaffoldVersion: layerScaffoldVersion,
+			scaffoldStale: layerScaffoldVersion !== undefined && layerScaffoldVersion !== CURRENT_SCAFFOLD_VERSION,
 			rawSchemaVersion,
 		});
 	}
