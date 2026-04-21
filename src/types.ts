@@ -37,13 +37,14 @@ export type WorkerExtensionMode = (typeof WORKER_EXTENSION_MODES)[number];
 export const WORKER_WRITE_POLICIES = ["read-only", "scoped-write"] as const;
 export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 
-export const TEAM_PROJECT_CONFIG_VERSION = 1 as const;
-// Snapshot freshness marker stamped into scaffolded configs. Bump whenever
-// DEFAULT_TEAM_CONFIG.profiles changes, or when the scaffold shape changes
-// (e.g. v1 nested "permissions"/"prompt.source" → v2 flat "tools"/"write"/"prompt")
-// so previously-scaffolded agents-team.json files are detected as stale and the
-// operator is nudged to re-run /team-init.
-export const TEAM_DEFAULTS_VERSION = 2 as const;
+export const TEAM_PROJECT_CONFIG_VERSION = 2 as const;
+export const TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED = [2] as const;
+// Snapshot freshness marker stamped into scaffolded configs. Bump when
+// DEFAULT_TEAM_CONFIG.profiles or scaffold content changes so previously-
+// scaffolded agents-team.json files are nudged toward re-init. `version`
+// (above) is the shape contract — a mismatch triggers a warning and built-in
+// fallback. `defaultsVersion` is softer — it just flags the file as stale.
+export const TEAM_DEFAULTS_VERSION = 3 as const;
 export const DEFAULT_MODEL_SENTINEL = "default" as const;
 export const DEFAULT_PROMPT_SENTINEL = "default" as const;
 export const TEAM_PROJECT_CONFIG_FILE = "agents-team.json";
