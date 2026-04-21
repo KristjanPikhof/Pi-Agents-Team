@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = "none";
+
 import extension from "../../extensions/pi-agent-team/index";
 import {
 	TEAM_PROFILE_NAMES,
