@@ -135,7 +135,7 @@ test("/team-init --force backs up the old file before overwriting", async () => 
 	const siblings = readdirSync(join(root, TEAM_PROJECT_CONFIG_DIR));
 	const backup = siblings.find((name) => name !== TEAM_PROJECT_CONFIG_FILE && name.endsWith(TEAM_PROJECT_CONFIG_FILE));
 	assert.ok(backup, `expected a backup file alongside ${TEAM_PROJECT_CONFIG_FILE}, saw: ${siblings.join(", ")}`);
-	assert.match(backup!, /^\d{4}-\d{2}-\d{2}-\d{4}(-\d+)?-agents-team\.json$/);
+	assert.match(backup!, /^\d{4}-\d{2}-\d{2}-\d{6}(-\d+)?-agents-team\.json$/);
 	const backupContents = JSON.parse(readFileSync(join(root, TEAM_PROJECT_CONFIG_DIR, backup!), "utf8"));
 	assert.equal(backupContents.enabled, false);
 	assert.ok(emitted[0]?.includes("Backed up previous config"));
