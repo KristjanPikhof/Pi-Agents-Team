@@ -142,36 +142,53 @@ test("loadActiveTeamConfig disables delegation when project paths escape the dis
 	assert.match(reviewer?.promptPath ?? "", /prompts\/agents\/reviewer\.md$/);
 });
 
-test("loadActiveTeamConfig rejects project role widening of default rights", () => {
-	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-config-widen-"));
+test("loadActiveTeamConfig v2: user role declarations are source-of-truth (no ceiling comparisons)", () => {
+	// In schema v2 the user's JSON owns the role list. There's no concept of a
+	// built-in "ceiling" to compare against — role names are free-form and tools
+	// are whatever the user declared. Platform-level safety (extensionMode
+	// "inherit" block, pathScope required for writes) is still enforced at
+	// delegate time via launch-policy, not here in the loader.
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v2-freeform-"));
 	mkdirSync(join(root, "app"), { recursive: true });
-	writeProjectConfig(
-		root,
-		buildConfig({
+	writeProjectConfig(root, {
+		version: 2,
+		roles: {
 			reviewer: {
-				permissions: {
-					tools: ["read", "edit"],
-					extensionMode: "inherit",
-					writePolicy: "scoped-write",
-					pathScope: {
-						roots: ["app"],
-						allowReadOutsideRoots: false,
-						allowWrite: true,
-					},
-					canSpawnWorkers: true,
-				},
-				prompt: { source: "builtin" },
-			},
-		}),
-	);
+				tools: ["read", "edit", "bash", "grep", "find"],
+				write: true,
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.equal(result.delegationEnabled, true);
+	const reviewer = result.config.profiles.find((profile) => profile.name === "reviewer");
+	assert.ok(reviewer);
+	assert.deepEqual(reviewer?.tools, ["read", "edit", "bash", "grep", "find"]);
+	assert.equal(reviewer?.writePolicy, "scoped-write");
+	// No narrowing diagnostics emitted under v2
+	assert.ok(!result.diagnostics.some((diagnostic) => diagnostic.code === "tools_broaden_forbidden"));
+});
+
+test("loadActiveTeamConfig v2: extensionMode 'inherit' in role advanced block is rejected (platform safety)", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v2-recursion-block-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		version: 2,
+		roles: {
+			reviewer: {
+				tools: ["read", "grep"],
+				write: false,
+				advanced: { extensionMode: "inherit" },
+			} as any,
+		},
+	});
 
 	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
 	assert.equal(result.status, "invalid");
 	assert.equal(result.delegationEnabled, false);
-	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "tools_broaden_forbidden"));
-	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "extension_mode_broaden_forbidden"));
-	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "write_policy_broaden_forbidden"));
-	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "spawn_workers_broaden_forbidden"));
+	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "extension_mode_inherit_forbidden"));
 });
 
 test("loadActiveTeamConfig accepts a partial roles map (no required role keys)", () => {
