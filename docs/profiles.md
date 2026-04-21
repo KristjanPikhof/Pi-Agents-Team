@@ -215,10 +215,12 @@ Both constants live in `src/project-config/versions.ts`. Bump there, nothing els
 
 ## Launch-time safety
 
-The loader trusts whatever you put in the file. `launch-policy.ts` runs every time `delegate_task` fires and enforces two invariants that can't be turned off:
+The loader trusts whatever you put in the file. `launch-policy.ts` runs every time `delegate_task` fires and enforces invariants that can't be turned off:
 
 1. **No recursive orchestrators.** `advanced.extensionMode: "inherit"` is rejected at load time. Launch-time overrides to `inherit` are also rejected.
-2. **Writable roles need a `pathScope`.** Any role with `write: true` must have a path scope at delegate time, either in `advanced.pathScope` or passed via `pathScopeRoots` on the `delegate_task` call. No "write anywhere" workers.
+2. **Writable roles need a `pathScope`.** Any role with `write: true` — or `tools` containing `edit` / `write` — must have a path scope at delegate time, either in `advanced.pathScope` or passed via `pathScopeRoots` on the `delegate_task` call. No "write anywhere" workers.
+3. **Path scope roots must stay inside the project root.** `safety.projectRoot` is the project root when a project config exists, else the current cwd (never undefined, so the guard always fires). `pathScopeRoots: ["/"]` or `"../../elsewhere"` are rejected. Symlink escapes (a root that realpaths to somewhere outside the real project root) are caught too.
+4. **Prompt paths must stay inside the project root.** Same containment check as path scope roots. Pre-fix, the check was lexical only — a symlink under the project root pointing at `~/.ssh` would pass; the loader now calls `realpathSync.native` and rejects.
 
 Launch-time overrides (tools, path scope, extension mode) may only narrow the role's declared rights. They cannot broaden them.
 
