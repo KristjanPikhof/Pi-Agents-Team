@@ -378,7 +378,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		},
 		{
 			name: TEAM_PROFILE_NAMES[6],
-			description: "Observation-oriented worker for screenshots and non-code artifacts.",
+			description:
+				"Use when the task involves screenshots, images, or non-code artifacts that need inspection before the answer makes sense. Read-only.",
 			thinkingLevel: "low",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/observer.md",
