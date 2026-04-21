@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerTeamInitCommand, _testing } from "../../src/commands/team-init";
 import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG } from "../../src/config";
-import { TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE } from "../../src/types";
+import {
+	DEFAULT_MODEL_SENTINEL,
+	DEFAULT_PROMPT_SENTINEL,
+	TEAM_PROJECT_CONFIG_DIR,
+	TEAM_PROJECT_CONFIG_FILE,
+} from "../../src/types";
 
 interface RegisteredCommand {
 	name: string;
