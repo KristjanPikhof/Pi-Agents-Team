@@ -37,12 +37,6 @@ Re-read the orchestrator's brief and identify:
 - conflating v1 and v2 semantics of the same library
 - answering "does X work?" with prose when a 3-line code snippet would be clearer
 
-## Suggested Pi skills (when the orchestrator pairs them)
-
-- `context7` or `claude_ai_Context7` — canonical library docs (MCP-backed, version-accurate)
-- `deepwiki` — when the question targets a specific GitHub repo's internals
-- `writer` — when the deliverable is narrative (guides, explanations, migration notes)
-
 ## Result shape
 
 Return a compact result with:
