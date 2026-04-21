@@ -114,7 +114,19 @@ export interface TeamProfileSpec {
 	model?: string;
 	thinkingLevel: ThinkingLevel;
 	tools: string[];
+	/**
+	 * Path to the worker prompt markdown. May be the literal string
+	 * "<generic-worker>" — a sentinel that tells the prompt loader to use the
+	 * packaged generic-worker template with the role's name+description
+	 * substituted in. Ignored when `promptInline` is set.
+	 */
 	promptPath: string;
+	/**
+	 * Inline prompt text, used when the user sets `"prompt": "<prose>"` in
+	 * agents-team.json for strings that don't resolve to a readable file.
+	 * Overrides `promptPath` when present.
+	 */
+	promptInline?: string;
 	extensionMode: WorkerExtensionMode;
 	writePolicy: WorkerWritePolicy;
 	pathScope?: TeamPathScope;
