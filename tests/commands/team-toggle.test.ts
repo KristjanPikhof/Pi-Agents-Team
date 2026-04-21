@@ -43,7 +43,7 @@ test("/team-disable local creates a minimal file and flips enabled=false", async
 	const parsed = JSON.parse(readFileSync(configPath, "utf8"));
 	assert.equal(parsed.enabled, false);
 	assert.ok(emitted[0]?.includes("enabled=default → false"));
-	assert.ok(emitted[0]?.includes("/reload-plugins"));
+	assert.ok(emitted[0]?.includes("/reload"));
 });
 
 test("/team-enable local preserves existing roles and sets enabled=true", async () => {
