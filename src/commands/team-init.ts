@@ -59,8 +59,8 @@ function buildFullScaffold(): TeamProjectConfigFile {
 		roles[profile.name] = scaffoldRole(profile);
 	}
 	return {
-		version: TEAM_PROJECT_CONFIG_VERSION,
-		defaultsVersion: CURRENT_DEFAULTS_VERSION,
+		schemaVersion: TEAM_PROJECT_SCHEMA_VERSION,
+		scaffoldVersion: CURRENT_SCAFFOLD_VERSION,
 		enabled: true,
 		roles,
 	};
