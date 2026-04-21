@@ -525,14 +525,15 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_message",
 		label: "Agent Message",
-		description: "Send a steer or follow-up message to a tracked worker.",
+		description:
+			"Send a message to a tracked worker. Running workers receive it as a mid-stream steer (or a follow_up queued onto the live stream when delivery=follow_up). Idle/waiting_followup workers wake up and start a new turn with the message as the next user prompt — terminal workers (exited/aborted/error/completed) cannot receive messages.",
 		parameters: WorkerMessageSchema,
 		async execute(_toolCallId, params) {
 			const delivery = params.delivery === "steer" || params.delivery === "follow_up" ? params.delivery : "auto";
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
 			const result = await teamManager.messageWorker(workerId, params.message, delivery);
 			return {
-				content: [{ type: "text", text: `Sent message to ${result.worker.workerId}.` }],
+				content: [{ type: "text", text: `Sent message to ${result.worker.workerId} (${result.delivery}).` }],
 				details: result,
 			};
 		},
