@@ -29,7 +29,9 @@ These are what the orchestrator sees when no file is present. `/team-init` stamp
 | `observer` | Screenshots, images, non-code artifacts. | `read`, `grep`, `find`, `ls`, `bash` | low | no |
 | `fixer` | Bounded code changes. Implement a fix, add a test, edit one file. | `read`, `bash`, `edit`, `write` | medium | yes |
 
-Only `fixer` can write. Every write-capable role needs an explicit `pathScope` at delegate time. That's enforced by launch-policy, not by role config, so you can't accidentally un-safe it.
+Only `fixer` can write. Every write-capable role (that is, `write: true` OR `tools` containing `edit`/`write`) needs an explicit `pathScope` at delegate time. That's enforced by launch-policy, not by role config, so you can't accidentally un-safe it.
+
+> **Path scope honesty.** `pathScope` is a prompt convention + delegate-time check, not an OS sandbox. Pi does not jail worker processes at the kernel level; `bash` in particular can execute arbitrary shell commands in the worker's cwd. Every built-in read-only role ships with `bash` because git/ls/grep workflows need it. If you include `bash` in a profile, you are trusting the orchestrator LLM + the role prompt to honor the scope. For stricter containment (untrusted configs, unfamiliar repos), stop delegating to write-capable profiles or drop `bash` from the role's tools. See [CLAUDE.md](../CLAUDE.md) "Path scope is a prompt convention" for the full rationale.
 
 ## Creating or editing roles
 
