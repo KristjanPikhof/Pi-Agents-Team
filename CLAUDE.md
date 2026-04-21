@@ -30,7 +30,7 @@ pi -e ./extensions/pi-agent-team/index.ts
 pi -e ./extensions/pi-agent-team/index.ts -p "/team"
 ```
 
-Current test count is 53. If a change reduces that without a corresponding deletion, something regressed.
+Current test count is 68. If a change reduces that without a corresponding deletion, something regressed.
 
 ## Architecture
 
