@@ -88,6 +88,20 @@ Layering, top to bottom:
 
 **Non-recursive workers.** Default `extensionMode` is `worker-minimal`. `config.safety.preventRecursiveOrchestrator` is `true` and `launch-policy.ts` hard-rejects `extensionMode: "inherit"` so workers never boot the orchestrator package recursively.
 
+**Path scope is a prompt convention, not an OS sandbox.** This is the honest framing — please don't overclaim in docs. Pi's tool layer does NOT enforce path scope at execution time. `pathScope.roots` is:
+
+1. Rendered into the worker's system prompt via `buildWorkerTaskPrompt` (`"Path scope:\n- <roots>"`) — the worker is *instructed* to stay inside.
+2. Checked at delegate time in `launch-policy.ts`: `resolvePathScope` requires an explicit writable `pathScope` whenever `profile.writePolicy === "scoped-write"` OR `tools` contains `edit` / `write` (the `WRITE_CAPABLE_TOOLS` set in `launch-policy.ts`). `normalizePathScope` and `isPathScopeWithinProjectRoot` resolve roots through `realpathSync.native` so symlink escapes are caught lexically AND by inode.
+3. Checked for "narrower or equal to the role's configured scope" so launch-time requests can't broaden the role's baseline.
+
+It is NOT:
+
+- An OS-level filesystem sandbox (Pi doesn't run workers under `chroot`, `landlock`, `seatbelt`, or similar).
+- Enforced against the `bash` tool. `bash` can execute arbitrary shell commands in the worker's cwd — `rm`, `>`, `git reset --hard`, `curl … | sh`, invoking an editor. Every built-in read-only role (explorer, librarian, oracle, designer, reviewer, observer) includes `bash` because git/ls/grep workflows need it; requiring a writable `pathScope` for every read-only profile that uses bash would defeat the built-in roles. If you include `bash` in a profile and you don't trust the orchestrator LLM + the role prompt to honor the scope, don't include bash.
+- Enforced against network access, subprocess spawning, environment variable reads, or out-of-band data exfiltration.
+
+What this means in practice: `pathScope` is useful for (a) telling the worker where to focus, (b) surfacing accidental out-of-scope writes in `lastSummary.changedFiles` for the orchestrator to notice, and (c) blocking the clear-cut case of a read-only profile with `write: true` or `tools: ["edit"|"write"]`. It is NOT useful for containing a malicious config, a compromised model, or a worker that ignores its prompt. For true containment, use a sandbox at the Pi layer (out of scope for this plugin) or don't delegate to write-capable profiles from untrusted contexts.
+
 **Session restore is honest.** `markRestoredWorkersExited` forces every restored worker to `exited` on session start and returns `{ state, markedCount }`. Do not try to reattach live RPC processes silently — orphaned state is worse than forcing a relaunch. The session-start handler threads Pi's `SessionStartEvent.reason` through so the error message on each flipped worker reflects the real cause (`resume`, `fork`, `reload`, `new`). When the session did not come from a cold `startup` and at least one worker was flipped, the handler emits a single `warning` toast — operators should never be surprised that prior workers went away. Keep that toast *one line* and decorative (not conversational); the orchestrator prompt still tells the LLM to ignore UI notifications.
 
 **Reload swap gates tool execution.** The extension entrypoint keeps a `reloading: boolean` flag. `session_start` sets it `true` before `replaceTeamManager` (which awaits `dispose()` on the old manager and swaps in a new one) and `false` in `finally`. Every tool `execute` calls `ensureNotReloading()` at the top and throws `"Pi Agents Team is reloading its project config — retry in a moment."` during the window. Pre-fix, an in-flight `wait_for_agents` / `delegate_task` / `agent_message` tool call could land on a disposed `TeamManager` mid-reload and surface a confusing low-level error. The `/team-prune`, `/team-cost`, `/agent-result`, and similar operator-facing commands don't need this guard — they only read state, never hit the worker-manager.
