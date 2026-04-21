@@ -476,17 +476,43 @@ test("loadActiveTeamConfig v2: schema version mismatch warns and falls back to b
 	assert.equal(layer?.rawSchemaVersion, 1);
 });
 
-test("loadActiveTeamConfig marks config invalid if any layer fails to parse", () => {
-	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-invalid-global-"));
+test("loadActiveTeamConfig: fatal-parse on non-winning layer does NOT disable the winning layer", () => {
+	// cr-expert P0: a broken global config used to set anyFatal=true and
+	// short-circuit status to "invalid" machine-wide. That contradicted the
+	// stated "project wins by presence" invariant — any typo in ~/.pi/agent/
+	// disabled delegation in every repo. Now only the WINNING layer's fatal
+	// parse propagates to status:"invalid"; a non-winning fatal becomes a
+	// diagnostic and the winning layer still loads.
+	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-fatal-nonwinner-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
-	writeProjectConfig(projectRoot, { schemaVersion: 3, roles: {} });
+	writeProjectConfig(projectRoot, {
+		schemaVersion: 3,
+		roles: { "custom-scout": { tools: ["read"], write: false } as any },
+	});
 
-	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-invalid-global-dir-"));
+	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-fatal-nonwinner-global-"));
 	mkdirSync(join(globalRoot, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
 	const globalPath = join(globalRoot, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 	writeFileSync(globalPath, "{not json");
 
 	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: globalPath });
+	assert.equal(result.status, "project", "project wins by presence even when global is fatal");
+	assert.equal(result.delegationEnabled, true, "delegation stays enabled when the winning layer is valid");
+	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "project_config_parse_failed"));
+	assert.ok(result.config.profiles.find((profile) => profile.name === "custom-scout"));
+});
+
+test("loadActiveTeamConfig: fatal-parse on the winning layer still disables delegation", () => {
+	// Complement to the test above: if the winning layer itself fails to
+	// parse, status:"invalid" is the correct response (user's intended config
+	// is broken; surface a clear diagnostic instead of silently falling back).
+	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-fatal-winner-"));
+	mkdirSync(join(projectRoot, "app"), { recursive: true });
+	const projectPath = projectConfigPath(projectRoot);
+	mkdirSync(resolve(projectPath, ".."), { recursive: true });
+	writeFileSync(projectPath, "{not json — project file broken");
+
+	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: null });
 	assert.equal(result.status, "invalid");
 	assert.equal(result.delegationEnabled, false);
 	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "project_config_parse_failed"));
