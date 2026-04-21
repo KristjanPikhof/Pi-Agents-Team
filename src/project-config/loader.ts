@@ -796,6 +796,9 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	}
 
 	if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+		// Include non-winning fatal diagnostics so the user sees both broken
+		// layers in the error report.
+		diagnostics.push(...nonWinningFatalDiagnostics);
 		return {
 			status: "invalid",
 			config: baseConfig,
@@ -808,6 +811,11 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			delegationEnabled: false,
 		};
 	}
+
+	// Winning layer is clean. Merge in any non-winning fatal diagnostics as
+	// diagnostics-only (user sees "global is broken, using project") without
+	// disabling delegation.
+	diagnostics.push(...nonWinningFatalDiagnostics);
 
 	// If no layer actually supplied profiles (no valid layers, OR project was
 	// mismatched and we intentionally didn't fall through to global), report
