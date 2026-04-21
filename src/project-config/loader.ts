@@ -520,13 +520,31 @@ export function getGlobalProjectConfigPath(): string {
 	return resolve(homedir(), TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 }
 
+/**
+ * Single source of truth for the global config path, honoring the
+ * `PI_AGENT_TEAM_GLOBAL_CONFIG_PATH` env override. Returns `undefined` when
+ * the env explicitly disables global (`""`/`"null"`/`"none"`), an explicit
+ * path when the env is set, and the default `~/.pi/agent/agents-team.json`
+ * otherwise. Tests and scripted fixtures rely on this to redirect global
+ * reads/writes to a tmpdir; `/team-init global` and `/team-toggle global`
+ * must go through the same helper so they don't clobber the user's real
+ * home config while the env is pointed elsewhere.
+ */
+export function resolveGlobalConfigPath(): string | undefined {
+	const envOverride = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+	if (envOverride === undefined) return getGlobalProjectConfigPath();
+	if (envOverride === "" || envOverride === "null" || envOverride === "none") return undefined;
+	return envOverride;
+}
+
 export function findGlobalProjectConfigPath(): string | undefined {
-	const candidate = getGlobalProjectConfigPath();
+	const candidate = resolveGlobalConfigPath();
+	if (!candidate) return undefined;
 	return existsSync(candidate) ? candidate : undefined;
 }
 
-export function getProjectConfigPathForScope(scope: TeamConfigScope, cwd: string): string {
-	if (scope === "global") return getGlobalProjectConfigPath();
+export function getProjectConfigPathForScope(scope: TeamConfigScope, cwd: string): string | undefined {
+	if (scope === "global") return resolveGlobalConfigPath();
 	return resolve(cwd, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 }
 
