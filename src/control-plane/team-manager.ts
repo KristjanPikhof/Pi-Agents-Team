@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { DEFAULT_TEAM_CONFIG } from "../config";
 import { TaskRegistry } from "./task-registry";
-import { resolveWorkerMessageDelivery } from "../comms/agent-messaging";
+import { resolveWorkerMessageDelivery, type WorkerMessageDeliveryResolved } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
 import { WorkerManager, type WorkerConsoleEvent } from "../runtime/worker-manager";
