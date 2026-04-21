@@ -421,6 +421,41 @@ test("loadActiveTeamConfig v2: project file with schema mismatch does NOT let gl
 	);
 });
 
+test("loadActiveTeamConfig v2: whenToUse is the canonical field; description is accepted as legacy alias; whenToUse wins", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-whentouse-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 3,
+		roles: {
+			scout: {
+				whenToUse: "Use when the user wants a fast API route map.",
+				tools: ["read", "grep"],
+				write: false,
+			} as any,
+			legacy: {
+				description: "Legacy description field.",
+				tools: ["read"],
+				write: false,
+			} as any,
+			both: {
+				whenToUse: "This one wins.",
+				description: "This one is the alias fallback.",
+				tools: ["read"],
+				write: false,
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	const scout = result.config.profiles.find((p) => p.name === "scout");
+	assert.equal(scout?.description, "Use when the user wants a fast API route map.");
+	const legacy = result.config.profiles.find((p) => p.name === "legacy");
+	assert.equal(legacy?.description, "Legacy description field.");
+	const both = result.config.profiles.find((p) => p.name === "both");
+	assert.equal(both?.description, "This one wins.");
+});
+
 test("loadActiveTeamConfig v2: schema version mismatch warns and falls back to built-in", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v1-file-"));
 	mkdirSync(join(root, "app"), { recursive: true });
