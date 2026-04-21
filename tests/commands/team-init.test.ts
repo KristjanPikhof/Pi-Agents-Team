@@ -68,8 +68,12 @@ test("buildFullScaffold pre-populates every builtin profile in the flat v2 shape
 	}
 });
 
-test("formatBackupTimestamp pads date components", () => {
-	assert.equal(_testing.formatBackupTimestamp(new Date(2026, 3, 5, 9, 7)), "2026-04-05-0907");
+test("formatBackupTimestamp pads date components including seconds", () => {
+	// Seconds are included in the timestamp so two concurrent /team-init runs
+	// inside the same minute don't collide on the suffix loop. The trailing
+	// "00" is the second-of-minute for new Date(..., 9, 7) (no second arg).
+	assert.equal(_testing.formatBackupTimestamp(new Date(2026, 3, 5, 9, 7)), "2026-04-05-090700");
+	assert.equal(_testing.formatBackupTimestamp(new Date(2026, 3, 5, 9, 7, 42)), "2026-04-05-090742");
 });
 
 test("/team-init local writes a full scaffold inside the project", async () => {
