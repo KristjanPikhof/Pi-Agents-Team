@@ -61,13 +61,13 @@ function readExistingConfig(path: string): ExistingConfigReadResult {
 }
 
 function writeConfig(path: string, config: TeamProjectConfigFile): void {
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+	atomicWriteFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 }
 
 function writeRawConfig(path: string, raw: Record<string, unknown>): void {
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
+	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+	atomicWriteFileSync(path, `${JSON.stringify(raw, null, 2)}\n`, { mode: 0o600 });
 }
 
 function runToggle(args: string, desiredEnabled: boolean, ctx: ExtensionContext, dependencies: ToggleCommandDependencies): void {
