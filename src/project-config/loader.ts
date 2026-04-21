@@ -204,8 +204,68 @@ function normalizePromptPath(
 interface LayerApplication {
 	scope: TeamConfigScope;
 	layerRoot: string;
+	layerPath: string;
 	requireInsideLayerRoot: boolean;
-	roles: PartialProjectRoleConfigMap;
+	roles: PartialRawProjectRoleConfigMap;
+}
+
+function isLegacyRoleShape(raw: RawProjectRoleConfig): raw is ProjectRoleConfig {
+	const maybeLegacy = raw as ProjectRoleConfig & ProjectRoleFlatConfig;
+	return maybeLegacy.permissions !== undefined;
+}
+
+function isPromptObject(value: unknown): value is ProjectRolePromptConfig {
+	return typeof value === "object" && value !== null && "source" in value;
+}
+
+function normalizeFlatWritePolicy(write: boolean | undefined): WorkerWritePolicy | undefined {
+	if (write === undefined) return undefined;
+	return write ? "scoped-write" : "read-only";
+}
+
+/**
+ * Translate either the v1 nested shape or the v2 flat shape into the internal
+ * ProjectRoleConfig used by applyRoleLayer. Flat shape rules:
+ * - model: "default" / null / absent → inherit ceiling (internal null).
+ * - prompt: "default" / null / absent → builtin. String → treated as project path.
+ *   Object form still accepted for parity with v1.
+ * - write: true → "scoped-write"; false → "read-only"; absent → inherit.
+ * - tools: flat array rolls into permissions.tools.
+ * - advanced: { extensionMode, canSpawnWorkers, pathScope } rolls into permissions.
+ */
+export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleConfig {
+	if (isLegacyRoleShape(raw)) return raw;
+
+	const flat = raw as ProjectRoleFlatConfig;
+	const advanced = flat.advanced ?? {};
+
+	const model =
+		flat.model === undefined || flat.model === null || flat.model === DEFAULT_MODEL_SENTINEL
+			? null
+			: flat.model;
+
+	let prompt: ProjectRolePromptConfig;
+	if (flat.prompt === undefined || flat.prompt === null || flat.prompt === DEFAULT_PROMPT_SENTINEL) {
+		prompt = { source: "builtin", path: null };
+	} else if (isPromptObject(flat.prompt)) {
+		prompt = flat.prompt;
+	} else {
+		prompt = { source: "project", path: flat.prompt };
+	}
+
+	return {
+		description: flat.description ?? null,
+		model,
+		thinkingLevel: flat.thinkingLevel,
+		permissions: {
+			tools: flat.tools,
+			extensionMode: advanced.extensionMode,
+			writePolicy: normalizeFlatWritePolicy(flat.write),
+			pathScope: advanced.pathScope,
+			canSpawnWorkers: advanced.canSpawnWorkers,
+		},
+		prompt,
+	};
 }
 
 function applyRoleLayer(
