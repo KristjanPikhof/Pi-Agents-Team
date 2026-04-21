@@ -30,7 +30,12 @@ function completeWorkerTargets(teamManager: CommandRegistrationContext["teamMana
 }
 
 function describeDelivery(result: AgentMessageResult): string {
-	const verb = result.delivery === "steer" ? "Steered" : "Queued follow-up for";
+	const verb =
+		result.delivery === "steer"
+			? "Steered"
+			: result.delivery === "prompt"
+				? "Prompted"
+				: "Queued follow-up for";
 	return `${verb} ${result.worker.workerId} (${result.worker.profileName}:${result.worker.status})`;
 }
 
