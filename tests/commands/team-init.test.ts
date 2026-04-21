@@ -46,7 +46,7 @@ test("parseInitArgs accepts scope and force flag", () => {
 	assert.match(twice.error ?? "", /only once/);
 });
 
-test("buildFullScaffold pre-populates every builtin profile", () => {
+test("buildFullScaffold pre-populates every builtin profile in the flat v2 shape", () => {
 	const scaffold = _testing.buildFullScaffold();
 	assert.equal(scaffold.version, 1);
 	assert.equal(scaffold.defaultsVersion, CURRENT_DEFAULTS_VERSION);
@@ -56,18 +56,12 @@ test("buildFullScaffold pre-populates every builtin profile", () => {
 		const role = (roles as Record<string, unknown>)[profile.name] as any;
 		assert.ok(role, `missing scaffold role for ${profile.name}`);
 		assert.equal(role.thinkingLevel, profile.thinkingLevel);
-		assert.deepEqual(role.permissions.tools, profile.tools);
-		assert.equal(role.permissions.writePolicy, profile.writePolicy);
-		assert.equal(role.permissions.extensionMode, profile.extensionMode);
-		assert.equal(role.permissions.canSpawnWorkers, profile.canSpawnWorkers);
-		assert.equal(role.prompt.source, "builtin");
-		assert.equal(role.prompt.path, null);
-		if (profile.pathScope) {
-			assert.ok(role.permissions.pathScope);
-			assert.deepEqual(role.permissions.pathScope.roots, profile.pathScope.roots);
-		} else {
-			assert.equal(role.permissions.pathScope, undefined);
-		}
+		assert.deepEqual(role.tools, profile.tools);
+		assert.equal(role.write, profile.writePolicy === "scoped-write");
+		assert.equal(role.model, DEFAULT_MODEL_SENTINEL);
+		assert.equal(role.prompt, DEFAULT_PROMPT_SENTINEL);
+		assert.equal(role.permissions, undefined, "flat shape must not emit the legacy permissions wrapper");
+		assert.equal(role.advanced, undefined, "advanced is opt-in and must be absent from scaffolds");
 	}
 });
 
