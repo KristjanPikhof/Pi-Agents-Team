@@ -41,7 +41,12 @@ const WorkerLookupSchema = Type.Object({
 const WorkerMessageSchema = Type.Object({
 	workerId: Type.String({ description: "Target worker id" }),
 	message: Type.String({ description: "Instruction for the worker" }),
-	delivery: Type.Optional(Type.String({ description: 'Delivery mode: "auto", "steer", or "follow_up".' })),
+	delivery: Type.Optional(
+		Type.String({
+			description:
+				'Delivery mode: "auto" (default), "steer", or "follow_up". Applied only when the worker is running; idle/waiting_followup workers always receive the message as a fresh prompt that wakes the session and starts a new turn.',
+		}),
+	),
 });
 
 const PingAgentsSchema = Type.Object({
