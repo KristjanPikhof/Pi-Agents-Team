@@ -644,39 +644,51 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (event, ctx) => {
 		activeContext = ctx;
-		activeProjectConfig = loadActiveTeamConfig({ cwd: ctx.cwd, baseConfig: DEFAULT_TEAM_CONFIG });
-		await replaceTeamManager(activeProjectConfig.config);
-		const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
-		teamState = state;
-		teamManager.restore(teamState);
-		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
-		persistSnapshot(pi, teamState, activeProjectConfig.config);
+		reloading = true;
+		try {
+			activeProjectConfig = loadActiveTeamConfig({ cwd: ctx.cwd, baseConfig: DEFAULT_TEAM_CONFIG });
+			await replaceTeamManager(activeProjectConfig.config);
+			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
+			teamState = state;
+			teamManager.restore(teamState);
+			applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
+			persistSnapshot(pi, teamState, activeProjectConfig.config);
 
-		if (!ctx.hasUI) return;
+			if (!ctx.hasUI) return;
 
-		if (activeProjectConfig.enabled) {
-			ctx.ui.notify("Pi Agents Team loaded: this session is running in orchestrator mode.", "info");
-		}
-		const configNotice = getProjectConfigNotice(activeProjectConfig);
-		if (configNotice) {
-			ctx.ui.notify(configNotice.message, configNotice.level);
-		}
+			if (activeProjectConfig.enabled) {
+				ctx.ui.notify("Pi Agents Team loaded: this session is running in orchestrator mode.", "info");
+			}
+			const configNotice = getProjectConfigNotice(activeProjectConfig);
+			if (configNotice) {
+				ctx.ui.notify(configNotice.message, configNotice.level);
+			}
 
-		for (const layer of activeProjectConfig.layers) {
-			if (!layer.scaffoldStale || layer.scaffoldVersion === undefined) continue;
-			const scopeLabel = layer.scope === "project" ? "local" : "global";
-			ctx.ui.notify(
-				`Pi Agents Team: ${scopeLabel} agents-team.json is scaffoldVersion ${layer.scaffoldVersion}, plugin is ${CURRENT_SCAFFOLD_VERSION}. Run /team-init ${scopeLabel} --force to refresh (old file is backed up first).`,
-				"warning",
-			);
-		}
+			for (const layer of activeProjectConfig.layers) {
+				if (!layer.scaffoldStale || layer.scaffoldVersion === undefined) continue;
+				// Only toast once per (scope, scaffoldVersion) combination per
+				// process lifetime. Reloads keep firing session_start; without
+				// de-dup the operator sees the same warning every time.
+				const dedupKey = layer.scope;
+				const previouslyToastedVersion = toastedScaffoldStale.get(dedupKey);
+				if (previouslyToastedVersion === layer.scaffoldVersion) continue;
+				toastedScaffoldStale.set(dedupKey, layer.scaffoldVersion);
+				const scopeLabel = layer.scope === "project" ? "local" : "global";
+				ctx.ui.notify(
+					`Pi Agents Team: ${scopeLabel} agents-team.json is scaffoldVersion ${layer.scaffoldVersion}, plugin is ${CURRENT_SCAFFOLD_VERSION}. Run /team-init ${scopeLabel} --force to refresh (old file is backed up first).`,
+					"warning",
+				);
+			}
 
-		if (event.reason !== "startup" && markedCount > 0 && isTeamActive(activeProjectConfig)) {
-			const noun = markedCount === 1 ? "worker" : "workers";
-			ctx.ui.notify(
-				`Pi Agents Team: ${markedCount} ${noun} from prior session marked exited (${event.reason}). Relaunch via delegate_task if still needed.`,
-				"warning",
-			);
+			if (event.reason !== "startup" && markedCount > 0 && isTeamActive(activeProjectConfig)) {
+				const noun = markedCount === 1 ? "worker" : "workers";
+				ctx.ui.notify(
+					`Pi Agents Team: ${markedCount} ${noun} from prior session marked exited (${event.reason}). Relaunch via delegate_task if still needed.`,
+					"warning",
+				);
+			}
+		} finally {
+			reloading = false;
 		}
 	});
 
