@@ -92,7 +92,7 @@ Layering, top to bottom:
 
 **Broadcasts swallow per-worker errors.** `messageAllWorkers` and `cancelAllWorkers` collect failures into the returned result array (setting `error`) rather than throwing. One bad worker must never abort the whole broadcast. Preserve this when extending.
 
-**Delivery resolution is explicit.** `messageWorker` returns `AgentMessageResult` with the resolved `delivery` field (`"steer" | "follow_up"`). UI and commands use this to tell the user which channel the message actually went down. Don't drop this field.
+**Delivery resolution is explicit.** `messageWorker` returns `AgentMessageResult` with the resolved `delivery` field (`"steer" | "follow_up" | "prompt"`). `"steer"` / `"follow_up"` only apply when the worker is actively streaming; on idle/waiting_followup workers both `/agent-steer` and `/agent-followup` upgrade to `"prompt"` (fresh RPC `prompt` call that wakes the session), because a bare `follow_up` RPC against an idle session just queues without starting a new turn. UI and commands use the resolved field to tell the user which channel the message actually went down (`Steered w1 (:running)` / `Queued follow-up for w1 (:running)` / `Prompted w1 (:idle)`). Don't drop the `"prompt"` case — reverting to a two-value union reintroduces the "queued but nothing happens" bug.
 
 **Widget spinner timer.** A 120 ms `setInterval` animates the widget while `hasAnimatedWorkers(state)` is true. It starts on state change, stops on the last worker going terminal, stops on `session_shutdown`, and calls `.unref()` so it never blocks process exit. If you change the tick cadence or the animation condition, stop the old timer.
 
