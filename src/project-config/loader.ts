@@ -598,30 +598,18 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		enabledSource = layer.scope;
 	}
 
-	if (anyFatal) {
-		return {
-			status: "invalid",
-			config: baseConfig,
-			sourcePath: projectPath ?? globalPath,
-			projectRoot: projectPath ? computeLayerRoot("project", projectPath) : undefined,
-			layers,
-			enabled,
-			enabledSource,
-			diagnostics,
-			delegationEnabled: false,
-		};
-	}
-
 	// Pick the winning layer based on FILE PRESENCE first, not validity. If a
-	// project file exists (valid or mismatched), project wins — a
-	// schema-mismatched project must NOT let global silently take over, because
-	// that would let a stale local config resurface broader global roles in a
-	// repo that explicitly narrowed them. Rule: project > global by presence;
-	// invalid winning layer → built-in fallback for that scope, never
+	// project file exists (valid, mismatched, or fatal-parse), project wins — a
+	// stale/broken project must NOT let global silently take over, because that
+	// would let a stale local config resurface broader global roles in a repo
+	// that explicitly narrowed them. Rule: project > global by presence;
+	// invalid/fatal winning layer → built-in fallback for that scope (or invalid
+	// status when the winning layer's parse was fatal), never
 	// downshift-to-other-layer.
 	const projectLayer = parsedLayers.find((layer) => layer.scope === "project");
 	const globalLayer = parsedLayers.find((layer) => layer.scope === "global");
 	const projectFilePresent = projectPath !== undefined;
+	const winningScope: TeamConfigScope = projectFilePresent ? "project" : "global";
 
 	let winningLayer: ParsedLayer | undefined;
 	if (projectFilePresent) {
@@ -630,6 +618,25 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		winningLayer = projectLayer;
 	} else {
 		winningLayer = globalLayer;
+	}
+
+	// A fatal parse error on the WINNING layer disables delegation (the user's
+	// intended config is broken and they need a diagnostic). A fatal parse on a
+	// non-winning layer is only a diagnostic — it must not block the winning
+	// layer from taking effect. Pre-fix, any fatal parse (including a broken
+	// global) short-circuited here and disabled delegation machine-wide.
+	if (fatalScopes.has(winningScope)) {
+		return {
+			status: "invalid",
+			config: baseConfig,
+			sourcePath: projectPath ?? globalPath,
+			projectRoot: projectPath ? computeLayerRoot("project", projectPath) : options.cwd,
+			layers,
+			enabled,
+			enabledSource,
+			diagnostics,
+			delegationEnabled: false,
+		};
 	}
 
 	let profiles: TeamProfileSpec[];
