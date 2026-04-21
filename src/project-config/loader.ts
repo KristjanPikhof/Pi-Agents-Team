@@ -674,11 +674,21 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 
 	// If no layer actually supplied profiles (no valid layers, OR project was
 	// mismatched and we intentionally didn't fall through to global), report
-	// "builtin" so callers don't pretend a user file was loaded.
+	// "builtin" so callers don't pretend a user file was loaded. projectRoot
+	// still defaults to cwd so launch-policy's containment guard has something
+	// to clamp writable path scopes against — without this, global-only or
+	// no-config setups leave projectRoot undefined and the guard becomes a
+	// no-op (a caller could delegate with pathScopeRoots: ["/"]).
 	if (parsedLayers.length === 0 || !winningLayer) {
 		return {
 			status: "builtin",
-			config: baseConfig,
+			config: {
+				...baseConfig,
+				safety: {
+					...baseConfig.safety,
+					projectRoot: projectPath ? computeLayerRoot("project", projectPath) : options.cwd,
+				},
+			},
 			layers,
 			enabled,
 			enabledSource,
