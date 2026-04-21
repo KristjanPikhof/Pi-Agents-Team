@@ -400,10 +400,18 @@ function materializeRoleProfile(
 }
 
 export function findNearestProjectConfigPath(cwd: string): string | undefined {
+	// Walk up from cwd looking for `.pi/agent/agents-team.json`. STOP at the
+	// user's homedir: anything at or above homedir belongs to the global scope
+	// (which is probed separately). Without this cap, a stale file in /tmp or
+	// at a shared ancestor would silently bias every project loaded below it,
+	// and on multi-user machines a file at /tmp/.pi/agent/ would be a cross-user
+	// prompt-injection vector.
 	let current = resolve(cwd);
+	const home = resolve(homedir());
 	while (true) {
 		const candidate = resolve(current, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 		if (existsSync(candidate)) return candidate;
+		if (current === home) return undefined;
 		const parent = dirname(current);
 		if (parent === current) return undefined;
 		current = parent;
