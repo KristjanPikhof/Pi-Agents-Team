@@ -92,9 +92,13 @@ Use this to disable the team globally and re-enable only in specific projects (o
 
 ### Init commands
 
-- `/team-init global` → writes `~/.pi/agent/agents-team.json` with `{ version: 1, enabled: true, roles: {} }`.
-- `/team-init local` → writes `<cwd>/.pi/agent/agents-team.json` (same skeleton).
-- Neither command overwrites an existing file. Pass `--force` to replace the current contents.
+- `/team-init global` → writes `~/.pi/agent/agents-team.json` with `version`, `defaultsVersion`, `enabled: true`, and every builtin role pre-populated so you can see and edit all defaults in place.
+- `/team-init local` → writes `<cwd>/.pi/agent/agents-team.json` (same full scaffold).
+- Neither command overwrites an existing file. Pass `--force` to replace the current contents — the previous file is first renamed to `YYYY-MM-DD-HHMM-agents-team.json` in the same directory so nothing is lost.
+
+#### Staleness
+
+`defaultsVersion` is a snapshot marker stamped by `/team-init`. The plugin bumps `CURRENT_DEFAULTS_VERSION` whenever the builtin role defaults change. On every session start the loader compares each layer's `defaultsVersion` to the plugin's current version, and if they differ the extension emits a per-layer warning toast telling you to re-run `/team-init <scope> --force` (which will back up the old file first). Layers that do not set `defaultsVersion` — for example files produced by `/team-enable` — are never flagged; only explicitly scaffolded configs are tracked for freshness.
 
 ### Toggle commands
 
