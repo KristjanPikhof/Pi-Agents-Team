@@ -93,6 +93,15 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 
 			const internalScope = scopeToInternal(parsed.scope);
 			const targetPath = getProjectConfigPathForScope(internalScope, ctx.cwd);
+			if (!targetPath) {
+				// Global scope with PI_AGENT_TEAM_GLOBAL_CONFIG_PATH set to
+				// "none"/""/"null" — writing would be ambiguous. Refuse cleanly.
+				ctx.ui.notify(
+					"Global agents-team.json is disabled (PI_AGENT_TEAM_GLOBAL_CONFIG_PATH=none). Unset the env var or point it at a path to scaffold a global config.",
+					"warning",
+				);
+				return;
+			}
 			const exists = existsSync(targetPath);
 
 			if (exists && !parsed.force) {
@@ -103,12 +112,17 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 				return;
 			}
 
-			mkdirSync(dirname(targetPath), { recursive: true });
+			// mode 0o700 on the directory so only the running user can read/list
+			// role config; 0o600 on the file below. Noop on Windows, tightens
+			// POSIX. The config doesn't currently carry secrets, but it sits
+			// next to Pi state that can — and listing someone else's role/tool
+			// topology is useful reconnaissance.
+			mkdirSync(dirname(targetPath), { recursive: true, mode: 0o700 });
 			let backupPath: string | undefined;
 			if (exists) {
 				backupPath = backupExisting(targetPath);
 			}
-			writeFileSync(targetPath, `${JSON.stringify(buildFullScaffold(), null, 2)}\n`);
+			atomicWriteFileSync(targetPath, `${JSON.stringify(buildFullScaffold(), null, 2)}\n`, { mode: 0o600 });
 
 			const lines: string[] = [];
 			if (backupPath) {
