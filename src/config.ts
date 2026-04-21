@@ -45,6 +45,7 @@ export const TeamProfileSpecSchema = Type.Object({
 	thinkingLevel: enumSchema(THINKING_LEVELS),
 	tools: Type.Array(Type.String()),
 	promptPath: Type.String(),
+	promptInline: Type.Optional(Type.String()),
 	extensionMode: enumSchema(WORKER_EXTENSION_MODES),
 	writePolicy: enumSchema(WORKER_WRITE_POLICIES),
 	pathScope: Type.Optional(TeamPathScopeSchema),
