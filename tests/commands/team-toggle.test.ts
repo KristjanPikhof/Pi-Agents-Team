@@ -71,11 +71,13 @@ test("/team-enable local preserves existing roles and sets enabled=true", async 
 	assert.ok(emitted[0]?.includes("enabled=false → true"));
 });
 
-test("/team-disable rewrites a broken JSON file with a warning", async () => {
+test("/team-disable backs up an unparsable file before writing a minimal replacement", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-toggle-broken-"));
-	const configPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
-	mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
-	writeFileSync(configPath, "{not json");
+	const configDir = join(root, TEAM_PROJECT_CONFIG_DIR);
+	const configPath = join(configDir, TEAM_PROJECT_CONFIG_FILE);
+	mkdirSync(configDir, { recursive: true });
+	const originalContents = "{not json — maybe the user had valuable roles here";
+	writeFileSync(configPath, originalContents);
 
 	const emitted: string[] = [];
 	const { disable } = installToggleCommands((text) => emitted.push(text), () => {}, root);
@@ -83,7 +85,52 @@ test("/team-disable rewrites a broken JSON file with a warning", async () => {
 
 	const parsed = JSON.parse(readFileSync(configPath, "utf8"));
 	assert.equal(parsed.enabled, false);
-	assert.ok(emitted[0]?.match(/not valid JSON|failed schema validation/));
+	assert.equal(parsed.schemaVersion, 3);
+
+	// Finding-2 guarantee: toggle must never destroy operator content. The
+	// unparsable original should be backed up to a timestamped sibling.
+	const siblings = readdirSync(configDir);
+	const backup = siblings.find((name) => name !== TEAM_PROJECT_CONFIG_FILE && name.endsWith(TEAM_PROJECT_CONFIG_FILE));
+	assert.ok(backup, `expected a timestamped backup alongside ${TEAM_PROJECT_CONFIG_FILE}, saw: ${siblings.join(", ")}`);
+	assert.match(backup!, /^\d{4}-\d{2}-\d{2}-\d{4}(-\d+)?-agents-team\.json$/);
+	assert.equal(readFileSync(join(configDir, backup!), "utf8"), originalContents);
+	assert.ok(emitted[0]?.match(/unparsable/i));
+	assert.ok(emitted[0]?.includes(backup!));
+});
+
+test("/team-disable preserves schema-drifted content and only patches enabled", async () => {
+	// Finding-2 guarantee: when a file parses as JSON but drifts from the
+	// current schema (e.g. old `version` field, custom fields, future fields),
+	// the toggle preserves the user's object verbatim and only flips enabled.
+	// No destruction, no silent "upgrade".
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-toggle-drift-"));
+	const configDir = join(root, TEAM_PROJECT_CONFIG_DIR);
+	const configPath = join(configDir, TEAM_PROJECT_CONFIG_FILE);
+	mkdirSync(configDir, { recursive: true });
+	// Simulate a future/hand-edited file with unknown top-level fields.
+	writeFileSync(
+		configPath,
+		JSON.stringify({
+			schemaVersion: 3,
+			enabled: true,
+			roles: { custom: { tools: ["read"], write: false } },
+			futureField: { nested: "value" },
+		}),
+	);
+
+	const emitted: string[] = [];
+	const { disable } = installToggleCommands((text) => emitted.push(text), () => {}, root);
+	await disable("local");
+
+	const parsed = JSON.parse(readFileSync(configPath, "utf8"));
+	assert.equal(parsed.enabled, false, "enabled should flip");
+	assert.deepEqual(parsed.roles, { custom: { tools: ["read"], write: false } }, "user roles must survive");
+	// The futureField is preserved since the file was handled as schema-drift (additionalProperties rejects it, triggering the drift branch).
+	assert.deepEqual(parsed.futureField, { nested: "value" }, "unknown fields must not be stripped");
+	// Siblings should NOT include a backup — preservation is silent, no backup needed.
+	const siblings = readdirSync(configDir);
+	const backup = siblings.find((name) => name !== TEAM_PROJECT_CONFIG_FILE && name.endsWith(TEAM_PROJECT_CONFIG_FILE));
+	assert.equal(backup, undefined, "schema-drift path must NOT back up (content is preserved in place)");
 });
 
 test("/team-enable requires a scope argument", async () => {
