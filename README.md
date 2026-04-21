@@ -82,7 +82,7 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 | `/team-copy <worker-id>` | Copy the worker's task, summary, final answer, and console timeline to the clipboard. |
 | `/team-prune` | Remove every terminal worker (idle/completed/aborted/error/exited) from the dashboard. |
 | `/team-cost` | Per-worker token usage plus a `Σ` aggregate row. Orchestrator usage stays in the Pi footer. |
-| `/team-init global\|local [--force]` | Scaffold a full `agents-team.json` with every builtin role stamped in place and a `defaultsVersion` marker. Refuses existing files without `--force`; on `--force` the previous file is moved to `YYYY-MM-DD-HHMM-agents-team.json` next to it before the new scaffold is written. |
+| `/team-init global\|local [--force]` | Scaffold `agents-team.json` with every built-in role stamped in place, plus the current `schemaVersion` + `scaffoldVersion` markers. Refuses existing files without `--force`; on `--force` the previous file is renamed to `YYYY-MM-DD-HHMM-agents-team.json` first. |
 | `/team-enable global\|local` | Set `enabled: true` in the scoped config file. Run `/reload-plugins` to apply. |
 | `/team-disable global\|local` | Set `enabled: false` in the scoped config file. The extension stays loaded but goes dormant (no tools, no prompt, no UI) until re-enabled. |
 | `/agent-result <worker-id>` | Print the compact summary plus the verbatim `<final_answer>` block. |
