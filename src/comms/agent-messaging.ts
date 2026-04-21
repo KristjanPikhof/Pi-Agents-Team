@@ -1,11 +1,15 @@
 import type { WorkerStatus } from "../types";
 
-export type WorkerMessageDelivery = "auto" | "steer" | "follow_up";
+export type WorkerMessageDeliveryInput = "auto" | "steer" | "follow_up";
+export type WorkerMessageDeliveryResolved = "steer" | "follow_up" | "prompt";
+
+export type WorkerMessageDelivery = WorkerMessageDeliveryInput;
 
 export function resolveWorkerMessageDelivery(
 	status: WorkerStatus,
-	delivery: WorkerMessageDelivery = "auto",
-): Exclude<WorkerMessageDelivery, "auto"> {
-	if (delivery === "steer" || delivery === "follow_up") return delivery;
-	return status === "running" ? "steer" : "follow_up";
+	delivery: WorkerMessageDeliveryInput = "auto",
+): WorkerMessageDeliveryResolved {
+	if (status !== "running") return "prompt";
+	if (delivery === "follow_up") return "follow_up";
+	return "steer";
 }
