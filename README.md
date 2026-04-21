@@ -100,7 +100,7 @@ The orchestrator picks a role from the loaded config (seven built-ins by default
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | Layering, runtime flow, state contract, animation layer. |
 | [`docs/operations.md`](docs/operations.md) | Install, dashboard keys, copy flow, steer semantics, troubleshooting. |
-| [`docs/profiles.md`](docs/profiles.md) | Default profiles, project role config discovery, rights ceilings, launch policy, customization. |
+| [`docs/profiles.md`](docs/profiles.md) | Default roles, how to create your own, prompt resolution, project vs global config, version bumps, launch-time safety. |
 | [`docs/prompting.md`](docs/prompting.md) | Orchestrator + worker prompt contracts, the `<final_answer>` rules. |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Local dev setup, tests, smoke scripts, package layout. |
 | [`CLAUDE.md`](CLAUDE.md) | Load-bearing invariants and anti-patterns. Read before touching state transitions. |
