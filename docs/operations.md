@@ -111,13 +111,15 @@ Clipboard providers are picked by platform: `pbcopy` on macOS, `clip.exe` on Win
 /agent-followup all when you finish, include a risks section
 ```
 
-`/agent-steer` auto-routes per worker: steer if the target is `running`, follow-up if the target is `idle` or `waiting_followup`. It prints the mode used per worker so you can see where the message actually landed. Use `all` to broadcast to every deliverable worker at once.
+`/agent-steer` and `/agent-followup` both route by current worker status:
 
-`/agent-followup` always queues as follow-up. Use it when the next instruction should wait its turn.
+- **Running workers** (actively streaming): `/agent-steer` sends a mid-stream steer; `/agent-followup` queues the message onto the live stream so it runs after the current turn. The confirmation line reads `Steered w1 (…:running)` or `Queued follow-up for w1 (…:running)`.
+- **Idle / waiting_followup workers** (session alive but not streaming): **both** commands wake the session with the message as a fresh user prompt, regardless of which you typed. This is the behavior you want — a bare `follow_up` RPC on an idle session just sits in a pending queue and nothing consumes it, so the worker would otherwise appear to "do nothing". The confirmation line reads `Prompted w1 (…:idle)` to make this explicit.
+- **Terminal workers** (`exited`, `aborted`, `error`, `completed`): cannot receive messages and are skipped.
 
-If you see "it didn't seem to go through" on a single-worker send, double-check the printed confirmation line: it names the delivery mode (`Steered w1 (reviewer:running)` vs `Queued follow-up for w1 (reviewer:idle)`). A terminal worker (`exited`, `aborted`, `error`, `completed`) cannot receive messages and is skipped.
+Use `all` to broadcast to every deliverable worker at once. The printed mode is per-worker, so you can see whether each target was steered, queued behind a live stream, or re-prompted.
 
-The orchestrator's `agent_message` tool exposes the same `delivery: "auto" | "steer" | "follow_up"` routing.
+The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "follow_up"` and follows the same rules. Its tool result text now ends with the resolved mode, e.g. `Sent message to w1 (prompt).`
 
 ## Cancel a worker
 
@@ -156,6 +158,23 @@ Each call re-snapshots the baseline relay count, so an already-answered relay ne
 Pass `wakeOnRelay: false` if you explicitly want the old "wait for everyone" behavior.
 
 ## Troubleshooting
+
+### `agents-team.json` changes do not apply to a running session
+
+Expected. Project role config is discovered once on session start, then treated as session-frozen runtime state. Reload/restart the Pi session after editing `agents-team.json` or any project prompt file it references.
+
+### Delegation is disabled because `agents-team.json` is invalid
+
+Expected when the project role config fails validation. The extension warns on session start, adds a prompt note telling the orchestrator delegation is disabled, and rejects `delegate_task` until the file is fixed.
+
+Common causes:
+
+- missing required role keys in the file
+- `prompt.source: "project"` with a missing `prompt.path`
+- project prompt path or path-scope root escaping outside the discovered project root
+- trying to broaden built-in role rights (extra tools, writable read-only role, broader extension mode, worker spawning)
+
+See [`profiles.md`](profiles.md) for the full handoff format and rights ceilings.
 
 ### A worker fails immediately with an API-key error
 
