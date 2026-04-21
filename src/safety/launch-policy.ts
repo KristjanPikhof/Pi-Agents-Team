@@ -1,6 +1,9 @@
-import { resolve } from "node:path";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { DEFAULT_TEAM_CONFIG } from "../config";
-import { getWorkerPromptPath } from "../prompts/contracts";
+import { getWorkerPromptPath, loadWorkerPrompt } from "../prompts/contracts";
+import { GENERIC_WORKER_PROMPT_SENTINEL } from "../project-config/loader";
 import {
 	ensureWriteScope,
 	isPathScopeNarrowerOrEqual,
