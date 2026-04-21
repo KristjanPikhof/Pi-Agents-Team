@@ -224,8 +224,10 @@ export class TeamManager {
 
 		if (nextDelivery === "steer") {
 			await this.workerManager.steerWorker(workerId, message);
-		} else {
+		} else if (nextDelivery === "follow_up") {
 			await this.workerManager.followUpWorker(workerId, message);
+		} else {
+			await this.workerManager.promptWorker(workerId, message);
 		}
 
 		await this.workerManager.refreshState(workerId);
