@@ -109,7 +109,7 @@ Edit it freely — rename roles, drop ones you don't need, add new ones. The orc
   "enabled": true,
   "roles": {
     "api-scout": {
-      "description": "Recon specifically inside src/api. Use for quick questions about request handlers and routes.",
+      "whenToUse": "Use for recon inside src/api only. Best for 'which handler serves route X?' or 'list every file that touches request parsing' questions.",
       "thinkingLevel": "low",
       "tools": ["read", "grep", "find", "ls"],
       "write": false,
@@ -119,7 +119,7 @@ Edit it freely — rename roles, drop ones you don't need, add new ones. The orc
 }
 ```
 
-The `"prompt"` string here doesn't resolve to a file, so it's used as inline text. The orchestrator sees `api-scout` as an available profile with the given description and can pass `profileName: "api-scout"` to `delegate_task`.
+The `"prompt"` string here doesn't resolve to a file, so it's used as inline text. The orchestrator sees `api-scout` as an available profile with the given `whenToUse` trigger and can pass `profileName: "api-scout"` to `delegate_task`.
 
 ## Init + toggle commands
 
