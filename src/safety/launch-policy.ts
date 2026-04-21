@@ -53,17 +53,21 @@ function isExtensionModeNarrowerOrEqual(candidate: WorkerExtensionMode, baseline
 }
 
 /**
- * Tools that can mutate filesystem state. `bash` is included because Pi's shell
- * tool runs arbitrary commands in the worker's cwd — it can `rm`, `>`, `cp`,
- * `git reset --hard`, or invoke any editor. Requiring an explicit writable
- * `pathScope` for bash-enabled profiles puts the role on the same footing as
- * edit/write and gives launch-policy a real chokepoint. Note: Pi does not
- * currently enforce pathScope at the tool layer (it's a prompt-convention +
- * orchestrator-discipline boundary, not an OS sandbox) — the guard still
- * forces operators to declare intent, which is the best containment we have
- * without wrapping Pi's tools.
+ * Tools that can mutate filesystem state via Pi's structured write path. Pi
+ * DOES NOT currently enforce pathScope at the tool layer — it is an
+ * orchestrator-discipline + prompt-convention boundary, NOT an OS sandbox. We
+ * track `edit` and `write` here because those are the tools the orchestrator
+ * contract ties to `pathScope`. `bash` can also mutate filesystem state (it
+ * runs arbitrary shell commands), but requiring a writable pathScope for
+ * every read-only profile that includes bash for git/ls/grep would defeat the
+ * built-in roles (explorer, observer, librarian, oracle, designer, reviewer
+ * all rely on bash). The honest framing: if you include bash in a profile,
+ * you are trusting the model + role prompt to not mutate — use a dedicated
+ * writable role like `fixer` with `write: true` + an explicit `pathScope`
+ * when you actually want the worker to change files. See docs/profiles.md
+ * "bash as escape hatch" for the full rationale.
  */
-const WRITE_CAPABLE_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "bash"]);
+const WRITE_CAPABLE_TOOLS: ReadonlySet<string> = new Set(["edit", "write"]);
 
 function hasWriteTools(tools: string[]): boolean {
 	return tools.some((tool) => WRITE_CAPABLE_TOOLS.has(tool));
