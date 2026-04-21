@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
+import { DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
+import { resolveProfile } from "../../src/profiles/loader";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "../runtime/test-helpers";
 
 test("TeamManager delegates, tracks, pings, and cancels workers", async () => {
@@ -35,6 +38,37 @@ test("TeamManager delegates, tracks, pings, and cancels workers", async () => {
 
 	const cancelled = await teamManager.cancelWorker(worker.workerId);
 	assert.equal(cancelled.worker.status, "exited");
+});
+
+test("TeamManager delegates using configured profile overrides instead of packaged defaults", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const reviewer = resolveProfile("reviewer");
+	const teamManager = new TeamManager({
+		workerManager,
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) =>
+				profile.name === "reviewer"
+					? {
+						...reviewer,
+						tools: ["read"],
+					}
+					: profile,
+			),
+		},
+	});
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Restricted reviewer",
+				goal: "Use configured profile override",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				tools: ["read", "bash"],
+			}),
+		/configured tool set/,
+	);
 });
 
 test("waitForTerminal resolves all_terminal once every target finishes", async () => {
@@ -163,7 +197,19 @@ test("messageWorker returns the resolved delivery mode for each call", async () 
 	await waitForMicrotasks();
 
 	const whileIdle = await teamManager.messageWorker(worker.workerId, "also check tests", "auto");
-	assert.equal(whileIdle.delivery, "follow_up");
+	assert.equal(whileIdle.delivery, "prompt");
+	assert.equal(transports[0]?.commands.at(-2)?.type, "prompt");
+
+	transports[0]?.completePrompt();
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	const explicitFollowUpOnIdle = await teamManager.messageWorker(worker.workerId, "one more nudge", "follow_up");
+	assert.equal(
+		explicitFollowUpOnIdle.delivery,
+		"prompt",
+		"explicit follow_up targeting an idle worker should still upgrade to prompt so the session wakes",
+	);
 });
 
 test("messageAllWorkers broadcasts to every deliverable worker", async () => {
@@ -283,4 +329,117 @@ test("cancelAllWorkers aborts only non-terminal workers and skips the rest", asy
 
 	const allTerminal = teamManager.listWorkers().every((worker) => ["exited", "aborted", "error", "completed", "idle"].includes(worker.status));
 	assert.ok(allTerminal);
+});
+
+test("TeamManager resolves launch profiles from the active config instead of packaged profile loader", async () => {
+	const captured: { model?: string; systemPromptPath?: string; tools?: string[] }[] = [];
+	const workerManager = new WorkerManager((options) => {
+		captured.push({ model: options.model, systemPromptPath: options.systemPromptPath, tools: options.tools });
+		return new MockWorkerHandle(new MockWorkerTransport());
+	});
+	const teamManager = new TeamManager({
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) =>
+				profile.name === "reviewer"
+					? {
+						...profile,
+						model: "project/reviewer-model",
+						tools: ["read", "bash"],
+						promptPath: "/tmp/project-prompts/reviewer.md",
+					}
+					: profile),
+		},
+		workerManager,
+	});
+
+	await teamManager.delegateTask({
+		title: "Use active config",
+		goal: "Verify active session config is authoritative",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		orchestratorModel: "orchestrator/fallback-model",
+	});
+
+	assert.equal(captured[0]?.model, "project/reviewer-model");
+	assert.equal(captured[0]?.systemPromptPath, "/tmp/project-prompts/reviewer.md");
+	assert.deepEqual(captured[0]?.tools, ["read", "bash"]);
+});
+
+test("TeamManager lets explicit systemPromptPath override the active role prompt path", async () => {
+	const captured: Array<{ systemPromptPath?: string }> = [];
+	const workerManager = new WorkerManager((options) => {
+		captured.push({ systemPromptPath: options.systemPromptPath });
+		return new MockWorkerHandle(new MockWorkerTransport());
+	});
+	const teamManager = new TeamManager({
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) =>
+				profile.name === "reviewer"
+					? { ...profile, promptPath: "/tmp/project-prompts/reviewer.md" }
+					: profile),
+		},
+		workerManager,
+	});
+
+	await teamManager.delegateTask({
+		title: "Explicit prompt path",
+		goal: "tool prompt override wins over role prompt path",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		systemPromptPath: "./custom/reviewer.md",
+	});
+
+	assert.equal(captured[0]?.systemPromptPath, join(process.cwd(), "custom", "reviewer.md"));
+});
+
+test("TeamManager applies model precedence: tool param, role model, orchestrator model, then Pi default", async () => {
+	const captures: Array<{ model?: string }> = [];
+	const workerManager = new WorkerManager((options) => {
+		captures.push({ model: options.model });
+		return new MockWorkerHandle(new MockWorkerTransport());
+	});
+	const teamManager = new TeamManager({
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) =>
+				profile.name === "oracle" ? { ...profile, model: "role/oracle-model" } : profile),
+		},
+		workerManager,
+	});
+
+	await teamManager.delegateTask({
+		title: "Explicit model",
+		goal: "tool param wins",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		model: "tool/override-model",
+		orchestratorModel: "orchestrator/fallback-model",
+	});
+	await teamManager.delegateTask({
+		title: "Role model",
+		goal: "role model wins over orchestrator model",
+		profileName: "oracle",
+		cwd: process.cwd(),
+		orchestratorModel: "orchestrator/fallback-model",
+	});
+	await teamManager.delegateTask({
+		title: "Orchestrator model",
+		goal: "orchestrator model wins when role has none",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		orchestratorModel: "orchestrator/fallback-model",
+	});
+	await teamManager.delegateTask({
+		title: "Pi default",
+		goal: "undefined leaves Pi to choose its default model",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+
+	assert.equal(captures[0]?.model, "tool/override-model");
+	assert.equal(captures[1]?.model, "role/oracle-model");
+	assert.equal(captures[2]?.model, "orchestrator/fallback-model");
+	assert.equal(captures[3]?.model, undefined);
 });
