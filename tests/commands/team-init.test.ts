@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerTeamInitCommand, _testing } from "../../src/commands/team-init";
-import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG } from "../../src/config";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import {
 	DEFAULT_MODEL_SENTINEL,
 	DEFAULT_PROMPT_SENTINEL,
