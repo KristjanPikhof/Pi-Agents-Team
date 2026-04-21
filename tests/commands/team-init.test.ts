@@ -48,8 +48,8 @@ test("parseInitArgs accepts scope and force flag", () => {
 
 test("buildFullScaffold pre-populates every builtin profile in the flat v2 shape", () => {
 	const scaffold = _testing.buildFullScaffold();
-	assert.equal(scaffold.version, 2);
-	assert.equal(scaffold.defaultsVersion, CURRENT_SCAFFOLD_VERSION);
+	assert.equal(scaffold.schemaVersion, 3);
+	assert.equal(scaffold.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(scaffold.enabled, true);
 	const roles = scaffold.roles ?? {};
 	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
