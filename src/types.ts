@@ -128,6 +128,7 @@ export type PartialProjectRoleConfigMap = Partial<Record<TeamProfileName, Projec
 
 export interface TeamProjectConfigFile {
 	version: typeof TEAM_PROJECT_CONFIG_VERSION;
+	defaultsVersion?: number;
 	enabled?: boolean;
 	roles?: PartialProjectRoleConfigMap;
 }
@@ -136,6 +137,8 @@ export interface TeamProjectConfigLayer {
 	scope: TeamConfigScope;
 	path: string;
 	enabled?: boolean;
+	defaultsVersion?: number;
+	defaultsStale?: boolean;
 }
 
 export interface ProjectConfigDiagnostic {
