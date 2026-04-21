@@ -1,5 +1,21 @@
+import { realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { TeamPathScope } from "../types";
+
+/**
+ * Resolve `path` through symlinks if it exists; otherwise return the lexical
+ * resolution. Used for containment checks where we want to detect "lexically
+ * inside root but the real inode is outside" (a symlink-escape). For paths that
+ * don't yet exist (pathScope roots may be created at runtime by the worker)
+ * the lexical result is the only safe answer.
+ */
+function realpathOrSelf(path: string): string {
+	try {
+		return realpathSync.native(path);
+	} catch {
+		return path;
+	}
+}
 
 export function normalizePathScope(pathScope: TeamPathScope | undefined, cwd: string): TeamPathScope | undefined {
 	if (!pathScope) return undefined;
@@ -15,20 +31,36 @@ function isAbsolutePathWithinRoot(targetPath: string, root: string): boolean {
 	return targetPath === root || targetPath.startsWith(`${root}${sep}`);
 }
 
+/**
+ * Containment check that also catches symlink-based escapes. Returns true when
+ * both the lexical path AND the realpath (when it exists) are inside the real
+ * root. A hostile repo could commit a symlink under the project root pointing
+ * at an absolute path elsewhere (e.g. `project/linked -> ~/.ssh`); the lexical
+ * check passes because the symlink file itself lives under project, but the
+ * inode is outside — this function rejects that.
+ */
+function isAbsolutePathWithinRootWithRealpath(targetPath: string, root: string): boolean {
+	if (!isAbsolutePathWithinRoot(targetPath, root)) return false;
+	const realTarget = realpathOrSelf(targetPath);
+	const realRoot = realpathOrSelf(root);
+	if (realTarget === targetPath && realRoot === root) return true;
+	return isAbsolutePathWithinRoot(realTarget, realRoot);
+}
+
 export function isPathWithinScope(targetPath: string, pathScope: TeamPathScope, cwd: string): boolean {
 	const absoluteTargetPath = resolve(cwd, targetPath);
-	return pathScope.roots.some((root) => isAbsolutePathWithinRoot(absoluteTargetPath, root));
+	return pathScope.roots.some((root) => isAbsolutePathWithinRootWithRealpath(absoluteTargetPath, root));
 }
 
 export function isPathWithinProjectRoot(targetPath: string, projectRoot: string, cwd: string): boolean {
-	return isAbsolutePathWithinRoot(resolve(cwd, targetPath), resolve(projectRoot));
+	return isAbsolutePathWithinRootWithRealpath(resolve(cwd, targetPath), resolve(projectRoot));
 }
 
 export function isPathScopeWithinProjectRoot(pathScope: TeamPathScope | undefined, projectRoot: string, cwd: string): boolean {
 	const normalized = normalizePathScope(pathScope, cwd);
 	if (!normalized) return true;
 	const absoluteProjectRoot = resolve(projectRoot);
-	return normalized.roots.every((root) => isAbsolutePathWithinRoot(root, absoluteProjectRoot));
+	return normalized.roots.every((root) => isAbsolutePathWithinRootWithRealpath(root, absoluteProjectRoot));
 }
 
 export function isPathScopeNarrowerOrEqual(
