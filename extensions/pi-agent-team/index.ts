@@ -224,6 +224,39 @@ function emitCommandOutput(
 	console.log(text);
 }
 
+function getProjectConfigNotice(result: LoadedTeamProjectConfig): { level: "info" | "warning"; message: string } | undefined {
+	if (result.status === "project" && result.sourcePath) {
+		return {
+			level: "info",
+			message: `Pi Agents Team: loaded session-frozen project config from ${result.sourcePath}.`,
+		};
+	}
+	if (result.status === "invalid") {
+		const firstError = result.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+		return {
+			level: "warning",
+			message: `Pi Agents Team: invalid agents-team.json — delegation disabled${firstError ? ` (${firstError.message})` : ""}.`,
+		};
+	}
+	return undefined;
+}
+
+function getProjectConfigPromptNote(result: LoadedTeamProjectConfig): string | undefined {
+	if (result.status === "project" && result.sourcePath) {
+		return `- Session-frozen project role config loaded from ${result.sourcePath}. Treat those profiles as the active role config for this session.`;
+	}
+	if (result.status === "invalid") {
+		const firstError = result.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+		return `- Project role config is invalid${result.sourcePath ? ` at ${result.sourcePath}` : ""}. Delegation is disabled until it is fixed.${firstError ? ` First error: ${firstError.message}.` : ""}`;
+	}
+	return undefined;
+}
+
+function getDelegationDisabledMessage(result: LoadedTeamProjectConfig): string {
+	const firstError = result.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+	return `Delegation is disabled because agents-team.json is invalid${result.sourcePath ? ` at ${result.sourcePath}` : ""}${firstError ? `: ${firstError.message}` : "."}`;
+}
+
 export default function (pi: ExtensionAPI): void {
 	const teamManager = new TeamManager({ config: DEFAULT_TEAM_CONFIG });
 	let teamState = createDefaultTeamState(DEFAULT_TEAM_CONFIG);
