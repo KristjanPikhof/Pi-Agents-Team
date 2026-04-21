@@ -642,6 +642,7 @@ export default function (pi: ExtensionAPI): void {
 		description: "Abort and shut down a tracked worker.",
 		parameters: WorkerIdSchema,
 		async execute(_toolCallId, params) {
+			ensureNotReloading();
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
 			const result = await teamManager.cancelWorker(workerId);
 			return {
