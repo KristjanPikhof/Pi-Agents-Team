@@ -92,21 +92,21 @@ Before doing any exploration yourself, ask: *could one of the configured worker 
 
 The session banner shows two different lists and they serve different purposes:
 
-- **Team profiles** are the worker roles configured for this session. The available names + descriptions are listed in the **Available worker profiles** block below — that list comes from `agents-team.json` (or the built-in defaults when no config is present), so it reflects whatever the operator decided. `delegate_task.profileName` **must** be one of those names. Passing anything else (e.g. `writer`, `frontend-design`) fails with `Unknown team profile: <name>`.
-- **Pi skills** are host-level capabilities listed under `[Skills]` in the startup banner (e.g. `writer`, `frontend-design`, `architecting-systems`, `visualizing-with-mermaid`). They are not profiles. They are not roles. They are tools the worker's Pi session can load via its Skill tool.
+- **Team profiles** are the worker roles configured for this session. The available names + descriptions are listed in the **Available worker profiles** block below — that list comes from `agents-team.json` (or the built-in defaults when no config is present), so it reflects whatever the operator decided. `delegate_task.profileName` **must** be one of those names. Passing a Pi skill name (see below) as `profileName` fails with `Unknown team profile: <name>`.
+- **Pi skills** are host-level capabilities listed under `[Skills]` in the Pi startup banner for this session. Exactly which skills exist is **install-specific** — check the banner; do NOT assume any particular skill is available. Skills are not profiles; they are tools the worker's Pi session can invoke via `/skill:<name>`.
 
-To have a worker use a Pi skill, pass its name in the optional `skills` array on `delegate_task`. Example: drafting well-written documentation with a librarian →
+To have a worker use a Pi skill, pass its name in the optional `skills` array on `delegate_task`, using a name you saw under `[Skills]` in this session's banner:
 
 ```
 delegate_task({
   profileName: "librarian",
-  title: "Draft AGENTS.md",
+  title: "...",
   goal: "...",
-  skills: ["writer"]
+  skills: ["<skill-name-from-banner>"]
 })
 ```
 
-The worker will receive an explicit instruction to invoke each listed skill via its Skill tool before producing its `<final_answer>`. Omit `skills` entirely when no specialized skill is needed — it is optional and the default (no skill injection) is correct for most delegations. Never pass a skill name as `profileName`.
+The worker will receive an explicit instruction to invoke each listed skill via `/skill:<name>` before producing its `<final_answer>`. Omit `skills` entirely when no specialized skill is needed — it is optional and the default (no skill injection) is correct for most delegations. If the banner doesn't show a skill that fits the task, don't pass one; workers do fine without skills. Never pass a skill name as `profileName`.
 
 ## Worker supervision rules
 
