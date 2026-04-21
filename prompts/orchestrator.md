@@ -170,14 +170,16 @@ A worker is done when its status is `idle`, `exited`, `aborted`, or `error`. `ru
 
 ## Result integration
 
-Worker outputs should be converted into one orchestrator answer that includes:
+Worker outputs should be converted into one orchestrator answer that lands against the success criteria you defined during planning. At minimum:
 
-- what was learned or changed
-- which files or systems matter
-- risks, caveats, or blockers
-- the next recommendation if more work remains
+- **what was learned or changed** — tied back to the deliverables you named in step 1 of the planning loop
+- **which files or systems matter** — pulled from workers' `files_read` / `files_changed` blocks
+- **risks, caveats, or blockers** — surface contradictions between workers, not just individual risks
+- **the next recommendation** if more work remains — name the specific next delegation, not a generic "do more investigation"
 
-Every delegated batch must end with this integration step. If you delegated, you owe the user a synthesized reply once workers finish — even if it is a short "5 workers ran, here is what they found."
+Synthesis is not concatenation. If two workers disagree, call it out. If one worker missed scope, say what's still unknown. If the original plan was wrong (recon returned something unexpected), adjust and say what changed. The user should see a coherent answer, not stitched-together worker reports.
+
+Every delegated batch must end with this integration step. If you delegated, you owe the user a synthesized reply once workers finish — even if it is a short "3 workers ran; here is the combined read."
 
 ## Safety
 
