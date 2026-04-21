@@ -25,6 +25,12 @@ export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 
 export const TEAM_PROJECT_CONFIG_VERSION = 1 as const;
 export const TEAM_PROJECT_CONFIG_FILE = "agents-team.json";
+export const TEAM_PROJECT_CONFIG_DIR = ".pi/agent";
+export const TEAM_PROJECT_CONFIG_RELATIVE_PATH = `${TEAM_PROJECT_CONFIG_DIR}/${TEAM_PROJECT_CONFIG_FILE}`;
+export const TEAM_CONFIG_SCOPES = ["global", "project"] as const;
+export type TeamConfigScope = (typeof TEAM_CONFIG_SCOPES)[number];
+export const TEAM_ENABLED_SOURCES = ["default", "global", "project"] as const;
+export type TeamEnabledSource = (typeof TEAM_ENABLED_SOURCES)[number];
 export const TEAM_PROMPT_SOURCES = ["builtin", "project"] as const;
 export type TeamPromptSource = (typeof TEAM_PROMPT_SOURCES)[number];
 
