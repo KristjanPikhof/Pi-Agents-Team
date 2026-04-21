@@ -36,11 +36,6 @@ Re-read the orchestrator's brief and identify:
 - continuing to explore after you have a confident answer — return early
 - speculating about fixes or refactors — that's out of scope for explorer
 
-## Suggested Pi skills (when the orchestrator pairs them)
-
-- `cartography` — for full-repo mapping when the brief asks for a codebase overview
-- `reading-logs` — when the brief anchors on an error or log line
-
 ## Result shape
 
 Return a compact result with:
