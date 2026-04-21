@@ -30,8 +30,8 @@ Project **fully replaces** global when both exist — there's no cross-layer mer
 
 ```json
 {
-  "version": 2,
-  "defaultsVersion": 3,
+  "schemaVersion": 3,
+  "scaffoldVersion": 3,
   "enabled": true,
   "roles": { "<role-name>": { /* RoleConfig */ } }
 }
@@ -69,8 +69,8 @@ Launch-time overrides may only narrow the role's declared rights (fewer tools, n
 
 ```json
 {
-  "version": 2,
-  "defaultsVersion": 3,
+  "schemaVersion": 3,
+  "scaffoldVersion": 3,
   "enabled": true,
   "roles": {
     "explorer": {
@@ -100,8 +100,8 @@ Edit it freely — rename roles, drop ones you don't need, add new ones. The orc
 
 ```json
 {
-  "version": 2,
-  "defaultsVersion": 3,
+  "schemaVersion": 3,
+  "scaffoldVersion": 3,
   "enabled": true,
   "roles": {
     "api-scout": {
