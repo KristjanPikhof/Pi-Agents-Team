@@ -585,20 +585,23 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (event, ctx) => {
 		activeContext = ctx;
-		const { state, markedCount } = restoreLatestState(ctx, event.reason);
+		activeProjectConfig = loadActiveTeamConfig({ cwd: ctx.cwd, baseConfig: DEFAULT_TEAM_CONFIG });
+		await replaceTeamManager(activeProjectConfig.config);
+		const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 		teamState = state;
 		teamManager.restore(teamState);
-		applyUi(ctx, teamState);
-		persistSnapshot(pi, teamState);
+		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config);
+		persistSnapshot(pi, teamState, activeProjectConfig.config);
 
 		if (!ctx.hasUI) return;
 
-		if (event.reason === "startup") {
-			ctx.ui.notify("Pi Agents Team loaded: this session is running in orchestrator mode.", "info");
-			return;
+		ctx.ui.notify("Pi Agents Team loaded: this session is running in orchestrator mode.", "info");
+		const configNotice = getProjectConfigNotice(activeProjectConfig);
+		if (configNotice) {
+			ctx.ui.notify(configNotice.message, configNotice.level);
 		}
 
-		if (markedCount > 0) {
+		if (event.reason !== "startup" && markedCount > 0) {
 			const noun = markedCount === 1 ? "worker" : "workers";
 			ctx.ui.notify(
 				`Pi Agents Team: ${markedCount} ${noun} from prior session marked exited (${event.reason}). Relaunch via delegate_task if still needed.`,
@@ -610,18 +613,24 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		activeContext = ctx;
 		teamState = teamManager.snapshot();
-		applyUi(ctx, teamState);
+		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config);
+		const projectConfigPromptNote = getProjectConfigPromptNote(activeProjectConfig);
 		return {
-			systemPrompt: `${event.systemPrompt}\n\n${buildOrchestratorPromptBundle(teamState, DEFAULT_TEAM_CONFIG)}`,
+			systemPrompt: [
+				event.systemPrompt,
+				buildOrchestratorPromptBundle(teamState, activeProjectConfig.config),
+				projectConfigPromptNote,
+			].filter((item): item is string => Boolean(item)).join("\n\n"),
 		};
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		stopSpinner();
+		detachTeamManagerListener();
 		await teamManager.dispose();
 		teamState = teamManager.snapshot();
-		persistSnapshot(pi, teamState);
-		clearUi(ctx);
+		persistSnapshot(pi, teamState, activeProjectConfig.config);
+		clearUi(ctx, activeProjectConfig.config);
 		activeContext = undefined;
 	});
 }
