@@ -44,7 +44,7 @@ function parseInitArgs(args: string): { scope?: InitScope; force: boolean; error
 
 function scaffoldRole(profile: TeamProfileSpec): ProjectRoleFlatConfig {
 	const role: ProjectRoleFlatConfig = {
-		description: profile.description,
+		whenToUse: profile.description,
 		model: DEFAULT_MODEL_SENTINEL,
 		thinkingLevel: profile.thinkingLevel,
 		tools: [...profile.tools],
