@@ -97,7 +97,7 @@ test("/team-init local writes a full scaffold inside the project", async () => {
 	const roleNames = Object.keys(parsed.roles ?? {}).sort();
 	assert.deepEqual(roleNames, DEFAULT_TEAM_CONFIG.profiles.map((profile) => profile.name).sort());
 	assert.ok(emitted[0]?.includes(expectedPath));
-	assert.ok(emitted[0]?.includes("/reload-plugins"));
+	assert.ok(emitted[0]?.includes("/reload"));
 });
 
 test("/team-init refuses to overwrite without --force and mentions backup", async () => {
