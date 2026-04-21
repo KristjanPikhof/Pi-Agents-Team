@@ -4,7 +4,6 @@ import { TaskRegistry } from "./task-registry";
 import { resolveWorkerMessageDelivery } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
-import { resolveProfile } from "../profiles/loader";
 import { WorkerManager, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
 import type {
@@ -38,7 +37,9 @@ export interface DelegateTaskRequest {
 	contextHints?: string[];
 	expectedOutput?: string;
 	pathScope?: TeamPathScope;
+	skills?: string[];
 	model?: string;
+	orchestratorModel?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
 	systemPromptPath?: string;
@@ -133,13 +134,17 @@ export class TeamManager {
 	}
 
 	async delegateTask(request: DelegateTaskRequest): Promise<AgentResult> {
-		const profile = resolveProfile(request.profileName);
+		const profile = this.config.profiles.find((item) => item.name === request.profileName);
+		if (!profile) {
+			throw new Error(`Unknown team profile: ${request.profileName}`);
+		}
 		const launchPlan = applyLaunchPolicy(
 			{
 				cwd: request.cwd,
 				profile,
 				pathScope: request.pathScope,
 				model: request.model,
+				orchestratorModel: request.orchestratorModel,
 				thinkingLevel: request.thinkingLevel,
 				tools: request.tools,
 				extensionMode: request.extensionMode,
