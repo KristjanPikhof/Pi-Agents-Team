@@ -84,6 +84,13 @@ function runToggle(args: string, desiredEnabled: boolean, ctx: ExtensionContext,
 
 	const internalScope = scopeToInternal(parsed.scope);
 	const targetPath = getProjectConfigPathForScope(internalScope, ctx.cwd);
+	if (!targetPath) {
+		ctx.ui.notify(
+			"Global agents-team.json is disabled (PI_AGENT_TEAM_GLOBAL_CONFIG_PATH=none). Unset the env var or point it at a path to toggle a global config.",
+			"warning",
+		);
+		return;
+	}
 	const existing = readExistingConfig(targetPath);
 
 	const lines: string[] = [];
