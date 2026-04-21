@@ -1,15 +1,20 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG } from "../config";
 import { getProjectConfigPathForScope } from "../project-config/loader";
-import type { TeamConfigScope, TeamProjectConfigFile } from "../types";
+import {
+	TEAM_PROJECT_CONFIG_VERSION,
+	type PartialProjectRoleConfigMap,
+	type ProjectRoleConfig,
+	type TeamConfigScope,
+	type TeamProfileSpec,
+	type TeamProjectConfigFile,
+} from "../types";
 
 interface InitCommandDependencies {
 	emitText: (ctx: ExtensionContext, text: string) => void;
 }
-
-const SCOPE_VALUES: TeamConfigScope[] = ["global", "local"] as any;
-// "local" is an alias for "project" in user-facing commands.
 
 type InitScope = "global" | "local";
 
@@ -34,11 +39,42 @@ function parseInitArgs(args: string): { scope?: InitScope; force: boolean; error
 	return { scope, force };
 }
 
-function buildSkeleton(): TeamProjectConfigFile {
+function scaffoldRole(profile: TeamProfileSpec): ProjectRoleConfig {
+	const role: ProjectRoleConfig = {
+		description: profile.description,
+		model: profile.model ?? null,
+		thinkingLevel: profile.thinkingLevel,
+		permissions: {
+			tools: [...profile.tools],
+			extensionMode: profile.extensionMode,
+			writePolicy: profile.writePolicy,
+			canSpawnWorkers: profile.canSpawnWorkers,
+		},
+		prompt: {
+			source: "builtin",
+			path: null,
+		},
+	};
+	if (profile.pathScope) {
+		role.permissions.pathScope = {
+			roots: [...profile.pathScope.roots],
+			allowReadOutsideRoots: profile.pathScope.allowReadOutsideRoots,
+			allowWrite: profile.pathScope.allowWrite,
+		};
+	}
+	return role;
+}
+
+function buildFullScaffold(): TeamProjectConfigFile {
+	const roles: PartialProjectRoleConfigMap = {};
+	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
+		roles[profile.name as keyof PartialProjectRoleConfigMap] = scaffoldRole(profile);
+	}
 	return {
-		version: 1,
+		version: TEAM_PROJECT_CONFIG_VERSION,
+		defaultsVersion: CURRENT_DEFAULTS_VERSION,
 		enabled: true,
-		roles: {},
+		roles,
 	};
 }
 
@@ -46,9 +82,28 @@ function scopeToInternal(scope: InitScope): TeamConfigScope {
 	return scope === "local" ? "project" : "global";
 }
 
+function formatBackupTimestamp(now: Date): string {
+	const pad = (value: number) => value.toString().padStart(2, "0");
+	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
+function backupExisting(path: string, now: Date = new Date()): string {
+	const dir = dirname(path);
+	const base = basename(path);
+	const timestamp = formatBackupTimestamp(now);
+	let candidate = join(dir, `${timestamp}-${base}`);
+	let suffix = 1;
+	while (existsSync(candidate)) {
+		candidate = join(dir, `${timestamp}-${suffix}-${base}`);
+		suffix += 1;
+	}
+	renameSync(path, candidate);
+	return candidate;
+}
+
 export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitCommandDependencies): void {
 	pi.registerCommand("team-init", {
-		description: "Create an agents-team.json skeleton: /team-init global|local [--force]",
+		description: "Scaffold a full agents-team.json with default roles: /team-init global|local [--force]",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			return ["global", "local"]
@@ -68,26 +123,35 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 
 			const internalScope = scopeToInternal(parsed.scope);
 			const targetPath = getProjectConfigPathForScope(internalScope, ctx.cwd);
+			const exists = existsSync(targetPath);
 
-			if (existsSync(targetPath) && !parsed.force) {
+			if (exists && !parsed.force) {
 				dependencies.emitText(
 					ctx,
-					`${targetPath} already exists. Re-run with \`/team-init ${parsed.scope} --force\` to overwrite.`,
+					`${targetPath} already exists. Re-run with \`/team-init ${parsed.scope} --force\` to overwrite (the current file will be backed up first).`,
 				);
 				return;
 			}
 
 			mkdirSync(dirname(targetPath), { recursive: true });
-			writeFileSync(targetPath, `${JSON.stringify(buildSkeleton(), null, 2)}\n`);
+			let backupPath: string | undefined;
+			if (exists) {
+				backupPath = backupExisting(targetPath);
+			}
+			writeFileSync(targetPath, `${JSON.stringify(buildFullScaffold(), null, 2)}\n`);
 
-			const lines = [
-				`Wrote ${parsed.scope} agents-team.json skeleton to ${targetPath}.`,
-				"Edit the file to override roles, set enabled=false to disable, or add skill defaults.",
+			const lines: string[] = [];
+			if (backupPath) {
+				lines.push(`Backed up previous config to ${backupPath}.`);
+			}
+			lines.push(
+				`Wrote ${parsed.scope} agents-team.json scaffold (defaultsVersion ${CURRENT_DEFAULTS_VERSION}) to ${targetPath}.`,
+				"Every builtin role is listed with its defaults — tweak fields in place, switch prompt.source to \"project\" and set prompt.path to use your own .md, or delete a role block to fall back to builtins.",
 				"Run /reload-plugins to apply changes in this session.",
-			];
+			);
 			dependencies.emitText(ctx, lines.join("\n"));
 		},
 	});
 }
 
-export const _testing = { parseInitArgs, buildSkeleton, scopeToInternal, SCOPE_VALUES };
+export const _testing = { parseInitArgs, buildFullScaffold, scaffoldRole, scopeToInternal, formatBackupTimestamp, backupExisting };
