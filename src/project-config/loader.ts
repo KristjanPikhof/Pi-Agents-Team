@@ -639,6 +639,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	}
 
 	for (const layer of layers) {
+		if (layer.schemaMismatch) continue; // already announced as a warning
 		diagnostics.unshift(
 			makeDiagnostic("info", "project_config_loaded", `Loaded ${layer.scope} ${TEAM_PROJECT_CONFIG_FILE} from ${layer.path}`),
 		);
