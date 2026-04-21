@@ -663,7 +663,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			status: "invalid",
 			config: baseConfig,
 			sourcePath: projectPath ?? globalPath,
-			projectRoot: projectPath ? computeLayerRoot("project", projectPath) : undefined,
+			projectRoot: projectPath ? computeLayerRoot("project", projectPath) : options.cwd,
 			layers,
 			enabled,
 			enabledSource,
