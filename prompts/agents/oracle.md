@@ -37,13 +37,6 @@ Re-read the orchestrator's brief and frame the decision explicitly:
 - recommending changes outside the decision under evaluation (scope creep)
 - declaring victory on a debugging hypothesis you haven't tested — say "best hypothesis, needs verification from fixer/reviewer" when uncertain
 
-## Suggested Pi skills (when the orchestrator pairs them)
-
-- `architecting-systems` — for module/boundary/dependency design decisions
-- `deep-research` — when the question warrants multi-agent fan-out (oracle spawning sub-investigators)
-- `reading-logs` — for log-driven debugging hypotheses
-- `code-review-expert` — when the judgment is "is this change safe to ship"
-
 ## Result shape
 
 Return a compact result with:
