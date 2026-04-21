@@ -80,6 +80,7 @@ const ProjectRoleMapProperties = Object.fromEntries(
 
 export const TeamProjectConfigSchema = Type.Object({
 	version: Type.Literal(TEAM_PROJECT_CONFIG_VERSION),
+	defaultsVersion: Type.Optional(Type.Number()),
 	enabled: Type.Optional(Type.Boolean()),
 	roles: Type.Optional(Type.Object(ProjectRoleMapProperties, { additionalProperties: false })),
 }, { additionalProperties: false });
