@@ -523,14 +523,43 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			anyFatal = true;
 			continue;
 		}
-		parsedLayers.push(result);
 		const layerDefaultsVersion = typeof result.parsed.defaultsVersion === "number" ? result.parsed.defaultsVersion : undefined;
+		const rawSchemaVersion = typeof result.parsed.version === "number" ? result.parsed.version : undefined;
+		const schemaMismatch =
+			rawSchemaVersion === undefined ||
+			!(TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED as readonly number[]).includes(rawSchemaVersion);
+
+		if (schemaMismatch) {
+			// Don't use this layer's roles — warn and let the remaining layers (or
+			// built-ins) take over. Users re-scaffold via /team-init <scope> --force.
+			const initSubcommand = scope === "project" ? "local" : "global";
+			diagnostics.push(
+				makeDiagnostic(
+					"warning",
+					"schema_version_mismatch",
+					`${scope} ${TEAM_PROJECT_CONFIG_FILE} at ${path} uses schema version ${rawSchemaVersion ?? "?"} (supported: ${TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED.join(", ")}). Run /team-init ${initSubcommand} --force to regenerate with current best-practice defaults (the old file will be backed up first).`,
+				),
+			);
+			layers.push({
+				scope: result.scope,
+				path: result.path,
+				enabled: result.parsed.enabled,
+				defaultsVersion: layerDefaultsVersion,
+				defaultsStale: layerDefaultsVersion !== undefined && layerDefaultsVersion !== CURRENT_DEFAULTS_VERSION,
+				schemaMismatch: true,
+				rawSchemaVersion,
+			});
+			continue;
+		}
+
+		parsedLayers.push(result);
 		layers.push({
 			scope: result.scope,
 			path: result.path,
 			enabled: result.parsed.enabled,
 			defaultsVersion: layerDefaultsVersion,
 			defaultsStale: layerDefaultsVersion !== undefined && layerDefaultsVersion !== CURRENT_DEFAULTS_VERSION,
+			rawSchemaVersion,
 		});
 	}
 
