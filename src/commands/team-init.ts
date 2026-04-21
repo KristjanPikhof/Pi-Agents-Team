@@ -71,25 +71,6 @@ function scopeToInternal(scope: InitScope): TeamConfigScope {
 	return scope === "local" ? "project" : "global";
 }
 
-function formatBackupTimestamp(now: Date): string {
-	const pad = (value: number) => value.toString().padStart(2, "0");
-	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-}
-
-function backupExisting(path: string, now: Date = new Date()): string {
-	const dir = dirname(path);
-	const base = basename(path);
-	const timestamp = formatBackupTimestamp(now);
-	let candidate = join(dir, `${timestamp}-${base}`);
-	let suffix = 1;
-	while (existsSync(candidate)) {
-		candidate = join(dir, `${timestamp}-${suffix}-${base}`);
-		suffix += 1;
-	}
-	renameSync(path, candidate);
-	return candidate;
-}
-
 export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitCommandDependencies): void {
 	pi.registerCommand("team-init", {
 		description: "Scaffold a full agents-team.json with default roles: /team-init global|local [--force]",
