@@ -591,6 +591,7 @@ export default function (pi: ExtensionAPI): void {
 		description: "Block until every target worker reaches a terminal status (idle, exited, aborted, error) or until a target raises a new relay question. Also honors a timeout. Returns reason=all_terminal, relay_raised (with newRelays listed), timeout, or aborted. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting. Use it after delegate_task; when it returns relay_raised, answer via agent_message and call wait_for_agents again to resume.",
 		parameters: WaitForAgentsSchema,
 		async execute(_toolCallId, params, signal) {
+			ensureNotReloading();
 			const targetIds = params.workerIds?.length
 				? params.workerIds.map((id) => teamManager.resolveWorkerId(id) ?? id)
 				: teamManager.listWorkers().map((worker) => worker.workerId);
