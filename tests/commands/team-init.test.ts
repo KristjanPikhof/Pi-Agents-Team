@@ -84,7 +84,7 @@ test("/team-init local writes a full scaffold inside the project", async () => {
 	const expectedPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 	assert.ok(existsSync(expectedPath));
 	const parsed = JSON.parse(readFileSync(expectedPath, "utf8"));
-	assert.equal(parsed.version, 1);
+	assert.equal(parsed.version, 2);
 	assert.equal(parsed.defaultsVersion, CURRENT_DEFAULTS_VERSION);
 	assert.equal(parsed.enabled, true);
 	const roleNames = Object.keys(parsed.roles ?? {}).sort();
