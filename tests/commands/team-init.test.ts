@@ -48,7 +48,7 @@ test("parseInitArgs accepts scope and force flag", () => {
 
 test("buildFullScaffold pre-populates every builtin profile in the flat v2 shape", () => {
 	const scaffold = _testing.buildFullScaffold();
-	assert.equal(scaffold.version, 1);
+	assert.equal(scaffold.version, 2);
 	assert.equal(scaffold.defaultsVersion, CURRENT_DEFAULTS_VERSION);
 	assert.equal(scaffold.enabled, true);
 	const roles = scaffold.roles ?? {};
