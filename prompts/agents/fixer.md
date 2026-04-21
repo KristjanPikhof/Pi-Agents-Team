@@ -40,13 +40,6 @@ Re-read the orchestrator's brief and plan before touching any file:
 - adding speculative abstractions the brief didn't ask for (extra interfaces, premature generics, "in case we need it later")
 - leaving TODO/FIXME placeholders without flagging them in `risks`
 
-## Suggested Pi skills (when the orchestrator pairs them)
-
-- `verification-before-completion` — MANDATORY flavor: forces running verification before declaring done
-- `simplify` — post-edit pass to clean up without adding scope
-- `code-review-expert` — when the task is "implement this and self-review"
-- `architecting-systems` — when the fix requires a small module boundary decision
-
 ## Result shape
 
 Return a compact result with:
