@@ -169,10 +169,11 @@ Expected when the project role config fails validation. The extension warns on s
 
 Common causes:
 
-- missing required role keys in the file
-- `prompt.source: "project"` with a missing `prompt.path`
-- project prompt path or path-scope root escaping outside the discovered project root
+- schema errors in the JSON (fatal — layer cannot be parsed)
+- prompt path or path-scope root escaping outside the discovered project root
 - trying to broaden built-in role rights (extra tools, writable read-only role, broader extension mode, worker spawning)
+
+A prompt file that points at a **non-existent path** is *not* fatal — the extension emits a warning toast on session start naming the config file + the unreadable path, and the role silently falls back to its built-in prompt. Fix the path (or set `prompt` to `"default"`) and `/reload-plugins`.
 
 See [`profiles.md`](profiles.md) for the full handoff format and rights ceilings.
 
