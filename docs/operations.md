@@ -165,17 +165,20 @@ Expected. Project role config is discovered once on session start, then treated 
 
 ### Delegation is disabled because `agents-team.json` is invalid
 
-Expected when the project role config fails validation. The extension warns on session start, adds a prompt note telling the orchestrator delegation is disabled, and rejects `delegate_task` until the file is fixed.
+Expected when the project role config hits a hard error. The extension warns on session start, adds a prompt note telling the orchestrator delegation is disabled, and rejects `delegate_task` until the file is fixed.
 
-Common causes:
+Common causes (hard errors):
 
-- schema errors in the JSON (fatal — layer cannot be parsed)
-- prompt path or path-scope root escaping outside the discovered project root
-- trying to broaden built-in role rights (extra tools, writable read-only role, broader extension mode, worker spawning)
+- The JSON isn't parseable (syntax error).
+- A prompt path or `pathScope` root escapes the project root.
+- A role declares `advanced.extensionMode: "inherit"` (recursion guard).
 
-A prompt file that points at a **non-existent path** is *not* fatal — the extension emits a warning toast on session start naming the config file + the unreadable path, and the role silently falls back to its built-in prompt. Fix the path (or set `prompt` to `"default"`) and `/reload-plugins`.
+Soft warnings don't disable delegation (the config keeps working):
 
-See [`profiles.md`](profiles.md) for the full handoff format and rights ceilings.
+- `schemaVersion` doesn't match the current schema. The layer falls back to built-ins and you get a toast pointing at `/team-init <scope> --force`. See [`profiles.md`](profiles.md) "Version bumps."
+- A prompt string that doesn't resolve to a file. It gets treated as inline prompt text, which is usually what you want. If you actually meant a path, fix the typo.
+
+See [`profiles.md`](profiles.md) for the full role shape and prompt-resolution rules.
 
 ### A worker fails immediately with an API-key error
 
