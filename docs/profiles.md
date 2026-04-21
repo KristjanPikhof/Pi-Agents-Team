@@ -137,81 +137,25 @@ Project configs are allowed to customize a role, but they cannot exceed the buil
 
 Launch-time overrides are stricter again: they can only narrow the already-resolved active role.
 
-### Full built-in role skeleton
+### Minimal config file
 
-This is the minimal shape for a complete project config file. Omitted optional fields inherit from the built-in role; the file must still include every built-in role key.
+The schema is partial — omit roles you don't need to customize. The smallest valid file that does anything is just the enabled flag:
 
 ```json
-{
-  "version": 1,
-  "roles": {
-    "explorer": {
-      "description": null,
-      "model": null,
-      "thinkingLevel": "low",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
-    },
-    "librarian": {
-      "description": null,
-      "model": null,
-      "thinkingLevel": "medium",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
-    },
-    "oracle": {
-      "description": null,
-      "model": null,
-      "thinkingLevel": "high",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
-    },
-    "designer": {
-      "description": null,
-      "model": null,
-      "thinkingLevel": "medium",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
-    },
-    "fixer": {
-      "description": null,
-      "model": null,
-      "thinkingLevel": "medium",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
-    },
-    "reviewer": {
-      "description": null,
-      "model": null,
-      "thinkingLevel": "medium",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
-    },
-    "observer": {
-      "description": null,
-      "model": null,
-      "thinkingLevel": "low",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
-    }
-  }
-}
+{ "version": 1, "enabled": false }
 ```
 
-Example project prompt override + scoped fixer root:
+`/team-init local` writes this minimum plus an empty `roles: {}` object. Expand only the roles you want to change:
 
 ```json
 {
   "version": 1,
+  "enabled": true,
   "roles": {
-    "explorer": { "permissions": {}, "prompt": { "source": "builtin" } },
-    "librarian": { "permissions": {}, "prompt": { "source": "builtin" } },
-    "oracle": { "permissions": {}, "prompt": { "source": "builtin" } },
-    "designer": { "permissions": {}, "prompt": { "source": "builtin" } },
     "fixer": {
       "permissions": {
         "pathScope": {
-          "roots": ["src/scoped"],
+          "roots": ["src/api"],
           "allowReadOutsideRoots": false,
           "allowWrite": true
         }
@@ -221,11 +165,56 @@ Example project prompt override + scoped fixer root:
     "reviewer": {
       "permissions": {},
       "prompt": { "source": "project", "path": "prompts/reviewer.md" }
-    },
-    "observer": { "permissions": {}, "prompt": { "source": "builtin" } }
+    }
   }
 }
 ```
+
+Everything else inherits from the previous layer (global → built-in). This is a change from earlier versions which required every role key — partial maps now work across both layers.
+
+### Global + project layering example
+
+Say your `~/.pi/agent/agents-team.json` forces a high thinking level on `oracle` across every project:
+
+```json
+{
+  "version": 1,
+  "roles": {
+    "oracle": {
+      "thinkingLevel": "high",
+      "model": "openai/gpt-5.4",
+      "permissions": {},
+      "prompt": { "source": "builtin" }
+    }
+  }
+}
+```
+
+Then in `~/my-repo/.pi/agent/agents-team.json` you narrow `oracle` to medium locally and scope `fixer` to `src/api`:
+
+```json
+{
+  "version": 1,
+  "roles": {
+    "oracle": {
+      "thinkingLevel": "medium",
+      "permissions": {},
+      "prompt": { "source": "builtin" }
+    },
+    "fixer": {
+      "permissions": {
+        "pathScope": { "roots": ["src/api"], "allowReadOutsideRoots": false, "allowWrite": true }
+      },
+      "prompt": { "source": "builtin" }
+    }
+  }
+}
+```
+
+Result inside `~/my-repo`:
+- `oracle` → global model (`openai/gpt-5.4`) + project thinking (`medium`).
+- `fixer` → built-in defaults + project scope narrowing.
+- Everyone else → pure built-in.
 
 ## Customizing profiles
 
