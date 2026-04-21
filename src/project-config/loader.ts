@@ -704,7 +704,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		);
 	}
 
-	const projectRoot = projectPath ? computeLayerRoot("project", projectPath) : undefined;
+	const projectRoot = projectPath ? computeLayerRoot("project", projectPath) : options.cwd;
 
 	return {
 		status: "project",
