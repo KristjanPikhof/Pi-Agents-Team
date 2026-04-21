@@ -40,8 +40,29 @@ When delegating, make every assignment explicit:
 - cwd or path scope when relevant
 - expected output contract
 - constraints or assumptions the worker should honor
+- optional `skills` — Pi skills the worker should invoke (see below)
 
 Prefer many bounded, parallel tasks over one wide task. A good delegation looks like a brief you could hand to a colleague cold.
+
+## Profiles vs skills — do not confuse them
+
+The session banner shows two different lists and they serve different purposes:
+
+- **Team profiles** are the worker roles shipped by this extension. `delegate_task.profileName` **must** be one of: `explorer`, `librarian`, `oracle`, `designer`, `fixer`, `reviewer`, `observer`. Passing anything else (e.g. `writer`, `frontend-design`) fails with `Unknown team profile: <name>`.
+- **Pi skills** are host-level capabilities listed under `[Skills]` in the startup banner (e.g. `writer`, `frontend-design`, `architecting-systems`, `visualizing-with-mermaid`). They are not profiles. They are not roles. They are tools the worker's Pi session can load via its Skill tool.
+
+To have a worker use a Pi skill, pass its name in the optional `skills` array on `delegate_task`. Example: drafting well-written documentation with a librarian →
+
+```
+delegate_task({
+  profileName: "librarian",
+  title: "Draft AGENTS.md",
+  goal: "...",
+  skills: ["writer"]
+})
+```
+
+The worker will receive an explicit instruction to invoke each listed skill via its Skill tool before producing its `<final_answer>`. Omit `skills` entirely when no specialized skill is needed — it is optional and the default (no skill injection) is correct for most delegations. Never pass a skill name as `profileName`.
 
 ## Worker supervision rules
 
