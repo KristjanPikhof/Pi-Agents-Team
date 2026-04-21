@@ -233,11 +233,11 @@ Follow any toggle with `/reload-plugins` to apply the change in the current Pi s
 
 ## Files that package this
 
-- [`src/project-config/versions.ts`](../src/project-config/versions.ts) — schema + scaffold version constants. Single place to bump.
-- [`src/config.ts`](../src/config.ts) — `DEFAULT_TEAM_CONFIG` including the seven built-in role specs.
-- [`src/project-config/loader.ts`](../src/project-config/loader.ts) — `loadActiveTeamConfig`, schema validation, role materialization.
-- [`src/safety/launch-policy.ts`](../src/safety/launch-policy.ts) — the two platform invariants.
-- [`prompts/agents/*.md`](../prompts/agents/) — packaged worker prompts (including `_generic-worker.md`).
+- [`src/project-config/versions.ts`](../src/project-config/versions.ts): schema + scaffold version constants. Single place to bump.
+- [`src/config.ts`](../src/config.ts): `DEFAULT_TEAM_CONFIG` including the seven built-in role specs.
+- [`src/project-config/loader.ts`](../src/project-config/loader.ts): `loadActiveTeamConfig`, schema validation, role materialization.
+- [`src/safety/launch-policy.ts`](../src/safety/launch-policy.ts): the two platform invariants.
+- [`prompts/agents/*.md`](../prompts/agents/): packaged worker prompts (including `_generic-worker.md`).
 
 ## Related docs
 
