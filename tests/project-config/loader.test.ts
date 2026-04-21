@@ -28,7 +28,7 @@ function buildConfig(overrides: Partial<TeamProjectConfigFile["roles"]> = {}): T
 		]),
 	) as TeamProjectConfigFile["roles"];
 	return {
-		version: 2,
+		schemaVersion: 3,
 		roles: {
 			...roles,
 			...overrides,
@@ -151,7 +151,7 @@ test("loadActiveTeamConfig v2: user role declarations are source-of-truth (no ce
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v2-freeform-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		version: 2,
+		schemaVersion: 3,
 		roles: {
 			reviewer: {
 				tools: ["read", "edit", "bash", "grep", "find"],
@@ -175,7 +175,7 @@ test("loadActiveTeamConfig v2: extensionMode 'inherit' in role advanced block is
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v2-recursion-block-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		version: 2,
+		schemaVersion: 3,
 		roles: {
 			reviewer: {
 				tools: ["read", "grep"],
@@ -194,7 +194,7 @@ test("loadActiveTeamConfig v2: extensionMode 'inherit' in role advanced block is
 test("loadActiveTeamConfig accepts a partial roles map (no required role keys)", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-partial-"));
 	mkdirSync(join(root, "app"), { recursive: true });
-	writeProjectConfig(root, { version: 2, roles: { fixer: { permissions: {}, prompt: { source: "builtin" } } } });
+	writeProjectConfig(root, { schemaVersion: 3, roles: { fixer: { permissions: {}, prompt: { source: "builtin" } } } });
 
 	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
 	assert.equal(result.status, "project");
@@ -205,12 +205,12 @@ test("loadActiveTeamConfig accepts a partial roles map (no required role keys)",
 test("loadActiveTeamConfig resolves enabled flag by precedence (project over global)", () => {
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-enabled-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
-	writeProjectConfig(projectRoot, { version: 2, enabled: true });
+	writeProjectConfig(projectRoot, { schemaVersion: 3, enabled: true });
 
 	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-global-"));
 	mkdirSync(join(globalRoot, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
 	const globalPath = join(globalRoot, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
-	writeFileSync(globalPath, JSON.stringify({ version: 2, enabled: false }));
+	writeFileSync(globalPath, JSON.stringify({ schemaVersion: 3, enabled: false }));
 
 	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: globalPath });
 	assert.equal(result.enabled, true);
@@ -225,7 +225,7 @@ test("loadActiveTeamConfig applies global enabled=false when project has no over
 	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-global-"));
 	mkdirSync(join(globalRoot, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
 	const globalPath = join(globalRoot, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
-	writeFileSync(globalPath, JSON.stringify({ version: 2, enabled: false }));
+	writeFileSync(globalPath, JSON.stringify({ schemaVersion: 3, enabled: false }));
 
 	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: globalPath });
 	assert.equal(result.enabled, false);
@@ -250,7 +250,7 @@ test("loadActiveTeamConfig v2: project file fully replaces global — no cross-l
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-replace-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
 	writeProjectConfig(projectRoot, {
-		version: 2,
+		schemaVersion: 3,
 		roles: {
 			oracle: { thinkingLevel: "medium" } as any,
 			worker: { tools: ["read", "bash"], write: false } as any,
@@ -263,7 +263,7 @@ test("loadActiveTeamConfig v2: project file fully replaces global — no cross-l
 	writeFileSync(
 		globalPath,
 		JSON.stringify({
-			version: 2,
+			schemaVersion: 3,
 			roles: {
 				oracle: { model: "openai/gpt-5.4", thinkingLevel: "high" },
 				globalOnlyRole: { tools: ["read"], write: false },
@@ -286,7 +286,7 @@ test("loadActiveTeamConfig accepts the flat v2 role shape (tools / write / promp
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-flat-shape-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		version: 2,
+		schemaVersion: 3,
 		defaultsVersion: 2,
 		roles: {
 			// flat role: tools/write/prompt at the top level, no `permissions` wrapper
@@ -333,7 +333,7 @@ test("loadActiveTeamConfig v2: a string prompt that doesn't resolve to a file is
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-inline-prompt-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		version: 2,
+		schemaVersion: 3,
 		roles: {
 			"custom-scout": {
 				description: "Fast repo recon.",
@@ -356,7 +356,7 @@ test("loadActiveTeamConfig v2: custom role name with prompt 'default' uses the g
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-custom-default-prompt-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		version: 2,
+		schemaVersion: 3,
 		roles: {
 			"custom-name": {
 				description: "A totally custom worker.",
@@ -372,6 +372,53 @@ test("loadActiveTeamConfig v2: custom role name with prompt 'default' uses the g
 	const role = result.config.profiles.find((profile) => profile.name === "custom-name");
 	assert.equal(role?.promptPath, "<generic-worker>");
 	assert.equal(role?.promptInline, undefined);
+});
+
+test("loadActiveTeamConfig v2: project file with schema mismatch does NOT let global take over (precedence by presence)", () => {
+	// Finding-1 guarantee: a stale local project config must not silently
+	// resurface broader global roles. Project wins by presence. If project is
+	// mismatched, the loader falls back to built-in defaults, never to global.
+	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-finding1-project-"));
+	mkdirSync(join(projectRoot, "app"), { recursive: true });
+	// Write a project file with an obsolete schemaVersion (v2 instead of current v3)
+	const projectPath = projectConfigPath(projectRoot);
+	mkdirSync(resolve(projectPath, ".."), { recursive: true });
+	writeFileSync(
+		projectPath,
+		JSON.stringify({
+			schemaVersion: 2,
+			roles: { "project-only": { tools: ["read"], write: false } },
+		}),
+	);
+
+	// Global config has a VALID schemaVersion and a different role set —
+	// including a write-capable role. Under the old bug, this global config
+	// would take over for the project, exposing write capabilities the project
+	// never sanctioned.
+	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-finding1-global-"));
+	mkdirSync(join(globalRoot, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
+	const globalPath = join(globalRoot, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+	writeFileSync(
+		globalPath,
+		JSON.stringify({
+			schemaVersion: 3,
+			roles: {
+				"global-only-writer": { tools: ["read", "edit", "write"], write: true },
+			},
+		}),
+	);
+
+	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: globalPath });
+	// Must NOT be "project" (project was mismatched). Must NOT pick up global either.
+	// Status is "builtin" — fall back to the packaged seven roles.
+	assert.equal(result.status, "builtin");
+	assert.equal(result.delegationEnabled, true);
+	assert.ok(!result.config.profiles.find((p) => p.name === "global-only-writer"), "global role must not leak in");
+	assert.ok(result.config.profiles.find((p) => p.name === "fixer"), "built-in seven should be the fallback");
+	assert.ok(
+		result.diagnostics.some((d) => d.code === "schema_version_mismatch" && d.message.includes("project")),
+		"schema mismatch warning for project layer should be present",
+	);
 });
 
 test("loadActiveTeamConfig v2: schema version mismatch warns and falls back to built-in", () => {
@@ -397,7 +444,7 @@ test("loadActiveTeamConfig v2: schema version mismatch warns and falls back to b
 test("loadActiveTeamConfig marks config invalid if any layer fails to parse", () => {
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-invalid-global-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
-	writeProjectConfig(projectRoot, { version: 2, roles: {} });
+	writeProjectConfig(projectRoot, { schemaVersion: 3, roles: {} });
 
 	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-invalid-global-dir-"));
 	mkdirSync(join(globalRoot, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
