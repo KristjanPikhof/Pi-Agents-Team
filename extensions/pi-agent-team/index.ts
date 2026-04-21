@@ -8,6 +8,7 @@ import {
 } from "../../src/control-plane/persistence";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager";
+import { loadActiveTeamConfig } from "../../src/project-config/loader";
 import { registerCancelCommand } from "../../src/commands/cancel";
 import { registerCopyCommand } from "../../src/commands/copy";
 import { registerCostCommand } from "../../src/commands/cost";
@@ -16,7 +17,7 @@ import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
 import { formatUnknownWorker, suggestTargets } from "../../src/util/suggest";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
-import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
+import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, WorkerRuntimeState } from "../../src/types";
 
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
@@ -58,32 +59,38 @@ const WaitForAgentsSchema = Type.Object({
 function restoreLatestState(
 	ctx: ExtensionContext,
 	startReason: "startup" | "reload" | "new" | "resume" | "fork",
+	config: TeamConfig = DEFAULT_TEAM_CONFIG,
 ): { state: PersistedTeamState; markedCount: number } {
 	const restoredState = restorePersistedTeamState(
 		ctx.sessionManager.getEntries(),
-		DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+		config.persistence.stateCustomType,
 	);
 	const { state, markedCount } = markRestoredWorkersExited(restoredState, startReason);
 	return { state, markedCount };
 }
 
-function applyUi(ctx: ExtensionContext | undefined, state: PersistedTeamState, frame = 0): void {
+function applyUi(
+	ctx: ExtensionContext | undefined,
+	state: PersistedTeamState,
+	frame = 0,
+	config: TeamConfig = DEFAULT_TEAM_CONFIG,
+): void {
 	if (!ctx?.hasUI) return;
 
 	const widgetLines = buildTeamWidgetLines(state, { frame });
-	ctx.ui.setStatus(DEFAULT_TEAM_CONFIG.ui.statusKey, buildTeamStatusLine(state));
-	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
-	ctx.ui.setTitle(DEFAULT_TEAM_CONFIG.ui.titleTemplate.replace("{mode}", state.sessionMode));
+	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state));
+	ctx.ui.setWidget(config.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
+	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
 
-function clearUi(ctx: ExtensionContext | undefined): void {
+function clearUi(ctx: ExtensionContext | undefined, config: TeamConfig = DEFAULT_TEAM_CONFIG): void {
 	if (!ctx?.hasUI) return;
-	ctx.ui.setStatus(DEFAULT_TEAM_CONFIG.ui.statusKey, undefined);
-	ctx.ui.setWidget(DEFAULT_TEAM_CONFIG.ui.widgetKey, undefined);
+	ctx.ui.setStatus(config.ui.statusKey, undefined);
+	ctx.ui.setWidget(config.ui.widgetKey, undefined);
 }
 
-function persistSnapshot(pi: ExtensionAPI, state: PersistedTeamState): void {
-	pi.appendEntry(DEFAULT_TEAM_CONFIG.persistence.stateCustomType, createPersistedStateSnapshot(state));
+function persistSnapshot(pi: ExtensionAPI, state: PersistedTeamState, config: TeamConfig = DEFAULT_TEAM_CONFIG): void {
+	pi.appendEntry(config.persistence.stateCustomType, createPersistedStateSnapshot(state));
 }
 
 function formatWorker(worker: WorkerRuntimeState): string {
@@ -199,10 +206,15 @@ function workerIdCompletions(teamManager: TeamManager, prefix: string) {
 		}));
 }
 
-function emitCommandOutput(pi: ExtensionAPI, ctx: ExtensionContext, text: string): void {
+function emitCommandOutput(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	text: string,
+	config: TeamConfig = DEFAULT_TEAM_CONFIG,
+): void {
 	if (ctx.hasUI) {
 		pi.sendMessage({
-			customType: DEFAULT_TEAM_CONFIG.persistence.statusMessageType,
+			customType: config.persistence.statusMessageType,
 			content: text,
 			display: true,
 		});
