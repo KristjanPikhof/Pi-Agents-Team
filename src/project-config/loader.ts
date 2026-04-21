@@ -538,11 +538,13 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	for (const layer of parsedLayers) {
 		const roles = layer.parsed.roles ?? {};
 		profiles = profiles.map((profile) => {
-			const roleConfig = roles[profile.name as keyof typeof roles];
-			if (!roleConfig) return profile;
+			const rawRoleConfig = roles[profile.name as keyof typeof roles];
+			if (!rawRoleConfig) return profile;
+			const roleConfig = normalizeRawRoleConfig(rawRoleConfig);
 			const application: LayerApplication = {
 				scope: layer.scope,
 				layerRoot: layer.layerRoot,
+				layerPath: layer.path,
 				requireInsideLayerRoot: layer.requireInsideLayerRoot,
 				roles,
 			};
