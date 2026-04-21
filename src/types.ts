@@ -37,19 +37,15 @@ export type WorkerExtensionMode = (typeof WORKER_EXTENSION_MODES)[number];
 export const WORKER_WRITE_POLICIES = ["read-only", "scoped-write"] as const;
 export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 
-// The JSON field name for the schema contract is `schemaVersion`. Bump this
-// when the shape of agents-team.json changes in a way an older loader can't
-// correctly interpret (renamed fields, new required fields, changed semantics).
-// Mismatched files emit a warning toast and fall back to built-in roles for
-// that layer until the user runs /team-init <scope> --force.
-export const TEAM_PROJECT_SCHEMA_VERSION = 3 as const;
-export const TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED = [3] as const;
-// The JSON field name for the freshness marker is `scaffoldVersion`. Bump this
-// when /team-init would write different defaults (new role, tweaked tool list,
-// new default description) even though the shape is identical. Older files
-// keep loading; each layer where scaffoldVersion < CURRENT_SCAFFOLD_VERSION
-// gets a soft "stale scaffold" toast suggesting re-init.
-export const TEAM_SCAFFOLD_VERSION = 3 as const;
+// Version constants are the single source of truth for both agents-team.json
+// counters. To bump either one, edit ./project-config/versions.ts — no other
+// file needs changing. See CLAUDE.md "Schema versioning" for which counter to
+// bump in which situation.
+export {
+	TEAM_PROJECT_SCHEMA_VERSION,
+	TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED,
+	TEAM_SCAFFOLD_VERSION,
+} from "./project-config/versions";
 export const DEFAULT_MODEL_SENTINEL = "default" as const;
 export const DEFAULT_PROMPT_SENTINEL = "default" as const;
 export const TEAM_PROJECT_CONFIG_FILE = "agents-team.json";
