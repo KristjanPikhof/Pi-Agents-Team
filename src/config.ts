@@ -4,6 +4,8 @@ import {
 	PING_MODES,
 	RELAY_URGENCIES,
 	TEAM_PROFILE_NAMES,
+	TEAM_PROJECT_CONFIG_VERSION,
+	TEAM_PROMPT_SOURCES,
 	TEAM_SESSION_MODES,
 	TEAM_STATE_VERSION,
 	TEAM_TASK_STATUSES,
@@ -43,6 +45,38 @@ export const TeamProfileSpecSchema = Type.Object({
 	pathScope: Type.Optional(TeamPathScopeSchema),
 	canSpawnWorkers: Type.Boolean({ default: false }),
 });
+
+const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
+
+export const ProjectRolePermissionsSchema = Type.Object({
+	tools: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
+	extensionMode: Type.Optional(enumSchema(WORKER_EXTENSION_MODES)),
+	writePolicy: Type.Optional(enumSchema(WORKER_WRITE_POLICIES)),
+	pathScope: Type.Optional(TeamPathScopeSchema),
+	canSpawnWorkers: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+
+export const ProjectRolePromptSchema = Type.Object({
+	source: enumSchema(TEAM_PROMPT_SOURCES),
+	path: Type.Optional(NullableStringSchema),
+}, { additionalProperties: false });
+
+export const ProjectRoleConfigSchema = Type.Object({
+	description: Type.Optional(NullableStringSchema),
+	model: Type.Optional(NullableStringSchema),
+	thinkingLevel: Type.Optional(enumSchema(THINKING_LEVELS)),
+	permissions: ProjectRolePermissionsSchema,
+	prompt: ProjectRolePromptSchema,
+}, { additionalProperties: false });
+
+const ProjectRoleMapProperties = Object.fromEntries(
+	TEAM_PROFILE_NAMES.map((profileName) => [profileName, ProjectRoleConfigSchema]),
+) as Record<string, TSchema>;
+
+export const TeamProjectConfigSchema = Type.Object({
+	version: Type.Literal(TEAM_PROJECT_CONFIG_VERSION),
+	roles: Type.Object(ProjectRoleMapProperties, { additionalProperties: false }),
+}, { additionalProperties: false });
 
 export const WorkerUsageStatsSchema = Type.Object({
 	turns: Type.Number({ default: 0 }),
