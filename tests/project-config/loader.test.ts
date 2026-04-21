@@ -517,3 +517,68 @@ test("loadActiveTeamConfig: fatal-parse on the winning layer still disables dele
 	assert.equal(result.delegationEnabled, false);
 	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "project_config_parse_failed"));
 });
+
+test("loadActiveTeamConfig defaults safety.projectRoot to cwd when no project config exists", () => {
+	// cr-expert P1: without a project config, safety.projectRoot used to be
+	// undefined, which made the launch-policy containment guard a no-op. A
+	// caller could then delegate with `pathScopeRoots: ["/"]` and the guard
+	// would skip the "within project root" check. Now we default to cwd.
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-projectroot-default-"));
+	const result = loadActiveTeamConfig({ cwd, globalConfigPath: null });
+	assert.equal(result.status, "builtin");
+	assert.equal(result.config.safety.projectRoot, cwd);
+});
+
+test("loadActiveTeamConfig: path-typo-shaped string emits project_prompt_missing warning but still falls back to inline", () => {
+	// cr-expert P2-11: a typo like `prompts/reviewr.md` used to silently become
+	// a 21-char inline prompt, so the worker ran with a trivial role contract
+	// and nobody noticed. Now the loader warns when the string looks like a
+	// path but doesn't resolve, while still falling through to inline so the
+	// escape hatch for intentional inline prompts containing `/` still works.
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-prompt-typo-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 3,
+		roles: {
+			"typo-role": {
+				tools: ["read"],
+				write: false,
+				prompt: "./prompts/reviewr.md",
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	const warning = result.diagnostics.find((diagnostic) => diagnostic.code === "project_prompt_missing");
+	assert.ok(warning, "expected a project_prompt_missing warning for a path-shaped string");
+	assert.equal(warning?.severity, "warning");
+	const role = result.config.profiles.find((profile) => profile.name === "typo-role");
+	assert.equal(role?.promptInline, "./prompts/reviewr.md", "falls back to inline so operators keep the escape hatch");
+});
+
+test("loadActiveTeamConfig: empty prompt string resolves without crashing on EISDIR", () => {
+	// cr-expert P2-11 companion: `"prompt": ""` used to pass through the path
+	// resolver to `resolve(layerRoot, "")` which returns the layer root itself
+	// (a directory). readFileSync would then crash with EISDIR at worker launch.
+	// Now the empty-string guard fires first and we fall through to the generic
+	// worker template with a clear diagnostic.
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-prompt-empty-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 3,
+		roles: {
+			"empty-prompt-role": {
+				tools: ["read"],
+				write: false,
+				prompt: "",
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	const role = result.config.profiles.find((profile) => profile.name === "empty-prompt-role");
+	assert.equal(role?.promptPath, "<generic-worker>");
+	assert.equal(role?.promptInline, undefined);
+});
