@@ -105,6 +105,14 @@ function isPathInsideRoot(targetPath: string, root: string): boolean {
 	return rel === "" || (!rel.startsWith("..") && rel !== ".." && !rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`));
 }
 
+function realpathOrSelf(path: string): string {
+	try {
+		return realpathSync.native(path);
+	} catch {
+		return path;
+	}
+}
+
 interface ResolvedPath {
 	path?: string;
 	diagnostic?: ProjectConfigDiagnostic;
@@ -112,12 +120,57 @@ interface ResolvedPath {
 
 function resolveLayerPath(layerRoot: string, value: string, fieldPath: string, options: { requireInsideLayerRoot: boolean }): ResolvedPath {
 	const resolved = isAbsolute(value) ? value : resolve(layerRoot, value);
-	if (options.requireInsideLayerRoot && !isPathInsideRoot(resolved, layerRoot)) {
-		return {
-			diagnostic: makeDiagnostic("error", "project_path_escape", `Resolved path must stay within the project root: ${value}`, fieldPath),
-		};
+	if (options.requireInsideLayerRoot) {
+		// Lexical check first — catches `..` escapes that resolve to an outside
+		// path on paper.
+		if (!isPathInsideRoot(resolved, layerRoot)) {
+			return {
+				diagnostic: makeDiagnostic("error", "project_path_escape", `Resolved path must stay within the project root: ${value}`, fieldPath),
+			};
+		}
+		// Realpath check — if the candidate or the root is a symlink, verify the
+		// REAL targets are still contained. A hostile repo could commit a symlink
+		// inside the project pointing at ~/.ssh (or any absolute path); the
+		// lexical check above accepts it because the symlink itself is under
+		// layerRoot. For not-yet-created paths realpathSync throws and we fall
+		// back to the lexical result (acceptable: if the path is later created
+		// through a symlink, worker launch revalidates).
+		const realCandidate = realpathOrSelf(resolved);
+		const realRoot = realpathOrSelf(layerRoot);
+		if (realCandidate !== resolved || realRoot !== layerRoot) {
+			if (!isPathInsideRoot(realCandidate, realRoot)) {
+				return {
+					diagnostic: makeDiagnostic(
+						"error",
+						"project_path_escape",
+						`Resolved path must stay within the project root: ${value} (resolves via symlink to ${realCandidate}, outside ${realRoot})`,
+						fieldPath,
+					),
+				};
+			}
+		}
 	}
 	return { path: resolved };
+}
+
+/**
+ * Heuristic: does this string look like it was meant to be a file path rather
+ * than inline prompt prose? Used by `resolveRolePrompt` to emit a warning when
+ * the user clearly typed a path but it didn't resolve to a readable file — the
+ * most common cause is a typo, and silently falling back to "inline prompt text"
+ * (where the inline text is literally the path they typed) is the worst UX.
+ */
+function looksLikePathString(value: string): boolean {
+	const trimmed = value.trim();
+	if (trimmed.length === 0) return false;
+	if (/\n/.test(trimmed)) return false; // multi-line → definitely prose
+	if (trimmed.startsWith("./") || trimmed.startsWith("../") || trimmed.startsWith("~/") || trimmed.startsWith("/")) return true;
+	if (/^[a-zA-Z]:[\\/]/.test(trimmed)) return true; // Windows drive
+	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return true;
+	if (trimmed.endsWith(".md") || trimmed.endsWith(".txt") || trimmed.endsWith(".prompt")) return true;
+	// Contains a path separator and no whitespace → very likely a path.
+	if (/[\\/]/.test(trimmed) && !/\s/.test(trimmed)) return true;
+	return false;
 }
 
 function normalizePathScope(
