@@ -172,6 +172,7 @@ function createWorkerProcessOptions(options: LaunchWorkerOptions): WorkerProcess
 		tools: options.tools,
 		systemPromptPath: options.systemPromptPath,
 		extensionMode: options.extensionMode,
+		allowSkills: options.allowSkills,
 		extraArgs: options.extraArgs,
 		env: options.env,
 	};
