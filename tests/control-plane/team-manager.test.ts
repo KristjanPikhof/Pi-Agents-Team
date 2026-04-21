@@ -242,7 +242,7 @@ test("messageAllWorkers broadcasts to every deliverable worker", async () => {
 	assert.equal(broadcast.length, 2);
 	const byId = new Map(broadcast.map((r) => [r.worker.workerId, r]));
 	assert.equal(byId.get(first.worker.workerId)?.delivery, "steer");
-	assert.equal(byId.get(second.worker.workerId)?.delivery, "follow_up");
+	assert.equal(byId.get(second.worker.workerId)?.delivery, "prompt");
 });
 
 test("pruneTerminalWorkers removes only terminal workers and leaves live ones alone", async () => {
