@@ -1,75 +1,49 @@
-# Profiles / Roles
+# Roles (agents-team.json)
 
-Pi Agents Team ships with seven default worker profiles. Under **schema v2** (current), the user's `agents-team.json` fully owns the role list — you can keep the seven defaults, rename them, drop unused ones, or add your own. There is no concept of a built-in "ceiling" that user roles must stay below; the file you write is the source of truth.
+**TL;DR.** Pi Agents Team ships with seven default worker roles. Drop a file at `.pi/agent/agents-team.json` to customize them, add new ones, or cut the list down. The orchestrator only delegates to roles that exist in the loaded config, so the file is a direct knob on what your team of workers can do.
 
-## Seven default profiles (built-in scaffold starting point)
+The fastest path: run `/team-init local` in a repo, edit the resulting file, run `/reload-plugins`. Done.
 
-| Profile | Best for | Tools | Thinking | Write |
+## When to reach for this
+
+| Goal | What to do |
+|---|---|
+| Use the extension as-is with sensible defaults | Nothing. No config file needed. |
+| Tune one role (e.g. pin a model for `oracle`) | `/team-init local`, edit that one role block, `/reload-plugins`. |
+| Swap the default names for your own vocabulary | Edit the `roles` keys after `/team-init local`. |
+| Build a repo-specific team from scratch | `/team-init local`, delete every role you don't want, add the ones you do. |
+| Share a config with your team | Commit `.pi/agent/agents-team.json`. Teammates pick it up on next session start. |
+| Apply the same config across every repo | Write `~/.pi/agent/agents-team.json` (or use `/team-init global`). |
+
+## The seven defaults
+
+These are what the orchestrator sees when no file is present. `/team-init` stamps them into the scaffold verbatim so you have a working starting point to edit.
+
+| Role | When to use it | Tools | Thinking | Write |
 |---|---|---|---|---|
-| `explorer` | Fast codebase reconnaissance and file discovery | `read`, `grep`, `find`, `ls`, `bash` | low | read-only |
-| `librarian` | Docs, APIs, and version-sensitive reference research | `read`, `grep`, `find`, `ls`, `bash` | medium | read-only |
-| `oracle` | Architecture, debugging, and review-heavy judgement | `read`, `grep`, `find`, `ls`, `bash` | high | read-only |
-| `designer` | UI and interaction design guidance | `read`, `grep`, `find`, `ls`, `bash` | medium | read-only |
-| `reviewer` | Validation, critique, and regression review | `read`, `grep`, `find`, `ls`, `bash` | medium | read-only |
-| `observer` | Observation for screenshots or non-code artifacts | `read`, `grep`, `find`, `ls`, `bash` | low | read-only |
-| `fixer` | Bounded implementation, tests, and targeted edits | `read`, `bash`, `edit`, `write` | medium | write |
+| `explorer` | Fast reconnaissance. "Where is X?", "how does Y work?", "list files that touch Z." | `read`, `grep`, `find`, `ls`, `bash` | low | no |
+| `librarian` | Library and docs research. "How do I use this dependency?", "what changed in vX.Y?" | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
+| `oracle` | Architecture judgment and root-cause work. Thinks slowly, answers carefully. | `read`, `grep`, `find`, `ls`, `bash` | high | no |
+| `designer` | UI/UX critique, layout suggestions, design-system consistency. | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
+| `reviewer` | Validate a change, hunt regressions, confirm tests cover what they claim. | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
+| `observer` | Screenshots, images, non-code artifacts. | `read`, `grep`, `find`, `ls`, `bash` | low | no |
+| `fixer` | Bounded code changes. Implement a fix, add a test, edit one file. | `read`, `bash`, `edit`, `write` | medium | yes |
 
-When no `agents-team.json` is present, these seven are what the orchestrator sees. `/team-init <scope>` writes this list as a starting scaffold you can edit.
+Only `fixer` can write. Every write-capable role needs an explicit `pathScope` at delegate time. That's enforced by launch-policy, not by role config, so you can't accidentally un-safe it.
 
-## `agents-team.json` schema (v2)
+## Creating or editing roles
 
-**Layering precedence:**
+### Scaffold a starter file
 
-1. Project file at `<cwd-or-ancestor>/.pi/agent/agents-team.json` → used if present and valid.
-2. Else global file at `~/.pi/agent/agents-team.json` → used if present and valid.
-3. Else the built-in seven profiles.
-
-Project **fully replaces** global when both exist — there's no cross-layer merging. If a role exists in global but you want it in a project, copy the block over.
-
-**Top-level shape:**
-
-```json
-{
-  "schemaVersion": 3,
-  "scaffoldVersion": 3,
-  "enabled": true,
-  "roles": { "<role-name>": { /* RoleConfig */ } }
-}
+```
+/team-init local     → writes ./.pi/agent/agents-team.json
+/team-init global    → writes ~/.pi/agent/agents-team.json
+/team-init <scope> --force    → replace existing file (backs up the previous one first)
 ```
 
-- `schemaVersion: 3` is the current schema contract. A file with any other number (or the legacy `version` field) triggers a session-start warning toast and falls back to the built-in roles for that layer — run `/team-init <scope> --force` to regenerate (old file is backed up first).
-- `scaffoldVersion` is a freshness marker for the scaffold contents. It's softer — it just flags files produced by older `/team-init` runs so you can re-init when default best practices shift.
-- `enabled: false` puts the extension in dormant mode (tools refuse, UI clears, orchestrator prompt is not injected). Toggle with `/team-enable`/`/team-disable`.
+The scaffold contains all seven built-in roles in the current shape. Edit whatever you want.
 
-**Per-role fields** (all optional — omit to get the default):
-
-- `whenToUse` (string): a **trigger sentence** shown to the orchestrator LLM in the **Available worker profiles** block. Write it as `"Use for / when / to ..."` so the orchestrator can match it against incoming user requests. The legacy alias `description` is accepted for backcompat; `whenToUse` wins when both are present. Examples that work well:
-  - `"Use for fast codebase reconnaissance. Best for 'where is X?' and 'how does Y work?' questions."`
-  - `"Use when the user wants a list of API routes that touch src/api."`
-  - `"Use for bounded code changes — implement a specific fix or add a test. Requires a pathScope at delegate time. Write-capable."`
-  Avoid passive descriptions like `"A code explorer."` — they don't give the orchestrator a clear delegation trigger.
-- `model` (string): `"default"` (or omit) inherits the orchestrator's current model. Any other value pins a model ID (e.g. `"anthropic/claude-opus-4-7"`).
-- `thinkingLevel` (string): one of `off | minimal | low | medium | high | xhigh`. Default `medium`.
-- `tools` (string[]): the tool set the worker can use. No ceiling — whatever you declare is what the worker gets. Default `["read", "grep", "find", "ls", "bash"]` when omitted.
-- `write` (boolean): `true` allows edit/write (requires a `pathScope` at delegate time, enforced by launch-policy); `false` forces read-only. Default `false`.
-- `prompt` (string): three forms —
-  - `"default"` (or omit): use the packaged prompt at `prompts/agents/<role-name>.md` if the role name matches one of the seven built-ins; otherwise use the generic worker template (`prompts/agents/_generic-worker.md`) with the role's name + `whenToUse` substituted in.
-  - `"some/path.md"`: load the worker prompt from that file. Resolved relative to the config file's directory (for project configs, must stay inside the project root).
-  - Any other string: treated as **inline prompt text**. The exact string becomes the worker's role prompt. Useful when you don't want to create a separate markdown file — `"prompt": "You are a tiny agent that only lists paths matching a regex. Do nothing else."` works.
-- `advanced` (object, power-user only, not emitted by `/team-init`): `extensionMode` (`"worker-minimal"` | `"disable"`; `"inherit"` is rejected as a recursion risk), `canSpawnWorkers` (boolean, default `false`), `pathScope` (a `{ roots, allowReadOutsideRoots, allowWrite }` block for path-level sandboxing).
-
-## Launch-time safety (still enforced)
-
-The loader trusts your JSON for role shape, but `launch-policy.ts` still enforces two platform-level invariants every time `delegate_task` fires:
-
-1. **No recursive orchestrators.** If a role declares `advanced.extensionMode: "inherit"` or a caller tries to pass it at launch time, the launch is rejected.
-2. **Writable roles need a path scope.** If `write: true` and no `pathScope` is provided (either in `advanced.pathScope` or as `pathScopeRoots` on the `delegate_task` call), the launch is rejected. This prevents "write anywhere" workers by default.
-
-Launch-time overrides may only narrow the role's declared rights (fewer tools, narrower path scope, etc.); they cannot broaden them.
-
-## Scaffold example
-
-`/team-init local` writes this in `.pi/agent/agents-team.json`:
+### The shape, field by field
 
 ```json
 {
@@ -78,69 +52,195 @@ Launch-time overrides may only narrow the role's declared rights (fewer tools, n
   "enabled": true,
   "roles": {
     "explorer": {
-      "whenToUse": "Use for fast codebase reconnaissance. Best for 'where is X?', 'how does Y work?', 'list all files that touch Z' questions. Read-only.",
+      "whenToUse": "Use for fast reconnaissance. Best for 'where is X?', 'how does Y work?', 'list files that touch Z.'",
       "model": "default",
       "thinkingLevel": "low",
       "tools": ["read", "grep", "find", "ls", "bash"],
       "write": false,
       "prompt": "default"
-    },
-    "fixer": {
-      "whenToUse": "Use for bounded code changes: implement a specific fix, add a test, refactor a single file. Requires an explicit pathScope at delegate time. Write-capable — do not use for questions or analysis.",
-      "model": "default",
-      "thinkingLevel": "medium",
-      "tools": ["read", "bash", "edit", "write"],
-      "write": true,
-      "prompt": "default"
     }
-    /* ... 5 more roles ... */
   }
 }
 ```
 
-Edit it freely — rename roles, drop ones you don't need, add new ones. The orchestrator sees exactly what you declared.
+| Field | Required | Meaning |
+|---|---|---|
+| `schemaVersion` | yes | Tells the loader which shape this file is. Currently `3`. A mismatch triggers a warning and falls back to built-ins for that layer. |
+| `scaffoldVersion` | no | Freshness marker. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
+| `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
+| `roles.<name>` | no | Free-form map. Name whatever you want. No role entry means built-in fallback (or nothing, if you want no roles at all). |
 
-## Custom-role example (add a new role from scratch)
+### Per-role fields
+
+All optional. Omit to get the default.
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `whenToUse` | string | `""` | The trigger sentence shown to the orchestrator LLM. Write it as `"Use for / when / to ..."` so the model can match it against user requests. |
+| `model` | string | `"default"` | `"default"` inherits the orchestrator's current model. Otherwise a canonical Pi model ID like `"anthropic/claude-opus-4-7"`. |
+| `thinkingLevel` | string | `"medium"` | One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. |
+| `tools` | string[] | `["read", "grep", "find", "ls", "bash"]` | Tool set the worker can use. You declare it. No ceiling. |
+| `write` | boolean | `false` | `true` allows `edit`/`write`. Requires a `pathScope` at delegate time (platform-level safety). |
+| `prompt` | string | `"default"` | See "Prompt resolution" below. |
+| `advanced` | object | `{}` | Power-user knobs. `extensionMode` (`"worker-minimal"` \| `"disable"`), `canSpawnWorkers`, `pathScope`. Not emitted by `/team-init`. |
+
+### Writing a good `whenToUse`
+
+This one matters more than the others. The orchestrator picks roles by matching `whenToUse` sentences against whatever the user asked for, so the phrasing directly controls delegation quality.
+
+```
+Good:  "Use for root-cause analysis of intermittent bugs. Pick this over
+        explorer when the user needs reasoning, not just code location."
+Bad:   "An oracle-like role."
+```
+
+Lead with `Use for`, `Use when`, or `Use to`. Mention concrete trigger phrases the user might say. If two of your roles could both handle something, name the tiebreaker explicitly ("pick this over X when...").
+
+### Prompt resolution
+
+The `prompt` field has three forms. The loader picks one by checking what the string looks like on disk.
+
+| You write | Role name | Result |
+|---|---|---|
+| `"default"` or omitted | matches a built-in (`fixer`, `explorer`, etc.) | Loads the packaged prompt at `prompts/agents/<name>.md`. |
+| `"default"` or omitted | custom (e.g. `api-scout`) | Loads `prompts/agents/_generic-worker.md` and substitutes `{NAME}` + `{DESCRIPTION}` (the role's `whenToUse`). |
+| Any string that resolves to a readable file | any | Loads that file's contents as the worker prompt. |
+| Any string that does not resolve to a file | any | Treated as inline prompt text. Stored verbatim on the profile. |
+| Path that escapes the project root (project config only) | any | Hard error. Layer is marked invalid, delegation disabled until fixed. |
+
+Inline text is the escape hatch when you don't want to maintain a separate markdown file:
+
+```json
+"api-scout": {
+  "whenToUse": "Use when the user wants route/handler recon inside src/api.",
+  "tools": ["read", "grep", "find"],
+  "write": false,
+  "prompt": "You are a scout that only inspects src/api. Return matching file paths and one-line notes per finding. No other commentary."
+}
+```
+
+## Common recipes
+
+### Pin a specific model for one role
+
+```json
+"oracle": {
+  "model": "anthropic/claude-opus-4-7",
+  "thinkingLevel": "xhigh"
+}
+```
+
+Everything else (tools, write, prompt) falls through to the built-in `oracle` defaults because the role name matches a packaged one.
+
+### Remove roles you don't want
 
 ```json
 {
   "schemaVersion": 3,
-  "scaffoldVersion": 3,
   "enabled": true,
   "roles": {
-    "api-scout": {
-      "whenToUse": "Use for recon inside src/api only. Best for 'which handler serves route X?' or 'list every file that touches request parsing' questions.",
-      "thinkingLevel": "low",
-      "tools": ["read", "grep", "find", "ls"],
-      "write": false,
-      "prompt": "You are an API-focused recon agent. Only inspect src/api. Return matching file paths and one-line notes per finding. No other commentary."
+    "explorer": { "prompt": "default" },
+    "fixer": { "prompt": "default" }
+  }
+}
+```
+
+The orchestrator only sees `explorer` and `fixer`. If it tries to delegate to `reviewer`, it gets an `Unknown team profile: reviewer. Configured profiles: explorer, fixer.` error and has to pick one of the two.
+
+### Rename a role to fit your team's vocabulary
+
+```json
+"worker": {
+  "whenToUse": "Use for bounded code changes. Implement a fix, add a test, edit one file.",
+  "tools": ["read", "bash", "edit", "write"],
+  "write": true,
+  "prompt": "default"
+}
+```
+
+Now the orchestrator delegates via `profileName: "worker"` instead of `"fixer"`. The prompt resolution falls back to the generic template because `worker` doesn't match any packaged prompt file. Write a custom `prompt` path or inline string if the generic template isn't specific enough.
+
+### Add a repo-specific role with its own prompt file
+
+```json
+"migration-writer": {
+  "whenToUse": "Use to draft a new DB migration. User must supply a description of the change; you produce a single SQL file under migrations/.",
+  "thinkingLevel": "medium",
+  "tools": ["read", "grep", "find", "ls", "bash", "edit", "write"],
+  "write": true,
+  "prompt": "prompts/migration-writer.md",
+  "advanced": {
+    "pathScope": {
+      "roots": ["migrations"],
+      "allowReadOutsideRoots": true,
+      "allowWrite": true
     }
   }
 }
 ```
 
-The `"prompt"` string here doesn't resolve to a file, so it's used as inline text. The orchestrator sees `api-scout` as an available profile with the given `whenToUse` trigger and can pass `profileName: "api-scout"` to `delegate_task`.
+The path `prompts/migration-writer.md` is resolved relative to the config file's directory (`.pi/agent/`). Keep the file inside the project root or the loader will reject it with a path-escape error.
 
-## Init + toggle commands
+## Layering (global vs project)
 
-- `/team-init global` → scaffolds `~/.pi/agent/agents-team.json` with the seven built-ins.
-- `/team-init local` → same, in `<cwd>/.pi/agent/agents-team.json`.
-- Neither command overwrites an existing file. Pass `--force` to replace — the old file is renamed to `YYYY-MM-DD-HHMM-agents-team.json` in the same directory first.
-- `/team-enable global|local` → sets `enabled: true` (creates the file with just the flag if missing). `/reload-plugins` to apply.
-- `/team-disable global|local` → sets `enabled: false`.
+Two optional files, in precedence order:
 
-## Prompt resolution reference
+1. Project: `<cwd-or-ancestor>/.pi/agent/agents-team.json`
+2. Global: `~/.pi/agent/agents-team.json`
+3. Built-in seven (when neither file is present).
 
-| `"prompt"` value | Role name | Result |
+**Project replaces global outright.** If both files exist, only the project file's roles are used. Nothing from global leaks through. This is deliberate. Role-level merging across layers is confusing and makes per-repo role sets hard to reason about.
+
+Two consequences worth knowing:
+
+- If you want a globally-defined role in a specific repo, copy the block into the project file.
+- If a project file exists but has an unsupported `schemaVersion`, the loader falls back to the built-in seven for that repo. It does **not** fall back to global, because doing so could quietly resurface write-capable global roles the project never sanctioned.
+
+## Version bumps
+
+Two counters, two purposes.
+
+| Counter | Semantics | What happens on mismatch |
 |---|---|---|
-| omitted / `"default"` | matches a built-in (fixer, explorer, ...) | packaged `prompts/agents/<name>.md` |
-| omitted / `"default"` | custom (e.g. `api-scout`) | generic worker template with `{NAME}` + `{DESCRIPTION}` substituted |
-| path that resolves to a readable file | any | that file's contents |
-| path that escapes project root (project config only) | any | **error** — layer invalid, delegation disabled until fixed |
-| any other string | any | inline prompt text (stored on the profile, served verbatim) |
+| `schemaVersion` | The shape contract. Bumped on breaking schema changes (renamed fields, re-layouts). | Hard warning toast on session start. Layer falls back to built-in roles. Run `/team-init <scope> --force` to regenerate. |
+| `scaffoldVersion` | Freshness marker for scaffold content. Bumped when `/team-init` would write different defaults. | Soft warning toast suggesting re-init. File keeps loading as-is. |
 
-## Customizing packaged prompt files
+Both constants live in `src/project-config/versions.ts`. Bump there, nothing else needs to change. See [CLAUDE.md](../CLAUDE.md) "Schema versioning" for the rules on which counter to move.
 
-The seven packaged prompts live at [`../prompts/agents/*.md`](../prompts/agents/). You can edit them directly, but changes are global to your install. Prefer scoping via `prompt: "path/to/your.md"` or inline in `agents-team.json` for per-repo customizations.
+## Launch-time safety
 
-See [`prompting.md`](prompting.md) for the `<final_answer>` contract that every worker prompt must uphold.
+The loader trusts whatever you put in the file. `launch-policy.ts` runs every time `delegate_task` fires and enforces two invariants that can't be turned off:
+
+1. **No recursive orchestrators.** `advanced.extensionMode: "inherit"` is rejected at load time. Launch-time overrides to `inherit` are also rejected.
+2. **Writable roles need a `pathScope`.** Any role with `write: true` must have a path scope at delegate time, either in `advanced.pathScope` or passed via `pathScopeRoots` on the `delegate_task` call. No "write anywhere" workers.
+
+Launch-time overrides (tools, path scope, extension mode) may only narrow the role's declared rights. They cannot broaden them.
+
+## Toggle commands
+
+| Command | What it does |
+|---|---|
+| `/team-enable global\|local` | Sets `enabled: true` in the target file. Creates the file with just the flag if missing. |
+| `/team-disable global\|local` | Sets `enabled: false` in the target file. |
+
+Both commands are non-destructive:
+
+- If the file is valid, `enabled` is patched in place. Your roles, prompts, models, and scopes stay untouched.
+- If the file parses as JSON but drifts from the current schema (unknown fields, future fields, old-shape roles), the toggle preserves your raw object and only patches `enabled`. A warning surfaces that the file still needs a schema-level fix.
+- If the file isn't parseable JSON at all, the toggle backs it up to `YYYY-MM-DD-HHMM-agents-team.json` in the same directory before writing a minimal `{ schemaVersion, enabled }` replacement.
+
+Follow any toggle with `/reload-plugins` to apply the change in the current Pi session.
+
+## Files that package this
+
+- [`src/project-config/versions.ts`](../src/project-config/versions.ts) — schema + scaffold version constants. Single place to bump.
+- [`src/config.ts`](../src/config.ts) — `DEFAULT_TEAM_CONFIG` including the seven built-in role specs.
+- [`src/project-config/loader.ts`](../src/project-config/loader.ts) — `loadActiveTeamConfig`, schema validation, role materialization.
+- [`src/safety/launch-policy.ts`](../src/safety/launch-policy.ts) — the two platform invariants.
+- [`prompts/agents/*.md`](../prompts/agents/) — packaged worker prompts (including `_generic-worker.md`).
+
+## Related docs
+
+- [`operations.md`](operations.md) — dashboard keys, steer/follow-up semantics, troubleshooting toggles and stale configs.
+- [`prompting.md`](prompting.md) — the `<final_answer>` contract every worker prompt must uphold.
+- [`architecture.md`](architecture.md) — runtime flow, state contract, animation layer.
