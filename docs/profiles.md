@@ -189,11 +189,13 @@ The path `prompts/migration-writer.md` is resolved relative to the config file's
 
 Two optional files, in precedence order:
 
-1. Project: `<cwd-or-ancestor>/.pi/agent/agents-team.json`
-2. Global: `~/.pi/agent/agents-team.json`
+1. Project: `<cwd-or-ancestor>/.pi/agent/agents-team.json` (ancestor walk stops at `homedir()` so stale `/tmp` or shared-ancestor files don't silently bias)
+2. Global: `~/.pi/agent/agents-team.json` (respects `PI_AGENT_TEAM_GLOBAL_CONFIG_PATH` env override — set to `""`/`"none"`/`"null"` to skip, or a path to redirect)
 3. Built-in seven (when neither file is present).
 
 **Project replaces global outright.** If both files exist, only the project file's roles are used. Nothing from global leaks through. This is deliberate. Role-level merging across layers is confusing and makes per-repo role sets hard to reason about.
+
+**Precedence is by file presence, not validity.** If a project file exists — valid, schema-mismatched, or fatal-parse — project wins outright. A broken global config does NOT disable a valid project config (a typo in `~/.pi/agent/agents-team.json` used to break delegation machine-wide; the loader now only returns `status: "invalid"` when the WINNING layer's parse fails). A non-winning fatal parse becomes a diagnostic warning.
 
 Two consequences worth knowing:
 
