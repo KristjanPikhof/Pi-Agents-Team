@@ -56,7 +56,7 @@ function scaffoldRole(profile: TeamProfileSpec): ProjectRoleFlatConfig {
 function buildFullScaffold(): TeamProjectConfigFile {
 	const roles: PartialRawProjectRoleConfigMap = {};
 	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
-		roles[profile.name as keyof PartialRawProjectRoleConfigMap] = scaffoldRole(profile);
+		roles[profile.name] = scaffoldRole(profile);
 	}
 	return {
 		version: TEAM_PROJECT_CONFIG_VERSION,
