@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Value } from "@sinclair/typebox/value";
 import { TeamProjectConfigSchema } from "../config";
 import { getProjectConfigPathForScope } from "../project-config/loader";
-import { backupExisting } from "../util/backup";
+import { atomicWriteFileSync, backupExisting } from "../util/backup";
 import { TEAM_PROJECT_SCHEMA_VERSION, type TeamConfigScope, type TeamProjectConfigFile } from "../types";
 
 interface ToggleCommandDependencies {
