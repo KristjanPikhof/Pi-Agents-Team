@@ -82,6 +82,9 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 | `/team-copy <worker-id>` | Copy the worker's task, summary, final answer, and console timeline to the clipboard. |
 | `/team-prune` | Remove every terminal worker (idle/completed/aborted/error/exited) from the dashboard. |
 | `/team-cost` | Per-worker token usage plus a `Σ` aggregate row. Orchestrator usage stays in the Pi footer. |
+| `/team-init global\|local [--force]` | Write a minimal `agents-team.json` skeleton to `~/.pi/agent/` or `./.pi/agent/`. Refuses existing files without `--force`. |
+| `/team-enable global\|local` | Set `enabled: true` in the scoped config file. Run `/reload-plugins` to apply. |
+| `/team-disable global\|local` | Set `enabled: false` in the scoped config file. The extension stays loaded but goes dormant (no tools, no prompt, no UI) until re-enabled. |
 | `/agent-result <worker-id>` | Print the compact summary plus the verbatim `<final_answer>` block. |
 | `/agent-steer <worker-id\|all> <msg>` | Send a message. Auto-routes: `steer` if running, `follow_up` if idle. |
 | `/agent-followup <worker-id\|all> <msg>` | Always queue as `follow_up`. |
@@ -89,7 +92,7 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 
 ## How it works (in one paragraph)
 
-The orchestrator picks a profile (explorer, fixer, reviewer, librarian, observer, oracle, designer) and calls `delegate_task`. The runtime spawns `pi --mode rpc --no-session` and feeds the worker its role prompt plus a task prompt that requires the final reply to wrap the deliverable in a `<final_answer>…</final_answer>` block. Worker RPC events get normalized into compact state: status, last tool, last summary, pending relay questions, token usage. The orchestrator waits with `wait_for_agents` (zero-token wait, wakes early on relay questions), reads each worker's `agent_result`, and synthesizes one user-facing answer.
+The orchestrator picks a profile (explorer, fixer, reviewer, librarian, observer, oracle, designer) and calls `delegate_task`. The runtime spawns `pi --mode rpc --no-session` and feeds the worker its role prompt plus a task prompt that requires the final reply to wrap the deliverable in a `<final_answer>…</final_answer>` block. Worker RPC events get normalized into compact state: status, last tool, last summary, pending relay questions, token usage. The orchestrator waits with `wait_for_agents` (zero-token wait, wakes early on relay questions), reads each worker's `agent_result`, and synthesizes one user-facing answer. If the repo provides `agents-team.json`, the extension discovers the nearest ancestor file at session start, freezes that resolved role config for the session, and disables delegation if the file is invalid.
 
 ## Documentation
 
@@ -97,7 +100,7 @@ The orchestrator picks a profile (explorer, fixer, reviewer, librarian, observer
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | Layering, runtime flow, state contract, animation layer. |
 | [`docs/operations.md`](docs/operations.md) | Install, dashboard keys, copy flow, steer semantics, troubleshooting. |
-| [`docs/profiles.md`](docs/profiles.md) | Default profiles, launch policy, customization. |
+| [`docs/profiles.md`](docs/profiles.md) | Default profiles, project role config discovery, rights ceilings, launch policy, customization. |
 | [`docs/prompting.md`](docs/prompting.md) | Orchestrator + worker prompt contracts, the `<final_answer>` rules. |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Local dev setup, tests, smoke scripts, package layout. |
 | [`CLAUDE.md`](CLAUDE.md) | Load-bearing invariants and anti-patterns. Read before touching state transitions. |
