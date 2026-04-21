@@ -79,8 +79,13 @@ const FlatPromptValueSchema = Type.Union([Type.String(), Type.Null(), ProjectRol
  * Accepts both the v1 nested shape ({ permissions, prompt: { source, path } })
  * and the v2 flat shape ({ tools, write, prompt: "default" | "<path>", advanced }).
  * Normalization into the internal ProjectRoleConfig happens in the loader.
+ *
+ * `whenToUse` and `description` are aliases — the former is preferred in the
+ * v2 flat shape (clearer semantics for operators), the latter is accepted for
+ * backcompat. The loader picks whenToUse when both are set.
  */
 export const ProjectRoleConfigSchema = Type.Object({
+	whenToUse: Type.Optional(NullableStringSchema),
 	description: Type.Optional(NullableStringSchema),
 	model: Type.Optional(NullableStringSchema),
 	thinkingLevel: Type.Optional(enumSchema(THINKING_LEVELS)),
