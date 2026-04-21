@@ -24,13 +24,13 @@ import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, WorkerRun
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
 	goal: Type.String({ description: "What the worker should accomplish" }),
-	profileName: Type.String({ description: "Worker profile name such as explorer, fixer, or reviewer" }),
+	profileName: Type.String({ description: "Worker profile name — see the 'Available worker profiles' block in the system prompt for the live list. Names are user-declared in agents-team.json; don't invent names." }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the worker. Defaults to the current session cwd." })),
 	contextHints: Type.Optional(Type.Array(Type.String(), { description: "Compact context bullets to pass into the worker" })),
 	expectedOutput: Type.Optional(Type.String({ description: "Describe the output contract the worker should return" })),
 	pathScopeRoots: Type.Optional(Type.Array(Type.String(), { description: "Allowed path roots for scoped workers, especially write-capable profiles." })),
 	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
-	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of Pi skill names (e.g. \"writer\", \"frontend-design\") the worker should invoke via its Skill tool. Skills come from the host Pi install (the [Skills] banner), not from team profiles. Omit if no specialized skill is needed." })),
+	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of Pi skill names (e.g. \"writer\", \"frontend-design\") to enable on the worker. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches); invoke them via /skill:<name> or let the matching skill auto-activate. Omit if no specialized skill is needed." })),
 	model: Type.Optional(Type.String({ description: "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model." })),
 });
 
