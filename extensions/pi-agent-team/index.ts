@@ -15,6 +15,8 @@ import { registerCostCommand } from "../../src/commands/cost";
 import { registerPruneCommand } from "../../src/commands/prune";
 import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
+import { registerTeamInitCommand } from "../../src/commands/team-init";
+import { registerTeamToggleCommands } from "../../src/commands/team-toggle";
 import { formatUnknownWorker, suggestTargets } from "../../src/util/suggest";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, WorkerRuntimeState } from "../../src/types";
