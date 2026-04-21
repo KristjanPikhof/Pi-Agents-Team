@@ -41,36 +41,22 @@ function parseInitArgs(args: string): { scope?: InitScope; force: boolean; error
 	return { scope, force };
 }
 
-function scaffoldRole(profile: TeamProfileSpec): ProjectRoleConfig {
-	const role: ProjectRoleConfig = {
+function scaffoldRole(profile: TeamProfileSpec): ProjectRoleFlatConfig {
+	const role: ProjectRoleFlatConfig = {
 		description: profile.description,
-		model: profile.model ?? null,
+		model: DEFAULT_MODEL_SENTINEL,
 		thinkingLevel: profile.thinkingLevel,
-		permissions: {
-			tools: [...profile.tools],
-			extensionMode: profile.extensionMode,
-			writePolicy: profile.writePolicy,
-			canSpawnWorkers: profile.canSpawnWorkers,
-		},
-		prompt: {
-			source: "builtin",
-			path: null,
-		},
+		tools: [...profile.tools],
+		write: profile.writePolicy === "scoped-write",
+		prompt: DEFAULT_PROMPT_SENTINEL,
 	};
-	if (profile.pathScope) {
-		role.permissions.pathScope = {
-			roots: [...profile.pathScope.roots],
-			allowReadOutsideRoots: profile.pathScope.allowReadOutsideRoots,
-			allowWrite: profile.pathScope.allowWrite,
-		};
-	}
 	return role;
 }
 
 function buildFullScaffold(): TeamProjectConfigFile {
-	const roles: PartialProjectRoleConfigMap = {};
+	const roles: PartialRawProjectRoleConfigMap = {};
 	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
-		roles[profile.name as keyof PartialProjectRoleConfigMap] = scaffoldRole(profile);
+		roles[profile.name as keyof PartialRawProjectRoleConfigMap] = scaffoldRole(profile);
 	}
 	return {
 		version: TEAM_PROJECT_CONFIG_VERSION,
