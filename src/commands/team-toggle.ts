@@ -29,21 +29,21 @@ function scopeToInternal(scope: ToggleScope): TeamConfigScope {
 
 function readExistingConfig(path: string): { config: TeamProjectConfigFile; warning?: string } {
 	if (!existsSync(path)) {
-		return { config: { version: 1 } };
+		return { config: { version: TEAM_PROJECT_CONFIG_VERSION } };
 	}
 	let raw: unknown;
 	try {
 		raw = JSON.parse(readFileSync(path, "utf8"));
 	} catch (error) {
 		return {
-			config: { version: 1 },
+			config: { version: TEAM_PROJECT_CONFIG_VERSION },
 			warning: `${path} is not valid JSON (${error instanceof Error ? error.message : String(error)}); writing a fresh file with only the enabled flag set.`,
 		};
 	}
 	const errors = Array.from(Value.Errors(TeamProjectConfigSchema, raw));
 	if (errors.length > 0) {
 		return {
-			config: { version: 1 },
+			config: { version: TEAM_PROJECT_CONFIG_VERSION },
 			warning: `${path} failed schema validation (${errors[0]?.message ?? "unknown error"}); writing a fresh file with only the enabled flag set.`,
 		};
 	}
