@@ -242,17 +242,22 @@ test("loadActiveTeamConfig defaults enabled=true when no layers set it", () => {
 	assert.equal(result.status, "builtin");
 });
 
-test("loadActiveTeamConfig layers project config on top of global with rights narrowing", () => {
-	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-layered-"));
+test("loadActiveTeamConfig v2: project file fully replaces global — no cross-layer merging", () => {
+	// In schema v2 the winning layer owns the role list outright. If a project
+	// file is present, global is ignored entirely. This is a deliberate change
+	// from earlier layered-narrowing semantics — roles are too free-form for
+	// cross-layer merging to be meaningful.
+	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-replace-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
 	writeProjectConfig(projectRoot, {
 		version: 2,
 		roles: {
-			oracle: { thinkingLevel: "medium", permissions: {}, prompt: { source: "builtin" } },
+			oracle: { thinkingLevel: "medium" } as any,
+			worker: { tools: ["read", "bash"], write: false } as any,
 		},
 	});
 
-	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-layered-global-"));
+	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-replace-global-"));
 	mkdirSync(join(globalRoot, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
 	const globalPath = join(globalRoot, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 	writeFileSync(
@@ -260,7 +265,8 @@ test("loadActiveTeamConfig layers project config on top of global with rights na
 		JSON.stringify({
 			version: 2,
 			roles: {
-				oracle: { model: "openai/gpt-5.4", thinkingLevel: "high", permissions: {}, prompt: { source: "builtin" } },
+				oracle: { model: "openai/gpt-5.4", thinkingLevel: "high" },
+				globalOnlyRole: { tools: ["read"], write: false },
 			},
 		}),
 	);
@@ -269,8 +275,11 @@ test("loadActiveTeamConfig layers project config on top of global with rights na
 	assert.equal(result.status, "project");
 	assert.equal(result.delegationEnabled, true);
 	const oracle = result.config.profiles.find((profile) => profile.name === "oracle");
-	assert.equal(oracle?.model, "openai/gpt-5.4");
 	assert.equal(oracle?.thinkingLevel, "medium");
+	assert.equal(oracle?.model, undefined, "project wins — global's model must not leak through");
+	// Project declared its own role names; global's globalOnlyRole must not appear
+	assert.ok(!result.config.profiles.find((profile) => profile.name === "globalOnlyRole"));
+	assert.ok(result.config.profiles.find((profile) => profile.name === "worker"));
 });
 
 test("loadActiveTeamConfig accepts the flat v2 role shape (tools / write / prompt / advanced)", () => {
