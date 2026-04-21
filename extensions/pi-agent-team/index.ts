@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config";
 import {
 	createPersistedStateSnapshot,
 	markRestoredWorkersExited,
