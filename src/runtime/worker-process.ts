@@ -96,7 +96,8 @@ export function buildWorkerProcessArgs(options: WorkerProcessOptions): string[] 
 	if (options.tools && options.tools.length > 0) args.push("--tools", options.tools.join(","));
 	if (options.systemPromptPath) args.push("--append-system-prompt", options.systemPromptPath);
 	if (options.extensionMode && options.extensionMode !== "inherit") {
-		args.push("--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files");
+		args.push("--no-extensions", "--no-prompt-templates", "--no-themes", "--no-context-files");
+		if (!options.allowSkills) args.push("--no-skills");
 	}
 	if (options.extraArgs) args.push(...options.extraArgs);
 
