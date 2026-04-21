@@ -92,15 +92,17 @@ export const ProjectRoleConfigSchema = Type.Object({
 	permissions: Type.Optional(ProjectRolePermissionsSchema),
 }, { additionalProperties: false });
 
-const ProjectRoleMapProperties = Object.fromEntries(
-	TEAM_PROFILE_NAMES.map((profileName) => [profileName, Type.Optional(ProjectRoleConfigSchema)]),
-) as Record<string, TSchema>;
-
+/**
+ * Schema v2 accepts arbitrary role names — users own the role map. `version`
+ * is validated at parse time as a number (not a literal) so v1 files still
+ * parse; the loader inspects the value afterwards and emits a warning+
+ * fallback when it doesn't match TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED.
+ */
 export const TeamProjectConfigSchema = Type.Object({
-	version: Type.Literal(TEAM_PROJECT_CONFIG_VERSION),
+	version: Type.Number(),
 	defaultsVersion: Type.Optional(Type.Number()),
 	enabled: Type.Optional(Type.Boolean()),
-	roles: Type.Optional(Type.Object(ProjectRoleMapProperties, { additionalProperties: false })),
+	roles: Type.Optional(Type.Record(Type.String(), ProjectRoleConfigSchema)),
 }, { additionalProperties: false });
 
 export const WorkerUsageStatsSchema = Type.Object({
