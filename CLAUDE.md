@@ -42,7 +42,7 @@ Layering, top to bottom:
 - `src/comms/` — message shaping. `summary.ts` parses the worker's structured summary, `relay-queue.ts` extracts `relay_question` + `assumption`, `agent-messaging.ts` picks `steer` vs `follow_up` based on status, `ping.ts` builds passive snapshots.
 - `src/profiles/` + `profiles/*.md` — packaged roles (explorer, fixer, reviewer, librarian, observer, oracle, designer). Loader reads markdown frontmatter; `default-profiles.ts` has the TS specs.
 - `src/safety/` — `launch-policy.ts` gates every `delegate_task` (extension mode, path scope, recursion block); `path-scope.ts` requires explicit writable roots for scoped-write profiles (today only `fixer`).
-- `src/prompts/contracts.ts` — builds the orchestrator system-prompt bundle and the per-task worker prompt. `buildWorkerTaskPrompt` injects the `<final_answer>` contract.
+- `src/prompts/contracts.ts` — builds the orchestrator system-prompt bundle and the per-task worker prompt. `buildWorkerTaskPrompt` injects the `<final_answer>` contract and, when `task.skills` is non-empty, an explicit "invoke these Pi skills via the Skill tool" block.
 - `src/ui/` — `status-widget.ts` (always-visible widget with spinner + counts + per-worker lines), `overlay.ts` (interactive `/team` dashboard with Summary/Console tabs), `dashboard.ts` (print-mode fallback text), `copy-payload.ts` (shared copy-to-clipboard formatter).
 - `src/util/clipboard.ts` — platform-aware clipboard (pbcopy / clip.exe / wl-copy / xclip / xsel).
 - `src/commands/` — `team.ts`, `steer.ts`, `cancel.ts`, `copy.ts`. Every command delegates to `TeamManager`; they never hit `WorkerManager` directly.
