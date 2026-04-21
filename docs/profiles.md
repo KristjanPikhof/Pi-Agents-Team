@@ -79,7 +79,7 @@ All optional. Omit to get the default.
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `whenToUse` | string | `""` | The trigger sentence shown to the orchestrator LLM. Write it as `"Use for / when / to ..."` so the model can match it against user requests. |
-| `model` | string | `"default"` | `"default"` inherits the orchestrator's current model. Otherwise a canonical Pi model ID like `"anthropic/claude-opus-4-7"`. |
+| `model` | string | `"default"` | `"default"` inherits the orchestrator's current model. Otherwise a canonical Pi model ID in `<provider>/<model-id>` form (check `pi --help` or your Pi install's model list for exact names — available models are install-specific). |
 | `thinkingLevel` | string | `"medium"` | One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. |
 | `tools` | string[] | `["read", "grep", "find", "ls", "bash"]` | Tool set the worker can use. You declare it. No ceiling. |
 | `write` | boolean | `false` | `true` allows `edit`/`write`. Requires a `pathScope` at delegate time (platform-level safety). |
