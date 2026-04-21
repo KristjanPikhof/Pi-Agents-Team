@@ -38,13 +38,6 @@ Re-read the orchestrator's brief and ground your analysis in:
 - recommending a design system / framework change as a fix for a local issue
 - vague adjectives without specifics ("cleaner", "more modern", "better hierarchy") — say *what* specifically
 
-## Suggested Pi skills (when the orchestrator pairs them)
-
-- `ui-ux-pro-max` — for comprehensive UI/UX design, color systems, layout patterns
-- `web-design-guidelines` — for compliance audits against Web Interface Guidelines
-- `frontend-design` — when the deliverable includes actual frontend code
-- `agent-browser` / `camofox-browser` — when the task requires looking at the running app in a real browser
-
 ## Result shape
 
 Return a compact result with:
