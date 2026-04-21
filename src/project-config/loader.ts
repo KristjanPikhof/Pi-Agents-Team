@@ -128,16 +128,20 @@ function resolveLayerPath(layerRoot: string, value: string, fieldPath: string, o
 				diagnostic: makeDiagnostic("error", "project_path_escape", `Resolved path must stay within the project root: ${value}`, fieldPath),
 			};
 		}
-		// Realpath check — if the candidate or the root is a symlink, verify the
-		// REAL targets are still contained. A hostile repo could commit a symlink
-		// inside the project pointing at ~/.ssh (or any absolute path); the
-		// lexical check above accepts it because the symlink itself is under
-		// layerRoot. For not-yet-created paths realpathSync throws and we fall
-		// back to the lexical result (acceptable: if the path is later created
-		// through a symlink, worker launch revalidates).
+		// Realpath check — only fires when the CANDIDATE itself actually resolves
+		// through a symlink to a different inode. A hostile repo could commit a
+		// symlink inside the project pointing at ~/.ssh; the lexical check above
+		// accepts it because the symlink file lives under layerRoot, so we have
+		// to follow the link.
+		//
+		// Skipped when the candidate doesn't exist (realpathOrSelf returns the
+		// lexical path unchanged — the lexical containment check is authoritative
+		// for not-yet-created paths). Also skipped when layerRoot itself is a
+		// symlink but the candidate is not (common on macOS where /tmp →
+		// /private/tmp) — the lexical check inside layerRoot already held.
 		const realCandidate = realpathOrSelf(resolved);
-		const realRoot = realpathOrSelf(layerRoot);
-		if (realCandidate !== resolved || realRoot !== layerRoot) {
+		if (realCandidate !== resolved) {
+			const realRoot = realpathOrSelf(layerRoot);
 			if (!isPathInsideRoot(realCandidate, realRoot)) {
 				return {
 					diagnostic: makeDiagnostic(
