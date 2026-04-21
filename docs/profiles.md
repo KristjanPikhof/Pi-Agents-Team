@@ -198,12 +198,11 @@ Say your `~/.pi/agent/agents-team.json` forces a high thinking level on `oracle`
 ```json
 {
   "version": 1,
+  "defaultsVersion": 2,
   "roles": {
     "oracle": {
       "thinkingLevel": "high",
-      "model": "openai/gpt-5.4",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
+      "model": "openai/gpt-5.4"
     }
   }
 }
@@ -214,17 +213,13 @@ Then in `~/my-repo/.pi/agent/agents-team.json` you narrow `oracle` to medium loc
 ```json
 {
   "version": 1,
+  "defaultsVersion": 2,
   "roles": {
-    "oracle": {
-      "thinkingLevel": "medium",
-      "permissions": {},
-      "prompt": { "source": "builtin" }
-    },
+    "oracle": { "thinkingLevel": "medium" },
     "fixer": {
-      "permissions": {
+      "advanced": {
         "pathScope": { "roots": ["src/api"], "allowReadOutsideRoots": false, "allowWrite": true }
-      },
-      "prompt": { "source": "builtin" }
+      }
     }
   }
 }
