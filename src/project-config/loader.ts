@@ -520,7 +520,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	const layers: TeamProjectConfigLayer[] = [];
 	const diagnostics: ProjectConfigDiagnostic[] = [];
 	const parsedLayers: ParsedLayer[] = [];
-	let anyFatal = false;
+	const fatalScopes = new Set<TeamConfigScope>();
 
 	for (const [scope, path] of [["global", globalPath], ["project", projectPath]] as const) {
 		if (!path) continue;
@@ -528,7 +528,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		if (isFatalLayerParse(result)) {
 			diagnostics.push(...result.fatalDiagnostics);
 			layers.push({ scope: result.scope, path: result.path });
-			anyFatal = true;
+			fatalScopes.add(result.scope);
 			continue;
 		}
 		// Accept the current field names; also read legacy field names so old files
