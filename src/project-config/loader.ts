@@ -204,6 +204,8 @@ function normalizePromptPath(
 	return { promptPath: resolved.path!, diagnostics: [] as ProjectConfigDiagnostic[] };
 }
 
+export const GENERIC_WORKER_PROMPT_SENTINEL = "<generic-worker>";
+
 interface LayerApplication {
 	scope: TeamConfigScope;
 	layerRoot: string;
