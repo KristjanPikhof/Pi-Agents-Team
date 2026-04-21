@@ -127,8 +127,32 @@ export interface ProjectRoleConfig {
 	prompt: ProjectRolePromptConfig;
 }
 
+export interface ProjectRoleAdvancedConfig {
+	extensionMode?: WorkerExtensionMode;
+	canSpawnWorkers?: boolean;
+	pathScope?: TeamPathScope;
+}
+
+/**
+ * Flat shape emitted by /team-init (defaultsVersion=2+). Easier for operators:
+ * top-level `tools`, `write: true|false`, `prompt: "default" | "<path>"`,
+ * `model: "default" | "<provider/id>"`. Power-user knobs live in `advanced`.
+ */
+export interface ProjectRoleFlatConfig {
+	description?: string | null;
+	model?: string | null;
+	thinkingLevel?: ThinkingLevel;
+	tools?: string[];
+	write?: boolean;
+	prompt?: string | null | ProjectRolePromptConfig;
+	advanced?: ProjectRoleAdvancedConfig;
+}
+
+export type RawProjectRoleConfig = ProjectRoleConfig | ProjectRoleFlatConfig;
+
 export type ProjectRoleConfigMap = Record<TeamProfileName, ProjectRoleConfig>;
 export type PartialProjectRoleConfigMap = Partial<Record<TeamProfileName, ProjectRoleConfig>>;
+export type PartialRawProjectRoleConfigMap = Partial<Record<TeamProfileName, RawProjectRoleConfig>>;
 
 export interface TeamProjectConfigFile {
 	version: typeof TEAM_PROJECT_CONFIG_VERSION;
