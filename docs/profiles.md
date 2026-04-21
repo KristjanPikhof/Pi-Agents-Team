@@ -37,19 +37,23 @@ Project **fully replaces** global when both exist — there's no cross-layer mer
 }
 ```
 
-- `version: 2` is the current schema contract. A file with any other number triggers a session-start warning toast and falls back to the built-in roles for that layer — run `/team-init <scope> --force` to regenerate (old file is backed up first).
-- `defaultsVersion` is a freshness marker for the scaffold contents. It's softer — it just flags files produced by older `/team-init` runs so you can re-init when default best practices shift.
+- `schemaVersion: 3` is the current schema contract. A file with any other number (or the legacy `version` field) triggers a session-start warning toast and falls back to the built-in roles for that layer — run `/team-init <scope> --force` to regenerate (old file is backed up first).
+- `scaffoldVersion` is a freshness marker for the scaffold contents. It's softer — it just flags files produced by older `/team-init` runs so you can re-init when default best practices shift.
 - `enabled: false` puts the extension in dormant mode (tools refuse, UI clears, orchestrator prompt is not injected). Toggle with `/team-enable`/`/team-disable`.
 
 **Per-role fields** (all optional — omit to get the default):
 
-- `description` (string): shown to the orchestrator LLM in the **Available worker profiles** block so it knows when to delegate to this role. Write it as a one-line "pick this when..." explanation.
+- `whenToUse` (string): a **trigger sentence** shown to the orchestrator LLM in the **Available worker profiles** block. Write it as `"Use for / when / to ..."` so the orchestrator can match it against incoming user requests. The legacy alias `description` is accepted for backcompat; `whenToUse` wins when both are present. Examples that work well:
+  - `"Use for fast codebase reconnaissance. Best for 'where is X?' and 'how does Y work?' questions."`
+  - `"Use when the user wants a list of API routes that touch src/api."`
+  - `"Use for bounded code changes — implement a specific fix or add a test. Requires a pathScope at delegate time. Write-capable."`
+  Avoid passive descriptions like `"A code explorer."` — they don't give the orchestrator a clear delegation trigger.
 - `model` (string): `"default"` (or omit) inherits the orchestrator's current model. Any other value pins a model ID (e.g. `"anthropic/claude-opus-4-7"`).
 - `thinkingLevel` (string): one of `off | minimal | low | medium | high | xhigh`. Default `medium`.
 - `tools` (string[]): the tool set the worker can use. No ceiling — whatever you declare is what the worker gets. Default `["read", "grep", "find", "ls", "bash"]` when omitted.
 - `write` (boolean): `true` allows edit/write (requires a `pathScope` at delegate time, enforced by launch-policy); `false` forces read-only. Default `false`.
 - `prompt` (string): three forms —
-  - `"default"` (or omit): use the packaged prompt at `prompts/agents/<role-name>.md` if the role name matches one of the seven built-ins; otherwise use the generic worker template (`prompts/agents/_generic-worker.md`) with the role's name + description substituted in.
+  - `"default"` (or omit): use the packaged prompt at `prompts/agents/<role-name>.md` if the role name matches one of the seven built-ins; otherwise use the generic worker template (`prompts/agents/_generic-worker.md`) with the role's name + `whenToUse` substituted in.
   - `"some/path.md"`: load the worker prompt from that file. Resolved relative to the config file's directory (for project configs, must stay inside the project root).
   - Any other string: treated as **inline prompt text**. The exact string becomes the worker's role prompt. Useful when you don't want to create a separate markdown file — `"prompt": "You are a tiny agent that only lists paths matching a regex. Do nothing else."` works.
 - `advanced` (object, power-user only, not emitted by `/team-init`): `extensionMode` (`"worker-minimal"` | `"disable"`; `"inherit"` is rejected as a recursion risk), `canSpawnWorkers` (boolean, default `false`), `pathScope` (a `{ roots, allowReadOutsideRoots, allowWrite }` block for path-level sandboxing).
