@@ -161,7 +161,7 @@ function normalizePromptPath(
 	roleConfig: ProjectRoleConfig,
 	layerRoot: string,
 	fieldPath: string,
-	options: { requireInsideLayerRoot: boolean },
+	options: { requireInsideLayerRoot: boolean; layerScope: TeamConfigScope; layerPath: string },
 ) {
 	const prompt = roleConfig.prompt;
 	if (prompt.source === "builtin") {
@@ -188,7 +188,14 @@ function normalizePromptPath(
 	if (!existsSync(resolved.path!)) {
 		return {
 			promptPath: profile.promptPath,
-			diagnostics: [makeDiagnostic("error", "project_prompt_missing", `Prompt file does not exist: ${prompt.path}`, `${fieldPath}.path`)],
+			diagnostics: [
+				makeDiagnostic(
+					"warning",
+					"project_prompt_missing",
+					`Prompt file not readable: ${prompt.path} (${options.layerScope} ${options.layerPath}) — falling back to the built-in ${profile.name} prompt.`,
+					`${fieldPath}.path`,
+				),
+			],
 		};
 	}
 	return { promptPath: resolved.path!, diagnostics: [] as ProjectConfigDiagnostic[] };
