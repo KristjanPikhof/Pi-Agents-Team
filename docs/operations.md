@@ -186,9 +186,9 @@ Expected. Persisted workers are force-marked `exited` on restore so the operator
 
 On a warm session start (`reload`, `resume`, `fork`, `new`), a one-line warning toast announces how many workers were flipped and the session-start reason. Example: `Pi Agents Team: 3 workers from prior session marked exited (resume). Relaunch via delegate_task if still needed.` Cold `startup` keeps the original info toast (`Pi Agents Team loaded…`). Each flipped worker's `error` field carries a reason-specific message (`session resumed…`, `session forked…`), which surfaces in `/team` detail view and copy payloads.
 
-### Steer does nothing
+### Steer / follow-up "seems queued but nothing happens"
 
-Steer only applies to running workers. If the worker is idle, use `/agent-followup` instead. The orchestrator's `agent_message` with `delivery: "auto"` picks the right mode for you.
+Look at the confirmation line: if it says `Prompted w<id> (…:idle)`, the worker was re-prompted and will start streaming again on its next event tick. If it says `Queued follow-up for w<id> (…:running)`, the message is sitting behind the live stream and will run after the current turn. Only terminal workers (`exited`, `aborted`, `error`, `completed`) refuse messages outright. A bare `follow_up` RPC against an idle Pi session only queues without waking it — the router upgrades that case to a full prompt automatically, so you don't need to juggle `/agent-steer` vs `/agent-followup` based on status.
 
 ### A write-capable worker is rejected
 
