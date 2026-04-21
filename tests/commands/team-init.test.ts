@@ -49,7 +49,7 @@ test("parseInitArgs accepts scope and force flag", () => {
 test("buildFullScaffold pre-populates every builtin profile in the flat v2 shape", () => {
 	const scaffold = _testing.buildFullScaffold();
 	assert.equal(scaffold.version, 2);
-	assert.equal(scaffold.defaultsVersion, CURRENT_DEFAULTS_VERSION);
+	assert.equal(scaffold.defaultsVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(scaffold.enabled, true);
 	const roles = scaffold.roles ?? {};
 	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
@@ -85,7 +85,7 @@ test("/team-init local writes a full scaffold inside the project", async () => {
 	assert.ok(existsSync(expectedPath));
 	const parsed = JSON.parse(readFileSync(expectedPath, "utf8"));
 	assert.equal(parsed.version, 2);
-	assert.equal(parsed.defaultsVersion, CURRENT_DEFAULTS_VERSION);
+	assert.equal(parsed.defaultsVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(parsed.enabled, true);
 	const roleNames = Object.keys(parsed.roles ?? {}).sort();
 	assert.deepEqual(roleNames, DEFAULT_TEAM_CONFIG.profiles.map((profile) => profile.name).sort());
@@ -122,7 +122,7 @@ test("/team-init --force backs up the old file before overwriting", async () => 
 
 	const contents = JSON.parse(readFileSync(targetPath, "utf8"));
 	assert.equal(contents.enabled, true);
-	assert.equal(contents.defaultsVersion, CURRENT_DEFAULTS_VERSION);
+	assert.equal(contents.defaultsVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.ok(contents.roles && Object.keys(contents.roles).length === DEFAULT_TEAM_CONFIG.profiles.length);
 
 	const siblings = readdirSync(join(root, TEAM_PROJECT_CONFIG_DIR));
