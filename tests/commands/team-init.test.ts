@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerTeamInitCommand, _testing } from "../../src/commands/team-init";
+import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE } from "../../src/types";
 
 interface RegisteredCommand {
@@ -40,7 +41,36 @@ test("parseInitArgs accepts scope and force flag", () => {
 	assert.match(twice.error ?? "", /only once/);
 });
 
-test("/team-init local writes a skeleton inside the project", async () => {
+test("buildFullScaffold pre-populates every builtin profile", () => {
+	const scaffold = _testing.buildFullScaffold();
+	assert.equal(scaffold.version, 1);
+	assert.equal(scaffold.defaultsVersion, CURRENT_DEFAULTS_VERSION);
+	assert.equal(scaffold.enabled, true);
+	const roles = scaffold.roles ?? {};
+	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
+		const role = (roles as Record<string, unknown>)[profile.name] as any;
+		assert.ok(role, `missing scaffold role for ${profile.name}`);
+		assert.equal(role.thinkingLevel, profile.thinkingLevel);
+		assert.deepEqual(role.permissions.tools, profile.tools);
+		assert.equal(role.permissions.writePolicy, profile.writePolicy);
+		assert.equal(role.permissions.extensionMode, profile.extensionMode);
+		assert.equal(role.permissions.canSpawnWorkers, profile.canSpawnWorkers);
+		assert.equal(role.prompt.source, "builtin");
+		assert.equal(role.prompt.path, null);
+		if (profile.pathScope) {
+			assert.ok(role.permissions.pathScope);
+			assert.deepEqual(role.permissions.pathScope.roots, profile.pathScope.roots);
+		} else {
+			assert.equal(role.permissions.pathScope, undefined);
+		}
+	}
+});
+
+test("formatBackupTimestamp pads date components", () => {
+	assert.equal(_testing.formatBackupTimestamp(new Date(2026, 3, 5, 9, 7)), "2026-04-05-0907");
+});
+
+test("/team-init local writes a full scaffold inside the project", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-init-local-"));
 	const emitted: string[] = [];
 	const notifications: Array<{ message: string; level?: string }> = [];
@@ -56,13 +86,15 @@ test("/team-init local writes a skeleton inside the project", async () => {
 	assert.ok(existsSync(expectedPath));
 	const parsed = JSON.parse(readFileSync(expectedPath, "utf8"));
 	assert.equal(parsed.version, 1);
+	assert.equal(parsed.defaultsVersion, CURRENT_DEFAULTS_VERSION);
 	assert.equal(parsed.enabled, true);
-	assert.deepEqual(parsed.roles, {});
+	const roleNames = Object.keys(parsed.roles ?? {}).sort();
+	assert.deepEqual(roleNames, DEFAULT_TEAM_CONFIG.profiles.map((profile) => profile.name).sort());
 	assert.ok(emitted[0]?.includes(expectedPath));
 	assert.ok(emitted[0]?.includes("/reload-plugins"));
 });
 
-test("/team-init refuses to overwrite without --force", async () => {
+test("/team-init refuses to overwrite without --force and mentions backup", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-init-guard-"));
 	const targetPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 	mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
@@ -76,9 +108,10 @@ test("/team-init refuses to overwrite without --force", async () => {
 	assert.equal(contents.enabled, false);
 	assert.ok(emitted[0]?.includes("already exists"));
 	assert.ok(emitted[0]?.includes("--force"));
+	assert.ok(emitted[0]?.toLowerCase().includes("backed up"));
 });
 
-test("/team-init --force overwrites an existing file", async () => {
+test("/team-init --force backs up the old file before overwriting", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-init-force-"));
 	const targetPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 	mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
@@ -90,7 +123,16 @@ test("/team-init --force overwrites an existing file", async () => {
 
 	const contents = JSON.parse(readFileSync(targetPath, "utf8"));
 	assert.equal(contents.enabled, true);
-	assert.deepEqual(contents.roles, {});
+	assert.equal(contents.defaultsVersion, CURRENT_DEFAULTS_VERSION);
+	assert.ok(contents.roles && Object.keys(contents.roles).length === DEFAULT_TEAM_CONFIG.profiles.length);
+
+	const siblings = readdirSync(join(root, TEAM_PROJECT_CONFIG_DIR));
+	const backup = siblings.find((name) => name !== TEAM_PROJECT_CONFIG_FILE && name.endsWith(TEAM_PROJECT_CONFIG_FILE));
+	assert.ok(backup, `expected a backup file alongside ${TEAM_PROJECT_CONFIG_FILE}, saw: ${siblings.join(", ")}`);
+	assert.match(backup!, /^\d{4}-\d{2}-\d{2}-\d{4}(-\d+)?-agents-team\.json$/);
+	const backupContents = JSON.parse(readFileSync(join(root, TEAM_PROJECT_CONFIG_DIR, backup!), "utf8"));
+	assert.equal(backupContents.enabled, false);
+	assert.ok(emitted[0]?.includes("Backed up previous config"));
 });
 
 test("/team-init requires an explicit scope", async () => {
