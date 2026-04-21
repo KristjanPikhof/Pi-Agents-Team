@@ -406,7 +406,7 @@ export default function (pi: ExtensionAPI): void {
 				return;
 			}
 			const transcript = teamManager.getWorkerTranscript(resolved);
-			emitCommandOutput(pi, ctx, formatWorkerDetail(result.worker, transcript));
+			emitCommandOutput(pi, ctx, formatWorkerDetail(result.worker, transcript), activeProjectConfig.config);
 		},
 	});
 
@@ -416,6 +416,9 @@ export default function (pi: ExtensionAPI): void {
 		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
 		parameters: DelegateTaskSchema,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!activeProjectConfig.delegationEnabled) {
+				throw new Error(getDelegationDisabledMessage(activeProjectConfig));
+			}
 			const pathScope = params.pathScopeRoots?.length
 				? {
 					roots: params.pathScopeRoots,
@@ -435,7 +438,7 @@ export default function (pi: ExtensionAPI): void {
 				model: params.model ?? orchestratorModel,
 			});
 			teamState = teamManager.snapshot();
-			applyUi(activeContext, teamState);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config);
 			return {
 				content: [
 					{
