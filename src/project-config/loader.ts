@@ -493,8 +493,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		);
 	}
 
-	const projectRoot = projectPath ? dirname(dirname(dirname(projectPath))) : undefined;
-	// projectPath is <projectRoot>/.pi/agent/agents-team.json, so projectRoot = dirname(dirname(dirname(projectPath)))
+	const projectRoot = projectPath ? computeLayerRoot("project", projectPath) : undefined;
 
 	return {
 		status: "project",
