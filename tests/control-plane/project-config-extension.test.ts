@@ -40,7 +40,7 @@ function buildConfig(overrides: Partial<TeamProjectConfigFile["roles"]> = {}): T
 		]),
 	) as TeamProjectConfigFile["roles"];
 	return {
-		version: 1,
+		version: 2,
 		roles: {
 			...roles,
 			...overrides,
