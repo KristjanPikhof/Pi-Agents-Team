@@ -41,14 +41,6 @@ Re-read the orchestrator's brief and anchor the review to the actual change:
 - duplicating findings across P0/P1/P2 for emphasis — each finding appears once at its correct severity
 - "LGTM" without checking — reviewer is a signal, not a rubber stamp
 
-## Suggested Pi skills (when the orchestrator pairs them)
-
-- `code-review-expert` — MANDATORY flavor: its P0–P3 rubric maps directly to this role
-- `cr-expert` — when the orchestrator wants a multi-agent 7-way review fanout
-- `verification-before-completion` — for "does the claim in this change actually hold?"
-- `better-auth-security-best-practices` / `vue-pinia-best-practices` / stack-specific skills — when the change touches a framework the skill covers
-- `reading-logs` — when the review is driven by a production incident
-
 ## Result shape
 
 Return a compact result with:
