@@ -56,7 +56,7 @@ Layering, top to bottom:
 - `/team-copy <worker-id>` → same copy payload as `y`, without opening the overlay.
 - `/team-prune` → removes every terminal worker from the dashboard. Use after a cancelled batch.
 - `/team-cost` → per-worker token usage plus `Σ` totals. Orchestrator cost stays in Pi's footer.
-- `/team-init global|local [--force]` → writes a minimal `agents-team.json` skeleton to `~/.pi/agent/` or `./.pi/agent/`. Refuses to overwrite without `--force`.
+- `/team-init global|local [--force]` → scaffolds a full `agents-team.json` to `~/.pi/agent/` or `./.pi/agent/` with every builtin role pre-populated and a `defaultsVersion` marker. Refuses to overwrite without `--force`; on `--force` the previous file is renamed to `YYYY-MM-DD-HHMM-agents-team.json` in the same directory before the new scaffold is written. The loader flags layers whose `defaultsVersion` differs from the plugin's `CURRENT_DEFAULTS_VERSION` via `layer.defaultsStale`, and the session_start hook emits a per-layer warning toast telling the operator to re-run `/team-init` (and mentioning the backup).
 - `/team-enable global|local` → sets `enabled: true` in the scoped config file (creating it if missing). Run `/reload-plugins` to apply.
 - `/team-disable global|local` → sets `enabled: false` in the scoped config file. The extension stays loaded but skips tool execution, prompt injection, and UI rendering until re-enabled.
 - `/agent-result <worker-id>` → prints the compact summary + verbatim `<final_answer>` block.
