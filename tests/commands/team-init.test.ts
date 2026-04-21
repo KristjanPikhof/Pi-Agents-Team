@@ -60,8 +60,11 @@ test("buildFullScaffold pre-populates every builtin profile in the flat v2 shape
 		assert.equal(role.write, profile.writePolicy === "scoped-write");
 		assert.equal(role.model, DEFAULT_MODEL_SENTINEL);
 		assert.equal(role.prompt, DEFAULT_PROMPT_SENTINEL);
+		assert.equal(role.whenToUse, profile.description, "scaffold should emit whenToUse (the v2 field) with the role's trigger description");
+		assert.equal(role.description, undefined, "scaffold must not emit the legacy description alias");
 		assert.equal(role.permissions, undefined, "flat shape must not emit the legacy permissions wrapper");
 		assert.equal(role.advanced, undefined, "advanced is opt-in and must be absent from scaffolds");
+		assert.match(role.whenToUse, /^Use (for|when|to) /, "default whenToUse should read as a trigger sentence starting with 'Use for/when/to'");
 	}
 });
 
