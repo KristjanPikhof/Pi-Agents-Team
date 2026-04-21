@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve, relative } from "node:path";
 import { Value } from "@sinclair/typebox/value";
-import { DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
+import { CURRENT_DEFAULTS_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
 import {
 	PROJECT_CONFIG_DIAGNOSTIC_SEVERITIES,
 	PROJECT_CONFIG_STATUSES,
