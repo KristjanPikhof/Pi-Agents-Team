@@ -58,16 +58,18 @@ test("buildWorkerTaskPrompt injects skills section only when skills are provided
 	};
 
 	const withSkills = buildWorkerTaskPrompt({ ...base, skills: ["writer", "documenting-systems"] });
-	assert.match(withSkills, /Pi skills to invoke for this task/);
+	assert.match(withSkills, /Pi skills to use for this task/);
 	assert.match(withSkills, /- writer/);
 	assert.match(withSkills, /- documenting-systems/);
-	assert.match(withSkills, /Skill tool/);
+	// Pi dispatches skills via `/skill:<name>` commands, not a "Skill tool"
+	// — the previous wording was incompatible with Pi 0.68.
+	assert.match(withSkills, /\/skill:<name>/);
 
 	const withoutSkills = buildWorkerTaskPrompt(base);
-	assert.doesNotMatch(withoutSkills, /Pi skills to invoke/);
+	assert.doesNotMatch(withoutSkills, /Pi skills to use/);
 
 	const emptySkills = buildWorkerTaskPrompt({ ...base, skills: ["  ", ""] });
-	assert.doesNotMatch(emptySkills, /Pi skills to invoke/);
+	assert.doesNotMatch(emptySkills, /Pi skills to use/);
 });
 
 test("worker prompt lookup honors resolved absolute project prompt paths", () => {
