@@ -149,32 +149,47 @@ The schema is partial — omit roles you don't need to customize. The smallest v
 { "version": 1, "enabled": false }
 ```
 
-`/team-init local` writes a richer file that pre-populates every builtin role so the schema is discoverable. The minimum valid file above still works — the scaffold is a convenience, not a requirement. Delete any role block from the scaffold to fall back to built-in defaults for that role:
+`/team-init local` writes a richer file that pre-populates every builtin role in the **flat v2 shape** so the schema is discoverable. The minimum valid file above still works — the scaffold is a convenience, not a requirement. Delete any role block from the scaffold to fall back to built-in defaults for that role:
 
 ```json
 {
   "version": 1,
+  "defaultsVersion": 2,
   "enabled": true,
   "roles": {
-    "fixer": {
-      "permissions": {
-        "pathScope": {
-          "roots": ["src/api"],
-          "allowReadOutsideRoots": false,
-          "allowWrite": true
-        }
-      },
-      "prompt": { "source": "builtin" }
-    },
     "reviewer": {
-      "permissions": {},
-      "prompt": { "source": "project", "path": "prompts/reviewer.md" }
+      "description": "Validation, critique, and regression review.",
+      "model": "default",
+      "thinkingLevel": "medium",
+      "tools": ["read", "grep", "find", "ls", "bash"],
+      "write": false,
+      "prompt": "prompts/reviewer.md"
+    },
+    "fixer": {
+      "model": "default",
+      "tools": ["read", "bash", "edit", "write"],
+      "write": true,
+      "prompt": "default",
+      "advanced": {
+        "pathScope": { "roots": ["src/api"], "allowReadOutsideRoots": false, "allowWrite": true }
+      }
     }
   }
 }
 ```
 
-Everything else inherits from the previous layer (global → built-in). This is a change from earlier versions which required every role key — partial maps now work across both layers.
+**Flat-shape field meanings:**
+
+- `model`: `"default"` (or omit / `null`) inherits the orchestrator's current model; any other value pins a model ID like `"anthropic/claude-opus-4-7"`.
+- `thinkingLevel`: one of `off | minimal | low | medium | high | xhigh`. Omit to inherit the built-in.
+- `tools`: subset of the role's default tool list. You can remove tools but not add new ones beyond the ceiling.
+- `write`: `true` allows edit/write (requires a `pathScope` declared at delegate time or in `advanced`); `false` forces read-only. Omit to inherit.
+- `prompt`: `"default"` (or omit / `null`) uses the built-in role prompt; any other string is treated as a path (resolved relative to the config file for project configs, or absolute for global). If the file cannot be read, a session-start warning toast names the config + the unreadable path and the role silently falls back to its built-in prompt.
+- `advanced` (optional, power-user only): `extensionMode` (`"worker-minimal"` | `"disable"`), `canSpawnWorkers`, and `pathScope`. Not emitted by `/team-init`; add it yourself if you need it.
+
+Everything else inherits from the previous layer (global → built-in). Partial maps are fine at both layers.
+
+**Legacy shape:** Files scaffolded by `defaultsVersion: 1` (nested `permissions` wrapper, `prompt: { source, path }` object, `model: null` sentinel) still load. `/team-init <scope> --force` regenerates in the new shape; the old file is backed up first.
 
 ### Global + project layering example
 
