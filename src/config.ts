@@ -94,13 +94,21 @@ export const ProjectRoleConfigSchema = Type.Object({
 }, { additionalProperties: false });
 
 /**
- * Schema v2 accepts arbitrary role names — users own the role map. `version`
- * is validated at parse time as a number (not a literal) so v1 files still
- * parse; the loader inspects the value afterwards and emits a warning+
- * fallback when it doesn't match TEAM_PROJECT_CONFIG_VERSIONS_SUPPORTED.
+ * Role keys are free-form — users own the role map. `schemaVersion` is
+ * validated at parse time as a number (not a literal) so older files still
+ * pass the first parse gate; the loader inspects the value afterwards and
+ * emits a warning + built-in fallback when it doesn't match
+ * TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED.
+ *
+ * `version` (legacy top-level field from the pre-rename era) is accepted as
+ * an optional additional property so that files scaffolded with the old name
+ * don't fail parse — they get the schema_version_mismatch warning like any
+ * other unsupported file.
  */
 export const TeamProjectConfigSchema = Type.Object({
-	version: Type.Number(),
+	schemaVersion: Type.Optional(Type.Number()),
+	version: Type.Optional(Type.Number()),
+	scaffoldVersion: Type.Optional(Type.Number()),
 	defaultsVersion: Type.Optional(Type.Number()),
 	enabled: Type.Optional(Type.Boolean()),
 	roles: Type.Optional(Type.Record(Type.String(), ProjectRoleConfigSchema)),
