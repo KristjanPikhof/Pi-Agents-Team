@@ -128,7 +128,7 @@ function runToggle(args: string, desiredEnabled: boolean, ctx: ExtensionContext,
 
 	lines.push(
 		`${parsed.scope === "global" ? "Global" : "Local"} agents-team.json: enabled=${previousEnabled} → ${desiredEnabled} (${targetPath}).`,
-		"Run /reload-plugins to apply in this session.",
+		"Run /reload to apply in this session.",
 	);
 	dependencies.emitText(ctx, lines.join("\n"));
 }
