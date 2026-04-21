@@ -443,3 +443,27 @@ test("TeamManager applies model precedence: tool param, role model, orchestrator
 	assert.equal(captures[2]?.model, "orchestrator/fallback-model");
 	assert.equal(captures[3]?.model, undefined);
 });
+
+test("messageWorker rejects messages to terminal workers with a clear error", async () => {
+	// cr-expert P2-12: previously, calling messageWorker on an aborted/exited
+	// worker would resolve delivery to "prompt", which promptWorker then ran
+	// against a disposed RPC client — briefly flipping the dashboard to
+	// "running" before throwing a confusing low-level error. Now we reject
+	// early with a clear message pointing at re-delegate + prune.
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const teamManager = new TeamManager({ workerManager });
+	const delegated = await teamManager.delegateTask({
+		title: "Short",
+		goal: "Short task",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		contextHints: [],
+	});
+	await waitForMicrotasks();
+	await teamManager.cancelWorker(delegated.worker.workerId);
+
+	await assert.rejects(
+		() => teamManager.messageWorker(delegated.worker.workerId, "still there?"),
+		/already disposed|cannot receive|Re-delegate/i,
+	);
+});
