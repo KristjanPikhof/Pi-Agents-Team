@@ -622,13 +622,15 @@ export default function (pi: ExtensionAPI): void {
 
 		if (!ctx.hasUI) return;
 
-		ctx.ui.notify("Pi Agents Team loaded: this session is running in orchestrator mode.", "info");
+		if (activeProjectConfig.enabled) {
+			ctx.ui.notify("Pi Agents Team loaded: this session is running in orchestrator mode.", "info");
+		}
 		const configNotice = getProjectConfigNotice(activeProjectConfig);
 		if (configNotice) {
 			ctx.ui.notify(configNotice.message, configNotice.level);
 		}
 
-		if (event.reason !== "startup" && markedCount > 0) {
+		if (event.reason !== "startup" && markedCount > 0 && isTeamActive(activeProjectConfig)) {
 			const noun = markedCount === 1 ? "worker" : "workers";
 			ctx.ui.notify(
 				`Pi Agents Team: ${markedCount} ${noun} from prior session marked exited (${event.reason}). Relaunch via delegate_task if still needed.`,
