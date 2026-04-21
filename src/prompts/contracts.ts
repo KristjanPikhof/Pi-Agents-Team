@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_TEAM_CONFIG, buildOrchestratorSystemPrompt } from "../config";
-import type { DelegatedTaskInput, PersistedTeamState, TeamConfig } from "../types";
+import { GENERIC_WORKER_PROMPT_SENTINEL } from "../project-config/loader";
+import type { DelegatedTaskInput, PersistedTeamState, TeamConfig, TeamProfileSpec } from "../types";
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const promptsRoot = resolve(moduleDir, "../../prompts");
@@ -18,10 +19,17 @@ export function getOrchestratorPromptPath(): string {
 	return resolve(promptsRoot, "orchestrator.md");
 }
 
+function getGenericWorkerPromptPath(): string {
+	return resolve(promptsRoot, "agents/_generic-worker.md");
+}
+
 export function getWorkerPromptPath(profileName: string, config: TeamConfig = DEFAULT_TEAM_CONFIG): string {
 	const profile = config.profiles.find((item) => item.name === profileName);
 	if (!profile) {
 		throw new Error(`Unknown profile prompt contract: ${profileName}`);
+	}
+	if (profile.promptPath === GENERIC_WORKER_PROMPT_SENTINEL) {
+		return getGenericWorkerPromptPath();
 	}
 	if (isAbsolute(profile.promptPath)) {
 		return profile.promptPath;
@@ -33,15 +41,62 @@ export function loadOrchestratorPrompt(): string {
 	return readPromptFile(getOrchestratorPromptPath());
 }
 
+/**
+ * Resolve the worker prompt for a given profile, handling:
+ *  - inline prompt text (from `"prompt": "<prose>"` that didn't resolve to a file)
+ *  - the generic-worker sentinel (from `"prompt": "default"` on a custom-named role)
+ *  - a packaged or project-provided markdown file
+ *
+ * For generic-worker resolution, the role's name + description are substituted
+ * into `{NAME}` / `{DESCRIPTION}` placeholders in the template.
+ */
 export function loadWorkerPrompt(profileName: string, config: TeamConfig = DEFAULT_TEAM_CONFIG): string {
+	const profile = config.profiles.find((item) => item.name === profileName);
+	if (!profile) {
+		throw new Error(`Unknown profile prompt contract: ${profileName}`);
+	}
+	if (profile.promptInline) {
+		return profile.promptInline.trim();
+	}
+	if (profile.promptPath === GENERIC_WORKER_PROMPT_SENTINEL) {
+		return renderGenericWorkerPrompt(profile);
+	}
 	return readPromptFile(getWorkerPromptPath(profileName, config));
+}
+
+function renderGenericWorkerPrompt(profile: TeamProfileSpec): string {
+	const template = readPromptFile(getGenericWorkerPromptPath());
+	const description = (profile.description ?? "").trim() || "(no description provided)";
+	return template.replace(/\{NAME\}/g, profile.name).replace(/\{DESCRIPTION\}/g, description);
+}
+
+function buildAvailableProfilesBlock(config: TeamConfig): string {
+	if (config.profiles.length === 0) {
+		return "## Available worker profiles\n\n(No profiles are configured — `delegate_task` will fail until roles are declared in agents-team.json.)";
+	}
+	const lines = config.profiles.map((profile) => {
+		const description = (profile.description ?? "").trim() || "(no description)";
+		const writeLabel = profile.writePolicy === "scoped-write" ? "write" : "read-only";
+		return `- \`${profile.name}\` (${writeLabel}) — ${description}`;
+	});
+	return [
+		"## Available worker profiles",
+		"",
+		"Pass one of these names as `delegate_task.profileName`. Profile names are declared by the user in agents-team.json (or fall back to built-ins when no config is present), so this list is whatever the operator decided — do NOT invent names that are not in this list.",
+		"",
+		...lines,
+	].join("\n");
 }
 
 export function buildOrchestratorPromptBundle(
 	state: PersistedTeamState,
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
 ): string {
-	return [loadOrchestratorPrompt(), buildOrchestratorSystemPrompt(state, config)].join("\n\n");
+	return [
+		loadOrchestratorPrompt(),
+		buildAvailableProfilesBlock(config),
+		buildOrchestratorSystemPrompt(state, config),
+	].join("\n\n");
 }
 
 export function buildWorkerTaskPrompt(task: DelegatedTaskInput): string {
