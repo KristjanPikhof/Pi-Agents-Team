@@ -662,7 +662,10 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		};
 	}
 
-	if (parsedLayers.length === 0) {
+	// If no layer actually supplied profiles (no valid layers, OR project was
+	// mismatched and we intentionally didn't fall through to global), report
+	// "builtin" so callers don't pretend a user file was loaded.
+	if (parsedLayers.length === 0 || !winningLayer) {
 		return {
 			status: "builtin",
 			config: baseConfig,
