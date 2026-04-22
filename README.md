@@ -78,7 +78,7 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 
 | Command | What it does |
 |---|---|
-| `/team` | Open the dashboard overlay. `/team <worker-id>` jumps straight to that worker. Press `r` in the overlay to re-ping, `y` to copy. |
+| `/team` | Open the keyboard-first dashboard overlay. Wide terminals show a split queue + inspector view; narrow terminals stack them. `/team <worker-id>` jumps straight to that worker's inspector. Press `r` in the overlay to re-ping, `y` to copy, and use Overview / Deliverable / Console tabs for worker detail. |
 | `/team-copy <worker-id>` | Copy the worker's task, summary, final answer, and console timeline to the clipboard. |
 | `/team-prune` | Remove every terminal worker (idle/completed/aborted/error/exited) from the dashboard. |
 | `/team-cost` | Per-worker token usage plus a `Σ` aggregate row. Orchestrator usage stays in the Pi footer. |
