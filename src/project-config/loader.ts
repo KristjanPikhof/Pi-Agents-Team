@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve, relative } from "node:path";
-import { Value } from "@sinclair/typebox/value";
+import { Value } from "typebox/value";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
 import {
 	DEFAULT_MODEL_SENTINEL,
@@ -590,9 +590,15 @@ function parseLayer(scope: TeamConfigScope, path: string): ParsedLayer | { fatal
 		};
 	}
 
-	const schemaErrors = Array.from(Value.Errors(TeamProjectConfigSchema, parsedJson), (error) =>
-		makeDiagnostic("error", `schema_${error.type}`, `${scope} config: ${error.message}`, error.path || undefined),
-	);
+	const schemaErrors = Array.from(Value.Errors(TeamProjectConfigSchema, parsedJson), (error) => {
+		const code = typeof error === "object" && error !== null && "keyword" in error && typeof error.keyword === "string"
+			? error.keyword
+			: "validation";
+		const fieldPath = typeof error === "object" && error !== null && "instancePath" in error && typeof error.instancePath === "string" && error.instancePath.length > 0
+			? error.instancePath
+			: undefined;
+		return makeDiagnostic("error", `schema_${code}`, `${scope} config: ${error.message}`, fieldPath);
+	});
 	if (schemaErrors.length > 0) {
 		return { scope, path, fatalDiagnostics: schemaErrors };
 	}
