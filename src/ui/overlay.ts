@@ -1,14 +1,14 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { SelectList, type SelectItem, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { TUI, OverlayOptions } from "@mariozechner/pi-tui";
 import type { TeamManager } from "../control-plane/team-manager";
 import type { WorkerConsoleEvent } from "../runtime/worker-manager";
-import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types";
+import { type PersistedTeamState, type WorkerRuntimeState } from "../types";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
-import { buildTeamDashboardText } from "./dashboard";
+import { buildActionSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet } from "./dashboard";
 
-type DetailTab = "summary" | "console";
+type DetailTab = "overview" | "deliverable" | "console";
 type PaneFocus = "list" | "detail";
 type LayoutMode = "stack" | "split";
 type NarrowView = "list" | "detail";
@@ -47,61 +47,81 @@ export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 
 const WIDE_LAYOUT_MIN_WIDTH = 110;
 const MIN_OVERLAY_ROWS = 12;
-const MIN_LIST_ROWS = 4;
-const MAX_LIST_ROWS = 18;
+const MIN_LIST_ROWS = 6;
 const MIN_DETAIL_ROWS = 6;
 
-function buildWorkerItems(state: PersistedTeamState): SelectItem[] {
-	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
-	if (workers.length === 0) {
-		return [{ value: "__none__", label: "no tracked workers", description: "run delegate_task first" }];
-	}
-	return workers.map((worker) => ({
-		value: worker.workerId,
-		label: `${worker.workerId} · ${worker.profileName}:${worker.status}`,
-		description: worker.lastSummary?.headline ?? worker.currentTask?.title ?? "",
-	}));
+function formatUsage(worker: WorkerRuntimeState): string {
+	return `turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens} cost=$${worker.usage.costUsd.toFixed(4)}`;
 }
 
-function buildSummaryText(worker: WorkerRuntimeState, transcript: string | undefined): string {
-	const lines = [
-		`Worker: ${worker.workerId}`,
-		`Profile: ${worker.profileName}`,
-		`Status: ${worker.status}`,
-	];
-	if (worker.currentTask?.title) lines.push(`Task: ${worker.currentTask.title}`);
-	if (worker.currentTask?.goal) lines.push(`Goal: ${worker.currentTask.goal}`);
-	if (worker.lastToolName) lines.push(`Last tool: ${worker.lastToolName}`);
-	if (worker.error) lines.push(`Error: ${worker.error}`);
+function appendList(lines: string[], label: string, values: string[]): void {
+	if (values.length === 0) return;
+	lines.push(label);
+	for (const value of values) lines.push(`- ${value}`);
+}
 
-	const summary = worker.lastSummary;
-	if (summary) {
-		if (summary.headline) lines.push(`Headline: ${summary.headline}`);
-		if (summary.readFiles.length) lines.push(`Read files: ${summary.readFiles.join(", ")}`);
-		if (summary.changedFiles.length) lines.push(`Changed files: ${summary.changedFiles.join(", ")}`);
-		if (summary.risks.length) lines.push(`Risks: ${summary.risks.join("; ")}`);
-		if (summary.nextRecommendation) lines.push(`Next: ${summary.nextRecommendation}`);
+function buildOverviewText(worker: WorkerRuntimeState): string {
+	const lines = ["Overview", "", "Status"];
+	lines.push(`- Worker: ${worker.workerId}`);
+	lines.push(`- Profile: ${worker.profileName}`);
+	lines.push(`- Status: ${worker.status}`);
+	lines.push(`- Deliverable ready: ${worker.finalAnswer?.trim() ? "yes" : "not yet"}`);
+	if (worker.lastToolName) lines.push(`- Last tool: ${worker.lastToolName}`);
+	if (worker.error) lines.push(`- Error: ${worker.error}`);
+
+	lines.push("", "Usage", `- ${formatUsage(worker)}`);
+
+	lines.push("", "Task");
+	if (worker.currentTask) {
+		lines.push(`- Title: ${worker.currentTask.title}`);
+		lines.push(`- Goal: ${worker.currentTask.goal}`);
+		if (worker.currentTask.expectedOutput) lines.push(`- Expected output: ${worker.currentTask.expectedOutput}`);
+		appendList(lines, "Context hints", worker.currentTask.contextHints);
+		if (worker.currentTask.pathScope) appendList(lines, "Path scope", worker.currentTask.pathScope.roots);
+	} else {
+		lines.push("- No task assigned.");
 	}
 
-	if (worker.pendingRelayQuestions.length > 0) {
-		lines.push("", "Pending relay questions:");
+	lines.push("", "Needs operator");
+	if (worker.pendingRelayQuestions.length === 0) {
+		lines.push("- None.");
+	} else {
 		for (const relay of worker.pendingRelayQuestions) {
 			lines.push(`- [${relay.urgency}] ${relay.question}`);
 			lines.push(`  assumption: ${relay.assumption}`);
 		}
 	}
 
-	lines.push(
-		"",
-		`Usage: turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens} cost=$${worker.usage.costUsd.toFixed(4)}`,
-	);
-
-	if (transcript && transcript.trim()) {
-		lines.push("", "--- Latest assistant text ---", transcript.trim());
+	lines.push("", "Latest summary");
+	if (worker.lastSummary) {
+		lines.push(`- Headline: ${worker.lastSummary.headline}`);
+		appendList(lines, "Read files", worker.lastSummary.readFiles);
+		appendList(lines, "Changed files", worker.lastSummary.changedFiles);
+		appendList(lines, "Risks", worker.lastSummary.risks);
+		if (worker.lastSummary.nextRecommendation) lines.push(`- Next recommendation: ${worker.lastSummary.nextRecommendation}`);
 	} else {
-		lines.push("", "No assistant text captured yet.");
+		lines.push("- No summary captured yet.");
 	}
 
+	return lines.join("\n");
+}
+
+function buildDeliverableText(worker: WorkerRuntimeState, transcript: string | undefined): string {
+	const lines = ["Deliverable", "", "Final answer", worker.finalAnswer?.trim() || "(no <final_answer> block produced)"];
+	lines.push("", "Supporting artifacts");
+	if (worker.lastSummary?.headline) lines.push(`- Headline: ${worker.lastSummary.headline}`);
+	appendList(lines, "Changed files", worker.lastSummary?.changedFiles ?? []);
+	appendList(lines, "Read files", worker.lastSummary?.readFiles ?? []);
+	appendList(lines, "Risks", worker.lastSummary?.risks ?? []);
+	if (worker.lastSummary?.nextRecommendation) lines.push(`- Next recommendation: ${worker.lastSummary.nextRecommendation}`);
+	if (worker.error) lines.push(`- Error: ${worker.error}`);
+	if (worker.pendingRelayQuestions.length > 0) {
+		lines.push("Pending relay questions");
+		for (const relay of worker.pendingRelayQuestions) {
+			lines.push(`- [${relay.urgency}] ${relay.question}`);
+		}
+	}
+	lines.push("", "Latest assistant text", transcript?.trim() || "(no assistant text captured)");
 	return lines.join("\n");
 }
 
@@ -165,7 +185,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function cycleTab(tab: DetailTab, direction: 1 | -1): DetailTab {
-	const tabs: DetailTab[] = ["summary", "console"];
+	const tabs: DetailTab[] = ["overview", "deliverable", "console"];
 	const index = tabs.indexOf(tab);
 	return tabs[(index + direction + tabs.length) % tabs.length] ?? tab;
 }
@@ -178,10 +198,14 @@ function computeLayoutMode(termWidth: number): LayoutMode {
 	return termWidth >= WIDE_LAYOUT_MIN_WIDTH ? "split" : "stack";
 }
 
-function getSelectableWorkerIds(state: PersistedTeamState): string[] {
-	return Object.values(state.activeWorkers)
-		.sort((left, right) => compareWorkerIds(left.workerId, right.workerId))
-		.map((worker) => worker.workerId);
+function getAttentionOrderedWorkerIds(state: PersistedTeamState): string[] {
+	return buildRosterSections(state).flatMap((section) => section.workers.map((worker) => worker.workerId));
+}
+
+function buildRosterRow(worker: WorkerRuntimeState, selected: boolean, width: number): string {
+	const prefix = selected ? "▶ " : "  ";
+	const text = `${prefix}${worker.workerId} · ${worker.profileName} · ${buildWorkerPrioritySnippet(worker)}`;
+	return truncateToWidth(text, width, "…");
 }
 
 export interface OpenTeamDashboardOptions {
@@ -206,23 +230,12 @@ export function createTeamDashboardOverlayComponent(
 			: undefined,
 		paneFocus: options.initialWorkerId ? "detail" : "list",
 		narrowView: options.initialWorkerId ? "detail" : "list",
-		detailTab: "summary",
+		detailTab: "overview",
 		detailScrollTop: 0,
 	};
 	let statusMessage: string | undefined;
 	let statusExpires = 0;
-	let currentListVisible = 12;
-	let lastRenderMetrics: RenderMetrics = { layout: computeLayoutMode(tui.terminal.columns), listPageSize: 11, detailPageSize: 10 };
-
-	const theme = {
-		selectedPrefix: (_t: string) => "▶ ",
-		selectedText: (text: string) => `▶ ${text.slice(2)}`,
-		description: (text: string) => text,
-		scrollInfo: (text: string) => text,
-		noMatch: (text: string) => text,
-	};
-
-	let selectList = new SelectList(buildWorkerItems(snapshot), currentListVisible, theme);
+	let lastRenderMetrics: RenderMetrics = { layout: computeLayoutMode(tui.terminal.columns), listPageSize: 8, detailPageSize: 10 };
 
 	const requestRender = () => {
 		tui.requestRender?.();
@@ -243,46 +256,26 @@ export function createTeamDashboardOverlayComponent(
 		return statusMessage;
 	};
 
-	const syncSelectionFromList = () => {
-		const item = selectList.getSelectedItem();
-		if (item && item.value !== "__none__") {
-			state.selectedWorkerId = item.value;
-		}
-	};
-
 	const setSelectedWorker = (workerId: string | undefined, resetScroll = false) => {
 		state.selectedWorkerId = workerId;
-		const items = buildWorkerItems(snapshot);
-		const index = workerId ? items.findIndex((item) => item.value === workerId) : -1;
-		if (index >= 0) selectList.setSelectedIndex(index);
 		if (workerId && resetScroll) state.detailScrollTop = 0;
 	};
 
 	const ensureSelectedWorker = () => {
-		const selectableWorkerIds = getSelectableWorkerIds(snapshot);
+		const selectableWorkerIds = getAttentionOrderedWorkerIds(snapshot);
 		if (selectableWorkerIds.length === 0) {
 			state.selectedWorkerId = undefined;
 			state.paneFocus = "list";
 			state.narrowView = "list";
 			return;
 		}
-		if (state.selectedWorkerId && snapshot.activeWorkers[state.selectedWorkerId]) {
-			setSelectedWorker(state.selectedWorkerId);
-			return;
-		}
+		if (state.selectedWorkerId && snapshot.activeWorkers[state.selectedWorkerId]) return;
 		setSelectedWorker(selectableWorkerIds[0], true);
 	};
 
-	const rebuildList = (nextSnapshot = teamManager.snapshot(), nextVisible = currentListVisible) => {
-		snapshot = nextSnapshot;
-		currentListVisible = nextVisible;
-		selectList = new SelectList(buildWorkerItems(snapshot), currentListVisible, theme);
-		ensureSelectedWorker();
-		syncSelectionFromList();
-	};
-
 	const refreshSnapshot = () => {
-		rebuildList(teamManager.snapshot(), currentListVisible);
+		snapshot = teamManager.snapshot();
+		ensureSelectedWorker();
 	};
 
 	const currentWorker = (): WorkerRuntimeState | undefined => {
@@ -291,7 +284,7 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	const moveListSelection = (delta: number) => {
-		const workerIds = getSelectableWorkerIds(snapshot);
+		const workerIds = getAttentionOrderedWorkerIds(snapshot);
 		if (workerIds.length === 0) return;
 		const currentIndex = state.selectedWorkerId ? workerIds.indexOf(state.selectedWorkerId) : 0;
 		const safeIndex = currentIndex >= 0 ? currentIndex : 0;
@@ -300,7 +293,7 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	const jumpListSelection = (target: "first" | "last") => {
-		const workerIds = getSelectableWorkerIds(snapshot);
+		const workerIds = getAttentionOrderedWorkerIds(snapshot);
 		if (workerIds.length === 0) return;
 		setSelectedWorker(target === "first" ? workerIds[0] : workerIds[workerIds.length - 1], true);
 	};
@@ -308,7 +301,7 @@ export function createTeamDashboardOverlayComponent(
 	const refreshActive = () => {
 		teamManager.pingWorkers({ mode: "active" })
 			.then(() => {
-				rebuildList(teamManager.snapshot(), currentListVisible);
+				refreshSnapshot();
 				setStatus(`Refreshed ${Object.keys(snapshot.activeWorkers).length} tracked workers`);
 			})
 			.catch((error) => {
@@ -342,14 +335,20 @@ export function createTeamDashboardOverlayComponent(
 			], width);
 		}
 
-		const bodyText = state.detailTab === "summary"
-			? buildSummaryText(worker, teamManager.getWorkerTranscript(worker.workerId))
-			: buildConsoleText(worker, teamManager.getWorkerConsole(worker.workerId));
+		const bodyText = state.detailTab === "overview"
+			? buildOverviewText(worker)
+			: state.detailTab === "deliverable"
+				? buildDeliverableText(worker, teamManager.getWorkerTranscript(worker.workerId))
+				: buildConsoleText(worker, teamManager.getWorkerConsole(worker.workerId));
 		const wrappedBody = wrapLines(bodyText, width);
-		const tabLabel = state.detailTab === "summary" ? "[Summary] Console" : "Summary [Console]";
+		const tabLabel = state.detailTab === "overview"
+			? "[Overview] Deliverable Console"
+			: state.detailTab === "deliverable"
+				? "Overview [Deliverable] Console"
+				: "Overview Deliverable [Console]";
 		const headerLines = [
 			`${focusMark} Inspector · ${worker.workerId} · ${worker.profileName}:${worker.status}`,
-			`${tabLabel} · tab/shift+tab cycle · s/c jump tabs`,
+			`${tabLabel} · tab/shift+tab cycle · o/d/c jump tabs`,
 		];
 		const pageHeight = Math.max(MIN_DETAIL_ROWS, rows - headerLines.length - 1);
 		const maxTop = Math.max(0, wrappedBody.length - pageHeight);
@@ -362,16 +361,24 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	const renderListPane = (width: number, rows: number): string[] => {
-		const desiredVisible = clamp(rows - 3, MIN_LIST_ROWS, MAX_LIST_ROWS);
-		if (desiredVisible !== currentListVisible) rebuildList(snapshot, desiredVisible);
-		syncSelectionFromList();
 		const focusMark = state.paneFocus === "list" ? "▶" : " ";
 		const lines = [
-			`${focusMark} Workers · ${Object.keys(snapshot.activeWorkers).length} tracked`,
-			`Selected: ${state.selectedWorkerId ?? "none"}`,
-			...selectList.render(width),
+			`${focusMark} Queue · ${Object.keys(snapshot.activeWorkers).length} tracked`,
+			buildActionSummaryLine(snapshot),
 		];
-		lastRenderMetrics.listPageSize = Math.max(1, desiredVisible - 1);
+		for (const section of buildRosterSections(snapshot)) {
+			if (section.workers.length === 0) continue;
+			lines.push(`${section.label} (${section.workers.length})`);
+			for (const worker of section.workers) {
+				lines.push(buildRosterRow(worker, worker.workerId === state.selectedWorkerId, width));
+			}
+			lines.push("");
+		}
+		if (Object.keys(snapshot.activeWorkers).length === 0) {
+			lines.push("No tracked workers.");
+		}
+		while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+		lastRenderMetrics.listPageSize = Math.max(1, Math.min(rows - 2, getAttentionOrderedWorkerIds(snapshot).length || 1));
 		return enforceWidth(lines, width).slice(0, rows);
 	};
 
@@ -384,21 +391,23 @@ export function createTeamDashboardOverlayComponent(
 			lastRenderMetrics.layout = layout;
 			const overlayRows = computeOverlayRows(tui.terminal.rows);
 			const status = activeStatus();
+			const selectedSummary = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
 			const baseHeader = [
-				"Pi Agents Team · responsive dashboard",
-				`mode=${snapshot.sessionMode} · active=${Object.keys(snapshot.activeWorkers).length} · relays=${snapshot.relayQueue.length} · selected=${state.selectedWorkerId ?? "none"} · focus=${state.paneFocus}`,
+				"Pi Agents Team · /team",
+				`${buildActionSummaryLine(snapshot)} · selected=${state.selectedWorkerId ?? "none"}`,
 				layout === "split"
-					? "[←/→ or h/l focus panes · ↑/↓ move/scroll · PgUp/PgDn page · tab cycle tabs · enter inspect · y copy · r refresh · esc close pane/back · q quit]"
+					? `[←/→ focus · ↑/↓ move or scroll · tab cycle tabs · enter inspect · y copy · r refresh · esc back · q quit]`
 					: state.narrowView === "list"
-						? "[↑/↓ move · PgUp/PgDn page · enter inspect · tab open/cycle tabs · y copy · r refresh · esc close · q quit]"
-						: "[j/k·↑↓ scroll · PgUp/PgDn page · g/G top/bottom · tab cycle tabs · s/c tabs · y copy · r refresh · esc back · q quit]",
+						? `[↑/↓ move · enter inspect · tab open/cycle tabs · y copy · r refresh · esc close · q quit]`
+						: `[j/k·↑↓ scroll · PgUp/PgDn page · g/G top/bottom · tab cycle tabs · o/d/c tabs · y copy · r refresh · esc back · q quit]`,
+				`Focus: ${state.paneFocus} · ${selectedSummary}`,
 				...(status ? [`» ${status}`] : []),
 				"",
 			];
 			const bodyRows = Math.max(8, overlayRows - baseHeader.length);
 
 			if (layout === "split") {
-				const listWidth = clamp(Math.floor(width * 0.34), 28, Math.max(28, width - 36));
+				const listWidth = clamp(Math.floor(width * 0.38), 30, Math.max(30, width - 36));
 				const separator = " │ ";
 				const detailWidth = Math.max(24, width - listWidth - visibleWidth(separator));
 				const listLines = renderListPane(listWidth, bodyRows);
@@ -416,9 +425,7 @@ export function createTeamDashboardOverlayComponent(
 			}
 			return enforceWidth([...baseHeader, ...renderDetailPane(width, bodyRows)], width);
 		},
-		invalidate() {
-			selectList.invalidate();
-		},
+		invalidate() {},
 		handleInput(data: string) {
 			const layout = lastRenderMetrics.layout;
 			const inList = layout === "split" ? state.paneFocus === "list" : state.narrowView === "list";
@@ -518,13 +525,16 @@ export function createTeamDashboardOverlayComponent(
 					jumpListSelection("last");
 					return;
 				}
-				selectList.handleInput(data);
-				syncSelectionFromList();
 				return;
 			}
 
-			if (data === "s") {
-				state.detailTab = "summary";
+			if (data === "o") {
+				state.detailTab = "overview";
+				state.detailScrollTop = 0;
+				return;
+			}
+			if (data === "d") {
+				state.detailTab = "deliverable";
 				state.detailScrollTop = 0;
 				return;
 			}
