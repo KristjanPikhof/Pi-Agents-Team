@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config";
 import {
 	createPersistedStateSnapshot,
