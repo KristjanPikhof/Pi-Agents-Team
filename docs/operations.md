@@ -36,8 +36,9 @@ tsx --test tests/runtime/worker-manager.test.ts
 /team <worker-id>
 ```
 
-- `/team` opens the interactive dashboard overlay in TUI mode, or prints the dashboard text in print mode.
-- `/team <worker-id>` skips the list and opens the overlay directly on that worker's detail view (tab completion suggests live worker ids).
+- `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact dashboard summary in print mode.
+- Wide terminals render a split queue + inspector layout; narrower terminals keep the same keyboard flow but stack list and detail views.
+- `/team <worker-id>` skips the queue and opens the overlay directly on that worker's inspector view (tab completion suggests live worker ids).
 
 Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
 
@@ -49,20 +50,22 @@ Inside the `/team` overlay:
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` | Move selection in the worker list |
-| `enter` | Open the selected worker in detail view |
-| `s` / `c` | Switch between Summary and Console tabs |
+| `↑` / `↓` | Move selection in the worker list, or scroll the inspector when it has focus |
+| `←` / `→` | Move focus between queue and inspector in split layout |
+| `enter` | Open the selected worker in the inspector |
+| `tab` / `shift+tab` | Cycle Overview / Deliverable / Console tabs |
+| `o` / `d` / `c` | Jump straight to Overview / Deliverable / Console |
 | `j`/`k` or `↑`/`↓` | Scroll detail view |
 | `PgUp` / `PgDn` | Page scroll |
 | `g` / `G` | Jump to top / bottom |
 | `r` | Re-ping workers (fresh RPC state + stats) and refresh snapshot |
 | `y` | Copy the current worker's task, summary, final answer, transcript, and console to the clipboard (in the list view, copies the highlighted worker) |
-| `esc` | Back to list (or close from list) |
+| `esc` | Back to the queue (or close from the queue) |
 | `q` | Close overlay |
 
-The keybinding help line is pinned right under the tabs, so it stays visible even if the body scrolls or the terminal clips the overlay. A transient `» …` line shows copy/refresh status for a few seconds.
+The keybinding help line is pinned right under the tabs, so it stays visible even if the body scrolls or the terminal clips the overlay. A transient `» …` line shows copy/refresh status for a few seconds, also above the scrolling body.
 
-The Console tab shows a bounded ring buffer of status transitions, tool starts and ends, assistant-text flushes, queue updates, errors, and exit reasons. Use it when a summary is not enough.
+Overview front-loads status, task, usage, operator-needs, and the latest compact summary. Deliverable puts the worker's `<final_answer>` block first, followed by supporting artifacts and the latest assistant text. Console shows a bounded ring buffer of status transitions, tool starts and ends, assistant-text flushes, queue updates, errors, and exit reasons. Use it when a summary is not enough.
 
 ## Inspect a worker's result
 
@@ -213,3 +216,5 @@ npm run typecheck
 npm test
 pi -e ./extensions/pi-agent-team/index.ts -p "/team"
 ```
+
+That smoke command exercises the shipped surface in the same mode operators use: an overlay-style, keyboard-first panel in TUI environments, with a compact text fallback when no UI is available.
