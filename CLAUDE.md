@@ -1,203 +1,121 @@
 # Agent
 
-This file provides guidance to agents when working with code in this repository.
+Load-bearing invariants and anti-patterns for agents working in this repo. For everything else, follow the doc pointers at the end — don't duplicate them here.
 
 ## What this repo is
 
-A Pi extension that turns one visible Pi session into an **orchestrator** and runs all bounded work in background **worker** Pi sessions spawned via `pi --mode rpc --no-session`. The orchestrator never mirrors worker transcripts into its own context — it keeps compact state (summary, relays, status, usage) plus the worker's `<final_answer>…</final_answer>` block and synthesizes from that.
+A Pi extension that turns one visible Pi session into an **orchestrator** and runs all bounded work in background **worker** Pi sessions spawned via `pi --mode rpc --no-session`. The orchestrator keeps compact state (summary, relays, status, usage) plus each worker's `<final_answer>…</final_answer>` block — never full transcripts.
 
-The product contract has three non-negotiables. If you find yourself about to break one, stop and ask:
+Three non-negotiables. If you are about to break one, stop and ask:
 
-1. One user-facing agent. Workers never speak to the user.
-2. Background workers only. They run through RPC, not nested chat sessions.
-3. Compact state over transcripts. Persisted state must stay small and truthful; raw assistant text lives only in-memory on `WorkerManager`.
+1. **One user-facing agent.** Workers never speak to the user.
+2. **Background workers only.** They run through RPC, not nested chat sessions.
+3. **Compact state over transcripts.** Persisted state stays small and truthful; raw assistant text lives only in-memory on `WorkerManager`.
 
-## Commands
+## Dev commands
 
 ```bash
 npm install
-npm run typecheck           # tsc --noEmit
-npm test                    # tsx --test tests/**/*.test.ts (node:test runner)
-npm run smoke:runtime       # scripts/smoke/runtime-worker.ts — real pi rpc worker
-npm run smoke:team          # scripts/smoke/team-flow.ts — TeamManager end-to-end
+npm run typecheck          # tsc --noEmit
+npm test                   # tsx --test tests/**/*.test.ts (node:test + node:assert/strict)
+npm run check              # typecheck + test
+npm run smoke:runtime      # scripts/smoke/runtime-worker.ts — real pi rpc worker
+npm run smoke:team         # scripts/smoke/team-flow.ts — TeamManager end-to-end
 ```
 
-Run one test file: `tsx --test tests/runtime/worker-manager.test.ts`. Assertions come from `node:assert/strict` — not bun, jest, or vitest.
+Single test file: `tsx --test tests/runtime/worker-manager.test.ts`. Load the extension locally: `pi -e ./extensions/pi-agent-team/index.ts`.
 
-Load the extension into Pi for manual verification:
-```bash
-pi -e ./extensions/pi-agent-team/index.ts
-pi -e ./extensions/pi-agent-team/index.ts -p "/team"
-```
+## Architecture at a glance
 
-Current test count is 98. If a change reduces that without a corresponding deletion, something regressed.
+Top-down: `extensions/pi-agent-team/index.ts` (entrypoint — tools, commands, UI wiring) → `src/control-plane/team-manager.ts` (single coordination boundary) → `src/runtime/` (worker process + RPC + event normalizer + worker manager) → supporting layers (`src/comms/`, `src/profiles/`, `src/safety/`, `src/prompts/`, `src/ui/`, `src/commands/`).
 
-## Architecture
+Commands are thin wrappers over `TeamManager` methods and never touch `WorkerManager` directly.
 
-Layering, top to bottom:
+Full runtime topology and data flow: [`docs/architecture.md`](docs/architecture.md).
 
-- `extensions/pi-agent-team/index.ts` — extension entrypoint. Registers 7 tools, 11 slash commands, lifecycle hooks, the state-change listener that drives UI + notifications + spinner animation, and the terminal-toast batcher.
-- `src/control-plane/team-manager.ts` — `TeamManager` is the single coordination boundary. Owns a `TaskRegistry` and a `WorkerManager`. Public shape: `delegateTask`, `messageWorker` / `messageAllWorkers`, `cancelWorker` / `cancelAllWorkers`, `pingWorkers`, `waitForTerminal`, `getWorkerResult`, `getWorkerTranscript`, `getWorkerConsole`.
-- `src/runtime/` — RPC transport. `worker-process.ts` spawns the Pi rpc process, `rpc-client.ts` wraps the line-delimited JSON protocol, `event-normalizer.ts` collapses raw RPC events into a stable `NormalizedWorkerEvent` union, `worker-manager.ts` applies those events to `WorkerRuntimeState` and emits snapshots.
-- `src/comms/` — message shaping. `summary.ts` parses the worker's structured summary, `relay-queue.ts` extracts `relay_question` + `assumption`, `agent-messaging.ts` picks `steer` vs `follow_up` based on status, `ping.ts` builds passive snapshots.
-- `src/profiles/` + `profiles/*.md` — packaged roles (explorer, fixer, reviewer, librarian, observer, oracle, designer). Loader reads markdown frontmatter; `default-profiles.ts` has the TS specs.
-- `src/safety/` — `launch-policy.ts` gates every `delegate_task` (extension mode, path scope, recursion block); `path-scope.ts` requires explicit writable roots for scoped-write profiles (today only `fixer`).
-- `src/prompts/contracts.ts` — builds the orchestrator system-prompt bundle and the per-task worker prompt. `buildWorkerTaskPrompt` injects the `<final_answer>` contract and, when `task.skills` is non-empty, an explicit "invoke these Pi skills via the Skill tool" block.
-- `src/ui/` — `status-widget.ts` (always-visible widget with spinner + counts + per-worker lines), `overlay.ts` (interactive `/team` dashboard with Summary/Console tabs), `dashboard.ts` (print-mode fallback text), `copy-payload.ts` (shared copy-to-clipboard formatter).
-- `src/util/clipboard.ts` — platform-aware clipboard (pbcopy / clip.exe / wl-copy / xclip / xsel).
-- `src/commands/` — `team.ts`, `steer.ts`, `cancel.ts`, `copy.ts`. Every command delegates to `TeamManager`; they never hit `WorkerManager` directly.
+## Operator and tool surface
 
-## Operator surface (post-cleanup)
+- **Slash commands** (11): see [`README.md`](README.md) command table and [`docs/operations.md`](docs/operations.md) for semantics.
+- **Orchestrator tools** (7, unchanged): `delegate_task`, `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, `agent_cancel`.
 
-**Slash commands — 11 total.**
+**Deliberately removed — do not re-add without discussion:** `/team-status`, `/agents`, `/ping-agents`. The widget + `/team` cover them.
 
-- `/team` → opens the dashboard overlay (live RPC ping on open). `y` inside the overlay copies the focused worker to clipboard.
-- `/team <worker-id>` → jumps straight into that worker's detail view.
-- `/team-copy <worker-id>` → same copy payload as `y`, without opening the overlay.
-- `/team-prune` → removes every terminal worker from the dashboard. Use after a cancelled batch.
-- `/team-cost` → per-worker token usage plus `Σ` totals. Orchestrator cost stays in Pi's footer.
-- `/team-init global|local [--force]` → scaffolds a full `agents-team.json` to `~/.pi/agent/` or `./.pi/agent/` with every builtin role pre-populated and a `defaultsVersion` marker. Refuses to overwrite without `--force`; on `--force` the previous file is renamed to `YYYY-MM-DD-HHMM-agents-team.json` in the same directory before the new scaffold is written. The loader flags layers whose `defaultsVersion` differs from the plugin's `CURRENT_DEFAULTS_VERSION` via `layer.defaultsStale`, and the session_start hook emits a per-layer warning toast telling the operator to re-run `/team-init` (and mentioning the backup).
-- `/team-enable global|local` → sets `enabled: true` in the scoped config file (creating it if missing). Run `/reload` to apply.
-- `/team-disable global|local` → sets `enabled: false` in the scoped config file. The extension stays loaded but skips tool execution, prompt injection, and UI rendering until re-enabled.
-- `/agent-result <worker-id>` → prints the compact summary + verbatim `<final_answer>` block.
-- `/agent-steer <worker-id|all> <msg>` → auto-routes: `steer` if running, `follow_up` if idle/waiting_followup. Prints the mode used.
-- `/agent-followup <worker-id|all> <msg>` → always queues as `follow_up`.
-- `/agent-cancel <worker-id|all>` → aborts one or every non-terminal worker.
+## Load-bearing invariants
 
-**Deliberately removed** (do not re-add without discussion):
+**Terminal status set is canonical.** `isTerminalWorkerStatus` recognizes `idle | completed | aborted | error | exited`. `starting | running | waiting_followup` are non-terminal. This set gates `wait_for_agents`, terminal toasts, the widget glyph, "all" broadcasts, and UI "done" states. Keep `deriveStatusFromSessionState` and `applyNormalizedEvent` aligned.
 
-- `/team-status` — widget + `src/config.ts` already show everything it printed.
-- `/agents` — subsumed by the widget (glyph + id + profile + detail) and `/team`.
-- `/ping-agents` — the unique RPC-refresh effect moved into `/team` (fires on open, and on `r` inside the overlay).
+**The `starting → idle` race guard.** `WorkerManager.launchWorker` calls `refreshState` before `promptWorker`. At that instant `isStreaming: false` naively maps to `idle` (terminal). The `worker_state` branch in `applyNormalizedEvent` keeps a `starting` worker as `starting` while `isStreaming` is false; `flushTerminalNotifications` re-filters queued toasts against current status. Both pieces are load-bearing — touching either reintroduces spurious "worker finished" toasts. The guard is scoped to `status === "starting" && !event.state.isStreaming`; widening it breaks running→idle, narrowing reintroduces the bug.
 
-**Tools — 7 total, unchanged** (the orchestrator LLM uses these, not humans): `delegate_task`, `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, `agent_cancel`.
+**Terminal workers reject messages.** `messageWorker` throws when `worker.status` is in `UNREACHABLE_STATUSES` (`completed | aborted | error | exited`). `idle` and `waiting_followup` stay alive — the RPC client still accepts prompts.
 
-## Key invariants worth preserving
+**Delivery resolution is a 3-way union.** `AgentMessageResult.delivery` is `"steer" | "follow_up" | "prompt"`. `steer`/`follow_up` only apply while streaming; on idle/waiting_followup both `/agent-steer` and `/agent-followup` upgrade to `"prompt"` (fresh RPC call that wakes the session). Dropping the `"prompt"` case reintroduces the "queued but nothing happens" bug.
 
-**Compact state, not transcripts.** `createPersistedStateSnapshot` stores compact summaries + relays + status. Raw assistant text lives in-memory on `WorkerManager.textBuffer` and a bounded console ring (`CONSOLE_BUFFER_LIMIT`). Never pipe transcripts into orchestrator context. `config.persistence.storeTranscripts` is `false`.
+**`wait_for_agents` wakes on relays.** Resolves with `all_terminal | relay_raised | timeout | aborted`. On `relay_raised`, `newRelays` carries `{workerId, profileName, question, urgency}`. Baseline relay count is snapshotted per call so already-answered relays don't wake. Opt out with `wakeOnRelay: false`. Don't revert to terminal-only — see [`docs/architecture.md`](docs/architecture.md) "Wait, don't poll".
 
-**Terminal status set is canonical.** `isTerminalWorkerStatus` recognizes `idle`, `completed`, `aborted`, `error`, `exited`. This gates `wait_for_agents`, terminal toasts, the widget glyph, "all" broadcasts, and UI "done" states. `starting`, `running`, `waiting_followup` are non-terminal. Keep `deriveStatusFromSessionState` and `applyNormalizedEvent` aligned with this set.
+**Placeholder relay filter — 3 layers.** Models drift and emit `relay_question: none | n/a | - | null`. (1) `extractRelayQuestions` filters against `PLACEHOLDER_RELAY_VALUES`, (2) the relay-toast listener refuses empty/whitespace-only questions, (3) `buildWorkerTaskPrompt` tells models to omit the field. Remove any one and the "needs guidance: none" noise comes back.
 
-**`wait_for_agents` wakes on relays.** `waitForTerminal` resolves with four possible `reason` values: `all_terminal`, `relay_raised`, `timeout`, `aborted`. On `relay_raised`, the result includes `newRelays: [{workerId, profileName, question, urgency}]` so the orchestrator can answer without enumerating workers. The baseline relay count is snapshotted per call — already-answered relays don't wake subsequent waits. Pass `wakeOnRelay: false` to opt out. The orchestrator prompt covers this loop (`prompts/orchestrator.md`); the extension tool description covers it too. Don't revert to "wait for all terminal" as the only exit — that's how the orchestrator handled 10 parallel workers with mid-flight questions before this change and it blocked productive work.
+**Prune is not cancel.** `cancelWorker` kills the RPC process and marks the entry `exited` but keeps it. `pruneTerminalWorkers` only removes already-terminal entries, never touches live processes. No auto-prune on terminal transition — operators want a batch history until they clear it with `/team-prune`.
 
-**Placeholder relay filter.** Workers sometimes emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) when they have nothing to ask. `extractRelayQuestions` (`src/comms/summary.ts`) drops values matching `PLACEHOLDER_RELAY_VALUES` after case-folding and trimming trailing punctuation. The extension's relay-toast listener additionally refuses to fire for empty/whitespace-only questions. The worker task prompt (`buildWorkerTaskPrompt`) tells models to omit the field entirely. All three layers exist because models drift — removing any one reintroduces the "needs guidance: none" noise.
+**Widget spinner timer.** 120 ms `setInterval` animates while `hasAnimatedWorkers(state)` is true. Starts on state change, stops when the last non-terminal worker finishes, stops on `session_shutdown`, and `.unref()`s. Touch the cadence or animation condition? Stop the old timer.
 
-**The `starting → idle` race guard.** `WorkerManager.launchWorker` calls `refreshState` before `promptWorker`. At that instant the RPC session reports `isStreaming: false`, which naively maps to `idle` (terminal). The `worker_state` branch in `applyNormalizedEvent` keeps a `starting` worker as `starting` while `isStreaming` is false. `flushTerminalNotifications` in the extension filters queued toast entries against current status. Both pieces are load-bearing — touching either without updating the other reintroduces spurious "worker finished" toasts.
+**Visible-width in all TUI code.** Widget and overlay use pi-tui's `visibleWidth` / `truncateToWidth` — never raw `.length` / `.slice`. Braille spinners, emoji, and combining chars miscount under code-unit length and crash pi-tui's render validator.
 
-**The `<final_answer>` contract.** Every delegated task prompt requires the worker's final assistant message to wrap the deliverable in a single `<final_answer>…</final_answer>` block. `extractFinalAnswer` pulls it into `WorkerRuntimeState.finalAnswer`. If the block is empty, the orchestrator's job is to re-delegate / steer / cancel — not to run investigation tools directly.
+**Session restore is honest.** `markRestoredWorkersExited` forces every restored worker to `exited` on session start. The handler threads `SessionStartEvent.reason` through the error string and emits a single decorative warning toast when `reason !== "startup"` and at least one worker was flipped. Never try to silently reattach live RPC processes.
 
-**Non-recursive workers.** Default `extensionMode` is `worker-minimal`. `config.safety.preventRecursiveOrchestrator` is `true` and `launch-policy.ts` hard-rejects `extensionMode: "inherit"` so workers never boot the orchestrator package recursively.
+**Reload gates tool execution.** `session_start` sets `reloading = true` before `replaceTeamManager` and `false` in `finally`. Every tool `execute` calls `ensureNotReloading()` first. Read-only operator commands (`/team-prune`, `/team-cost`, `/agent-result`, …) don't need the guard.
 
-**Path scope is a prompt convention, not an OS sandbox.** This is the honest framing — please don't overclaim in docs. Pi's tool layer does NOT enforce path scope at execution time. `pathScope.roots` is:
+**Scaffold-stale toasts are per-process de-duped.** `Map<scope, scaffoldVersion>` ensures one warning per `(scope, scaffoldVersion)` per lifetime. Pi fires `session_start` on startup, reload, new, resume, and fork — without dedup, `/reload` iterations spam.
 
-1. Rendered into the worker's system prompt via `buildWorkerTaskPrompt` (`"Path scope:\n- <roots>"`) — the worker is *instructed* to stay inside.
-2. Checked at delegate time in `launch-policy.ts`: `resolvePathScope` requires an explicit writable `pathScope` whenever `profile.writePolicy === "scoped-write"` OR `tools` contains `edit` / `write` (the `WRITE_CAPABLE_TOOLS` set in `launch-policy.ts`). `normalizePathScope` and `isPathScopeWithinProjectRoot` resolve roots through `realpathSync.native` so symlink escapes are caught lexically AND by inode.
-3. Checked for "narrower or equal to the role's configured scope" so launch-time requests can't broaden the role's baseline.
+**Broadcasts swallow per-worker errors.** `messageAllWorkers` / `cancelAllWorkers` collect failures into the result array; one bad worker must never abort the whole broadcast.
 
-It is NOT:
+**Config precedence is by file presence, not validity.** `agents-team.json` lives at `~/.pi/agent/` or `<cwd-ancestor>/.pi/agent/` (ancestor walk stops at `homedir()`). If a project file exists — valid, schema-mismatched, or fatal-parse — project wins outright. An invalid winning layer falls back to built-ins; it never downshifts to the other layer. Fatal parse on a NON-winning layer is diagnostic-only. Full rules and prompt resolution: [`docs/profiles.md`](docs/profiles.md).
 
-- An OS-level filesystem sandbox (Pi doesn't run workers under `chroot`, `landlock`, `seatbelt`, or similar).
-- Enforced against the `bash` tool. `bash` can execute arbitrary shell commands in the worker's cwd — `rm`, `>`, `git reset --hard`, `curl … | sh`, invoking an editor. Every built-in read-only role (explorer, librarian, oracle, designer, reviewer, observer) includes `bash` because git/ls/grep workflows need it; requiring a writable `pathScope` for every read-only profile that uses bash would defeat the built-in roles. If you include `bash` in a profile and you don't trust the orchestrator LLM + the role prompt to honor the scope, don't include bash.
-- Enforced against network access, subprocess spawning, environment variable reads, or out-of-band data exfiltration.
+**`schemaVersion` vs `scaffoldVersion`.** Two counters, both in `src/project-config/versions.ts` (currently both `3`). Schema = parsing contract, breaking-change bump. Scaffold = content-freshness marker, soft "stale" warning only. Full distinction and when to bump which: [`docs/profiles.md`](docs/profiles.md) "Version bumps".
 
-What this means in practice: `pathScope` is useful for (a) telling the worker where to focus, (b) surfacing accidental out-of-scope writes in `lastSummary.changedFiles` for the orchestrator to notice, and (c) blocking the clear-cut case of a read-only profile with `write: true` or `tools: ["edit"|"write"]`. It is NOT useful for containing a malicious config, a compromised model, or a worker that ignores its prompt. For true containment, use a sandbox at the Pi layer (out of scope for this plugin) or don't delegate to write-capable profiles from untrusted contexts.
+**Path scope is a prompt convention, not an OS sandbox.** It tells the worker where to focus and blocks the clear-cut "read-only profile with `write: true`" case at delegate time. It does NOT contain `bash`, network, subprocess spawning, or a worker that ignores its prompt. If you include `bash` in a profile, trust the prompt. Full framing and what `resolvePathScope` / `normalizePathScope` actually enforce: [`docs/architecture.md`](docs/architecture.md).
 
-**Session restore is honest.** `markRestoredWorkersExited` forces every restored worker to `exited` on session start and returns `{ state, markedCount }`. Do not try to reattach live RPC processes silently — orphaned state is worse than forcing a relaunch. The session-start handler threads Pi's `SessionStartEvent.reason` through so the error message on each flipped worker reflects the real cause (`resume`, `fork`, `reload`, `new`). When the session did not come from a cold `startup` and at least one worker was flipped, the handler emits a single `warning` toast — operators should never be surprised that prior workers went away. Keep that toast *one line* and decorative (not conversational); the orchestrator prompt still tells the LLM to ignore UI notifications.
+**User strings in prompts are fenced and length-capped.** Role `name` (≤64), `whenToUse` / `description` (≤500) are sanitized and wrapped with `<!-- BEGIN available-profiles -->` sentinels before reaching the orchestrator prompt. Defense against prompt-injection via crafted `whenToUse` in shared configs.
 
-**Reload swap gates tool execution.** The extension entrypoint keeps a `reloading: boolean` flag. `session_start` sets it `true` before `replaceTeamManager` (which awaits `dispose()` on the old manager and swaps in a new one) and `false` in `finally`. Every tool `execute` calls `ensureNotReloading()` at the top and throws `"Pi Agents Team is reloading its project config — retry in a moment."` during the window. Pre-fix, an in-flight `wait_for_agents` / `delegate_task` / `agent_message` tool call could land on a disposed `TeamManager` mid-reload and surface a confusing low-level error. The `/team-prune`, `/team-cost`, `/agent-result`, and similar operator-facing commands don't need this guard — they only read state, never hit the worker-manager.
+**Config writes are atomic.** `src/util/backup.ts#atomicWriteFileSync` stages to `<path>.tmp.<pid>.<ts>` and `renameSync`es into place. Backups use `copyFileSync` with `COPYFILE_EXCL`. Dirs `0o700`, files `0o600` (noop on Windows). Toggle commands (`/team-enable`, `/team-disable`) never rewrite a valid config's roles — only patch `enabled`.
 
-**Scaffold-stale toasts are per-process de-duped.** The entrypoint keeps a `Map<scope, scaffoldVersion>` and only emits the "your scaffold is stale, run /team-init --force" toast when `(scope, scaffoldVersion)` hasn't been warned about this process lifetime. Pi fires `session_start` on startup, reload, new, resume, and fork — without de-dup, a dev iterating with `/reload` would see the warning per scope per reload.
+**Team profiles and Pi skills are different axes.** `delegate_task.profileName` is a role from the active config; `delegate_task.skills: string[]` names Pi skills to be dispatched via `/skill:<name>` inside the worker. Which skills exist is install-specific — never bake specific skill names into prompts, examples, or role defaults. The orchestrator's **Available worker profiles** block is built dynamically from `config.profiles` at startup.
 
-**Broadcasts swallow per-worker errors.** `messageAllWorkers` and `cancelAllWorkers` collect failures into the returned result array (setting `error`) rather than throwing. One bad worker must never abort the whole broadcast. Preserve this when extending.
-
-**Delivery resolution is explicit.** `messageWorker` returns `AgentMessageResult` with the resolved `delivery` field (`"steer" | "follow_up" | "prompt"`). `"steer"` / `"follow_up"` only apply when the worker is actively streaming; on idle/waiting_followup workers both `/agent-steer` and `/agent-followup` upgrade to `"prompt"` (fresh RPC `prompt` call that wakes the session), because a bare `follow_up` RPC against an idle session just queues without starting a new turn. UI and commands use the resolved field to tell the user which channel the message actually went down (`Steered w1 (:running)` / `Queued follow-up for w1 (:running)` / `Prompted w1 (:idle)`). Don't drop the `"prompt"` case — reverting to a two-value union reintroduces the "queued but nothing happens" bug.
-
-**Terminal workers reject messages.** `messageWorker` throws a clear `"Worker X is <status> — its RPC session is already disposed"` error when `worker.status` is in `UNREACHABLE_STATUSES` (`completed | aborted | error | exited`). Pre-fix, terminal workers landed on the `delivery: "prompt"` branch because `resolveWorkerMessageDelivery` only special-cases `"running"`; `promptWorker` then briefly flipped the dashboard back to `running` before the disposed RPC client threw a low-level error. `idle` and `waiting_followup` are NOT in this set — they are terminal for UI purposes but the client is still alive and legitimately accepts new prompts. `messageAllWorkers` already filters targets to `["running", "idle", "waiting_followup"]` so broadcast paths never hit this guard.
-
-**Widget spinner timer.** A 120 ms `setInterval` animates the widget while `hasAnimatedWorkers(state)` is true. It starts on state change, stops on the last worker going terminal, stops on `session_shutdown`, and calls `.unref()` so it never blocks process exit. If you change the tick cadence or the animation condition, stop the old timer.
-
-**Widget hides itself when empty.** `buildTeamWidgetLines` returns `[]` if no workers are tracked, and `applyUi` calls `setWidget(key, undefined)` to clear the surface. Do not add empty-state prose — the title bar still identifies the extension via `titleTemplate`. Three lines of "no workers tracked" is what the widget used to do; that was noise.
-
-**Widget layout switches at 6.** ≤ 6 workers → single column (cap 8 visible). > 6 workers → two columns (cap 16 visible, 8 rows × 2). Per-worker cell is truncated to `COLUMN_WIDTH=38`. The whole widget is capped at `HEADER_WIDTH=78`. Spillover shows as `  +N more · /team to view`.
-
-**Visible-width everywhere in TUI code.** Both widget and overlay use pi-tui's `visibleWidth` / `truncateToWidth` — never raw `.length` or `.slice` — because braille spinner glyphs, emoji, and combining chars miscount under code-unit length and crash pi-tui's render validator (`Rendered line N exceeds terminal width`). `wrapLines` in the overlay uses `visibleWidth` for the comparison and `truncateToWidth(remaining, width, "")` for the slice. Every `return` in the overlay's `render` passes through `enforceWidth(lines, width)` as a final safeguard.
-
-**Overlay footer is pinned at the top.** Under the tabs, not the bottom. This is intentional — terminals can clip the overlay and a bottom footer would disappear. A transient `» …` status line shows copy/refresh outcomes for ~2.5s.
-
-**Autocomplete early-returns on whitespace.** Every `getArgumentCompletions(prefix)` must check `if (/\s/.test(prefix)) return [];` before suggesting anything. Without it, the dropdown keeps matching the first token while the user types the rest of the message, and `enter` picks the suggestion instead of submitting the command. This was a real user-reported bug — the reason every command-file touches `prefix` uniformly now. The pattern also enforces "single-argument commands never auto-complete after the first token," which matches operator intent.
-
-**Unknown-target errors use the did-you-mean helper.** When `resolveWorkerId` fails (or the user misspells `all` as `aal`), commands build a candidate pool (`["all", ...listWorkers().map(w.workerId)]` for message/cancel commands, just worker ids for team/copy/result) and pass it to `formatUnknownWorker(input, suggestTargets(input, candidates))`. The helper lives in `src/util/suggest.ts` and uses Levenshtein distance + prefix match. Keeps error UX consistent across every command — don't inline ad-hoc `Unknown worker: …` strings.
-
-**Prune is not cancel.** `cancelWorker`/`cancelAllWorkers` kill the RPC process and mark the registry entry as `exited` but keep it. `pruneTerminalWorkers` only removes already-terminal entries from the registry — it never touches live processes. The two are deliberate: operators want a history of finished work until they explicitly clear it. Don't auto-prune on terminal transitions; don't make cancel also remove from the registry. If you want a hard reset, the flow is `/agent-cancel all` → `/team-prune` (two steps, visible in chat).
-
-**Config schema is v3 flat: roles are free-form, project wins by presence.** `agents-team.json` (at `~/.pi/agent/` or `<cwd-ancestor>/.pi/agent/` — ancestor walk STOPS at `homedir()` so stale files in `/tmp` or a shared ancestor can't silently bias) is the source of truth when present. Key rules:
-
-- `schemaVersion: 3` is the current schema. The legacy top-level `version` / `defaultsVersion` field names (pre-rename) are accepted at parse time but trigger a `schema_version_mismatch` warning because they can't carry current-schema semantics reliably — the operator runs `/team-init <scope> --force` to regenerate (which backs up the old file).
-- **Precedence is by file presence, not validity.** If a project file exists — valid, schema-mismatched, or even fatal-parse — project wins outright. A mismatched project layer does NOT fall through to global (which would let a stale local config silently resurface broader global roles in a repo that never sanctioned them). Invalid winning layer → built-in fallback for that scope, never a downshift to the other layer. A fatal parse on a NON-WINNING layer (broken global with a valid project, or vice-versa) is diagnostic-only — it must not disable the winning layer. Pre-fix, any fatal parse (including a broken `~/.pi/agent/agents-team.json`) short-circuited to `status: "invalid"` machine-wide; the loader now scopes fatal-parse handling to the winning layer.
-- **No rights ceiling.** Role keys are free-form strings; tools/write/thinkingLevel are whatever the user declared. The loader does NOT compare user roles against built-in defaults. Platform-level safety (`launch-policy.ts`) still enforces: no `extensionMode: "inherit"` (recursion guard), and `write: true` roles require a `pathScope` at delegate time. `safety.projectRoot` defaults to `options.cwd` when no project config exists, so the containment guard (path scopes must stay within project root) always fires — without this, global-only or no-config setups would skip the guard and accept `pathScopeRoots: ["/"]`.
-- **`whenToUse` vs `description`.** `whenToUse` is the canonical v3 field for the trigger sentence shown to the orchestrator in the **Available worker profiles** block. `description` is accepted as a legacy alias; `whenToUse` wins when both are present. Built-in defaults use trigger-style `"Use for / when / to ..."` phrasing — keep this style when adding new roles to the scaffold, because the orchestrator LLM delegates based on literal text matches against these sentences.
-- **Prompt resolution**: `"default"`/omitted → packaged `prompts/agents/<name>.md` if the role name matches one of the seven built-ins, else the generic template at `prompts/agents/_generic-worker.md` with `{NAME}` / `{DESCRIPTION}` substituted (the `{DESCRIPTION}` placeholder is filled from the role's `whenToUse` after normalization). A path string that resolves to a readable file → that file. A string that doesn't resolve to a readable file → stored as `promptInline` on the profile spec and served verbatim. Empty / whitespace-only strings emit a `project_prompt_empty` warning and fall back to the generic template. Path-shaped strings that don't resolve (contain `/`, end in `.md`, start with `./`/`~/`/`http`) emit a `project_prompt_missing` warning so typos don't silently become 20-char inline prompts. A path that escapes the project root → hard error (`project_path_escape`, security). Symlink escapes are caught too: even if the symlink *file* is under the project root, `resolveLayerPath` follows it with `realpathSync.native` and rejects when the real target is outside the real project root.
-- **Inline prompts and the generic-worker sentinel are materialized at launch time.** When a profile has `promptInline` set or `promptPath === GENERIC_WORKER_PROMPT_SENTINEL`, `launch-policy.ts` renders the full prompt (via `loadWorkerPrompt` — inline trim or `{NAME}`/`{DESCRIPTION}` substitution) and writes it to a temp file under `os.tmpdir()/pi-agents-team-prompt-<profile>-XXXXXX/prompt.md`, then passes that temp path to Pi's `--append-system-prompt`. Pre-fix, the launch path only passed a filesystem path and the sentinel is a synthetic identifier that is never a real file — workers started with either the unrendered template or a crashed read. Temp dirs are 0o600 and left for OS cleanup.
-- **User strings in prompts are fenced and length-capped.** Role `name` (max 64 chars), `whenToUse` / `description` (max 500 chars) are stripped of control chars (except `\t`/`\n`) and rendered through `sanitizeProfileName` / `sanitizeDescriptionSingleLine` / `sanitizeDescriptionBlock` before landing in the orchestrator prompt or the generic worker template. `buildAvailableProfilesBlock` additionally wraps every entry with `<!-- BEGIN available-profiles -->` / `<!-- END available-profiles -->` sentinels and tells the orchestrator LLM to ignore instructions inside profile descriptions. This is defence against prompt-injection via crafted `whenToUse` in shared repos or dotfiles — a hostile config could otherwise close the enclosing block and inject new "system" guidance.
-- **Toggle commands are non-destructive.** `/team-enable` / `/team-disable` never overwrite a valid config's roles. On a file that parses as JSON but drifts from the current schema (unknown top-level fields, future additions, old-shape roles), the toggle preserves the raw object and only patches `enabled`. On a file that isn't valid JSON at all, the original is copied to a timestamped backup (`YYYY-MM-DD-HHMMSS-agents-team.json`) in the same directory (seconds included so same-minute reruns don't collide; exclusive-create via `COPYFILE_EXCL` so two concurrent runs don't clobber each other's backups); then a minimal `{ schemaVersion, enabled }` replacement is written. Do not skip the backup. The shared helper lives at `src/util/backup.ts` and exposes `atomicWriteFileSync(path, body, { mode })` — all config writes stage to `<path>.tmp.<pid>.<ts>` and `renameSync` into place so a crash mid-write leaves the original file intact. Directories are created with mode 0o700 and files with mode 0o600 (noop on Windows).
-- `enabled` precedence: project > global > default `true`. When false, session_start shows the disabled toast; tools refuse; `applyUi` clears status + widget.
-- `PI_AGENT_TEAM_GLOBAL_CONFIG_PATH` env var overrides the global probe (tests use this for isolation; `"none"`/`""`/`"null"` skips global entirely). Both the loader and the `/team-init global` / `/team-enable global` / `/team-disable global` commands route through the shared `resolveGlobalConfigPath()` helper; pre-fix, the commands bypassed the env override and would write to the real `~/.pi/agent/agents-team.json` even when tests had the env pointed at a tmpdir.
-
-When adding schema fields, preserve `layers[]` / `enabled` / `enabledSource` / `schemaMismatch` / `rawSchemaVersion` on `LoadedTeamProjectConfig` and `TeamProjectConfigLayer` — they drive the toast source line and the version-mismatch warning.
-
-**Schema versioning — the two counters are different, don't confuse them.** `agents-team.json` carries two version fields, and they mean different things. When touching the config shape, decide which one to bump:
-
-- **`schemaVersion` (aka `TEAM_PROJECT_SCHEMA_VERSION`, currently `3`)** — the **schema contract**. Bump this when the *shape* of the file changes in a way that an older loader can't correctly interpret: renamed fields, moved fields, new required fields, changed semantics of an existing field (e.g. `write: boolean` → `write: "read" | "append" | "full"`), a re-layout of the role map. Bumping `schemaVersion` is a **breaking change** — the loader compares the file's `schemaVersion` against `TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED`; mismatched files emit a `schema_version_mismatch` warning and fall back to built-in roles for that layer (or, if the winning layer is mismatched, project precedence is preserved and we fall back to built-ins without letting global take over). Also add the new number to `TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED` if you want to accept both old and new during a transition, or leave it single-valued to force a hard cutover (operator regenerates via `/team-init --force`). A normalization helper that silently translates old → new shape is OK and keeps files working without a bump — reserve the bump for cases where no honest translation exists.
-- **`scaffoldVersion` (aka `TEAM_SCAFFOLD_VERSION` / `CURRENT_SCAFFOLD_VERSION`, currently `3`)** — the **scaffold freshness marker**. Bump this when the *content* of what `/team-init` would write changes, even though the shape is identical: a new default role is added, a default tool list changes, a best-practice `whenToUse` sentence is rewritten, a new optional field you want in fresh scaffolds. Older files keep loading fine (no forced regen), but every layer where `scaffoldVersion < CURRENT_SCAFFOLD_VERSION` gets `layer.scaffoldStale = true` and a soft per-layer warning toast on session start telling the operator to re-run `/team-init <scope> --force` to pick up the new defaults.
-
-Concretely: if you're changing how the schema is *parsed* (or stored, or validated), bump `schemaVersion`. If you're changing what the scaffold *writes* while keeping parsing compatible, bump `scaffoldVersion`. If you're unsure whether a change is load-compatible, add a normalization path and bump only `scaffoldVersion` — a silent re-bump of `schemaVersion` strands every existing user config behind a warning toast and should be used sparingly.
-
-**Both counters live in one file: `src/project-config/versions.ts`.** Edit that file — nothing else. `src/types.ts` re-exports them; `src/config.ts` exposes `CURRENT_SCAFFOLD_VERSION` as an alias. Tests and docs reference the constants rather than hardcoding literals, so a bump propagates with no other source-code churn.
-
-The legacy top-level field names `version` (mapped to `schemaVersion`) and `defaultsVersion` (mapped to `scaffoldVersion`) are read by the loader so old files can be DETECTED and warned about; they are never the canonical field names going forward. Do not re-emit them from `/team-init`.
-
-**Team profiles and Pi skills are different axes.** `delegate_task.profileName` must be one of the role names in the active config (whatever the user declared in `agents-team.json`, or the seven packaged names when no file is present). The Pi `[Skills]` list shown in the startup banner is **not** a profile list — those are host-level capabilities the worker's Pi session can load. **Which skills exist is install-specific**; the plugin ships to operators with wildly different skill libraries, so do NOT bake specific skill names into prompts, examples, or role defaults. Every reference to skills should point operators at the banner, not at named examples. Pass them through the optional `delegate_task.skills: string[]` array. When `skills` is non-empty, `TeamManager.delegateTask` sets `allowSkills: true` on the launch options, and `buildWorkerProcessArgs` omits `--no-skills` so Pi's skill discovery runs for that worker. `buildWorkerTaskPrompt` renders the list in the worker prompt with "invoke each relevant skill via `/skill:<name>` (or let the matching skill activate automatically)" — Pi dispatches skills via `/skill:name` commands (the pre-fix wording said "Skill tool", which doesn't exist in Pi 0.68). The orchestrator prompt gets a dynamic **Available worker profiles** block (built in `contracts.ts:buildAvailableProfilesBlock` from `config.profiles`, fenced with `<!-- BEGIN available-profiles -->` sentinels and sanitized user strings) so the LLM always sees the currently-configured role list.
-
-`delegate_task.profileName` is declared as `Type.String()` — Pi's TypeBox tool schema has no runtime-mutable enum. As a usability hint, the extension entrypoint mutates the field's `description` string at plugin load time to include the currently-declared role list (`"Currently declared in this session: explorer, fixer, ..."`). Pi caches the tool schema at `registerTool` time; on `/reload` the plugin re-initializes and the description refreshes.
-
-**Cost totals: agents only, not orchestrator.** `aggregateUsage()` and the widget `Σ` line sum across every tracked worker. The orchestrator's own token/cost is Pi's footer bar (`↑ input ↓ output $cost`) — do NOT pull it into the `Σ` row. Duplicating across two surfaces would double-count when the user glances at both. The separation is intentional: footer = orchestrator, widget/`team-cost` = agent team. Terminal workers are included in `Σ` until pruned — that matches "total spent in this batch" semantics.
+**Cost totals: agents only.** `aggregateUsage()` and the widget `Σ` line sum tracked workers. Orchestrator cost stays in Pi's footer. Don't double-surface.
 
 ## Conventions
 
-- Strict TypeScript, ESM (`"type": "module"`). Tests use `node:test` + `node:assert/strict`.
+- Strict TypeScript, ESM (`"type": "module"`). `node:test` + `node:assert/strict` — never jest / vitest / bun.
 - TypeBox (`@sinclair/typebox`) defines tool parameter schemas in the extension entrypoint. Keep schemas and the params shape passed to `TeamManager` in sync.
-- Tests lean on `MockWorkerTransport` / `MockWorkerHandle` in `tests/runtime/test-helpers.ts` instead of spawning real `pi` processes. `MockWorkerTransport.setState(patch)` mutates `isStreaming` and friends from outside; `autoCompletePrompt: false` lets tests drive the exit event manually via `completePrompt()`.
-- Profile prompts (`prompts/agents/*.md`) and profile specs (`profiles/*.md`) are validated by `tests/prompts/prompt-files.test.ts` and `tests/profiles/loader.test.ts` — add or rename a profile in both places at once.
-- `extension-wiring.test.ts` uses `deepEqual` on the sorted command list. Adding or dropping a slash command means updating that assertion too.
+- Tests use `MockWorkerTransport` / `MockWorkerHandle` in `tests/runtime/test-helpers.ts` (`setState`, `autoCompletePrompt: false`, `completePrompt()`) — the seam for unit-testing runtime without a real `pi` process.
+- Profile prompts (`prompts/agents/*.md`) and specs (`profiles/*.md`) are parity-checked by `tests/prompts/` and `tests/profiles/` — rename in both places at once.
+- `tests/extension-wiring.test.ts` `deepEqual`s the sorted command list — update when you add or drop one.
 
-## Documentation map (keep up to date)
+## Anti-patterns
 
-- [`README.md`](README.md) — product overview, quick start, command + tool tables.
-- [`docs/architecture.md`](docs/architecture.md) — layering, runtime flow, state contract, animation layer, toast rules.
-- [`docs/operations.md`](docs/operations.md) — install, smoke, dashboard keys, copy flow, steer/followup semantics, troubleshooting.
-- [`docs/profiles.md`](docs/profiles.md) — default profile table, launch policy, customization.
-- [`docs/prompting.md`](docs/prompting.md) — orchestrator + worker prompt contracts, the `<final_answer>` block rules, wait-don't-poll discipline.
-- [`prompts/orchestrator.md`](prompts/orchestrator.md) — the orchestrator contract injected on `before_agent_start`. This is shipped to the LLM, not just the user. Includes a **Planning loop** (restate ask → inventory knowns/unknowns → pick work shape → pick specialists → write briefs → decide batch size) and a **Task brief template** that every `delegate_task` call should satisfy. When updating orchestrator behavior, keep these two sections aligned — the planning loop decides *what* to delegate, the brief template decides *how* to hand it off.
-- [`prompts/agents/*.md`](prompts/agents/) — per-role worker contracts, loaded at worker launch.
+- **Don't reintroduce `/team-status`, `/agents`, `/ping-agents`.** If you think one is needed, surface the capability in `/team` or the widget instead.
+- **Don't persist transcripts or raw events.** In-memory buffers on `WorkerManager` are deliberate; `config.persistence.storeTranscripts` is `false`.
+- **Don't bypass `TeamManager` from commands.** Control plane is the single boundary that touches the registry and runtime.
+- **Don't emit toasts as if they were conversation.** Terminal and relay toasts are UI-only; the orchestrator prompt tells the LLM to ignore them.
+- **Don't auto-prune terminal workers.** Hides cancelled runs before inspection; breaks `Σ` "spent in this batch" semantics.
+- **Don't add orchestrator tokens to the `Σ` row.** Pi's footer already shows them.
+- **Don't leave backward-compat shims.** No `// removed for X`, no unused re-exports, no renamed `_var` stubs. Git history is the record.
+- **Don't add emojis to files** unless the user asks. Widget uses braille spinner + ASCII glyphs on purpose.
 
-When operator-facing behavior changes (commands, dashboard keys, glyphs, tool parameters, delivery semantics) update the README command table and the operations guide in the same change. When contract-level behavior changes (final_answer shape, worker responsibilities, wait semantics) update `prompts/orchestrator.md` or the relevant `prompts/agents/*.md` too — the LLM reads those directly.
+## What to do each turn
 
-## Anti-patterns to avoid
-
-- **Don't reintroduce `/team-status`, `/agents`, or `/ping-agents`.** They were removed for a reason (widget + `/team` cover it). If you think one is needed, surface the missing capability in `/team` or the widget instead.
-- **Don't persist transcripts or raw events.** The `WorkerManager` buffers them in memory on purpose. If you find yourself adding a field to `PersistedTeamState` that stores text beyond a summary, stop.
-- **Don't over-guard `worker_state`.** The guard only applies when `status === "starting" && !event.state.isStreaming`. Any wider guard breaks the running → idle transition. Any narrower guard reintroduces the spurious-toast bug.
-- **Don't emit toasts as if they were conversation.** Terminal-status toasts and relay-question toasts are UI-only. The orchestrator prompt explicitly tells the LLM to ignore them. If you add a new toast type, make sure it's purely decorative.
-- **Don't bypass `TeamManager` from commands.** Commands are thin wrappers over `TeamManager` methods. Keep that boundary; the control plane is the only place that touches the registry and the runtime.
-- **Don't add emojis to files** unless the user asks. The widget uses braille spinner + ASCII-like glyphs on purpose.
-- **Don't leave backward-compat shims.** If something is removed, delete it completely — no `// removed for X`, no unused re-exports, no renamed `_var` stubs. Git history is the record.
-- **Don't auto-prune terminal workers.** Operators want to see the history of a batch until they clear it. Removing entries on terminal transition would hide cancelled runs before the user inspects them and would break the `Σ` total's "spent in this batch" meaning. Prune is operator-initiated only.
-- **Don't add orchestrator tokens to the `Σ` row.** Pi's footer already shows them. Double-surfacing is worse than missing.
-
-## What to do on each turn
-
-- Before claiming code is correct: run `npm run typecheck` and `npm test`. Don't ship red tests.
-- Before claiming a behavior change is done: update the relevant doc (README, `docs/*.md`, or `prompts/*.md`).
+- Run `npm run check` (or `npm run typecheck` + `npm test`) before claiming correctness.
+- Update the relevant doc when operator-facing behavior (commands, dashboard, tool params, delivery semantics) changes — [`README.md`](README.md) and [`docs/operations.md`](docs/operations.md) in the same commit.
+- Update [`prompts/orchestrator.md`](prompts/orchestrator.md) or the relevant [`prompts/agents/*.md`](prompts/agents/) when contract-level behavior (final_answer shape, worker responsibilities, wait semantics) changes — the LLM reads those directly.
 - Before adding a command or tool: check whether the widget or `/team` already covers the need.
-- Before touching runtime state transitions: re-read the "Key invariants" section above. The bugs in this codebase have historically been race conditions on status transitions and spurious toasts — those are the expensive classes of mistake.
-- Before changing the MockWorkerTransport shape: check which tests rely on `autoCompletePrompt`, `promptText`, and `setState`. They are the only seam for unit-testing runtime behavior without a real Pi process.
+- Before touching runtime state transitions: re-read the invariants above. Historical bugs cluster on status transitions and spurious toasts.
+
+## Documentation map
+
+- [`README.md`](README.md) — product overview, install, operator command table.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — local setup, test discipline, package layout.
+- [`docs/architecture.md`](docs/architecture.md) — layering, runtime flow, state contract, animation, toast rules, widget/overlay layout.
+- [`docs/operations.md`](docs/operations.md) — dashboard keys, copy flow, steer/followup semantics, troubleshooting.
+- [`docs/profiles.md`](docs/profiles.md) — default roles, `agents-team.json` schema, prompt resolution, layering, version bumps, launch-time safety.
+- [`docs/prompting.md`](docs/prompting.md) — orchestrator + worker prompt contracts, `<final_answer>` rules, wait-don't-poll discipline.
+- [`prompts/orchestrator.md`](prompts/orchestrator.md) — orchestrator contract injected on `before_agent_start` (planning loop + task brief template). Shipped to the LLM.
+- [`prompts/agents/*.md`](prompts/agents/) — per-role worker contracts, loaded at launch.
