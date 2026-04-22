@@ -45,7 +45,7 @@ Extension entrypoint (extensions/pi-agent-team/index.ts)
   └─ Operator UI
       ├─ Footer status          (buildTeamStatusLine)
       ├─ Widget                 (buildTeamWidgetLines)
-      ├─ Dashboard overlay      (list view + summary/console tabs)
+      ├─ Dashboard overlay      (queue + inspector shell with overview/deliverable/console tabs)
       ├─ Terminal-status toasts (debounced batch per wake)
       └─ Slash commands         (/team, /team-copy, /team-prune, /team-cost, /agent-*)
 ```
@@ -174,10 +174,11 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 
 `openTeamDashboardOverlay` (`src/ui/overlay.ts`):
 
-- **Sticky footer.** The keybinding help line is rendered immediately under the tab row, not at the bottom. Terminals that clip the overlay height can't hide it.
-- **Transient status line.** A `» …` line under the footer shows copy/refresh outcomes for ~2.5 s.
+- **Responsive shell.** Wide terminals render queue and inspector side by side; narrower terminals stack them while keeping the same keyboard model.
+- **Sticky help + status.** The keybinding help line is rendered immediately under the tab row, not at the bottom, and the transient `» …` status line also stays above the scrolling body. Terminals that clip the overlay height can't hide either line.
 - **Live ping on open** and on `r`. The overlay issues `teamManager.pingWorkers({ mode: "active" })` so token counts and streaming status are current.
-- **Direct focus.** `/team <worker-id>` opens the overlay already on that worker's Summary tab. Tab completion on the `/team` argument pulls live worker ids.
+- **Direct focus.** `/team <worker-id>` opens the overlay already on that worker's inspector, with Overview selected by default. Tab completion on the `/team` argument pulls live worker ids.
+- **Detail tabs.** Overview front-loads status/task/usage/relay context, Deliverable starts with the worker's `<final_answer>` block and supporting artifacts, and Console shows the bounded event timeline.
 - **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload (task, summary, relays, usage, final answer, latest assistant text, console timeline) via pbcopy / clip.exe / wl-copy / xclip / xsel.
 
 ## Notifications
