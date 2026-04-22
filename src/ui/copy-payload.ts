@@ -34,16 +34,19 @@ export function buildCopyPayload(
 		}
 	}
 
+	lines.push("", "## Final answer");
+	lines.push(worker.finalAnswer?.trim() ?? "(no <final_answer> block produced)");
+
 	if (worker.lastSummary) {
-		lines.push("", "## Summary");
+		lines.push("", "## Supporting artifacts");
 		if (worker.lastSummary.headline) lines.push(`headline: ${worker.lastSummary.headline}`);
-		if (worker.lastSummary.readFiles.length) {
-			lines.push("read_files:");
-			for (const f of worker.lastSummary.readFiles) lines.push(`  - ${f}`);
-		}
 		if (worker.lastSummary.changedFiles.length) {
 			lines.push("changed_files:");
 			for (const f of worker.lastSummary.changedFiles) lines.push(`  - ${f}`);
+		}
+		if (worker.lastSummary.readFiles.length) {
+			lines.push("read_files:");
+			for (const f of worker.lastSummary.readFiles) lines.push(`  - ${f}`);
 		}
 		if (worker.lastSummary.risks.length) {
 			lines.push("risks:");
@@ -69,9 +72,6 @@ export function buildCopyPayload(
 	if (worker.error) {
 		lines.push("", "## Error", worker.error);
 	}
-
-	lines.push("", "## Final answer");
-	lines.push(worker.finalAnswer?.trim() ?? "(no <final_answer> block produced)");
 
 	lines.push("", "## Latest assistant text");
 	lines.push(transcript?.trim() ?? "(no assistant text captured)");
