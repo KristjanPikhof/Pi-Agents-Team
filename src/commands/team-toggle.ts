@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { Value } from "@sinclair/typebox/value";
+import { Value } from "typebox/value";
 import { TeamProjectConfigSchema } from "../config";
 import { getProjectConfigPathForScope } from "../project-config/loader";
 import { atomicWriteFileSync, backupExisting } from "../util/backup";
