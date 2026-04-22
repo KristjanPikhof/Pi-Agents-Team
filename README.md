@@ -3,7 +3,7 @@
 One Pi session orchestrates. Background RPC workers do the work. The orchestrator never sees worker transcripts, only compact summaries and a single `<final_answer>` block per worker.
 
 **Repo:** `git@github.com:KristjanPikhof/pi-agents-team.git`
-**Requires:** `pi` CLI ([`@mariozechner/pi-coding-agent`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent)) `>=0.68.0`, Node `>=20`, Git.
+**Requires:** `pi` CLI ([`@mariozechner/pi-coding-agent`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent)) `>=0.69.0`, Node `>=20`, Git.
 
 ## Install
 
