@@ -46,6 +46,8 @@ Full runtime topology and data flow: [`docs/architecture.md`](docs/architecture.
 
 **The `starting → idle` race guard.** `WorkerManager.launchWorker` calls `refreshState` before `promptWorker`. At that instant `isStreaming: false` naively maps to `idle` (terminal). The `worker_state` branch in `applyNormalizedEvent` keeps a `starting` worker as `starting` while `isStreaming` is false; `flushTerminalNotifications` re-filters queued toasts against current status. Both pieces are load-bearing — touching either reintroduces spurious "worker finished" toasts. The guard is scoped to `status === "starting" && !event.state.isStreaming`; widening it breaks running→idle, narrowing reintroduces the bug.
 
+**Rejected prompt acceptance is terminal.** `promptWorker` marks a worker `running` before the RPC `prompt` call returns. If that call rejects, catch it, mark the worker `error`, emit the state change, and rethrow. Never leave a rejected prompt as a ghost-running worker.
+
 **Terminal workers reject messages.** `messageWorker` throws when `worker.status` is in `UNREACHABLE_STATUSES` (`completed | aborted | error | exited`). `idle` and `waiting_followup` stay alive — the RPC client still accepts prompts.
 
 **Delivery resolution is a 3-way union.** `AgentMessageResult.delivery` is `"steer" | "follow_up" | "prompt"`. `steer`/`follow_up` only apply while streaming; on idle/waiting_followup both `/agent-steer` and `/agent-followup` upgrade to `"prompt"` (fresh RPC call that wakes the session). Dropping the `"prompt"` case reintroduces the "queued but nothing happens" bug.
@@ -53,6 +55,8 @@ Full runtime topology and data flow: [`docs/architecture.md`](docs/architecture.
 **`wait_for_agents` wakes on relays.** Resolves with `all_terminal | relay_raised | timeout | aborted`. On `relay_raised`, `newRelays` carries `{workerId, profileName, question, urgency}`. Baseline relay count is snapshotted per call so already-answered relays don't wake. Opt out with `wakeOnRelay: false`. Don't revert to terminal-only — see [`docs/architecture.md`](docs/architecture.md) "Wait, don't poll".
 
 **Placeholder relay filter — 3 layers.** Models drift and emit `relay_question: none | n/a | - | null`. (1) `extractRelayQuestions` filters against `PLACEHOLDER_RELAY_VALUES`, (2) the relay-toast listener refuses empty/whitespace-only questions, (3) `buildWorkerTaskPrompt` tells models to omit the field. Remove any one and the "needs guidance: none" noise comes back.
+
+**Summary file aliases are deliberate.** `buildWorkerSummaryFromText` accepts both `read_files`/`changed_files` and `files_read`/`files_changed`. Workers and docs have used both families; dropping either hides useful file evidence from `/team`, `agent_result`, and copy payloads.
 
 **Prune is not cancel.** `cancelWorker` kills the RPC process and marks the entry `exited` but keeps it. `pruneTerminalWorkers` only removes already-terminal entries, never touches live processes. No auto-prune on terminal transition — operators want a batch history until they clear it with `/team-prune`.
 
