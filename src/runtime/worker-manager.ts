@@ -242,7 +242,24 @@ export class WorkerManager {
 		record.state.lastEventAt = Date.now();
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer || message);
 		this.emitter.emit("event", this.snapshot(workerId), { type: "worker_running", timestamp: record.state.lastEventAt });
-		await record.client.prompt(message);
+		try {
+			await record.client.prompt(message);
+		} catch (error) {
+			const timestamp = Date.now();
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			record.state.status = "error";
+			record.state.error = errorMessage;
+			record.state.lastEventAt = timestamp;
+			record.state.lastSummary = buildSummary(record.state, errorMessage);
+			this.flushPendingText(record);
+			this.appendConsole(record, { ts: timestamp, kind: "error", text: errorMessage });
+			this.emitter.emit("event", this.snapshot(workerId), {
+				type: "worker_error",
+				error: errorMessage,
+				timestamp,
+			});
+			throw error;
+		}
 	}
 
 	async steerWorker(workerId: string, message: string): Promise<void> {
