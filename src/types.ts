@@ -5,7 +5,7 @@ export type TeamSessionMode = (typeof TEAM_SESSION_MODES)[number];
 
 /**
  * Names the plugin ships packaged `prompts/agents/<name>.md` prompts for.
- * In schema v2, these are NOT a ceiling — users may rename, drop, or add roles
+ * In schema v4, these are NOT a ceiling — users may rename, drop, or add roles
  * freely. This list is only used for two things:
  *   1. The default `/team-init` scaffold seeds these role keys so first-time
  *      operators see a sensible starting point.
@@ -183,7 +183,7 @@ export interface ProjectRoleFlatConfig {
 
 export type RawProjectRoleConfig = ProjectRoleConfig | ProjectRoleFlatConfig;
 
-// Schema v2: role keys are free-form strings. The user owns the map.
+// Schema v4: role keys are free-form strings. The user owns the map.
 export type ProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
 export type PartialProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
 export type PartialRawProjectRoleConfigMap = Record<string, RawProjectRoleConfig>;
