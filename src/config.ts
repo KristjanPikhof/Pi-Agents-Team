@@ -67,14 +67,16 @@ export const ProjectRolePromptSchema = Type.Object({
 	path: Type.Optional(NullableStringSchema),
 }, { additionalProperties: false });
 
-export const ProjectRoleAdvancedSchema = Type.Object({
+export const ProjectRoleAccessSchema = Type.Object({
+	tools: Type.Optional(Type.Array(Type.String())),
+	write: Type.Optional(Type.Boolean()),
 	extensionMode: Type.Optional(enumSchema(WORKER_EXTENSION_MODES)),
 	canSpawnWorkers: Type.Optional(Type.Boolean()),
 	pathScope: Type.Optional(TeamPathScopeSchema),
 }, { additionalProperties: false });
 
-export const TeamProjectSafetySchema = Type.Object({
-	allowExternalPathScopes: Type.Optional(Type.Boolean()),
+export const TeamProjectWorkerAccessSchema = Type.Object({
+	allowPathsOutsideProject: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 
 const FlatPromptValueSchema = Type.Union([Type.String(), Type.Null(), ProjectRolePromptSchema]);
@@ -90,16 +92,10 @@ const FlatPromptValueSchema = Type.Union([Type.String(), Type.Null(), ProjectRol
  */
 export const ProjectRoleConfigSchema = Type.Object({
 	whenToUse: Type.Optional(NullableStringSchema),
-	description: Type.Optional(NullableStringSchema),
 	model: Type.Optional(NullableStringSchema),
 	thinkingLevel: Type.Optional(enumSchema(THINKING_LEVELS)),
-	// v2 flat fields
-	tools: Type.Optional(Type.Array(Type.String())),
-	write: Type.Optional(Type.Boolean()),
+	access: Type.Optional(ProjectRoleAccessSchema),
 	prompt: Type.Optional(FlatPromptValueSchema),
-	advanced: Type.Optional(ProjectRoleAdvancedSchema),
-	// v1 legacy fields
-	permissions: Type.Optional(ProjectRolePermissionsSchema),
 }, { additionalProperties: false });
 
 /**
@@ -120,7 +116,7 @@ export const TeamProjectConfigSchema = Type.Object({
 	scaffoldVersion: Type.Optional(Type.Number()),
 	defaultsVersion: Type.Optional(Type.Number()),
 	enabled: Type.Optional(Type.Boolean()),
-	safety: Type.Optional(TeamProjectSafetySchema),
+	workerAccess: Type.Optional(TeamProjectWorkerAccessSchema),
 	roles: Type.Optional(Type.Record(Type.String(), ProjectRoleConfigSchema)),
 }, { additionalProperties: false });
 
@@ -244,7 +240,7 @@ export const TeamConfigSchema = Type.Object({
 		preventRecursiveOrchestrator: Type.Boolean({ default: true }),
 		defaultWorkerExtensionMode: enumSchema(WORKER_EXTENSION_MODES),
 		requirePathScopeForWrites: Type.Boolean({ default: true }),
-		allowExternalPathScopes: Type.Boolean({ default: false }),
+		allowWorkerPathsOutsideProject: Type.Boolean({ default: false }),
 		allowProjectProfiles: Type.Boolean({ default: false }),
 		projectRoot: Type.Optional(Type.String()),
 	}),
@@ -308,7 +304,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		preventRecursiveOrchestrator: true,
 		defaultWorkerExtensionMode: "worker-minimal",
 		requirePathScopeForWrites: true,
-		allowExternalPathScopes: false,
+		allowWorkerPathsOutsideProject: false,
 		allowProjectProfiles: false,
 	},
 	persistence: {
@@ -518,7 +514,7 @@ export function buildOrchestratorSystemPrompt(
 		`- Active worker count in this session snapshot: ${activeWorkerCount}.`,
 		`- Pending relay questions in this session snapshot: ${relayCount}.`,
 		`- Worker transport contract: ${config.rpc.transport} via ${[config.rpc.command, ...config.rpc.args].join(" ")}.`,
-		`- Safety defaults: recursion prevention=${String(config.safety.preventRecursiveOrchestrator)}, require path scope for writes=${String(config.safety.requirePathScopeForWrites)}, allow external path scopes=${String(config.safety.allowExternalPathScopes)}.`,
+		`- Safety defaults: recursion prevention=${String(config.safety.preventRecursiveOrchestrator)}, require path scope for writes=${String(config.safety.requirePathScopeForWrites)}, allow worker paths outside project=${String(config.safety.allowWorkerPathsOutsideProject)}.`,
 	].join("\n");
 }
 
