@@ -22,13 +22,12 @@ function buildConfig(overrides: Partial<TeamProjectConfigFile["roles"]> = {}): T
 		TEAM_PROFILE_NAMES.map((profileName) => [
 			profileName,
 			{
-				permissions: {},
-				prompt: { source: "builtin" as const },
+				prompt: "default",
 			},
 		]),
 	) as TeamProjectConfigFile["roles"];
 	return {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			...roles,
 			...overrides,
@@ -47,12 +46,11 @@ test("loadActiveTeamConfig discovers nearest ancestor config and normalizes proj
 		root,
 		buildConfig({
 			reviewer: {
-				permissions: {},
 				prompt: { source: "project", path: "prompts/reviewer.md" },
 			},
 			fixer: {
-				permissions: {
-					writePolicy: "scoped-write",
+				access: {
+					write: true,
 					pathScope: {
 						roots: ["src/scoped"],
 						allowReadOutsideRoots: false,
@@ -97,7 +95,6 @@ test("loadActiveTeamConfig prefers the nearest ancestor config when multiple exi
 		root,
 		buildConfig({
 			reviewer: {
-				permissions: {},
 				prompt: { source: "project", path: "prompts/reviewer.md" },
 			},
 		}),
@@ -106,7 +103,6 @@ test("loadActiveTeamConfig prefers the nearest ancestor config when multiple exi
 		nestedRoot,
 		buildConfig({
 			reviewer: {
-				permissions: {},
 				prompt: { source: "project", path: "prompts/reviewer.md" },
 			},
 		}),
@@ -128,7 +124,6 @@ test("loadActiveTeamConfig disables delegation when project paths escape the dis
 		root,
 		buildConfig({
 			reviewer: {
-				permissions: {},
 				prompt: { source: "project", path: "../outside.md" },
 			},
 		}),
@@ -142,20 +137,54 @@ test("loadActiveTeamConfig disables delegation when project paths escape the dis
 	assert.match(reviewer?.promptPath ?? "", /prompts\/agents\/reviewer\.md$/);
 });
 
-test("loadActiveTeamConfig v2: user role declarations are source-of-truth (no ceiling comparisons)", () => {
-	// In schema v2 the user's JSON owns the role list. There's no concept of a
+test("loadActiveTeamConfig accepts external role path scopes when workerAccess opts in", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-config-external-scope-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		workerAccess: {
+			allowPathsOutsideProject: true,
+		},
+		roles: {
+			fixer: {
+				access: {
+					tools: ["read", "bash", "edit", "write"],
+					write: true,
+					pathScope: {
+						roots: ["../external-logs", "src"],
+						allowReadOutsideRoots: false,
+						allowWrite: true,
+					},
+				},
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.equal(result.delegationEnabled, true);
+	assert.equal(result.config.safety.allowWorkerPathsOutsideProject, true);
+	const fixer = result.config.profiles.find((profile) => profile.name === "fixer");
+	assert.deepEqual(fixer?.pathScope?.roots, [resolve(root, "../external-logs"), resolve(root, "src")]);
+	assert.equal(fixer?.pathScope?.allowWrite, true);
+});
+
+test("loadActiveTeamConfig v4: user role declarations are source-of-truth (no ceiling comparisons)", () => {
+	// In schema v4 the user's JSON owns the role list. There's no concept of a
 	// built-in "ceiling" to compare against — role names are free-form and tools
 	// are whatever the user declared. Platform-level safety (extensionMode
 	// "inherit" block, pathScope required for writes) is still enforced at
 	// delegate time via launch-policy, not here in the loader.
-	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v2-freeform-"));
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v4-freeform-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			reviewer: {
-				tools: ["read", "edit", "bash", "grep", "find"],
-				write: true,
+				access: {
+					tools: ["read", "edit", "bash", "grep", "find"],
+					write: true,
+				},
 			} as any,
 		},
 	});
@@ -167,20 +196,22 @@ test("loadActiveTeamConfig v2: user role declarations are source-of-truth (no ce
 	assert.ok(reviewer);
 	assert.deepEqual(reviewer?.tools, ["read", "edit", "bash", "grep", "find"]);
 	assert.equal(reviewer?.writePolicy, "scoped-write");
-	// No narrowing diagnostics emitted under v2
+	// No narrowing diagnostics emitted under v4
 	assert.ok(!result.diagnostics.some((diagnostic) => diagnostic.code === "tools_broaden_forbidden"));
 });
 
-test("loadActiveTeamConfig v2: extensionMode 'inherit' in role advanced block is rejected (platform safety)", () => {
-	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v2-recursion-block-"));
+test("loadActiveTeamConfig v4: extensionMode 'inherit' in role access block is rejected (platform safety)", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v4-recursion-block-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			reviewer: {
-				tools: ["read", "grep"],
-				write: false,
-				advanced: { extensionMode: "inherit" },
+				access: {
+					tools: ["read", "grep"],
+					write: false,
+					extensionMode: "inherit",
+				},
 			} as any,
 		},
 	});
@@ -194,7 +225,7 @@ test("loadActiveTeamConfig v2: extensionMode 'inherit' in role advanced block is
 test("loadActiveTeamConfig accepts a partial roles map (no required role keys)", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-partial-"));
 	mkdirSync(join(root, "app"), { recursive: true });
-	writeProjectConfig(root, { schemaVersion: 3, roles: { fixer: { permissions: {}, prompt: { source: "builtin" } } } });
+	writeProjectConfig(root, { schemaVersion: 4, roles: { fixer: { prompt: "default" } } });
 
 	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
 	assert.equal(result.status, "project");
@@ -205,12 +236,12 @@ test("loadActiveTeamConfig accepts a partial roles map (no required role keys)",
 test("loadActiveTeamConfig resolves enabled flag by precedence (project over global)", () => {
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-enabled-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
-	writeProjectConfig(projectRoot, { schemaVersion: 3, enabled: true });
+	writeProjectConfig(projectRoot, { schemaVersion: 4, enabled: true });
 
 	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-global-"));
 	mkdirSync(join(globalRoot, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
 	const globalPath = join(globalRoot, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
-	writeFileSync(globalPath, JSON.stringify({ schemaVersion: 3, enabled: false }));
+	writeFileSync(globalPath, JSON.stringify({ schemaVersion: 4, enabled: false }));
 
 	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: globalPath });
 	assert.equal(result.enabled, true);
@@ -225,7 +256,7 @@ test("loadActiveTeamConfig applies global enabled=false when project has no over
 	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-global-"));
 	mkdirSync(join(globalRoot, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
 	const globalPath = join(globalRoot, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
-	writeFileSync(globalPath, JSON.stringify({ schemaVersion: 3, enabled: false }));
+	writeFileSync(globalPath, JSON.stringify({ schemaVersion: 4, enabled: false }));
 
 	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: globalPath });
 	assert.equal(result.enabled, false);
@@ -242,18 +273,18 @@ test("loadActiveTeamConfig defaults enabled=true when no layers set it", () => {
 	assert.equal(result.status, "builtin");
 });
 
-test("loadActiveTeamConfig v2: project file fully replaces global — no cross-layer merging", () => {
-	// In schema v2 the winning layer owns the role list outright. If a project
+test("loadActiveTeamConfig v4: project file fully replaces global — no cross-layer merging", () => {
+	// In schema v4 the winning layer owns the role list outright. If a project
 	// file is present, global is ignored entirely. This is a deliberate change
 	// from earlier layered-narrowing semantics — roles are too free-form for
 	// cross-layer merging to be meaningful.
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-replace-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
 	writeProjectConfig(projectRoot, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			oracle: { thinkingLevel: "medium" } as any,
-			worker: { tools: ["read", "bash"], write: false } as any,
+			worker: { access: { tools: ["read", "bash"], write: false } } as any,
 		},
 	});
 
@@ -263,10 +294,10 @@ test("loadActiveTeamConfig v2: project file fully replaces global — no cross-l
 	writeFileSync(
 		globalPath,
 		JSON.stringify({
-			schemaVersion: 3,
+			schemaVersion: 4,
 			roles: {
 				oracle: { model: "openai/gpt-5.4", thinkingLevel: "high" },
-				globalOnlyRole: { tools: ["read"], write: false },
+				globalOnlyRole: { access: { tools: ["read"], write: false } },
 			},
 		}),
 	);
@@ -282,26 +313,29 @@ test("loadActiveTeamConfig v2: project file fully replaces global — no cross-l
 	assert.ok(result.config.profiles.find((profile) => profile.name === "worker"));
 });
 
-test("loadActiveTeamConfig accepts the flat v2 role shape (tools / write / prompt / advanced)", () => {
+test("loadActiveTeamConfig accepts the schema v4 role shape", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-flat-shape-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		defaultsVersion: 2,
 		roles: {
-			// flat role: tools/write/prompt at the top level, no `permissions` wrapper
 			reviewer: {
-				description: "custom",
+				whenToUse: "custom",
 				model: "default",
 				thinkingLevel: "high",
-				tools: ["read", "grep", "find", "ls"],
-				write: false,
+				access: {
+					tools: ["read", "grep", "find", "ls"],
+					write: false,
+				},
 				prompt: "default",
 			} as any,
-			// write:true should translate to writePolicy scoped-write
+			// access.write:true should translate to writePolicy scoped-write
 			fixer: {
-				tools: ["read", "bash", "edit", "write"],
-				write: true,
+				access: {
+					tools: ["read", "bash", "edit", "write"],
+					write: true,
+				},
 				prompt: "default",
 			} as any,
 		},
@@ -325,7 +359,7 @@ test("loadActiveTeamConfig accepts the flat v2 role shape (tools / write / promp
 	assert.deepEqual(fixer?.tools, ["read", "bash", "edit", "write"]);
 });
 
-test("loadActiveTeamConfig v2: a string prompt that doesn't resolve to a file is stored as inline text", () => {
+test("loadActiveTeamConfig v4: a string prompt that doesn't resolve to a file is stored as inline text", () => {
 	// User writes `"prompt": "You are a specialized agent..."` directly in JSON.
 	// Since no file matches that string, the loader treats it as inline prompt
 	// text and surfaces it via promptInline. This is the user's escape hatch for
@@ -333,12 +367,14 @@ test("loadActiveTeamConfig v2: a string prompt that doesn't resolve to a file is
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-inline-prompt-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			"custom-scout": {
-				description: "Fast repo recon.",
-				tools: ["read", "grep", "find", "ls"],
-				write: false,
+				whenToUse: "Fast repo recon.",
+				access: {
+					tools: ["read", "grep", "find", "ls"],
+					write: false,
+				},
 				prompt: "You are a specialized repo-recon agent. Return file paths only.",
 			} as any,
 		},
@@ -352,16 +388,18 @@ test("loadActiveTeamConfig v2: a string prompt that doesn't resolve to a file is
 	assert.equal(scout?.promptInline, "You are a specialized repo-recon agent. Return file paths only.");
 });
 
-test("loadActiveTeamConfig v2: custom role name with prompt 'default' uses the generic-worker sentinel", () => {
+test("loadActiveTeamConfig v4: custom role name with prompt 'default' uses the generic-worker sentinel", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-custom-default-prompt-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			"custom-name": {
-				description: "A totally custom worker.",
-				tools: ["read"],
-				write: false,
+				whenToUse: "A totally custom worker.",
+				access: {
+					tools: ["read"],
+					write: false,
+				},
 				prompt: "default",
 			} as any,
 		},
@@ -374,20 +412,20 @@ test("loadActiveTeamConfig v2: custom role name with prompt 'default' uses the g
 	assert.equal(role?.promptInline, undefined);
 });
 
-test("loadActiveTeamConfig v2: project file with schema mismatch does NOT let global take over (precedence by presence)", () => {
+test("loadActiveTeamConfig v4: project file with schema mismatch does NOT let global take over (precedence by presence)", () => {
 	// Finding-1 guarantee: a stale local project config must not silently
 	// resurface broader global roles. Project wins by presence. If project is
 	// mismatched, the loader falls back to built-in defaults, never to global.
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-finding1-project-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
-	// Write a project file with an obsolete schemaVersion (v2 instead of current v3)
+	// Write a project file with an obsolete schemaVersion (v3 instead of current v4).
 	const projectPath = projectConfigPath(projectRoot);
 	mkdirSync(resolve(projectPath, ".."), { recursive: true });
 	writeFileSync(
 		projectPath,
 		JSON.stringify({
-			schemaVersion: 2,
-			roles: { "project-only": { tools: ["read"], write: false } },
+			schemaVersion: 3,
+			roles: { "project-only": { prompt: "default" } },
 		}),
 	);
 
@@ -401,9 +439,9 @@ test("loadActiveTeamConfig v2: project file with schema mismatch does NOT let gl
 	writeFileSync(
 		globalPath,
 		JSON.stringify({
-			schemaVersion: 3,
+			schemaVersion: 4,
 			roles: {
-				"global-only-writer": { tools: ["read", "edit", "write"], write: true },
+				"global-only-writer": { access: { tools: ["read", "edit", "write"], write: true } },
 			},
 		}),
 	);
@@ -421,27 +459,18 @@ test("loadActiveTeamConfig v2: project file with schema mismatch does NOT let gl
 	);
 });
 
-test("loadActiveTeamConfig v2: whenToUse is the canonical field; description is accepted as legacy alias; whenToUse wins", () => {
+test("loadActiveTeamConfig v4: whenToUse becomes the role description", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-whentouse-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			scout: {
 				whenToUse: "Use when the user wants a fast API route map.",
-				tools: ["read", "grep"],
-				write: false,
-			} as any,
-			legacy: {
-				description: "Legacy description field.",
-				tools: ["read"],
-				write: false,
-			} as any,
-			both: {
-				whenToUse: "This one wins.",
-				description: "This one is the alias fallback.",
-				tools: ["read"],
-				write: false,
+				access: {
+					tools: ["read", "grep"],
+					write: false,
+				},
 			} as any,
 		},
 	});
@@ -450,16 +479,12 @@ test("loadActiveTeamConfig v2: whenToUse is the canonical field; description is 
 	assert.equal(result.status, "project");
 	const scout = result.config.profiles.find((p) => p.name === "scout");
 	assert.equal(scout?.description, "Use when the user wants a fast API route map.");
-	const legacy = result.config.profiles.find((p) => p.name === "legacy");
-	assert.equal(legacy?.description, "Legacy description field.");
-	const both = result.config.profiles.find((p) => p.name === "both");
-	assert.equal(both?.description, "This one wins.");
 });
 
-test("loadActiveTeamConfig v2: schema version mismatch warns and falls back to built-in", () => {
+test("loadActiveTeamConfig v4: schema version mismatch warns and falls back to built-in", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-v1-file-"));
 	mkdirSync(join(root, "app"), { recursive: true });
-	// Write a file with schema version 1 — obsolete under v2
+	// Write a file with schema version 1 — obsolete under v4.
 	const path = projectConfigPath(root);
 	mkdirSync(resolve(path, ".."), { recursive: true });
 	writeFileSync(path, JSON.stringify({ version: 1, enabled: true, roles: {} }, null, 2));
@@ -486,8 +511,8 @@ test("loadActiveTeamConfig: fatal-parse on non-winning layer does NOT disable th
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-fatal-nonwinner-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
 	writeProjectConfig(projectRoot, {
-		schemaVersion: 3,
-		roles: { "custom-scout": { tools: ["read"], write: false } as any },
+		schemaVersion: 4,
+		roles: { "custom-scout": { access: { tools: ["read"], write: false } } as any },
 	});
 
 	const globalRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-fatal-nonwinner-global-"));
@@ -526,6 +551,7 @@ test("loadActiveTeamConfig defaults safety.projectRoot to cwd when no project co
 	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-projectroot-default-"));
 	const result = loadActiveTeamConfig({ cwd, globalConfigPath: null });
 	assert.equal(result.status, "builtin");
+	assert.equal(result.config.safety.allowWorkerPathsOutsideProject, false);
 	assert.equal(result.config.safety.projectRoot, cwd);
 });
 
@@ -538,11 +564,13 @@ test("loadActiveTeamConfig: path-typo-shaped string emits project_prompt_missing
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-prompt-typo-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			"typo-role": {
-				tools: ["read"],
-				write: false,
+				access: {
+					tools: ["read"],
+					write: false,
+				},
 				prompt: "./prompts/reviewr.md",
 			} as any,
 		},
@@ -566,11 +594,13 @@ test("loadActiveTeamConfig: empty prompt string resolves without crashing on EIS
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-prompt-empty-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			"empty-prompt-role": {
-				tools: ["read"],
-				write: false,
+				access: {
+					tools: ["read"],
+					write: false,
+				},
 				prompt: "",
 			} as any,
 		},

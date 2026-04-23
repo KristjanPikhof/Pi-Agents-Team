@@ -47,8 +47,11 @@ function scaffoldRole(profile: TeamProfileSpec): ProjectRoleFlatConfig {
 		whenToUse: profile.description,
 		model: DEFAULT_MODEL_SENTINEL,
 		thinkingLevel: profile.thinkingLevel,
-		tools: [...profile.tools],
-		write: profile.writePolicy === "scoped-write",
+		access: {
+			tools: [...profile.tools],
+			write: profile.writePolicy === "scoped-write",
+			...(profile.pathScope ? { pathScope: profile.pathScope } : {}),
+		},
 		prompt: DEFAULT_PROMPT_SENTINEL,
 	};
 	return role;
@@ -63,6 +66,9 @@ function buildFullScaffold(): TeamProjectConfigFile {
 		schemaVersion: TEAM_PROJECT_SCHEMA_VERSION,
 		scaffoldVersion: CURRENT_SCAFFOLD_VERSION,
 		enabled: true,
+		workerAccess: {
+			allowPathsOutsideProject: false,
+		},
 		roles,
 	};
 }
@@ -130,7 +136,8 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 			}
 			lines.push(
 				`Wrote ${parsed.scope} agents-team.json scaffold (schemaVersion ${TEAM_PROJECT_SCHEMA_VERSION}, scaffoldVersion ${CURRENT_SCAFFOLD_VERSION}) to ${targetPath}.`,
-				`Per-role knobs: whenToUse (a trigger sentence — "Use when..." — shown to the orchestrator so it picks the right role), model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel, tools (the role's tool set), write (true/false — writable roles need an explicit pathScope at delegate time; including bash in a role's tools also requires a writable pathScope), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md, or the prompt text inline).`,
+				"Global worker access policy lives under `workerAccess`. Set `allowPathsOutsideProject: true` when delegated workers need path scopes such as /tmp or sibling repos.",
+				`Per-role knobs: whenToUse (a trigger sentence — "Use when..." — shown to the orchestrator so it picks the right role), model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel, access (tools, write, pathScope, extensionMode), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md, or the prompt text inline).`,
 				"Rename, remove, or add roles freely — the orchestrator sees exactly what you declare. Delete a role block to fall back to the built-in defaults for that name.",
 				"Run /reload to apply changes in this session.",
 			);

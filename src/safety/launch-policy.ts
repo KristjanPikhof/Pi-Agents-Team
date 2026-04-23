@@ -121,7 +121,7 @@ function resolvePathScope(
 	}
 
 	const projectRoot = config.safety.projectRoot;
-	if (projectRoot && !isPathScopeWithinProjectRoot(normalizedRequestedScope, projectRoot, request.cwd)) {
+	if (!config.safety.allowWorkerPathsOutsideProject && projectRoot && !isPathScopeWithinProjectRoot(normalizedRequestedScope, projectRoot, request.cwd)) {
 		throw new Error("Launch-time path scope roots must stay within the discovered project root.");
 	}
 

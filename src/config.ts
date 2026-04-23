@@ -54,48 +54,36 @@ export const TeamProfileSpecSchema = Type.Object({
 
 const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
 
-export const ProjectRolePermissionsSchema = Type.Object({
-	tools: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
-	extensionMode: Type.Optional(enumSchema(WORKER_EXTENSION_MODES)),
-	writePolicy: Type.Optional(enumSchema(WORKER_WRITE_POLICIES)),
-	pathScope: Type.Optional(TeamPathScopeSchema),
-	canSpawnWorkers: Type.Optional(Type.Boolean()),
-}, { additionalProperties: false });
-
 export const ProjectRolePromptSchema = Type.Object({
 	source: enumSchema(TEAM_PROMPT_SOURCES),
 	path: Type.Optional(NullableStringSchema),
 }, { additionalProperties: false });
 
-export const ProjectRoleAdvancedSchema = Type.Object({
+export const ProjectRoleAccessSchema = Type.Object({
+	tools: Type.Optional(Type.Array(Type.String())),
+	write: Type.Optional(Type.Boolean()),
 	extensionMode: Type.Optional(enumSchema(WORKER_EXTENSION_MODES)),
 	canSpawnWorkers: Type.Optional(Type.Boolean()),
 	pathScope: Type.Optional(TeamPathScopeSchema),
 }, { additionalProperties: false });
 
+export const TeamProjectWorkerAccessSchema = Type.Object({
+	allowPathsOutsideProject: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+
 const FlatPromptValueSchema = Type.Union([Type.String(), Type.Null(), ProjectRolePromptSchema]);
 
 /**
- * Accepts both the v1 nested shape ({ permissions, prompt: { source, path } })
- * and the v2 flat shape ({ tools, write, prompt: "default" | "<path>", advanced }).
+ * Schema v4 role shape. Role selection fields stay at the top level, while
+ * worker capabilities and path controls live under `access`.
  * Normalization into the internal ProjectRoleConfig happens in the loader.
- *
- * `whenToUse` and `description` are aliases — the former is preferred in the
- * v2 flat shape (clearer semantics for operators), the latter is accepted for
- * backcompat. The loader picks whenToUse when both are set.
  */
 export const ProjectRoleConfigSchema = Type.Object({
 	whenToUse: Type.Optional(NullableStringSchema),
-	description: Type.Optional(NullableStringSchema),
 	model: Type.Optional(NullableStringSchema),
 	thinkingLevel: Type.Optional(enumSchema(THINKING_LEVELS)),
-	// v2 flat fields
-	tools: Type.Optional(Type.Array(Type.String())),
-	write: Type.Optional(Type.Boolean()),
+	access: Type.Optional(ProjectRoleAccessSchema),
 	prompt: Type.Optional(FlatPromptValueSchema),
-	advanced: Type.Optional(ProjectRoleAdvancedSchema),
-	// v1 legacy fields
-	permissions: Type.Optional(ProjectRolePermissionsSchema),
 }, { additionalProperties: false });
 
 /**
@@ -116,6 +104,7 @@ export const TeamProjectConfigSchema = Type.Object({
 	scaffoldVersion: Type.Optional(Type.Number()),
 	defaultsVersion: Type.Optional(Type.Number()),
 	enabled: Type.Optional(Type.Boolean()),
+	workerAccess: Type.Optional(TeamProjectWorkerAccessSchema),
 	roles: Type.Optional(Type.Record(Type.String(), ProjectRoleConfigSchema)),
 }, { additionalProperties: false });
 
@@ -239,6 +228,7 @@ export const TeamConfigSchema = Type.Object({
 		preventRecursiveOrchestrator: Type.Boolean({ default: true }),
 		defaultWorkerExtensionMode: enumSchema(WORKER_EXTENSION_MODES),
 		requirePathScopeForWrites: Type.Boolean({ default: true }),
+		allowWorkerPathsOutsideProject: Type.Boolean({ default: false }),
 		allowProjectProfiles: Type.Boolean({ default: false }),
 		projectRoot: Type.Optional(Type.String()),
 	}),
@@ -302,6 +292,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		preventRecursiveOrchestrator: true,
 		defaultWorkerExtensionMode: "worker-minimal",
 		requirePathScopeForWrites: true,
+		allowWorkerPathsOutsideProject: false,
 		allowProjectProfiles: false,
 	},
 	persistence: {
@@ -511,7 +502,7 @@ export function buildOrchestratorSystemPrompt(
 		`- Active worker count in this session snapshot: ${activeWorkerCount}.`,
 		`- Pending relay questions in this session snapshot: ${relayCount}.`,
 		`- Worker transport contract: ${config.rpc.transport} via ${[config.rpc.command, ...config.rpc.args].join(" ")}.`,
-		`- Safety defaults: recursion prevention=${String(config.safety.preventRecursiveOrchestrator)}, require path scope for writes=${String(config.safety.requirePathScopeForWrites)}.`,
+		`- Safety defaults: recursion prevention=${String(config.safety.preventRecursiveOrchestrator)}, require path scope for writes=${String(config.safety.requirePathScopeForWrites)}, allow worker paths outside project=${String(config.safety.allowWorkerPathsOutsideProject)}.`,
 	].join("\n");
 }
 

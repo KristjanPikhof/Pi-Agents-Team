@@ -268,12 +268,8 @@ interface LayerApplication {
 	layerRoot: string;
 	layerPath: string;
 	requireInsideLayerRoot: boolean;
+	allowWorkerPathsOutsideProject: boolean;
 	roles: PartialRawProjectRoleConfigMap;
-}
-
-function isLegacyRoleShape(raw: RawProjectRoleConfig): raw is ProjectRoleConfig {
-	const maybeLegacy = raw as ProjectRoleConfig & ProjectRoleFlatConfig;
-	return maybeLegacy.permissions !== undefined;
 }
 
 function isPromptObject(value: unknown): value is ProjectRolePromptConfig {
@@ -286,29 +282,17 @@ function normalizeFlatWritePolicy(write: boolean | undefined): WorkerWritePolicy
 }
 
 /**
- * Translate either the v1 nested shape or the v2 flat shape into the internal
- * ProjectRoleConfig used by applyRoleLayer. Flat shape rules:
+ * Translate the schema v4 role shape into the internal ProjectRoleConfig used
+ * by materializeRoleProfile. Shape rules:
  * - model: "default" / null / absent → inherit ceiling (internal null).
  * - prompt: "default" / null / absent → builtin. String → treated as project path.
- *   Object form still accepted for parity with v1.
- * - write: true → "scoped-write"; false → "read-only"; absent → inherit.
- * - tools: flat array rolls into permissions.tools.
- * - advanced: { extensionMode, canSpawnWorkers, pathScope } rolls into permissions.
+ *   Object form stays available for explicit prompt source/path control.
+ * - access.write: true → "scoped-write"; false → "read-only"; absent → inherit.
+ * - access groups tools, extension mode, worker spawning, and path scope.
  */
 export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleConfig {
-	if (isLegacyRoleShape(raw)) {
-		// Legacy v1 shape. `prompt` is required by the current ProjectRoleConfig
-		// type, but older hand-authored files may have omitted it (permissions-only
-		// roles were accepted pre-v2). Default to the builtin sentinel so
-		// `resolveRolePrompt` never dereferences `prompt.source` on `undefined`.
-		if (!raw.prompt) {
-			return { ...raw, prompt: { source: "builtin", path: null } };
-		}
-		return raw;
-	}
-
 	const flat = raw as ProjectRoleFlatConfig;
-	const advanced = flat.advanced ?? {};
+	const access = flat.access ?? {};
 
 	const model =
 		flat.model === undefined || flat.model === null || flat.model === DEFAULT_MODEL_SENTINEL
@@ -324,19 +308,16 @@ export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleCo
 		prompt = { source: "project", path: flat.prompt };
 	}
 
-	// whenToUse is the canonical v2 field; description is a legacy alias.
-	const whenToUseOrDescription = flat.whenToUse ?? flat.description ?? null;
-
 	return {
-		description: whenToUseOrDescription,
+		description: flat.whenToUse ?? null,
 		model,
 		thinkingLevel: flat.thinkingLevel,
 		permissions: {
-			tools: flat.tools,
-			extensionMode: advanced.extensionMode,
-			writePolicy: normalizeFlatWritePolicy(flat.write),
-			pathScope: advanced.pathScope,
-			canSpawnWorkers: advanced.canSpawnWorkers,
+			tools: access.tools,
+			extensionMode: access.extensionMode,
+			writePolicy: normalizeFlatWritePolicy(access.write),
+			pathScope: access.pathScope,
+			canSpawnWorkers: access.canSpawnWorkers,
 		},
 		prompt,
 	};
@@ -345,7 +326,7 @@ export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleCo
 const DEFAULT_READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "bash"];
 
 /**
- * Schema v2 prompt resolution. The input `prompt` may be:
+ * Schema v4 prompt resolution. The input `prompt` may be:
  *  - source: "builtin" (user wrote `"default"` / null / absent in JSON) →
  *    if the role name matches a packaged profile, use the packaged file;
  *    otherwise use the generic-worker sentinel.
@@ -437,7 +418,7 @@ function resolveRolePrompt(
 }
 
 /**
- * Schema v2: build a TeamProfileSpec from a user-authored role config, with
+ * Schema v4: build a TeamProfileSpec from a user-authored role config, with
  * sensible defaults for omitted fields. No ceiling enforcement — the user's
  * JSON is the source of truth. Platform-level safety (recursion guard, pathScope
  * for writes) still applies at delegate time via launch-policy.
@@ -452,8 +433,8 @@ function materializeRoleProfile(
 	const permissions = normalized.permissions;
 	const fieldBase = `roles.${roleName}`;
 
-	const resolvedPathScope = normalizePathScope(permissions.pathScope, layer.layerRoot, `${fieldBase}.advanced.pathScope`, {
-		requireInsideLayerRoot: layer.requireInsideLayerRoot,
+	const resolvedPathScope = normalizePathScope(permissions.pathScope, layer.layerRoot, `${fieldBase}.access.pathScope`, {
+		requireInsideLayerRoot: layer.requireInsideLayerRoot && !layer.allowWorkerPathsOutsideProject,
 	});
 	diagnostics.push(...resolvedPathScope.diagnostics);
 
@@ -464,7 +445,7 @@ function materializeRoleProfile(
 				"error",
 				"read_only_scope_write_forbidden",
 				`Role "${roleName}" is read-only but declares a writable path scope.`,
-				`${fieldBase}.advanced.pathScope.allowWrite`,
+				`${fieldBase}.access.pathScope.allowWrite`,
 			),
 		);
 	}
@@ -476,7 +457,7 @@ function materializeRoleProfile(
 				"error",
 				"extension_mode_inherit_forbidden",
 				`Role "${roleName}" uses extensionMode "inherit", which would let workers recursively boot the orchestrator. Use "worker-minimal" or "disable".`,
-				`${fieldBase}.advanced.extensionMode`,
+				`${fieldBase}.access.extensionMode`,
 			),
 		);
 	}
@@ -792,6 +773,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			layerRoot: winningLayer.layerRoot,
 			layerPath: winningLayer.path,
 			requireInsideLayerRoot: winningLayer.requireInsideLayerRoot,
+			allowWorkerPathsOutsideProject: winningLayer.parsed.workerAccess?.allowPathsOutsideProject === true,
 			roles,
 		};
 		profiles = Object.entries(roles).map(([roleName, rawRoleConfig]) => {
@@ -856,6 +838,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	}
 
 	const projectRoot = projectPath ? computeLayerRoot("project", projectPath) : options.cwd;
+	const allowWorkerPathsOutsideProject = winningLayer.parsed.workerAccess?.allowPathsOutsideProject === true;
 
 	return {
 		status: "project",
@@ -863,6 +846,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			...baseConfig,
 			safety: {
 				...baseConfig.safety,
+				allowWorkerPathsOutsideProject,
 				allowProjectProfiles: true,
 				projectRoot,
 			},

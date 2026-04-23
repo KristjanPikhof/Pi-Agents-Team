@@ -29,7 +29,7 @@ These are what the orchestrator sees when no file is present. `/team-init` stamp
 | `observer` | Screenshots, images, non-code artifacts. | `read`, `grep`, `find`, `ls`, `bash` | low | no |
 | `fixer` | Bounded code changes. Implement a fix, add a test, edit one file. | `read`, `bash`, `edit`, `write` | medium | yes |
 
-Only `fixer` can write. Every write-capable role (that is, `write: true` OR `tools` containing `edit`/`write`) needs an explicit `pathScope` at delegate time. That's enforced by launch-policy, not by role config, so you can't accidentally un-safe it.
+Only `fixer` can write by default. Every write-capable role (that is, `access.write: true` OR `access.tools` containing `edit`/`write`) needs an explicit `pathScope` at delegate time. That's enforced by launch-policy, not by role config, so you can't accidentally un-safe it.
 
 > **Path scope honesty.** `pathScope` is a prompt convention + delegate-time check, not an OS sandbox. Pi does not jail worker processes at the kernel level; `bash` in particular can execute arbitrary shell commands in the worker's cwd. Every built-in read-only role ships with `bash` because git/ls/grep workflows need it. If you include `bash` in a profile, you are trusting the orchestrator LLM + the role prompt to honor the scope. For stricter containment (untrusted configs, unfamiliar repos), stop delegating to write-capable profiles or drop `bash` from the role's tools. See [CLAUDE.md](../CLAUDE.md) "Path scope is a prompt convention" for the full rationale.
 
@@ -49,16 +49,21 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 
 ```json
 {
-  "schemaVersion": 3,
-  "scaffoldVersion": 3,
+  "schemaVersion": 4,
+  "scaffoldVersion": 1,
   "enabled": true,
+  "workerAccess": {
+    "allowPathsOutsideProject": false
+  },
   "roles": {
     "explorer": {
       "whenToUse": "Use for fast reconnaissance. Best for 'where is X?', 'how does Y work?', 'list files that touch Z.'",
       "model": "default",
       "thinkingLevel": "low",
-      "tools": ["read", "grep", "find", "ls", "bash"],
-      "write": false,
+      "access": {
+        "tools": ["read", "grep", "find", "ls", "bash"],
+        "write": false
+      },
       "prompt": "default"
     }
   }
@@ -67,10 +72,42 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 
 | Field | Required | Meaning |
 |---|---|---|
-| `schemaVersion` | yes | Tells the loader which shape this file is. Currently `3`. A mismatch triggers a warning and falls back to built-ins for that layer. |
+| `schemaVersion` | yes | Tells the loader which shape this file is. Currently `4`. A mismatch triggers a warning and falls back to built-ins for that layer. |
 | `scaffoldVersion` | no | Freshness marker. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
 | `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
+| `workerAccess` | no | Global access policy for delegated workers. Omit to keep the defaults. |
 | `roles.<name>` | no | Free-form map. Name whatever you want. No role entry means built-in fallback (or nothing, if you want no roles at all). |
+
+### Top-level worker access fields
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `workerAccess.allowPathsOutsideProject` | boolean | `false` | Opt-in escape hatch that lets delegated worker `pathScope` roots point outside the project root / current cwd. Useful for `/tmp`, sibling repos, or operator-supplied absolute paths. This does **not** affect the visible orchestrator, relax prompt-file containment, or create an OS sandbox. |
+
+Example:
+
+```json
+{
+  "schemaVersion": 4,
+  "enabled": true,
+  "workerAccess": {
+    "allowPathsOutsideProject": true
+  },
+  "roles": {
+    "fixer": {
+      "prompt": "default"
+    }
+  }
+}
+```
+
+With that flag enabled, the orchestrator can delegate a worker with a path scope like:
+
+```json
+["/tmp/my-log-dir", "src"]
+```
+
+instead of being forced to stay fully inside the repo root.
 
 ### Per-role fields
 
@@ -81,10 +118,18 @@ All optional. Omit to get the default.
 | `whenToUse` | string | `""` | The trigger sentence shown to the orchestrator LLM. Write it as `"Use for / when / to ..."` so the model can match it against user requests. |
 | `model` | string | `"default"` | `"default"` inherits the orchestrator's current model. Otherwise a canonical Pi model ID in `<provider>/<model-id>` form (check `pi --help` or your Pi install's model list for exact names — available models are install-specific). |
 | `thinkingLevel` | string | `"medium"` | One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. |
-| `tools` | string[] | `["read", "grep", "find", "ls", "bash"]` | Tool set the worker can use. You declare it. No ceiling. |
-| `write` | boolean | `false` | `true` allows `edit`/`write`. Requires a `pathScope` at delegate time (platform-level safety). |
+| `access` | object | default read tools | Worker capabilities for this role. See "Per-role access fields" below. |
 | `prompt` | string | `"default"` | See "Prompt resolution" below. |
-| `advanced` | object | `{}` | Power-user knobs. `extensionMode` (`"worker-minimal"` \| `"disable"`), `canSpawnWorkers`, `pathScope`. Not emitted by `/team-init`. |
+
+### Per-role access fields
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `access.tools` | string[] | `["read", "grep", "find", "ls", "bash"]` | Tool set the worker can use. You declare it. No ceiling. |
+| `access.write` | boolean | `false` | `true` allows `edit`/`write`. Requires a `pathScope` at delegate time (platform-level safety). |
+| `access.pathScope` | object | omitted | Default path scope for this role. The orchestrator can also pass `pathScopeRoots` at delegate time. |
+| `access.extensionMode` | string | `"worker-minimal"` | `"worker-minimal"` or `"disable"`. `"inherit"` is rejected to prevent recursive orchestrators. |
+| `access.canSpawnWorkers` | boolean | `false` | Reserved for role metadata. Workers still run as background RPC peers, not nested user-facing agents. |
 
 ### Writing a good `whenToUse`
 
@@ -117,8 +162,10 @@ Inline text is the escape hatch when you don't want to maintain a separate markd
 ```json
 "api-scout": {
   "whenToUse": "Use when the user wants route/handler recon inside src/api.",
-  "tools": ["read", "grep", "find"],
-  "write": false,
+  "access": {
+    "tools": ["read", "grep", "find"],
+    "write": false
+  },
   "prompt": "You are a scout that only inspects src/api. Return matching file paths and one-line notes per finding. No other commentary."
 }
 ```
@@ -136,13 +183,13 @@ Inline text is the escape hatch when you don't want to maintain a separate markd
 
 Replace `<provider>/<model-id>` with an actual canonical Pi model ID (check your Pi install's available models — the exact set depends on configured providers).
 
-Everything else (tools, write, prompt) falls through to the built-in `oracle` defaults because the role name matches a packaged one.
+Everything else (access, prompt) falls through to the built-in `oracle` defaults because the role name matches a packaged one.
 
 ### Remove roles you don't want
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "enabled": true,
   "roles": {
     "explorer": { "prompt": "default" },
@@ -158,8 +205,10 @@ The orchestrator only sees `explorer` and `fixer`. If it tries to delegate to `r
 ```json
 "worker": {
   "whenToUse": "Use for bounded code changes. Implement a fix, add a test, edit one file.",
-  "tools": ["read", "bash", "edit", "write"],
-  "write": true,
+  "access": {
+    "tools": ["read", "bash", "edit", "write"],
+    "write": true
+  },
   "prompt": "default"
 }
 ```
@@ -172,10 +221,10 @@ Now the orchestrator delegates via `profileName: "worker"` instead of `"fixer"`.
 "migration-writer": {
   "whenToUse": "Use to draft a new DB migration. User must supply a description of the change; you produce a single SQL file under migrations/.",
   "thinkingLevel": "medium",
-  "tools": ["read", "grep", "find", "ls", "bash", "edit", "write"],
-  "write": true,
   "prompt": "prompts/migration-writer.md",
-  "advanced": {
+  "access": {
+    "tools": ["read", "grep", "find", "ls", "bash", "edit", "write"],
+    "write": true,
     "pathScope": {
       "roots": ["migrations"],
       "allowReadOutsideRoots": true,
@@ -219,9 +268,9 @@ Both constants live in `src/project-config/versions.ts`. Bump there, nothing els
 
 The loader trusts whatever you put in the file. `launch-policy.ts` runs every time `delegate_task` fires and enforces invariants that can't be turned off:
 
-1. **No recursive orchestrators.** `advanced.extensionMode: "inherit"` is rejected at load time. Launch-time overrides to `inherit` are also rejected.
-2. **Writable roles need a `pathScope`.** Any role with `write: true` — or `tools` containing `edit` / `write` — must have a path scope at delegate time, either in `advanced.pathScope` or passed via `pathScopeRoots` on the `delegate_task` call. No "write anywhere" workers.
-3. **Path scope roots must stay inside the project root.** `safety.projectRoot` is the project root when a project config exists, else the current cwd (never undefined, so the guard always fires). `pathScopeRoots: ["/"]` or `"../../elsewhere"` are rejected. Symlink escapes (a root that realpaths to somewhere outside the real project root) are caught too.
+1. **No recursive orchestrators.** `access.extensionMode: "inherit"` is rejected at load time. Launch-time overrides to `inherit` are also rejected.
+2. **Writable roles need a `pathScope`.** Any role with `access.write: true` — or `access.tools` containing `edit` / `write` — must have a path scope at delegate time, either in `access.pathScope` or passed via `pathScopeRoots` on the `delegate_task` call. No "write anywhere" workers.
+3. **Path scope roots stay inside the project root by default.** `safety.projectRoot` is the project root when a project config exists, else the current cwd (never undefined, so the guard always fires). `pathScopeRoots: ["/"]` or `"../../elsewhere"` are rejected unless the winning config sets `workerAccess.allowPathsOutsideProject: true`. Symlink escapes are still checked with `realpathSync.native`, so the loader/launcher compare real locations, not just lexical paths.
 4. **Prompt paths must stay inside the project root.** Same containment check as path scope roots. Pre-fix, the check was lexical only — a symlink under the project root pointing at `~/.ssh` would pass; the loader now calls `realpathSync.native` and rejects.
 
 Launch-time overrides (tools, path scope, extension mode) may only narrow the role's declared rights. They cannot broaden them.

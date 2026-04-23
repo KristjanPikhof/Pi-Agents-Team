@@ -34,13 +34,12 @@ function buildConfig(overrides: Partial<TeamProjectConfigFile["roles"]> = {}): T
 		TEAM_PROFILE_NAMES.map((profileName) => [
 			profileName,
 			{
-				permissions: {},
-				prompt: { source: "builtin" as const },
+				prompt: "default",
 			},
 		]),
 	) as TeamProjectConfigFile["roles"];
 	return {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		roles: {
 			...roles,
 			...overrides,
@@ -58,7 +57,6 @@ test("valid project config announces the session-frozen handoff and injects a pr
 		root,
 		buildConfig({
 			reviewer: {
-				permissions: {},
 				prompt: { source: "project", path: "prompts/reviewer.md" },
 			},
 		}),
@@ -114,7 +112,6 @@ test("invalid project config warns on session start and blocks delegate_task", a
 		root,
 		buildConfig({
 			reviewer: {
-				permissions: {},
 				prompt: { source: "project", path: "../outside.md" },
 			},
 		}),
