@@ -156,31 +156,29 @@ export interface ProjectRoleConfig {
 	prompt: ProjectRolePromptConfig;
 }
 
-export interface ProjectRoleAdvancedConfig {
+export interface ProjectRoleAccessConfig {
+	tools?: string[];
+	write?: boolean;
 	extensionMode?: WorkerExtensionMode;
 	canSpawnWorkers?: boolean;
 	pathScope?: TeamPathScope;
 }
 
 /**
- * Flat shape emitted by /team-init (schemaVersion 3+). Easier for operators:
- * top-level `tools`, `write: true|false`, `prompt: "default" | "<path>"`,
- * `model: "default" | "<provider/id>"`. Power-user knobs live in `advanced`.
+ * Shape emitted by /team-init (schemaVersion 4+). Role identity and model
+ * selection stay at the top level; capability and path controls live under
+ * `access` so operators can find the worker permission surface in one place.
  *
  * `whenToUse` is the canonical field for telling the orchestrator when to
  * delegate to this role — write it as a trigger sentence ("Use when..."),
- * not a passive description of capability. The legacy `description` alias is
- * accepted for backcompat; `whenToUse` wins when both are present.
+ * not a passive description of capability.
  */
 export interface ProjectRoleFlatConfig {
 	whenToUse?: string | null;
-	description?: string | null;
 	model?: string | null;
 	thinkingLevel?: ThinkingLevel;
-	tools?: string[];
-	write?: boolean;
+	access?: ProjectRoleAccessConfig;
 	prompt?: string | null | ProjectRolePromptConfig;
-	advanced?: ProjectRoleAdvancedConfig;
 }
 
 export type RawProjectRoleConfig = ProjectRoleConfig | ProjectRoleFlatConfig;
@@ -190,15 +188,15 @@ export type ProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
 export type PartialProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
 export type PartialRawProjectRoleConfigMap = Record<string, RawProjectRoleConfig>;
 
-export interface TeamProjectSafetyConfig {
-	allowExternalPathScopes?: boolean;
+export interface TeamProjectWorkerAccessConfig {
+	allowPathsOutsideProject?: boolean;
 }
 
 export interface TeamProjectConfigFile {
 	schemaVersion: typeof TEAM_PROJECT_SCHEMA_VERSION;
 	scaffoldVersion?: number;
 	enabled?: boolean;
-	safety?: TeamProjectSafetyConfig;
+	workerAccess?: TeamProjectWorkerAccessConfig;
 	roles?: PartialRawProjectRoleConfigMap;
 }
 
@@ -354,7 +352,7 @@ export interface TeamConfig {
 		preventRecursiveOrchestrator: boolean;
 		defaultWorkerExtensionMode: WorkerExtensionMode;
 		requirePathScopeForWrites: boolean;
-		allowExternalPathScopes: boolean;
+		allowWorkerPathsOutsideProject: boolean;
 		allowProjectProfiles: boolean;
 		projectRoot?: string;
 	};
