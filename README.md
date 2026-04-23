@@ -7,9 +7,23 @@ One Pi session orchestrates. Background RPC workers do the work. The orchestrato
 
 ## Install
 
-Not published to npm. Install from Git using one of the three options below. Pi clones the repo, runs `npm install`, and registers the extension declared in `package.json`.
+Install from npm once the package is published:
 
-### Option 1: `pi install` (recommended)
+```bash
+pi install pi-agents-team
+```
+
+Pin to a specific published version when you want reproducible team setup:
+
+```bash
+pi install pi-agents-team@2026.4.23
+```
+
+Pi downloads the package, runs `npm install`, and registers the extension declared in `package.json`.
+
+You can also install from Git using one of the options below. This is useful before the first npm publish, when testing a branch, or when pinning to an unreleased ref.
+
+### Option 1: Git via `pi install`
 
 ```bash
 # SSH (the git: prefix is required for git@host:path shorthand)

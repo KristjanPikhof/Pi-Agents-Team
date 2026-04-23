@@ -1,16 +1,27 @@
 {
   "name": "pi-agents-team",
   "version": "2026.4.23",
-  "private": true,
-  "description": "Pi package that turns the main session into an orchestrator for RPC-backed worker agents.",
+  "description": "Pi extension that turns one coding session into a multi-agent team with background RPC worker agents.",
   "license": "MIT",
   "type": "module",
+  "author": {
+    "name": "Kristjan Pikhof",
+    "url": "https://github.com/KristjanPikhof"
+  },
   "keywords": [
-    "pi-package",
     "pi",
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
     "extension",
+    "ai-agents",
+    "multi-agent",
+    "agent-team",
+    "coding-agent",
     "orchestrator",
-    "rpc"
+    "background-agents",
+    "rpc",
+    "developer-tools"
   ],
   "homepage": "https://github.com/KristjanPikhof/pi-agents-team",
   "repository": {
@@ -19,6 +30,21 @@
   },
   "bugs": {
     "url": "https://github.com/KristjanPikhof/pi-agents-team/issues"
+  },
+  "main": "./extensions/index.ts",
+  "exports": {
+    ".": "./extensions/index.ts"
+  },
+  "files": [
+    "extensions/",
+    "src/",
+    "prompts/",
+    "profiles/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=20"
@@ -35,17 +61,18 @@
       "./extensions/index.ts"
     ]
   },
+  "dependencies": {
+    "typebox": "^1.0.56"
+  },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "typebox": "*"
+    "@mariozechner/pi-coding-agent": ">=0.69.0",
+    "@mariozechner/pi-tui": ">=0.69.0"
   },
   "devDependencies": {
     "@mariozechner/pi-coding-agent": "^0.69.0",
     "@mariozechner/pi-tui": "^0.69.0",
     "@types/node": "^25.6.0",
     "tsx": "^4.21.0",
-    "typebox": "^1.0.56",
     "typescript": "^6.0.3"
   }
 }
