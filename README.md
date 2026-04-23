@@ -58,7 +58,7 @@ Entries can also be objects if you need to filter what the package exposes:
   "packages": [
     {
       "source": "git:git@github.com:KristjanPikhof/pi-agents-team",
-      "extensions": ["extensions/pi-agent-team/index.ts"]
+      "extensions": ["./extensions/index.ts"]
     }
   ]
 }

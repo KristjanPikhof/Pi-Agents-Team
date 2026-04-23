@@ -14,8 +14,8 @@ npm run check            # typecheck + all tests, must be green before you push
 Run the extension against your working copy without going through `pi install`:
 
 ```bash
-pi -e ./extensions/pi-agent-team/index.ts
-pi -e ./extensions/pi-agent-team/index.ts -p "/team"   # open straight into the dashboard
+pi -e ./extensions/index.ts
+pi -e ./extensions/index.ts -p "/team"   # open straight into the dashboard
 ```
 
 If you want to install the local checkout as a real Pi package instead:
@@ -54,7 +54,8 @@ Unit tests lean on `MockWorkerTransport` / `MockWorkerHandle` in `tests/runtime/
 ## Package layout
 
 ```text
-extensions/pi-agent-team/index.ts    # extension entrypoint, tool + command registration, UI wiring
+extensions/index.ts                 # package-facing extension entrypoint
+extensions/pi-agent-team/index.ts   # internal implementation entrypoint, tool + command registration, UI wiring
 src/runtime/                         # worker process, RPC client, event normalizer, worker manager
 src/control-plane/                   # team manager, task registry, persistence snapshots
 src/comms/                           # steer/follow-up routing, passive ping, summary parser, relay extractor

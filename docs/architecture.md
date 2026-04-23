@@ -23,7 +23,8 @@ User
   ↓
 Main Pi session (orchestrator)
   ↓
-Extension entrypoint (extensions/pi-agent-team/index.ts)
+Package entrypoint (extensions/index.ts)
+  │   └─ delegates to internal implementation entrypoint (extensions/pi-agent-team/index.ts)
   ├─ Control plane
   │   ├─ TeamManager            (coordinates delegation, snapshots, waits)
   │   ├─ TaskRegistry           (active workers + task metadata)
