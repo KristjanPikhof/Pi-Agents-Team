@@ -23,11 +23,11 @@ npm run smoke:runtime      # scripts/smoke/runtime-worker.ts — real pi rpc wor
 npm run smoke:team         # scripts/smoke/team-flow.ts — TeamManager end-to-end
 ```
 
-Single test file: `tsx --test tests/runtime/worker-manager.test.ts`. Load the extension locally: `pi -e ./extensions/pi-agent-team/index.ts`.
+Single test file: `tsx --test tests/runtime/worker-manager.test.ts`. Load the extension locally: `pi -e ./extensions/index.ts`.
 
 ## Architecture at a glance
 
-Top-down: `extensions/pi-agent-team/index.ts` (entrypoint — tools, commands, UI wiring) → `src/control-plane/team-manager.ts` (single coordination boundary) → `src/runtime/` (worker process + RPC + event normalizer + worker manager) → supporting layers (`src/comms/`, `src/profiles/`, `src/safety/`, `src/prompts/`, `src/ui/`, `src/commands/`).
+Top-down: `extensions/index.ts` (package entrypoint, thin re-export) → `extensions/pi-agent-team/index.ts` (implementation entrypoint — tools, commands, UI wiring) → `src/control-plane/team-manager.ts` (single coordination boundary) → `src/runtime/` (worker process + RPC + event normalizer + worker manager) → supporting layers (`src/comms/`, `src/profiles/`, `src/safety/`, `src/prompts/`, `src/ui/`, `src/commands/`).
 
 Commands are thin wrappers over `TeamManager` methods and never touch `WorkerManager` directly.
 
