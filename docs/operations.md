@@ -20,7 +20,7 @@ npm run smoke:team
 Load the extension directly:
 
 ```bash
-pi -e ./extensions/pi-agent-team/index.ts
+pi -e ./extensions/index.ts
 ```
 
 Run one test file:
@@ -207,14 +207,14 @@ The worker finished but did not follow the contract. Three moves, in order of pr
 
 ### "Worker finished" toast fired, but the worker is still running
 
-Fixed. The `starting → idle` race has a guard in `applyNormalizedEvent` (worker stays `starting` until actually prompted) plus a filter in `flushTerminalNotifications` that drops entries whose status has flipped back off-terminal by flush time. If you see this again, it is a real bug: check `src/runtime/worker-manager.ts` and the `onStateChange` listener in `extensions/pi-agent-team/index.ts`.
+Fixed. The `starting → idle` race has a guard in `applyNormalizedEvent` (worker stays `starting` until actually prompted) plus a filter in `flushTerminalNotifications` that drops entries whose status has flipped back off-terminal by flush time. If you see this again, it is a real bug: check `src/runtime/worker-manager.ts` and the `onStateChange` listener in the internal implementation entrypoint (`extensions/pi-agent-team/index.ts`).
 
 ## Local verification commands
 
 ```bash
 npm run typecheck
 npm test
-pi -e ./extensions/pi-agent-team/index.ts -p "/team"
+pi -e ./extensions/index.ts -p "/team"
 ```
 
-That smoke command exercises the shipped surface in the same mode operators use: an overlay-style, keyboard-first panel in TUI environments, with a compact text fallback when no UI is available.
+That smoke command exercises the shipped package entrypoint in the same mode operators use: an overlay-style, keyboard-first panel in TUI environments, with a compact text fallback when no UI is available.
