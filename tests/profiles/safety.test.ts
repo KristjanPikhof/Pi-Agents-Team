@@ -114,7 +114,7 @@ test("applyLaunchPolicy allows external path scopes when config opts in but stil
 		...DEFAULT_TEAM_CONFIG,
 		safety: {
 			...DEFAULT_TEAM_CONFIG.safety,
-			allowExternalPathScopes: true,
+			allowWorkerPathsOutsideProject: true,
 			projectRoot: root,
 		},
 	};
