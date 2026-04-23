@@ -54,14 +54,6 @@ export const TeamProfileSpecSchema = Type.Object({
 
 const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
 
-export const ProjectRolePermissionsSchema = Type.Object({
-	tools: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
-	extensionMode: Type.Optional(enumSchema(WORKER_EXTENSION_MODES)),
-	writePolicy: Type.Optional(enumSchema(WORKER_WRITE_POLICIES)),
-	pathScope: Type.Optional(TeamPathScopeSchema),
-	canSpawnWorkers: Type.Optional(Type.Boolean()),
-}, { additionalProperties: false });
-
 export const ProjectRolePromptSchema = Type.Object({
 	source: enumSchema(TEAM_PROMPT_SOURCES),
 	path: Type.Optional(NullableStringSchema),
