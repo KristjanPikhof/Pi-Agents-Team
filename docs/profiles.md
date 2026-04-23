@@ -50,8 +50,11 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 ```json
 {
   "schemaVersion": 3,
-  "scaffoldVersion": 3,
+  "scaffoldVersion": 4,
   "enabled": true,
+  "safety": {
+    "allowExternalPathScopes": false
+  },
   "roles": {
     "explorer": {
       "whenToUse": "Use for fast reconnaissance. Best for 'where is X?', 'how does Y work?', 'list files that touch Z.'",
@@ -70,7 +73,36 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 | `schemaVersion` | yes | Tells the loader which shape this file is. Currently `3`. A mismatch triggers a warning and falls back to built-ins for that layer. |
 | `scaffoldVersion` | no | Freshness marker. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
 | `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
+| `safety` | no | Top-level platform safety knobs. Omit to keep the defaults. |
 | `roles.<name>` | no | Free-form map. Name whatever you want. No role entry means built-in fallback (or nothing, if you want no roles at all). |
+
+### Top-level safety fields
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `safety.allowExternalPathScopes` | boolean | `false` | Opt-in escape hatch that lets delegated `pathScope` roots point outside the project root / current cwd. Useful for `/tmp`, sibling repos, or operator-supplied absolute paths. This does **not** relax prompt-file containment, and it does **not** create an OS sandbox. |
+
+Example:
+
+```json
+{
+  "schemaVersion": 3,
+  "enabled": true,
+  "safety": {
+    "allowExternalPathScopes": true
+  },
+  "roles": {
+    "fixer": {
+      "prompt": "default"
+    }
+  }
+}
+```
+
+With that flag enabled, the orchestrator can delegate a worker with a path scope like `[
+  "/tmp/my-log-dir",
+  "src"
+]` instead of being forced to stay fully inside the repo root.
 
 ### Per-role fields
 
@@ -221,7 +253,7 @@ The loader trusts whatever you put in the file. `launch-policy.ts` runs every ti
 
 1. **No recursive orchestrators.** `advanced.extensionMode: "inherit"` is rejected at load time. Launch-time overrides to `inherit` are also rejected.
 2. **Writable roles need a `pathScope`.** Any role with `write: true` — or `tools` containing `edit` / `write` — must have a path scope at delegate time, either in `advanced.pathScope` or passed via `pathScopeRoots` on the `delegate_task` call. No "write anywhere" workers.
-3. **Path scope roots must stay inside the project root.** `safety.projectRoot` is the project root when a project config exists, else the current cwd (never undefined, so the guard always fires). `pathScopeRoots: ["/"]` or `"../../elsewhere"` are rejected. Symlink escapes (a root that realpaths to somewhere outside the real project root) are caught too.
+3. **Path scope roots stay inside the project root by default.** `safety.projectRoot` is the project root when a project config exists, else the current cwd (never undefined, so the guard always fires). `pathScopeRoots: ["/"]` or `"../../elsewhere"` are rejected unless the winning config sets `safety.allowExternalPathScopes: true`. Symlink escapes are still checked with `realpathSync.native`, so the loader/launcher compare real locations, not just lexical paths.
 4. **Prompt paths must stay inside the project root.** Same containment check as path scope roots. Pre-fix, the check was lexical only — a symlink under the project root pointing at `~/.ssh` would pass; the loader now calls `realpathSync.native` and rejects.
 
 Launch-time overrides (tools, path scope, extension mode) may only narrow the role's declared rights. They cannot broaden them.

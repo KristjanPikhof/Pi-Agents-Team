@@ -139,6 +139,16 @@ The orchestrator-facing tool is `delegate_task`. In normal use you do not type t
 
 If a profile can write files (today, only `fixer`), provide an explicit writable path scope. Launch policy rejects write-capable tasks without one.
 
+By default, delegated path scopes must stay inside the discovered project root / current cwd. If you need workers to inspect `/tmp`, sibling repos, or other absolute paths, opt in via `agents-team.json`:
+
+```json
+"safety": {
+  "allowExternalPathScopes": true
+}
+```
+
+That only relaxes worker path-scope containment. Prompt files still have to stay inside the project root.
+
 The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
 ## Mid-flight relay handling
@@ -173,7 +183,8 @@ Expected when the project role config hits a hard error. The extension warns on 
 Common causes (hard errors):
 
 - The JSON isn't parseable (syntax error).
-- A prompt path or `pathScope` root escapes the project root.
+- A prompt path escapes the project root.
+- A `pathScope` root escapes the project root while `safety.allowExternalPathScopes` is still off.
 - A role declares `advanced.extensionMode: "inherit"` (recursion guard).
 
 Soft warnings don't disable delegation (the config keeps working):
