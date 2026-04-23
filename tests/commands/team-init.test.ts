@@ -46,25 +46,27 @@ test("parseInitArgs accepts scope and force flag", () => {
 	assert.match(twice.error ?? "", /only once/);
 });
 
-test("buildFullScaffold pre-populates every builtin profile in the flat v2 shape", () => {
+test("buildFullScaffold pre-populates every builtin profile in the schema v4 shape", () => {
 	const scaffold = _testing.buildFullScaffold();
-	assert.equal(scaffold.schemaVersion, 3);
+	assert.equal(scaffold.schemaVersion, 4);
 	assert.equal(scaffold.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(scaffold.enabled, true);
-	assert.equal(scaffold.safety?.allowExternalPathScopes, false);
+	assert.equal(scaffold.workerAccess?.allowPathsOutsideProject, false);
 	const roles = scaffold.roles ?? {};
 	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
 		const role = (roles as Record<string, unknown>)[profile.name] as any;
 		assert.ok(role, `missing scaffold role for ${profile.name}`);
 		assert.equal(role.thinkingLevel, profile.thinkingLevel);
-		assert.deepEqual(role.tools, profile.tools);
-		assert.equal(role.write, profile.writePolicy === "scoped-write");
+		assert.deepEqual(role.access.tools, profile.tools);
+		assert.equal(role.access.write, profile.writePolicy === "scoped-write");
 		assert.equal(role.model, DEFAULT_MODEL_SENTINEL);
 		assert.equal(role.prompt, DEFAULT_PROMPT_SENTINEL);
-		assert.equal(role.whenToUse, profile.description, "scaffold should emit whenToUse (the v2 field) with the role's trigger description");
+		assert.equal(role.whenToUse, profile.description, "scaffold should emit whenToUse with the role's trigger description");
 		assert.equal(role.description, undefined, "scaffold must not emit the legacy description alias");
 		assert.equal(role.permissions, undefined, "flat shape must not emit the legacy permissions wrapper");
-		assert.equal(role.advanced, undefined, "advanced is opt-in and must be absent from scaffolds");
+		assert.equal(role.tools, undefined, "tools must live under access");
+		assert.equal(role.write, undefined, "write must live under access");
+		assert.equal(role.advanced, undefined, "advanced must not be emitted in schema v4");
 		assert.match(role.whenToUse, /^Use (for|when|to) /, "default whenToUse should read as a trigger sentence starting with 'Use for/when/to'");
 	}
 });
@@ -92,10 +94,10 @@ test("/team-init local writes a full scaffold inside the project", async () => {
 	const expectedPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 	assert.ok(existsSync(expectedPath));
 	const parsed = JSON.parse(readFileSync(expectedPath, "utf8"));
-	assert.equal(parsed.schemaVersion, 3);
+	assert.equal(parsed.schemaVersion, 4);
 	assert.equal(parsed.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(parsed.enabled, true);
-	assert.equal(parsed.safety.allowExternalPathScopes, false);
+	assert.equal(parsed.workerAccess.allowPathsOutsideProject, false);
 	const roleNames = Object.keys(parsed.roles ?? {}).sort();
 	assert.deepEqual(roleNames, DEFAULT_TEAM_CONFIG.profiles.map((profile) => profile.name).sort());
 	assert.ok(emitted[0]?.includes(expectedPath));
