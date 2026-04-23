@@ -104,6 +104,39 @@ test("worker_state keeps a starting worker as starting when isStreaming is false
 	assert.equal(after?.state.status, "starting");
 });
 
+test("promptWorker marks rejected prompt acceptance as error", async () => {
+	const transport = new MockWorkerTransport({ rejectPrompt: "prompt rejected by rpc" });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-reject-1",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-reject-1",
+			title: "Prompt rejection",
+			goal: "Verify rejected prompt acceptance state",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+
+	await assert.rejects(
+		() => manager.promptWorker("worker-reject-1", "do the thing"),
+		/prompt rejected by rpc/,
+	);
+
+	const worker = manager.getWorker("worker-reject-1");
+	assert.equal(worker?.state.status, "error");
+	assert.match(worker?.state.error ?? "", /prompt rejected by rpc/);
+	assert.notEqual(worker?.state.status, "running");
+});
+
 test("worker_state transitions a non-starting worker based on isStreaming", async () => {
 	const transport = new MockWorkerTransport();
 	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
