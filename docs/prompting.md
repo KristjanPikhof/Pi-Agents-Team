@@ -21,17 +21,19 @@ Full text: [`../prompts/orchestrator.md`](../prompts/orchestrator.md). Key commi
 
 The orchestrator is the only agent that speaks to the user. Workers are background specialists under its supervision.
 
-### Delegate by default
+### Direct answer or delegate
 
-Any investigation, mapping, review, multi-file change, or context-hungry task belongs to a worker. The orchestrator only works directly on trivial single-step asks or cheap operator commands.
+The orchestrator may answer directly for trivial, already-known, or tiny bounded
+work where delegation would cost more than the answer. Investigation, mapping,
+review, multi-file changes, tests, and context-hungry work belong to workers.
 
 When the user asks for N workers or parallel analysis, the orchestrator spawns them immediately in one batch, each with its own focused slice. It does not pre-explore the repo to "figure out what to delegate."
 
 ### Profiles vs skills
 
-`delegate_task.profileName` must be one of the seven team profiles (`explorer`, `librarian`, `oracle`, `designer`, `fixer`, `reviewer`, `observer`). These are the worker roles shipped by this extension.
+`delegate_task.profileName` must be one of the roles in the live **Available worker profiles** block. Built-in profiles are only the fallback when no project config overrides them.
 
-Pi skills — the `[Skills]` list shown in the Pi startup banner — are host-level capabilities, not profiles. **Which skills exist is install-specific**: each operator's Pi install carries its own skill library, so the plugin never assumes any particular skill is available. The orchestrator should look at the banner, not at hardcoded expectations. To have a worker load one during its task, pass the names through the optional `delegate_task.skills` array. When `skills` is non-empty, `TeamManager` enables Pi's skill discovery for that worker (by default `worker-minimal` launches pass `--no-skills` to keep the footprint tight, which would make the skills request silently unfulfillable). The worker task prompt injects an explicit instruction to invoke each relevant skill via `/skill:<name>` (or let the matching skill activate automatically by following the discovery flow in Pi's system prompt) before emitting the `<final_answer>`. Pi dispatches skills as `/skill:name` commands — there is no "Skill tool" in Pi 0.68; prior prompt wording was incorrect. Omit `skills` when no specialized skill is needed or when no installed skill matches — that's the correct default. Never pass a skill name as `profileName` (it fails with `Unknown team profile: <name>`).
+Pi skills are host-level capabilities from the Pi startup banner, not profiles. Which skills exist is install-specific, so the plugin never assumes a fixed skill set. To request one, pass installed skill names through the optional `delegate_task.skills` array. When `skills` is non-empty, `TeamManager` enables Pi skill discovery for that worker; otherwise `worker-minimal` launches keep skills disabled. The worker prompt tells the worker to load and apply each requested skill by name from the available skill context before emitting `<final_answer>`. Omit `skills` when no installed skill clearly fits. Never pass a skill name as `profileName`.
 
 ### Wait, don't poll
 
@@ -47,7 +49,7 @@ The loop after `delegate_task`:
 
 The wait resumes cleanly because `waitForTerminal` re-snapshots each target's pending-relay count on every call. Already-answered relays don't wake it again; only new ones do.
 
-Forbidden: looping `ping_agents`, sleeping in bash, spawning new workers to "check on" old ones, running bash/read/grep directly to "help" a running worker, treating `interim=…` text in a running worker as a finding.
+Forbidden: looping `ping_agents`, sleeping in bash, spawning new workers to "check on" old ones, running tools directly to "help" a running worker, treating `interim=…` text in a running worker as a finding.
 
 ### Reading status
 
@@ -121,17 +123,9 @@ next_recommendation:
 
 `extractFinalAnswer` pulls the block from the worker's final assistant message and stores it on `WorkerRuntimeState.finalAnswer`. `agent_result` and `/agent-result` both render it under a `--- Final answer ---` section. If the block is missing, the output explicitly says so and tells the caller to re-delegate or steer.
 
-## Current worker set
+## Worker set
 
-- `explorer`
-- `librarian`
-- `oracle`
-- `designer`
-- `fixer`
-- `reviewer`
-- `observer`
-
-Prompt files live under [`../prompts/agents/`](../prompts/agents/) and are loaded by `src/prompts/contracts.ts`. The orchestrator prompt is at [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
+Prompt files live under [`../prompts/agents/`](../prompts/agents/) and are loaded by `src/prompts/contracts.ts`. The built-in profile names are a fallback; the active role list comes from the runtime config. The orchestrator prompt is at [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
 ## Prompt path resolution
 
