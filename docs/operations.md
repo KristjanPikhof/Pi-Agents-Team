@@ -142,12 +142,12 @@ If a profile can write files (today, only `fixer`), provide an explicit writable
 By default, delegated path scopes must stay inside the discovered project root / current cwd. If you need workers to inspect `/tmp`, sibling repos, or other absolute paths, opt in via `agents-team.json`:
 
 ```json
-"safety": {
-  "allowExternalPathScopes": true
+"workerAccess": {
+  "allowPathsOutsideProject": true
 }
 ```
 
-That only relaxes worker path-scope containment. Prompt files still have to stay inside the project root.
+That only relaxes delegated worker path-scope containment. The main orchestrator session and worker prompt-file containment are unchanged.
 
 The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
@@ -184,8 +184,8 @@ Common causes (hard errors):
 
 - The JSON isn't parseable (syntax error).
 - A prompt path escapes the project root.
-- A `pathScope` root escapes the project root while `safety.allowExternalPathScopes` is still off.
-- A role declares `advanced.extensionMode: "inherit"` (recursion guard).
+- A `pathScope` root escapes the project root while `workerAccess.allowPathsOutsideProject` is still off.
+- A role declares `access.extensionMode: "inherit"` (recursion guard).
 
 Soft warnings don't disable delegation (the config keeps working):
 
