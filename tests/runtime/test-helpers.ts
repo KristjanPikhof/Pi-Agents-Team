@@ -12,6 +12,7 @@ export interface MockTransportOptions {
 	initialState?: Record<string, unknown>;
 	onCommand?: (command: MockCommand) => void;
 	promptText?: string | ((command: MockCommand) => string);
+	rejectPrompt?: string;
 	autoCompletePrompt?: boolean;
 }
 
@@ -114,6 +115,10 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 				});
 				break;
 			case "prompt":
+				if (this.options.rejectPrompt) {
+					this.respond(command, undefined, this.options.rejectPrompt);
+					break;
+				}
 				this.respond(command, undefined);
 				this.state.isStreaming = true;
 				queueMicrotask(() => {
@@ -142,9 +147,9 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 		}
 	}
 
-	private respond(command: MockCommand, data: unknown): void {
+	private respond(command: MockCommand, data: unknown, error?: string): void {
 		this.stdout.write(
-			`${JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data })}\n`,
+			`${JSON.stringify({ type: "response", id: command.id, command: command.type, success: error === undefined, data, error })}\n`,
 		);
 	}
 }

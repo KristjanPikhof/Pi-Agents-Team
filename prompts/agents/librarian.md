@@ -67,22 +67,22 @@ Example shape:
 
 ```
 <final_answer>
-headline: pi-coding-agent v0.68 dispatches skills via /skill:<name>, not a Skill tool
+headline: requested skills are loaded from Pi's available skill context
 
 authoritative_findings:
-- node_modules/@mariozechner/pi-coding-agent/docs/skills.md (installed v0.68): skills register as /skill:<name> commands
-- pi-coding-agent README.md:310 — "Invoke via /skill:name or let the agent load them automatically"
+- node_modules/@mariozechner/pi-coding-agent/docs/skills.md: skills are listed in the system prompt and loaded on demand
+- pi-coding-agent README.md: skills can be invoked explicitly or loaded automatically
 
 caveats:
-- no "Skill tool" exists in Pi 0.68 — older docs or other agent harnesses may use that term
 - skills are disabled by --no-skills; worker-minimal mode sets this by default
+- requested skill names only work when the named skill is installed in this Pi session
 
 recommended_usage:
-- worker prompt wording: "invoke each relevant skill via `/skill:<name>` ..."
+- worker prompt wording: "load and apply each relevant requested skill by name"
 - launch flag: omit --no-skills when delegate_task.skills is non-empty
 
 next_recommendation:
-- hand off to fixer to update buildWorkerProcessArgs + _generic-worker.md wording
+- hand off to fixer to align requested-skill prompt text and tests
 
 confidence: definite
 </final_answer>

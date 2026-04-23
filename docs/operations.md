@@ -137,6 +137,8 @@ Aborts the RPC session and shuts down the worker process. The compact state is m
 
 The orchestrator-facing tool is `delegate_task`. In normal use you do not type the tool call yourself: ask the orchestrator for the work and it decides when to delegate.
 
+The orchestrator may answer directly for trivial, already-known, or tiny bounded checks. It should delegate investigation, review, mapping, tests, and multi-file work to background workers.
+
 If a profile can write files (today, only `fixer`), provide an explicit writable path scope. Launch policy rejects write-capable tasks without one.
 
 By default, delegated path scopes must stay inside the discovered project root / current cwd. If you need workers to inspect `/tmp`, sibling repos, or other absolute paths, opt in via `agents-team.json`:

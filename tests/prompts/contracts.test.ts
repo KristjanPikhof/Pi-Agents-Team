@@ -58,12 +58,12 @@ test("buildWorkerTaskPrompt injects skills section only when skills are provided
 	};
 
 	const withSkills = buildWorkerTaskPrompt({ ...base, skills: ["writer", "documenting-systems"] });
-	assert.match(withSkills, /Pi skills to use for this task/);
+	assert.match(withSkills, /Requested Pi skills for this task/);
 	assert.match(withSkills, /- writer/);
 	assert.match(withSkills, /- documenting-systems/);
-	// Pi dispatches skills via `/skill:<name>` commands, not a "Skill tool"
-	// — the previous wording was incompatible with Pi 0.68.
-	assert.match(withSkills, /\/skill:<name>/);
+	assert.match(withSkills, /Load and apply each relevant requested skill by name/);
+	assert.doesNotMatch(withSkills, /\/skill:/);
+	assert.doesNotMatch(withSkills, /Skill tool/i);
 
 	const withoutSkills = buildWorkerTaskPrompt(base);
 	assert.doesNotMatch(withoutSkills, /Pi skills to use/);

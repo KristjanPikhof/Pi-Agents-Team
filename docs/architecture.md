@@ -79,6 +79,11 @@ Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, f
 
 The default launch mode is `worker-minimal`. That disables recursive extension discovery and keeps workers from accidentally booting the full orchestrator package again. `preventRecursiveOrchestrator: true` in the safety config hard-rejects any attempt to launch with `extensionMode: "inherit"`.
 
+Worker-minimal mode also disables Pi skill discovery unless the delegated task
+sets `skills`. When requested skills are present, `TeamManager` passes
+`allowSkills` to the worker process so Pi loads available skill context and the
+worker can apply the requested installed skill names.
+
 ### Project role config is discovered once, then frozen
 
 On session start the extension calls `loadActiveTeamConfig({ cwd })`. If it finds the nearest ancestor `agents-team.json`, it resolves project prompt paths and scope roots relative to that file's directory, merges the result onto the built-in profiles, and hands the merged config to `TeamManager`. That merged config is the active runtime authority for the session.

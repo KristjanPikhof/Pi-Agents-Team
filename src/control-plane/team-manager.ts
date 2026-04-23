@@ -201,9 +201,9 @@ export class TeamManager {
 			extensionMode: launchPlan.extensionMode,
 			// Only enable Pi's skill discovery when the task actually requested
 			// skills. Without this the worker launches with `--no-skills` (set in
-			// buildWorkerProcessArgs), the Skill tool and `/skill:<name>`
-			// expansions are unavailable, and the task prompt's "invoke these
-			// skills" instructions are impossible to satisfy.
+			// buildWorkerProcessArgs), the available skill context is omitted, and
+			// the task prompt's requested-skill instructions are impossible to
+			// satisfy.
 			allowSkills: task.skills !== undefined && task.skills.length > 0,
 		});
 

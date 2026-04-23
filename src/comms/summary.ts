@@ -32,6 +32,14 @@ function findList(text: string, label: string): string[] {
 	return values.filter(Boolean);
 }
 
+function findAnyList(text: string, labels: string[]): string[] {
+	for (const label of labels) {
+		const values = findList(text, label);
+		if (values.length > 0) return values;
+	}
+	return [];
+}
+
 function fallbackHeadline(text: string, worker: WorkerRuntimeState): string {
 	const compact = text.replace(/\s+/g, " ").trim();
 	if (!compact) {
@@ -92,8 +100,8 @@ export function extractRelayQuestions(text: string, worker: WorkerRuntimeState):
 
 export function buildWorkerSummaryFromText(text: string, worker: WorkerRuntimeState): WorkerSummary {
 	const headline = findScalar(text, "headline") ?? findScalar(text, "summary") ?? fallbackHeadline(text, worker);
-	const readFiles = findList(text, "read_files");
-	const changedFiles = findList(text, "changed_files");
+	const readFiles = findAnyList(text, ["read_files", "files_read"]);
+	const changedFiles = findAnyList(text, ["changed_files", "files_changed"]);
 	const risks = findList(text, "risks");
 	const nextRecommendation = findScalar(text, "next_recommendation") ?? findScalar(text, "next recommendation");
 	const relayQuestions = extractRelayQuestions(text, worker);

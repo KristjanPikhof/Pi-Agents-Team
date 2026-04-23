@@ -30,7 +30,7 @@ const DelegateTaskSchema = Type.Object({
 	expectedOutput: Type.Optional(Type.String({ description: "Describe the output contract the worker should return" })),
 	pathScopeRoots: Type.Optional(Type.Array(Type.String(), { description: "Allowed path roots for scoped workers, especially write-capable profiles." })),
 	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
-	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of Pi skill names (e.g. \"writer\", \"frontend-design\") to enable on the worker. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches); invoke them via /skill:<name> or let the matching skill auto-activate. Omit if no specialized skill is needed." })),
+	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of installed Pi skill names to enable on the worker. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches) and the worker is told to load and apply the requested skills by name. Omit if no specialized skill is needed." })),
 	model: Type.Optional(Type.String({ description: "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model." })),
 });
 
@@ -519,7 +519,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_status",
 		label: "Agent Status",
-		description: "Return compact status (running/idle/exited) for one worker or all tracked workers. Use this to decide if a worker is done. For the worker's actual output, call agent_result.",
+		description: "Return compact status for one worker or all tracked workers. Done statuses are idle/completed/aborted/error/exited; starting/running/waiting_followup are not done. For the worker's actual output, call agent_result.",
 		parameters: WorkerLookupSchema,
 		async execute(_toolCallId, params) {
 			const resolvedId = params.workerId ? teamManager.resolveWorkerId(params.workerId) ?? params.workerId : undefined;
@@ -555,7 +555,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "agent_message",
 		label: "Agent Message",
 		description:
-			"Send a message to a tracked worker. Running workers receive it as a mid-stream steer (or a follow_up queued onto the live stream when delivery=follow_up). Idle/waiting_followup workers wake up and start a new turn with the message as the next user prompt — terminal workers (exited/aborted/error/completed) cannot receive messages.",
+			"Send a message to a tracked worker. Running workers receive it as a mid-stream steer (or a follow_up queued onto the live stream when delivery=follow_up). Idle/waiting_followup workers wake up and start a new turn with the message as the next user prompt; completed/aborted/error/exited workers cannot receive messages.",
 		parameters: WorkerMessageSchema,
 		async execute(_toolCallId, params) {
 			ensureNotReloading();
@@ -572,7 +572,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "ping_agents",
 		label: "Ping Agents",
-		description: "Return passive or active status for tracked workers. Poll this while waiting for workers to finish. A worker is done when status is idle/exited/aborted/error; running means not done.",
+		description: "Return passive or active status for tracked workers. Prefer wait_for_agents while waiting. Done statuses are idle/completed/aborted/error/exited; running means not done.",
 		parameters: PingAgentsSchema,
 		async execute(_toolCallId, params) {
 			const mode = params.mode === "active" ? "active" : "passive";
@@ -588,7 +588,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "wait_for_agents",
 		label: "Wait for Agents",
-		description: "Block until every target worker reaches a terminal status (idle, exited, aborted, error) or until a target raises a new relay question. Also honors a timeout. Returns reason=all_terminal, relay_raised (with newRelays listed), timeout, or aborted. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting. Use it after delegate_task; when it returns relay_raised, answer via agent_message and call wait_for_agents again to resume.",
+		description: "Block until every target worker reaches a terminal status (idle, completed, aborted, error, exited) or until a target raises a new relay question. Also honors a timeout. Returns reason=all_terminal, relay_raised (with newRelays listed), timeout, or aborted. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting. Use it after delegate_task; when it returns relay_raised, answer via agent_message and call wait_for_agents again to resume.",
 		parameters: WaitForAgentsSchema,
 		async execute(_toolCallId, params, signal) {
 			ensureNotReloading();
