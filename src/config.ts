@@ -73,6 +73,10 @@ export const ProjectRoleAdvancedSchema = Type.Object({
 	pathScope: Type.Optional(TeamPathScopeSchema),
 }, { additionalProperties: false });
 
+export const TeamProjectSafetySchema = Type.Object({
+	allowExternalPathScopes: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+
 const FlatPromptValueSchema = Type.Union([Type.String(), Type.Null(), ProjectRolePromptSchema]);
 
 /**
@@ -116,6 +120,7 @@ export const TeamProjectConfigSchema = Type.Object({
 	scaffoldVersion: Type.Optional(Type.Number()),
 	defaultsVersion: Type.Optional(Type.Number()),
 	enabled: Type.Optional(Type.Boolean()),
+	safety: Type.Optional(TeamProjectSafetySchema),
 	roles: Type.Optional(Type.Record(Type.String(), ProjectRoleConfigSchema)),
 }, { additionalProperties: false });
 
@@ -239,6 +244,7 @@ export const TeamConfigSchema = Type.Object({
 		preventRecursiveOrchestrator: Type.Boolean({ default: true }),
 		defaultWorkerExtensionMode: enumSchema(WORKER_EXTENSION_MODES),
 		requirePathScopeForWrites: Type.Boolean({ default: true }),
+		allowExternalPathScopes: Type.Boolean({ default: false }),
 		allowProjectProfiles: Type.Boolean({ default: false }),
 		projectRoot: Type.Optional(Type.String()),
 	}),
@@ -302,6 +308,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		preventRecursiveOrchestrator: true,
 		defaultWorkerExtensionMode: "worker-minimal",
 		requirePathScopeForWrites: true,
+		allowExternalPathScopes: false,
 		allowProjectProfiles: false,
 	},
 	persistence: {
@@ -511,7 +518,7 @@ export function buildOrchestratorSystemPrompt(
 		`- Active worker count in this session snapshot: ${activeWorkerCount}.`,
 		`- Pending relay questions in this session snapshot: ${relayCount}.`,
 		`- Worker transport contract: ${config.rpc.transport} via ${[config.rpc.command, ...config.rpc.args].join(" ")}.`,
-		`- Safety defaults: recursion prevention=${String(config.safety.preventRecursiveOrchestrator)}, require path scope for writes=${String(config.safety.requirePathScopeForWrites)}.`,
+		`- Safety defaults: recursion prevention=${String(config.safety.preventRecursiveOrchestrator)}, require path scope for writes=${String(config.safety.requirePathScopeForWrites)}, allow external path scopes=${String(config.safety.allowExternalPathScopes)}.`,
 	].join("\n");
 }
 

@@ -268,6 +268,7 @@ interface LayerApplication {
 	layerRoot: string;
 	layerPath: string;
 	requireInsideLayerRoot: boolean;
+	allowExternalPathScopes: boolean;
 	roles: PartialRawProjectRoleConfigMap;
 }
 
@@ -453,7 +454,7 @@ function materializeRoleProfile(
 	const fieldBase = `roles.${roleName}`;
 
 	const resolvedPathScope = normalizePathScope(permissions.pathScope, layer.layerRoot, `${fieldBase}.advanced.pathScope`, {
-		requireInsideLayerRoot: layer.requireInsideLayerRoot,
+		requireInsideLayerRoot: layer.requireInsideLayerRoot && !layer.allowExternalPathScopes,
 	});
 	diagnostics.push(...resolvedPathScope.diagnostics);
 
@@ -792,6 +793,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			layerRoot: winningLayer.layerRoot,
 			layerPath: winningLayer.path,
 			requireInsideLayerRoot: winningLayer.requireInsideLayerRoot,
+			allowExternalPathScopes: winningLayer.parsed.safety?.allowExternalPathScopes === true,
 			roles,
 		};
 		profiles = Object.entries(roles).map(([roleName, rawRoleConfig]) => {
@@ -856,6 +858,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	}
 
 	const projectRoot = projectPath ? computeLayerRoot("project", projectPath) : options.cwd;
+	const allowExternalPathScopes = winningLayer.parsed.safety?.allowExternalPathScopes === true;
 
 	return {
 		status: "project",
@@ -863,6 +866,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			...baseConfig,
 			safety: {
 				...baseConfig.safety,
+				allowExternalPathScopes,
 				allowProjectProfiles: true,
 				projectRoot,
 			},

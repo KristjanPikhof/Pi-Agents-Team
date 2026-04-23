@@ -190,10 +190,15 @@ export type ProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
 export type PartialProjectRoleConfigMap = Record<string, ProjectRoleConfig>;
 export type PartialRawProjectRoleConfigMap = Record<string, RawProjectRoleConfig>;
 
+export interface TeamProjectSafetyConfig {
+	allowExternalPathScopes?: boolean;
+}
+
 export interface TeamProjectConfigFile {
 	schemaVersion: typeof TEAM_PROJECT_SCHEMA_VERSION;
 	scaffoldVersion?: number;
 	enabled?: boolean;
+	safety?: TeamProjectSafetyConfig;
 	roles?: PartialRawProjectRoleConfigMap;
 }
 
@@ -349,6 +354,7 @@ export interface TeamConfig {
 		preventRecursiveOrchestrator: boolean;
 		defaultWorkerExtensionMode: WorkerExtensionMode;
 		requirePathScopeForWrites: boolean;
+		allowExternalPathScopes: boolean;
 		allowProjectProfiles: boolean;
 		projectRoot?: string;
 	};
