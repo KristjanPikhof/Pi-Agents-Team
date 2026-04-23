@@ -51,6 +51,7 @@ test("buildFullScaffold pre-populates every builtin profile in the flat v2 shape
 	assert.equal(scaffold.schemaVersion, 3);
 	assert.equal(scaffold.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(scaffold.enabled, true);
+	assert.equal(scaffold.safety?.allowExternalPathScopes, false);
 	const roles = scaffold.roles ?? {};
 	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
 		const role = (roles as Record<string, unknown>)[profile.name] as any;
@@ -94,6 +95,7 @@ test("/team-init local writes a full scaffold inside the project", async () => {
 	assert.equal(parsed.schemaVersion, 3);
 	assert.equal(parsed.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(parsed.enabled, true);
+	assert.equal(parsed.safety.allowExternalPathScopes, false);
 	const roleNames = Object.keys(parsed.roles ?? {}).sort();
 	assert.deepEqual(roleNames, DEFAULT_TEAM_CONFIG.profiles.map((profile) => profile.name).sort());
 	assert.ok(emitted[0]?.includes(expectedPath));

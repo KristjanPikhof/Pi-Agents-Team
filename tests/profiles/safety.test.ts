@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { resolveProfile } from "../../src/profiles/loader";
 import { applyLaunchPolicy } from "../../src/safety/launch-policy";
@@ -104,6 +104,42 @@ test("applyLaunchPolicy rejects prompt and scope paths outside the discovered pr
 			}, config),
 		/within the discovered project root/,
 	);
+});
+
+test("applyLaunchPolicy allows external path scopes when config opts in but still rejects prompt escapes", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-launch-policy-external-"));
+	mkdirSync(join(root, "prompts"), { recursive: true });
+	writeFileSync(join(root, "prompts", "reviewer.md"), "# reviewer\n");
+	const config: TeamConfig = {
+		...DEFAULT_TEAM_CONFIG,
+		safety: {
+			...DEFAULT_TEAM_CONFIG.safety,
+			allowExternalPathScopes: true,
+			projectRoot: root,
+		},
+	};
+
+	assert.throws(
+		() =>
+			applyLaunchPolicy({
+				cwd: root,
+				profile: resolveProfile("reviewer"),
+				systemPromptPath: "../escape.md",
+			}, config),
+		/within the discovered project root/,
+	);
+
+	const plan = applyLaunchPolicy({
+		cwd: root,
+		profile: resolveProfile("fixer"),
+		pathScope: {
+			roots: ["../outside"],
+			allowReadOutsideRoots: false,
+			allowWrite: true,
+		},
+	}, config);
+
+	assert.deepEqual(plan.pathScope?.roots, [resolve(root, "../outside")]);
 });
 
 test("path scope helpers normalize and validate scoped paths", () => {

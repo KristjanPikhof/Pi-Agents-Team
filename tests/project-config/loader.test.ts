@@ -142,6 +142,38 @@ test("loadActiveTeamConfig disables delegation when project paths escape the dis
 	assert.match(reviewer?.promptPath ?? "", /prompts\/agents\/reviewer\.md$/);
 });
 
+test("loadActiveTeamConfig accepts external role path scopes when safety.allowExternalPathScopes is enabled", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-config-external-scope-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 3,
+		safety: {
+			allowExternalPathScopes: true,
+		},
+		roles: {
+			fixer: {
+				tools: ["read", "bash", "edit", "write"],
+				write: true,
+				advanced: {
+					pathScope: {
+						roots: ["../external-logs", "src"],
+						allowReadOutsideRoots: false,
+						allowWrite: true,
+					},
+				},
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.equal(result.delegationEnabled, true);
+	assert.equal(result.config.safety.allowExternalPathScopes, true);
+	const fixer = result.config.profiles.find((profile) => profile.name === "fixer");
+	assert.deepEqual(fixer?.pathScope?.roots, [resolve(root, "../external-logs"), resolve(root, "src")]);
+	assert.equal(fixer?.pathScope?.allowWrite, true);
+});
+
 test("loadActiveTeamConfig v2: user role declarations are source-of-truth (no ceiling comparisons)", () => {
 	// In schema v2 the user's JSON owns the role list. There's no concept of a
 	// built-in "ceiling" to compare against — role names are free-form and tools
@@ -526,6 +558,7 @@ test("loadActiveTeamConfig defaults safety.projectRoot to cwd when no project co
 	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-projectroot-default-"));
 	const result = loadActiveTeamConfig({ cwd, globalConfigPath: null });
 	assert.equal(result.status, "builtin");
+	assert.equal(result.config.safety.allowExternalPathScopes, false);
 	assert.equal(result.config.safety.projectRoot, cwd);
 });
 
