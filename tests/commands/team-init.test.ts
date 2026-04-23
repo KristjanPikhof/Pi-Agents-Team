@@ -62,7 +62,7 @@ test("buildFullScaffold pre-populates every builtin profile in the schema v4 sha
 		assert.equal(role.model, DEFAULT_MODEL_SENTINEL);
 		assert.equal(role.prompt, DEFAULT_PROMPT_SENTINEL);
 		assert.equal(role.whenToUse, profile.description, "scaffold should emit whenToUse with the role's trigger description");
-		assert.equal(role.description, undefined, "scaffold must not emit the legacy description alias");
+		assert.equal(role.description, undefined, "scaffold must not emit a description field");
 		assert.equal(role.permissions, undefined, "flat shape must not emit the legacy permissions wrapper");
 		assert.equal(role.tools, undefined, "tools must live under access");
 		assert.equal(role.write, undefined, "write must live under access");
