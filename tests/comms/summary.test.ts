@@ -55,6 +55,40 @@ test("buildWorkerSummaryFromText extracts compact fields", () => {
 	assert.equal(summary.nextRecommendation, "add a UI surface for relay questions");
 });
 
+test("buildWorkerSummaryFromText accepts file-list label aliases", () => {
+	const worker = createWorker();
+	const summary = buildWorkerSummaryFromText(
+		[
+			"headline: Alias labels are parsed",
+			"files_read:",
+			"- src/runtime/worker-manager.ts",
+			"files_changed:",
+			"- tests/runtime/worker-manager.test.ts",
+		].join("\n"),
+		worker,
+	);
+
+	assert.deepEqual(summary.readFiles, ["src/runtime/worker-manager.ts"]);
+	assert.deepEqual(summary.changedFiles, ["tests/runtime/worker-manager.test.ts"]);
+});
+
+test("buildWorkerSummaryFromText accepts mixed file-list labels", () => {
+	const worker = createWorker();
+	const summary = buildWorkerSummaryFromText(
+		[
+			"headline: Mixed labels are parsed",
+			"files_read:",
+			"- src/comms/summary.ts",
+			"changed_files:",
+			"- tests/comms/summary.test.ts",
+		].join("\n"),
+		worker,
+	);
+
+	assert.deepEqual(summary.readFiles, ["src/comms/summary.ts"]);
+	assert.deepEqual(summary.changedFiles, ["tests/comms/summary.test.ts"]);
+});
+
 test("extractRelayQuestions ignores placeholder values like 'none' or 'n/a'", () => {
 	const worker = createWorker("idle");
 	for (const placeholder of ["none", "None.", "N/A", "no", "nope", "-", "—", "no question", "not needed"]) {
