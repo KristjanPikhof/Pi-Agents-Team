@@ -78,7 +78,7 @@ Full runtime topology and data flow: [`docs/architecture.md`](docs/architecture.
 
 **Config writes are atomic.** `src/util/backup.ts#atomicWriteFileSync` stages to `<path>.tmp.<pid>.<ts>` and `renameSync`es into place. Backups use `copyFileSync` with `COPYFILE_EXCL`. Dirs `0o700`, files `0o600` (noop on Windows). Toggle commands (`/team-enable`, `/team-disable`) never rewrite a valid config's roles — only patch `enabled`.
 
-**Team profiles and Pi skills are different axes.** `delegate_task.profileName` is a role from the active config; `delegate_task.skills: string[]` names Pi skills to be dispatched via `/skill:<name>` inside the worker. Which skills exist is install-specific — never bake specific skill names into prompts, examples, or role defaults. The orchestrator's **Available worker profiles** block is built dynamically from `config.profiles` at startup.
+**Team profiles and Pi skills are different axes.** `delegate_task.profileName` is a role from the active config; `delegate_task.skills: string[]` names installed Pi skills the worker should load and apply from its available skill context. Which skills exist is install-specific — never bake specific skill names into prompts, examples, or role defaults. The orchestrator's **Available worker profiles** block is built dynamically from `config.profiles` at startup.
 
 **Cost totals: agents only.** `aggregateUsage()` and the widget `Σ` line sum tracked workers. Orchestrator cost stays in Pi's footer. Don't double-surface.
 
