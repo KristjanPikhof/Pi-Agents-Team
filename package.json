@@ -32,7 +32,7 @@
   },
   "pi": {
     "extensions": [
-      "./extensions/pi-agent-team/index.ts"
+      "./extensions/index.ts"
     ]
   },
   "peerDependencies": {
