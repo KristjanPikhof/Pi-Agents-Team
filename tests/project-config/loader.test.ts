@@ -425,7 +425,7 @@ test("loadActiveTeamConfig v4: project file with schema mismatch does NOT let gl
 		projectPath,
 		JSON.stringify({
 			schemaVersion: 3,
-			roles: { "project-only": { tools: ["read"], write: false } },
+			roles: { "project-only": { prompt: "default" } },
 		}),
 	);
 
