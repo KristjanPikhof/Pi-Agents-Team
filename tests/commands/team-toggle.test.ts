@@ -85,7 +85,7 @@ test("/team-disable backs up an unparsable file before writing a minimal replace
 
 	const parsed = JSON.parse(readFileSync(configPath, "utf8"));
 	assert.equal(parsed.enabled, false);
-	assert.equal(parsed.schemaVersion, 3);
+	assert.equal(parsed.schemaVersion, 4);
 
 	// Finding-2 guarantee: toggle must never destroy operator content. The
 	// unparsable original should be backed up to a timestamped sibling.
@@ -111,9 +111,9 @@ test("/team-disable preserves schema-drifted content and only patches enabled", 
 	writeFileSync(
 		configPath,
 		JSON.stringify({
-			schemaVersion: 3,
+			schemaVersion: 4,
 			enabled: true,
-			roles: { custom: { tools: ["read"], write: false } },
+			roles: { custom: { access: { tools: ["read"], write: false } } },
 			futureField: { nested: "value" },
 		}),
 	);
@@ -124,7 +124,7 @@ test("/team-disable preserves schema-drifted content and only patches enabled", 
 
 	const parsed = JSON.parse(readFileSync(configPath, "utf8"));
 	assert.equal(parsed.enabled, false, "enabled should flip");
-	assert.deepEqual(parsed.roles, { custom: { tools: ["read"], write: false } }, "user roles must survive");
+	assert.deepEqual(parsed.roles, { custom: { access: { tools: ["read"], write: false } } }, "user roles must survive");
 	// The futureField is preserved since the file was handled as schema-drift (additionalProperties rejects it, triggering the drift branch).
 	assert.deepEqual(parsed.futureField, { nested: "value" }, "unknown fields must not be stripped");
 	// Siblings should NOT include a backup — preservation is silent, no backup needed.
