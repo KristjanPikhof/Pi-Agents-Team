@@ -15,9 +15,9 @@ export interface WorkerProcessOptions {
 	/**
 	 * When true, do NOT pass `--no-skills` to the worker Pi session. Needed when
 	 * the delegated task requested `skills: [...]`: without this, Pi's skill
-	 * discovery is disabled and the orchestrator's "invoke these skills" prompt
-	 * is noop — the Skill tool / `/skill:<name>` expansions don't exist in the
-	 * worker session. Default `false` keeps the tighter worker-minimal footprint.
+	 * discovery is disabled and the requested skill names have no available
+	 * skill context in the worker session. Default `false` keeps the tighter
+	 * worker-minimal footprint.
 	 */
 	allowSkills?: boolean;
 	extraArgs?: string[];
