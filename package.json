@@ -1,6 +1,6 @@
 {
   "name": "pi-agents-team",
-  "version": "2026.04.22",
+  "version": "2026.4.23",
   "private": true,
   "description": "Pi package that turns the main session into an orchestrator for RPC-backed worker agents.",
   "license": "MIT",
