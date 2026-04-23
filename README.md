@@ -7,21 +7,13 @@ One Pi session orchestrates. Background RPC workers do the work. The orchestrato
 
 ## Install
 
-Install from npm once the package is published:
+Install from npm:
 
 ```bash
 pi install pi-agents-team
 ```
 
-Pin to a specific published version when you want reproducible team setup:
-
-```bash
-pi install pi-agents-team@2026.4.23
-```
-
-Pi downloads the package, runs `npm install`, and registers the extension declared in `package.json`.
-
-You can also install from Git using one of the options below. This is useful before the first npm publish, when testing a branch, or when pinning to an unreleased ref.
+You can also install from Git using one of the options below.
 
 ### Option 1: Git via `pi install`
 
@@ -31,14 +23,6 @@ pi install git:git@github.com:KristjanPikhof/pi-agents-team
 
 # HTTPS (prefix optional for protocol URLs)
 pi install https://github.com/KristjanPikhof/pi-agents-team
-```
-
-Writes to global settings (`~/.pi/agent/settings.json`). Add `-l` to write to project settings (`.pi/settings.json`) so your team auto-installs it on session start.
-
-Pin to a ref to skip `pi update`:
-
-```bash
-pi install git:git@github.com:KristjanPikhof/pi-agents-team@v1.0.0
 ```
 
 ### Option 2: Edit settings.json by hand
@@ -60,28 +44,9 @@ Add an entry to the `packages` array. Pi installs any missing packages the next 
 ```json
 {
   "packages": [
-    "git:git@github.com:KristjanPikhof/pi-agents-team@v1.0.0"
+    "git:git@github.com:KristjanPikhof/pi-agents-team"
   ]
 }
-```
-
-Entries can also be objects if you need to filter what the package exposes:
-
-```json
-{
-  "packages": [
-    {
-      "source": "git:git@github.com:KristjanPikhof/pi-agents-team",
-      "extensions": ["./extensions/index.ts"]
-    }
-  ]
-}
-```
-
-### Option 3: One-off trial
-
-```bash
-pi -e git:git@github.com:KristjanPikhof/pi-agents-team
 ```
 
 Clones to a temp directory for a single run. Nothing is written to your settings.
