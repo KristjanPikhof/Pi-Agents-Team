@@ -99,10 +99,13 @@ Example:
 }
 ```
 
-With that flag enabled, the orchestrator can delegate a worker with a path scope like `[
-  "/tmp/my-log-dir",
-  "src"
-]` instead of being forced to stay fully inside the repo root.
+With that flag enabled, the orchestrator can delegate a worker with a path scope like:
+
+```json
+["/tmp/my-log-dir", "src"]
+```
+
+instead of being forced to stay fully inside the repo root.
 
 ### Per-role fields
 
