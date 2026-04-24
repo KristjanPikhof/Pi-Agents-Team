@@ -773,7 +773,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			layerRoot: winningLayer.layerRoot,
 			layerPath: winningLayer.path,
 			requireInsideLayerRoot: winningLayer.requireInsideLayerRoot,
-			allowWorkerPathsOutsideProject: winningLayer.parsed.workerAccess?.allowPathsOutsideProject === true,
+			allowWorkerPathsOutsideProject: winningLayer.parsed.workerAccess?.allowPathsOutsideProject !== false,
 			roles,
 		};
 		profiles = Object.entries(roles).map(([roleName, rawRoleConfig]) => {
@@ -838,7 +838,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	}
 
 	const projectRoot = projectPath ? computeLayerRoot("project", projectPath) : options.cwd;
-	const allowWorkerPathsOutsideProject = winningLayer.parsed.workerAccess?.allowPathsOutsideProject === true;
+	const allowWorkerPathsOutsideProject = winningLayer.parsed.workerAccess?.allowPathsOutsideProject !== false;
 
 	return {
 		status: "project",
