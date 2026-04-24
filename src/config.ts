@@ -228,7 +228,7 @@ export const TeamConfigSchema = Type.Object({
 		preventRecursiveOrchestrator: Type.Boolean({ default: true }),
 		defaultWorkerExtensionMode: enumSchema(WORKER_EXTENSION_MODES),
 		requirePathScopeForWrites: Type.Boolean({ default: true }),
-		allowWorkerPathsOutsideProject: Type.Boolean({ default: false }),
+		allowWorkerPathsOutsideProject: Type.Boolean({ default: true }),
 		allowProjectProfiles: Type.Boolean({ default: false }),
 		projectRoot: Type.Optional(Type.String()),
 	}),
@@ -292,7 +292,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		preventRecursiveOrchestrator: true,
 		defaultWorkerExtensionMode: "worker-minimal",
 		requirePathScopeForWrites: true,
-		allowWorkerPathsOutsideProject: false,
+		allowWorkerPathsOutsideProject: true,
 		allowProjectProfiles: false,
 	},
 	persistence: {

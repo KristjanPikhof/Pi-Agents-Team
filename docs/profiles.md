@@ -53,7 +53,7 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
   "scaffoldVersion": 1,
   "enabled": true,
   "workerAccess": {
-    "allowPathsOutsideProject": false
+    "allowPathsOutsideProject": true
   },
   "roles": {
     "explorer": {
@@ -82,7 +82,7 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `workerAccess.allowPathsOutsideProject` | boolean | `false` | Opt-in escape hatch that lets delegated worker `pathScope` roots point outside the project root / current cwd. Useful for `/tmp`, sibling repos, or operator-supplied absolute paths. This does **not** affect the visible orchestrator, relax prompt-file containment, or create an OS sandbox. |
+| `workerAccess.allowPathsOutsideProject` | boolean | `true` | Delegated worker `pathScope` roots may point outside the project root / current cwd by default. Set this explicitly to `false` to restrict scopes to the project root/current cwd. This does **not** affect the visible orchestrator, relax prompt-file containment, or create an OS sandbox. |
 
 Example:
 
@@ -91,7 +91,7 @@ Example:
   "schemaVersion": 4,
   "enabled": true,
   "workerAccess": {
-    "allowPathsOutsideProject": true
+    "allowPathsOutsideProject": false
   },
   "roles": {
     "fixer": {
@@ -101,13 +101,13 @@ Example:
 }
 ```
 
-With that flag enabled, the orchestrator can delegate a worker with a path scope like:
+With this restriction enabled, delegated worker path scopes must stay inside the repo/current cwd. If the field is omitted or set to `true`, the orchestrator can delegate a worker with a path scope like:
 
 ```json
 ["/tmp/my-log-dir", "src"]
 ```
 
-instead of being forced to stay fully inside the repo root.
+without being forced to stay fully inside the repo root.
 
 ### Per-role fields
 
@@ -270,7 +270,7 @@ The loader trusts whatever you put in the file. `launch-policy.ts` runs every ti
 
 1. **No recursive orchestrators.** `access.extensionMode: "inherit"` is rejected at load time. Launch-time overrides to `inherit` are also rejected.
 2. **Writable roles need a `pathScope`.** Any role with `access.write: true` — or `access.tools` containing `edit` / `write` — must have a path scope at delegate time, either in `access.pathScope` or passed via `pathScopeRoots` on the `delegate_task` call. No "write anywhere" workers.
-3. **Path scope roots stay inside the project root by default.** `safety.projectRoot` is the project root when a project config exists, else the current cwd (never undefined, so the guard always fires). `pathScopeRoots: ["/"]` or `"../../elsewhere"` are rejected unless the winning config sets `workerAccess.allowPathsOutsideProject: true`. Symlink escapes are still checked with `realpathSync.native`, so the loader/launcher compare real locations, not just lexical paths.
+3. **Path scope roots may leave the project root by default.** Set `workerAccess.allowPathsOutsideProject: false` in the winning config to restrict delegated worker `pathScope` roots to `safety.projectRoot` (the project root when a project config exists, else the current cwd). Prompt paths always stay inside the project root/current cwd. When restriction is enabled, symlink escapes are checked with `realpathSync.native`, so the loader/launcher compare real locations, not just lexical paths.
 4. **Prompt paths must stay inside the project root.** Same containment check as path scope roots. Pre-fix, the check was lexical only — a symlink under the project root pointing at `~/.ssh` would pass; the loader now calls `realpathSync.native` and rejects.
 
 Launch-time overrides (tools, path scope, extension mode) may only narrow the role's declared rights. They cannot broaden them.

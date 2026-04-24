@@ -137,14 +137,11 @@ test("loadActiveTeamConfig disables delegation when project paths escape the dis
 	assert.match(reviewer?.promptPath ?? "", /prompts\/agents\/reviewer\.md$/);
 });
 
-test("loadActiveTeamConfig accepts external role path scopes when workerAccess opts in", () => {
+test("loadActiveTeamConfig accepts external role path scopes by default", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-config-external-scope-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
 		schemaVersion: 4,
-		workerAccess: {
-			allowPathsOutsideProject: true,
-		},
 		roles: {
 			fixer: {
 				access: {
@@ -167,6 +164,36 @@ test("loadActiveTeamConfig accepts external role path scopes when workerAccess o
 	const fixer = result.config.profiles.find((profile) => profile.name === "fixer");
 	assert.deepEqual(fixer?.pathScope?.roots, [resolve(root, "../external-logs"), resolve(root, "src")]);
 	assert.equal(fixer?.pathScope?.allowWrite, true);
+});
+
+test("loadActiveTeamConfig rejects external role path scopes when workerAccess opts out", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-config-external-scope-restricted-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		workerAccess: {
+			allowPathsOutsideProject: false,
+		},
+		roles: {
+			fixer: {
+				access: {
+					tools: ["read", "bash", "edit", "write"],
+					write: true,
+					pathScope: {
+						roots: ["../external-logs"],
+						allowReadOutsideRoots: false,
+						allowWrite: true,
+					},
+				},
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "invalid");
+	assert.equal(result.delegationEnabled, false);
+	assert.equal(result.config.safety.allowWorkerPathsOutsideProject, true, "invalid config falls back to base defaults");
+	assert.ok(result.diagnostics.some((diagnostic) => /within the project root/.test(diagnostic.message)));
 });
 
 test("loadActiveTeamConfig v4: user role declarations are source-of-truth (no ceiling comparisons)", () => {
@@ -544,14 +571,14 @@ test("loadActiveTeamConfig: fatal-parse on the winning layer still disables dele
 });
 
 test("loadActiveTeamConfig defaults safety.projectRoot to cwd when no project config exists", () => {
-	// cr-expert P1: without a project config, safety.projectRoot used to be
-	// undefined, which made the launch-policy containment guard a no-op. A
-	// caller could then delegate with `pathScopeRoots: ["/"]` and the guard
-	// would skip the "within project root" check. Now we default to cwd.
+	// Without a project config, safety.projectRoot still has to be concrete so
+	// prompt-file containment and explicit workerAccess restrictions have a root
+	// to compare against. Outside-project worker path scopes remain allowed by
+	// default.
 	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-projectroot-default-"));
 	const result = loadActiveTeamConfig({ cwd, globalConfigPath: null });
 	assert.equal(result.status, "builtin");
-	assert.equal(result.config.safety.allowWorkerPathsOutsideProject, false);
+	assert.equal(result.config.safety.allowWorkerPathsOutsideProject, true);
 	assert.equal(result.config.safety.projectRoot, cwd);
 });
 
