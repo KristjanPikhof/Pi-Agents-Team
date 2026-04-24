@@ -69,7 +69,7 @@ test("applyLaunchPolicy rejects broader launch-time path scope than the role all
 	);
 });
 
-test("applyLaunchPolicy rejects prompt and scope paths outside the discovered project root", () => {
+test("applyLaunchPolicy rejects prompt escapes and external scope paths when explicitly restricted", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-launch-policy-"));
 	mkdirSync(join(root, "prompts"), { recursive: true });
 	writeFileSync(join(root, "prompts", "reviewer.md"), "# reviewer\n");
@@ -77,6 +77,7 @@ test("applyLaunchPolicy rejects prompt and scope paths outside the discovered pr
 		...DEFAULT_TEAM_CONFIG,
 		safety: {
 			...DEFAULT_TEAM_CONFIG.safety,
+			allowWorkerPathsOutsideProject: false,
 			projectRoot: root,
 		},
 	};
