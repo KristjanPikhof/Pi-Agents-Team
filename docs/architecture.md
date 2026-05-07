@@ -145,6 +145,20 @@ Why: gives the orchestrator a single, predictable deliverable; keeps compact sta
 
 The initial `refreshState` fires before `promptWorker` is called, so the RPC session reports `isStreaming: false`. Naively that maps to `idle`, which is terminal and would trigger a "worker finished" toast before the worker has done anything. `applyNormalizedEvent`'s `worker_state` branch keeps a `starting` worker as `starting` while `isStreaming` is false. `flushTerminalNotifications` re-checks each queued entry's current status before firing the batched toast so any race that slips past is dropped.
 
+### Close vs cancel vs prune
+
+Three verbs with different intents. Don't conflate them.
+
+| Verb | Target status | What it does | Final status |
+|---|---|---|---|
+| `/agent-cancel` | non-terminal (`starting`, `running`, `waiting_followup`) | Aborts the active stream and SIGTERMs the worker process. | `exited` (or `aborted` if the abort raced) |
+| `/agent-close` | reusable (`idle`, `waiting_followup`) | Disposes the live RPC handle, sets the `closing` flag so `worker_exit` lands as `exited` not `aborted`. | `exited` |
+| `/team-prune` | terminal (`idle`, `completed`, `aborted`, `error`, `exited`) | Calls `WorkerManager.removeWorker` (which closes any leftover live handle for `idle`/`waiting_followup` entries), unsubscribes RPC listeners, drops the registry entry. | (entry removed) |
+
+`closing` is a per-record flag on `WorkerRuntimeRecord`. `closeWorker` sets it before disposing the handle so the natural `worker_exit` event fired by the dispose can map to `exited` instead of the default `signal === "SIGTERM" ? "aborted" : "exited"` branch. Without the flag, an explicit close would arrive as a fake abort.
+
+`pruneTerminalWorkers` is async because `WorkerManager.removeWorker` awaits handle disposal for any reusable worker still holding a live session. Operators get a single-shot prune; the runtime guarantees no leaked processes after the await resolves.
+
 ### Placeholder relays are filtered at parse time
 
 Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) instead of omitting the field when they have nothing to ask. `extractRelayQuestions` (`src/comms/summary.ts`) normalizes the value and returns an empty array for any known placeholder. The extension's relay-toast listener has a second-line guard: it refuses to notify when the question string is empty or whitespace-only. Workers are told in `buildWorkerTaskPrompt` to omit the field entirely. Both guards exist because models drift.
