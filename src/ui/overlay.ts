@@ -59,17 +59,22 @@ interface OverlayLikeTui {
 	requestRender?: (force?: boolean) => void;
 }
 
+// The overlay anchors to the right edge and fills the full terminal height,
+// occupying roughly 30% of the width so it sits beside the chat without
+// covering it. The minimum width keeps the tab bar legible on narrow setups;
+// resizing the terminal automatically reflows the panel.
 export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
-	anchor: "right-center",
-	width: "76%",
-	minWidth: 60,
-	maxHeight: "90%",
-	margin: 1,
+	anchor: "top-right",
+	width: "30%",
+	minWidth: 38,
+	maxHeight: "100%",
+	margin: 0,
 };
 
-const WIDE_LAYOUT_MIN_WIDTH = 110;
 const MIN_OVERLAY_ROWS = 14;
 const MIN_BODY_ROWS = 6;
+const PANEL_BG_OPEN = "\x1b[48;5;236m";
+const PANEL_BG_CLOSE = "\x1b[0m";
 
 const TAB_ORDER: OverlayTab[] = ["workers", "inspect", "console", "cost"];
 const TAB_LABELS: Record<OverlayTab, string> = {
