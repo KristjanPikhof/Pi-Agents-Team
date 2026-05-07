@@ -426,6 +426,7 @@ export class TeamManager {
 			);
 		}
 
+		const taskId = this.nextTaskId();
 		const task: DelegatedTaskInput = {
 			taskId,
 			title: request.title,
