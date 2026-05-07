@@ -66,6 +66,15 @@ export interface DelegateTaskRequest {
 
 const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
 
+function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	if (a.length !== b.length) return false;
+	const sortedA = [...a].sort();
+	const sortedB = [...b].sort();
+	return sortedA.every((value, index) => value === sortedB[index]);
+}
+
 export interface AgentResult {
 	worker: WorkerRuntimeState;
 	task?: DelegatedTaskInput;
@@ -394,8 +403,29 @@ export class TeamManager {
 			},
 			this.config,
 		);
-		const taskId = this.nextTaskId();
+
 		const skills = request.skills?.map((name) => name.trim()).filter((name) => name.length > 0);
+		const newAllowSkills = skills !== undefined && skills.length > 0;
+		const existing = this.workerManager.getLaunchSnapshot(resolvedId);
+		if (!existing) {
+			throw new Error(`Cannot reuse worker ${resolvedId}: runtime record missing. Delegate fresh.`);
+		}
+		const mismatches: string[] = [];
+		if (existing.cwd !== launchPlan.cwd) mismatches.push(`cwd (${existing.cwd} → ${launchPlan.cwd})`);
+		if (existing.model !== launchPlan.model) mismatches.push(`model (${existing.model ?? "default"} → ${launchPlan.model ?? "default"})`);
+		if (existing.thinkingLevel !== launchPlan.thinkingLevel) mismatches.push(`thinkingLevel`);
+		if (existing.systemPromptPath !== launchPlan.systemPromptPath) mismatches.push(`systemPromptPath`);
+		if (existing.extensionMode !== launchPlan.extensionMode) mismatches.push(`extensionMode`);
+		if (!toolsetEqual(existing.tools, launchPlan.tools)) mismatches.push(`tools`);
+		if (existing.allowSkills !== newAllowSkills) {
+			mismatches.push(`skills (worker launched with allowSkills=${existing.allowSkills}, request needs ${newAllowSkills})`);
+		}
+		if (mismatches.length > 0) {
+			throw new Error(
+				`Cannot reuse worker ${resolvedId}: launch settings differ on ${mismatches.join(", ")}. These are baked into the worker process at spawn and cannot change between tasks. Delegate fresh (omit reuseWorkerId) or align the request.`,
+			);
+		}
+
 		const task: DelegatedTaskInput = {
 			taskId,
 			title: request.title,
