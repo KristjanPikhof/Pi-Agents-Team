@@ -244,6 +244,21 @@ export class WorkerManager {
 		return this.workers.has(workerId);
 	}
 
+	async removeWorker(workerId: string): Promise<void> {
+		const record = this.workers.get(workerId);
+		if (!record) return;
+		if (REUSABLE_STATUSES.has(record.state.status)) {
+			try {
+				await this.closeWorker(workerId, "Worker auto-closed on removal.");
+			} catch {
+				// Best-effort: still drop the map entry below.
+			}
+		}
+		for (const off of record.unsubscribers) off();
+		record.client.dispose("Worker removed");
+		this.workers.delete(workerId);
+	}
+
 	async reuseWorker(workerId: string, message: string, task: DelegatedTaskInput): Promise<void> {
 		const record = this.requireWorker(workerId);
 		if (!REUSABLE_STATUSES.has(record.state.status)) {
