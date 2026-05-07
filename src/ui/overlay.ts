@@ -6,7 +6,21 @@ import type { AssistantChunk, WorkerConsoleEvent } from "../runtime/worker-manag
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
-import { buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet } from "./dashboard";
+import { buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
+import {
+	accent,
+	accentBold,
+	bold,
+	danger,
+	dangerBold,
+	dim,
+	FRAME,
+	muted,
+	success,
+	successBold,
+	warning,
+	warningBold,
+} from "./theme";
 
 type OverlayTab = "workers" | "inspect" | "console" | "cost";
 type LayoutMode = "stack" | "split";
