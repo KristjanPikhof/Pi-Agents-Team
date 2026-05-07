@@ -402,6 +402,42 @@ test("cost tab shows aggregate Σ and per-worker rows", () => {
 	assert.ok(lines.some((line) => line.includes("w1") && line.includes("reviewer")));
 });
 
+test("tabs and control chars in worker content do not bust panel width", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.lastSummary!.headline = "first\tsecond\tthird\t" + "x".repeat(120);
+	state.activeWorkers.w1!.currentTask!.goal = "line one\n\t\t\t// indented diff line that would overrun visibleWidth\n+\t\t\treturn null;";
+	const transcripts = {
+		w1: "tab\tseparated\tassistant\ttext\nplus\x1b[31mansi-looking\x1b[0m and\bbackspace and \x07bell",
+	};
+	const chunks: AssistantChunk[] = [
+		{ index: 0, ts: Date.now(), text: "+\t\t\t// surprise tab line worth 32 cols when rendered" },
+	];
+	const widths = [80, 100, 116, 140];
+	for (const cols of widths) {
+		const { component } = makeComponent({ state, rows: 28, cols, initialWorkerId: "w1", transcripts, chunks: { w1: chunks } });
+		for (const tabKey of ["1", "2", "3"]) {
+			component.handleInput(tabKey);
+			const lines = component.render(cols);
+			for (const line of lines) {
+				assert.ok(visibleWidth(line) <= cols, `tab ${tabKey} cols=${cols} got width ${visibleWidth(line)} for line: ${JSON.stringify(line)}`);
+				assert.ok(!line.includes("\t"), `tab ${tabKey} cols=${cols} line still contains \\t: ${JSON.stringify(line)}`);
+			}
+		}
+	}
+});
+
+test("render output is capped at min(width, terminal.columns) so an oversized panel cannot overflow the terminal", () => {
+	const state = makeState(2);
+	const tui = { terminal: { rows: 30, columns: 60 }, requestRender: () => {} };
+	const manager = makeFakeManager({ state });
+	const component = createTeamDashboardOverlayComponent(tui, manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1], state, () => {});
+	component.handleInput("2");
+	const lines = component.render(120);
+	for (const line of lines) {
+		assert.ok(visibleWidth(line) <= 60, `expected cap at terminal 60, got ${visibleWidth(line)}: ${line}`);
+	}
+});
+
 test("visibleWidth is enforced across all tabs and worst-case content", () => {
 	const state = makeState(4);
 	state.activeWorkers.w1!.lastSummary!.headline = "x".repeat(300);
