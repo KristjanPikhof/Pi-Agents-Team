@@ -282,13 +282,74 @@ export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo"): s
 	const cells = TAB_ORDER.map((tab, index) => {
 		const num = index + 1;
 		const label = `${num} ${TAB_LABELS[tab]}`;
-		return tab === active ? `[${label}]` : ` ${label} `;
+		return tab === active ? accentBold(`[${label}]`) : dim(` ${label} `);
 	});
-	const badge = routingMode === "solo" ? "  · solo" : "";
-	return cells.join("  ") + badge;
+	const badge = routingMode === "solo" ? `  · ${warningBold("solo")}` : "";
+	return cells.join(" ") + badge;
 }
 
-const ACTION_BAR = "[s]teer [m]sg [n]ew [c]lose [x]cancel [p]rune [r]efresh [y]copy [q]uit";
+const ACTION_BAR_KEYS: Array<{ key: string; label: string }> = [
+	{ key: "s", label: "teer" },
+	{ key: "m", label: "sg" },
+	{ key: "n", label: "ew" },
+	{ key: "c", label: "lose" },
+	{ key: "x", label: "cancel" },
+	{ key: "p", label: "rune" },
+	{ key: "r", label: "efresh" },
+	{ key: "y", label: "copy" },
+	{ key: "q", label: "uit" },
+];
+
+function buildActionBar(): string {
+	return ACTION_BAR_KEYS.map(({ key, label }) => `[${accentBold(key)}]${dim(label)}`).join(" ");
+}
+
+function colorForGroup(group: WorkerAttentionGroup): (text: string) => string {
+	switch (group) {
+		case "needs_reply":
+			return warning;
+		case "needs_recovery":
+			return danger;
+		case "in_progress":
+			return accent;
+		case "completed_or_idle":
+			return success;
+	}
+}
+
+function colorForGroupBold(group: WorkerAttentionGroup): (text: string) => string {
+	switch (group) {
+		case "needs_reply":
+			return warningBold;
+		case "needs_recovery":
+			return dangerBold;
+		case "in_progress":
+			return accentBold;
+		case "completed_or_idle":
+			return successBold;
+	}
+}
+
+function colorForWorker(worker: WorkerRuntimeState): (text: string) => string {
+	if (worker.pendingRelayQuestions.length > 0) return warning;
+	switch (worker.status) {
+		case "running":
+		case "starting":
+			return accent;
+		case "waiting_followup":
+			return warning;
+		case "idle":
+			return worker.finalAnswer ? success : muted;
+		case "completed":
+			return success;
+		case "aborted":
+		case "error":
+		case "exited":
+			return danger;
+		default:
+			return muted;
+	}
+}
 
 interface OverlayTeamManager {
 	snapshot(): PersistedTeamState;
