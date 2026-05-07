@@ -14,6 +14,16 @@ import { stripAnsi } from "../../src/ui/theme";
 function plainLines(lines: string[]): string[] {
 	return lines.map(stripAnsi);
 }
+
+interface OverlayComponent {
+	render(width: number): string[];
+	handleInput(data: string): void;
+	dispose?(): void;
+}
+
+function renderPlain(component: OverlayComponent, width: number): string[] {
+	return component.render(width).map(stripAnsi);
+}
 import type { AssistantChunk, WorkerConsoleEvent } from "../../src/runtime/worker-manager";
 import type { PersistedTeamState, WorkerRuntimeState, WorkerStatus } from "../../src/types";
 
