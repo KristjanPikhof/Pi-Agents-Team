@@ -67,6 +67,28 @@ delegate_task (tool)
   ← returns { worker, task }
 ```
 
+When `delegate_task.reuseWorkerId` is set, the path forks before launchWorker:
+
+```text
+delegate_task (tool, with reuseWorkerId)
+  → TeamManager.delegateTask
+      → reuseWorkerForTask
+          → registry.getWorker     (must exist)
+          → status check           (idle | waiting_followup; reject otherwise)
+          → profile match          (same profileName)
+          → applyLaunchPolicy      (compute would-be plan)
+          → launch-snapshot diff   (model, tools, cwd, systemPromptPath,
+                                    extensionMode, thinkingLevel, allowSkills)
+          → registerTask           (fresh taskId)
+          → WorkerManager.reuseWorker
+              → reset per-task state (textBuffer, finalAnswer, lastTool,
+                                       relayQuestions, lastSummary, error)
+              → promptWorker        (existing RPC client, status → "running")
+  ← returns { worker, task }
+```
+
+Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, skill discovery) are baked at spawn and can't change between tasks; `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason — different role means different prompt path.
+
 While the worker runs, RPC events flow through the event normalizer into `applyNormalizedEvent`, which mutates the worker's `WorkerRuntimeState` (status, textBuffer, lastToolName, usage, lastSummary, pendingRelayQuestions, finalAnswer) and emits a snapshot. `TeamManager` upserts the snapshot into the registry and re-emits `state_change`, which drives both persistence and UI listeners.
 
 ## Key decisions
