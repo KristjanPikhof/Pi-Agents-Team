@@ -716,7 +716,7 @@ export default function (pi: ExtensionAPI): void {
 		return {
 			systemPrompt: [
 				event.systemPrompt,
-				buildOrchestratorPromptBundle(teamState, activeProjectConfig.config),
+				buildOrchestratorPromptBundle(teamState, activeProjectConfig.config, teamManager.routingMode),
 				projectConfigPromptNote,
 			].filter((item): item is string => Boolean(item)).join("\n\n"),
 		};
