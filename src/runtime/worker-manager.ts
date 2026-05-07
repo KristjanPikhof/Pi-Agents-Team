@@ -92,6 +92,9 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	unsubscribers: Array<() => void>;
 	closing: boolean;
 	launchSnapshot: WorkerLaunchSnapshot;
+	assistantChunks: AssistantChunk[];
+	assistantChunkBytes: number;
+	assistantNextIndex: number;
 }
 
 function emptyUsage(): WorkerUsageStats {
