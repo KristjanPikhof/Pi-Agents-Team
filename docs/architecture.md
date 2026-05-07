@@ -237,7 +237,7 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 
 - **Top tab bar.** `Workers / Inspect / Console / Cost` with `1`–`4` hotkeys and `tab` / `shift+tab` cycling. The bar appends a `solo` badge when `teamManager.routingMode === "solo"`.
 - **Persistent action bar.** Single-line footer: `[s]teer [m]sg [n]ew [c]lose [x]cancel [p]rune [r]efresh [y]copy [q]uit`. Each key dispatches the matching `TeamManager` call against the selected worker. `s`, `m`, and `n` open an inline single-line modal (label + buffer + cursor) above the action bar; `enter` submits, `esc` cancels.
-- **Responsive shell.** Inspect and Console tabs render the roster beside the body in split mode (≥110 cols), and stack in narrow mode. Workers and Cost are always full-width.
+- **Right-side stack panel.** The overlay is a single right-anchored panel. `Workers`, `Inspect`, `Console`, and `Cost` are selected through the top tab bar; Inspect and Console do not render a separate roster beside the body.
 - **Live ping on open** and on `r`. The overlay issues `teamManager.pingWorkers({ mode: "active" })` so token counts and streaming status are current.
 - **Direct focus.** `/team <worker-id>` opens the overlay already on the Inspect tab for that worker. Tab completion on the `/team` argument pulls live worker ids.
 - **Console live tail.** Console subscribes to `teamManager.onAssistantChunk` and reads `getAssistantTail(workerId)` on render. Auto-follows the tail; `PgUp` / `↑` pauses follow, `End` / `G` resumes; per-worker isolation is enforced by tying the visible chunks to `state.selectedWorkerId`.
