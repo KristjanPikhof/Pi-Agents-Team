@@ -459,12 +459,14 @@ export function createTeamDashboardOverlayComponent(
 					setStatus("No profile available");
 					return;
 				}
+				// Always delegate fresh: forwarding reuseWorkerId silently from the
+				// selected worker would reset its <final_answer>/summary on submit,
+				// which is surprising when the operator just had it open to read.
 				await teamManager.delegateTask?.({
 					title: trimmed.slice(0, 60),
 					goal: trimmed,
 					profileName: profile,
 					cwd: options.cwd ?? process.cwd(),
-					reuseWorkerId: modal.workerId,
 				});
 				setStatus(`Delegated new task to ${profile}`);
 				refreshSnapshot();
