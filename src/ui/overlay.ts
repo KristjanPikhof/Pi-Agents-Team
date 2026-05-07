@@ -719,56 +719,51 @@ export function createTeamDashboardOverlayComponent(
 	return {
 		render(width: number): string[] {
 			refreshSnapshot();
-			const layout = computeLayoutMode(width);
-			lastRenderMetrics.layout = layout;
-			const overlayRows = computeOverlayRows(tui.terminal.rows);
+			lastRenderMetrics.layout = "stack";
+			const cap = Math.min(width, Math.max(1, tui.terminal.columns));
+			const innerWidth = Math.max(1, cap - 4); // outer frame: │ + space + content + space + │
+			const totalRows = Math.max(MIN_OVERLAY_ROWS, Math.max(tui.terminal.rows, MIN_OVERLAY_ROWS));
 			const routingMode = teamManager.routingMode ?? "team";
 			const status = activeStatus();
+
+			const titleRaw = "Pi Agents Team · /team";
+			const titleStyled = accentBold(titleRaw);
 			const tabBar = buildTabBar(state.tab, routingMode);
 			const helpRow = state.tab === "workers"
-				? "↑/↓ select · enter inspect · 1-4 tabs · tab/shift-tab cycle · q quit"
+				? "↑/↓ select · enter inspect · 1-4 tabs · tab cycle · q quit"
 				: state.tab === "inspect"
 					? "↑/↓ scroll · PgUp/PgDn page · 1-4 tabs · q quit"
 					: state.tab === "console"
 						? "↑/↓ scroll · PgUp pause · End follow · 1-4 tabs · q quit"
 						: "↑/↓ scroll · 1-4 tabs · q quit";
-			const subHeader = `selected=${state.selectedWorkerId ?? "none"}  ·  ${currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected"}`;
-			const header = [
-				"Pi Agents Team · /team",
+			const sel = state.selectedWorkerId ?? "none";
+			const snippet = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
+			const subHeader = `selected=${sel}  ·  ${snippet}`;
+			const headerLines = [
 				tabBar,
-				helpRow,
-				subHeader,
+				dim(helpRow),
+				dim(subHeader),
 			];
 
 			const footerLines: string[] = [];
 			if (state.modal) {
-				footerLines.push(`${state.modal.label}${state.modal.buffer}_  (enter submit · esc cancel)`);
+				footerLines.push(accent(`${state.modal.label}${state.modal.buffer}_`) + dim("  (enter submit · esc cancel)"));
 			}
-			footerLines.push(ACTION_BAR);
-			if (status) footerLines.push(`» ${status}`);
+			footerLines.push(buildActionBar());
+			if (status) footerLines.push(accent(`» ${status}`));
 
-			const bodyRows = Math.max(MIN_BODY_ROWS, overlayRows - header.length - footerLines.length - 1);
+			// Reserve rows: top frame (1) + header lines + blank + body + blank + footer + bottom frame (1).
+			const overhead = 1 + headerLines.length + 1 + 1 + footerLines.length + 1;
+			const bodyRows = Math.max(MIN_BODY_ROWS, totalRows - overhead);
 
-			let body: string[];
-			if (layout === "split" && (state.tab === "inspect" || state.tab === "console")) {
-				const listWidth = clamp(Math.floor(width * 0.34), 28, Math.max(28, width - 36));
-				const separator = " │ ";
-				const detailWidth = Math.max(24, width - listWidth - visibleWidth(separator));
-				const listLines = renderRosterPane(listWidth, bodyRows);
-				const detailLines = state.tab === "inspect"
-					? renderInspectBody(detailWidth, bodyRows)
-					: renderConsoleBody(detailWidth, bodyRows);
-				const rowCount = Math.max(listLines.length, detailLines.length, bodyRows);
-				body = [];
-				for (let i = 0; i < rowCount; i += 1) {
-					body.push(`${padToWidth(listLines[i] ?? "", listWidth)}${separator}${padToWidth(detailLines[i] ?? "", detailWidth)}`);
-				}
-			} else {
-				body = renderBody(width, bodyRows);
-			}
+			const body = renderBody(innerWidth, bodyRows);
+			while (body.length < bodyRows) body.push("");
 
-			const cap = Math.min(width, Math.max(1, tui.terminal.columns));
-			return enforceWidth([...header, "", ...body, "", ...footerLines], cap);
+			const innerLines = enforceWidth([...headerLines, "", ...body, "", ...footerLines], innerWidth);
+			const framedRows = innerLines.map((line) => frameRow(line, innerWidth));
+			const top = frameTopWithTitle(titleStyled, cap);
+			const bottom = frameBottom(cap);
+			return [top, ...framedRows, bottom];
 		},
 		invalidate() {},
 		dispose() {
