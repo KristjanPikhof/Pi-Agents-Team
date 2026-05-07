@@ -244,7 +244,8 @@ function enforceWidth(lines: string[], width: number): string[] {
 }
 
 function padToWidth(line: string, width: number): string {
-	const truncated = visibleWidth(line) > width ? truncateToWidth(line, width, "…") : line;
+	const safe = sanitizeText(line);
+	const truncated = visibleWidth(safe) > width ? truncateToWidth(safe, width, "…") : safe;
 	const padding = Math.max(0, width - visibleWidth(truncated));
 	return truncated + " ".repeat(padding);
 }
