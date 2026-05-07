@@ -86,11 +86,12 @@ Every `delegate_task` call should be self-sufficient:
 - `agent_status` reports `reusable: true` for workers in `idle` or
   `waiting_followup` — those are the only valid reuse targets. Reuse on any
   other status is rejected with a per-status hint.
-- Reuse only same-profile workers. If the task crosses roles (different
-  `profileName`), spawn fresh.
-- When you are done with an idle worker and won't reuse it, call `/agent-close
-  <id>` (or batch with `/agent-close all`) to release its RPC session promptly
-  instead of waiting for `/team-prune`.
+- Reuse only when the request matches the worker's launch settings (same
+  profile, model, tools, cwd, skills, extension mode, prompt path). Cross-role
+  or differing launch fields force a fresh spawn — `delegate_task` rejects with
+  a "launch settings differ" hint when they don't match.
+- Idle worker cleanup (releasing RPC sessions before `/team-prune`) is an
+  operator action via `/agent-close`; the orchestrator does not invoke it.
 
 ## Waiting and Completion
 
