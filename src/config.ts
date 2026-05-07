@@ -104,6 +104,7 @@ export const TeamProjectConfigSchema = Type.Object({
 	scaffoldVersion: Type.Optional(Type.Number()),
 	defaultsVersion: Type.Optional(Type.Number()),
 	enabled: Type.Optional(Type.Boolean()),
+	routingMode: Type.Optional(Type.Union([Type.Literal("team"), Type.Literal("solo")])),
 	workerAccess: Type.Optional(TeamProjectWorkerAccessSchema),
 	roles: Type.Optional(Type.Record(Type.String(), ProjectRoleConfigSchema)),
 }, { additionalProperties: false });

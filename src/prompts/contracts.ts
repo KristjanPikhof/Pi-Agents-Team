@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_TEAM_CONFIG, buildOrchestratorSystemPrompt } from "../config";
+import type { RoutingMode } from "../control-plane/team-manager";
 import { GENERIC_WORKER_PROMPT_SENTINEL } from "../project-config/loader";
 import type { DelegatedTaskInput, PersistedTeamState, TeamConfig, TeamProfileSpec } from "../types";
 
@@ -136,13 +137,21 @@ function buildAvailableProfilesBlock(config: TeamConfig): string {
 	].join("\n");
 }
 
+const SOLO_ROUTING_DIRECTIVE = [
+	"## Routing mode: solo",
+	"",
+	"Team routing is off. Answer the user directly without delegating to workers — do not call `delegate_task`. The other agent_* tools remain available for inspecting any workers spawned earlier; the operator can flip routing back on with `/team-on`.",
+].join("\n");
+
 export function buildOrchestratorPromptBundle(
 	state: PersistedTeamState,
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
+	routingMode: RoutingMode = "team",
 ): string {
+	const routingBlock = routingMode === "solo" ? SOLO_ROUTING_DIRECTIVE : buildAvailableProfilesBlock(config);
 	return [
 		loadOrchestratorPrompt(),
-		buildAvailableProfilesBlock(config),
+		routingBlock,
 		buildOrchestratorSystemPrompt(state, config),
 	].join("\n\n");
 }

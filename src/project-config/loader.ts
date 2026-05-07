@@ -731,6 +731,16 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		winningLayer = globalLayer;
 	}
 
+	// Read persistedRoutingMode from the winning layer ONLY. Same rule as
+	// profiles: a project file present-but-mismatched must NOT let global
+	// values bleed through. If the winning layer is undefined (mismatched or
+	// fatal), persistedRoutingMode stays undefined and deriveInitialRoutingMode
+	// falls back to "team" when delegation is on.
+	const persistedRoutingMode: "team" | "solo" | undefined =
+		winningLayer?.parsed.routingMode === "team" || winningLayer?.parsed.routingMode === "solo"
+			? winningLayer.parsed.routingMode
+			: undefined;
+
 	// A fatal parse error on the WINNING layer disables delegation (the user's
 	// intended config is broken and they need a diagnostic). A fatal parse on a
 	// non-winning layer is surfaced as a diagnostic but doesn't block the
@@ -752,6 +762,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			enabledSource,
 			diagnostics,
 			delegationEnabled: false,
+			persistedRoutingMode,
 		};
 	}
 
@@ -797,6 +808,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			enabledSource,
 			diagnostics,
 			delegationEnabled: false,
+			persistedRoutingMode,
 		};
 	}
 
@@ -827,6 +839,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			enabledSource,
 			diagnostics,
 			delegationEnabled: true,
+			persistedRoutingMode,
 		};
 	}
 
@@ -859,6 +872,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		enabledSource,
 		diagnostics,
 		delegationEnabled: true,
+		persistedRoutingMode,
 	};
 }
 

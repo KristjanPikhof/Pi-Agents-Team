@@ -44,6 +44,8 @@ const UNREACHABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
 	"exited",
 ]);
 
+export type RoutingMode = "team" | "solo";
+
 export interface DelegateTaskRequest {
 	title: string;
 	goal: string;
@@ -81,15 +83,32 @@ export class TeamManager {
 	private readonly workerManager: WorkerManager;
 	private workerCounter = 0;
 	private taskCounter = 0;
+	private _routingMode: RoutingMode;
 
-	constructor(options?: { config?: TeamConfig; registry?: TaskRegistry; workerManager?: WorkerManager }) {
+	constructor(options?: {
+		config?: TeamConfig;
+		registry?: TaskRegistry;
+		workerManager?: WorkerManager;
+		routingMode?: RoutingMode;
+	}) {
 		this.config = options?.config ?? DEFAULT_TEAM_CONFIG;
 		this.registry = options?.registry ?? new TaskRegistry();
 		this.workerManager = options?.workerManager ?? new WorkerManager();
+		this._routingMode = options?.routingMode ?? "team";
 		this.workerManager.onEvent((worker) => {
 			this.registry.upsertWorker(worker.state);
 			this.events.emit("state_change", this.snapshot());
 		});
+	}
+
+	get routingMode(): RoutingMode {
+		return this._routingMode;
+	}
+
+	setRoutingMode(mode: RoutingMode): void {
+		if (this._routingMode === mode) return;
+		this._routingMode = mode;
+		this.events.emit("state_change", this.snapshot());
 	}
 
 	private nextWorkerId(): string {

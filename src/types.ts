@@ -196,6 +196,7 @@ export interface TeamProjectConfigFile {
 	schemaVersion: typeof TEAM_PROJECT_SCHEMA_VERSION;
 	scaffoldVersion?: number;
 	enabled?: boolean;
+	routingMode?: "team" | "solo";
 	workerAccess?: TeamProjectWorkerAccessConfig;
 	roles?: PartialRawProjectRoleConfigMap;
 }
@@ -229,6 +230,7 @@ export interface LoadedTeamProjectConfig {
 	enabledSource: TeamEnabledSource;
 	diagnostics: ProjectConfigDiagnostic[];
 	delegationEnabled: boolean;
+	persistedRoutingMode?: "team" | "solo";
 }
 
 export interface DelegatedTaskInput {

@@ -16,6 +16,7 @@ import { registerPruneCommand } from "../../src/commands/prune";
 import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
 import { registerTeamInitCommand } from "../../src/commands/team-init";
+import { registerTeamRoutingCommands } from "../../src/commands/team-routing";
 import { registerTeamToggleCommands } from "../../src/commands/team-toggle";
 import { formatUnknownWorker, suggestTargets } from "../../src/util/suggest";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
@@ -83,6 +84,7 @@ function applyUi(
 	frame = 0,
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
 	active = true,
+	routingMode: "team" | "solo" = "team",
 ): void {
 	if (!ctx?.hasUI) return;
 	if (!active) {
@@ -91,8 +93,8 @@ function applyUi(
 		return;
 	}
 
-	const widgetLines = buildTeamWidgetLines(state, { frame });
-	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state));
+	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode });
+	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode));
 	ctx.ui.setWidget(config.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
@@ -300,7 +302,15 @@ export default function (pi: ExtensionAPI): void {
 	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
 		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
 
-	let teamManager = new TeamManager({ config: activeProjectConfig.config });
+	const deriveInitialRoutingMode = (loaded: LoadedTeamProjectConfig): "team" | "solo" => {
+		if (!loaded.enabled || !loaded.delegationEnabled) return "solo";
+		return loaded.persistedRoutingMode ?? "team";
+	};
+
+	let teamManager = new TeamManager({
+		config: activeProjectConfig.config,
+		routingMode: deriveInitialRoutingMode(activeProjectConfig),
+	});
 	let teamState = createDefaultTeamState(activeProjectConfig.config);
 	let activeContext: ExtensionContext | undefined;
 	let detachTeamManagerListener = () => {};
@@ -331,7 +341,7 @@ export default function (pi: ExtensionAPI): void {
 				stopSpinner();
 				return;
 			}
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
 		}, SPINNER_INTERVAL_MS);
 		if (typeof spinnerTimer.unref === "function") spinnerTimer.unref();
 	}
@@ -374,7 +384,7 @@ export default function (pi: ExtensionAPI): void {
 		detachTeamManagerListener = manager.onStateChange((state) => {
 			teamState = state;
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
 
 			if (hasAnimatedWorkers(teamState)) {
 				ensureSpinnerRunning();
@@ -415,10 +425,10 @@ export default function (pi: ExtensionAPI): void {
 	async function replaceTeamManager(config: TeamConfig): Promise<void> {
 		detachTeamManagerListener();
 		await teamManager.dispose();
-		teamManager = new TeamManager({ config });
+		teamManager = new TeamManager({ config, routingMode: deriveInitialRoutingMode(activeProjectConfig) });
 		attachTeamManagerListener(teamManager);
 		teamState = createDefaultTeamState(config);
-		applyUi(activeContext, teamState, spinnerFrame, config, isTeamActive(activeProjectConfig));
+		applyUi(activeContext, teamState, spinnerFrame, config, isTeamActive(activeProjectConfig), teamManager.routingMode);
 	}
 
 	attachTeamManagerListener(teamManager);
@@ -437,6 +447,12 @@ export default function (pi: ExtensionAPI): void {
 	registerCostCommand(pi, commandDependencies);
 	registerTeamInitCommand(pi, { emitText: commandDependencies.emitText });
 	registerTeamToggleCommands(pi, { emitText: commandDependencies.emitText });
+	registerTeamRoutingCommands(pi, {
+		getTeamManager: () => teamManager,
+		getProjectConfig: () => activeProjectConfig,
+		emitText: commandDependencies.emitText,
+		ensureNotReloading,
+	});
 
 	pi.registerCommand("agent-result", {
 		description: "Show the full result for a worker: /agent-result <worker-id>",
@@ -482,6 +498,9 @@ export default function (pi: ExtensionAPI): void {
 			if (!activeProjectConfig.delegationEnabled) {
 				throw new Error(getDelegationDisabledMessage(activeProjectConfig));
 			}
+			if (teamManager.routingMode === "solo") {
+				throw new Error("Team routing off. Run /team on to delegate.");
+			}
 			const pathScope = params.pathScopeRoots?.length
 				? {
 					roots: params.pathScopeRoots,
@@ -503,7 +522,7 @@ export default function (pi: ExtensionAPI): void {
 				orchestratorModel,
 			});
 			teamState = teamManager.snapshot();
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
 			return {
 				content: [
 					{
@@ -661,7 +680,7 @@ export default function (pi: ExtensionAPI): void {
 			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
 			teamManager.restore(teamState);
-			applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
+			applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
 
 			if (!ctx.hasUI) return;
@@ -705,7 +724,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		activeContext = ctx;
 		teamState = teamManager.snapshot();
-		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig));
+		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
 		if (!activeProjectConfig.enabled) {
 			return { systemPrompt: event.systemPrompt };
 		}
@@ -713,7 +732,7 @@ export default function (pi: ExtensionAPI): void {
 		return {
 			systemPrompt: [
 				event.systemPrompt,
-				buildOrchestratorPromptBundle(teamState, activeProjectConfig.config),
+				buildOrchestratorPromptBundle(teamState, activeProjectConfig.config, teamManager.routingMode),
 				projectConfigPromptNote,
 			].filter((item): item is string => Boolean(item)).join("\n\n"),
 		};

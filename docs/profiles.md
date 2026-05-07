@@ -75,6 +75,7 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 | `schemaVersion` | yes | Tells the loader which shape this file is. Currently `4`. A mismatch triggers a warning and falls back to built-ins for that layer. |
 | `scaffoldVersion` | no | Freshness marker. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
 | `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
+| `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. Set by `/team-on --persist` and `/team-off --persist`; you can also hand-edit it. Default `"team"` when `enabled: true`. See [`operations.md`](operations.md#toggle-routing-without-reload). |
 | `workerAccess` | no | Global access policy for delegated workers. Omit to keep the defaults. |
 | `roles.<name>` | no | Free-form map. Name whatever you want. No role entry means built-in fallback (or nothing, if you want no roles at all). |
 
@@ -281,6 +282,8 @@ Launch-time overrides (tools, path scope, extension mode) may only narrow the ro
 |---|---|
 | `/team-enable global\|local` | Sets `enabled: true` in the target file. Creates the file with just the flag if missing. |
 | `/team-disable global\|local` | Sets `enabled: false` in the target file. |
+| `/team-on [--persist global\|local]` | Flip in-memory routing to `team`. With `--persist`, also writes `routingMode: "team"` to the scoped file. Errors when `enabled: false`. |
+| `/team-off [--persist global\|local]` | Flip in-memory routing to `solo`. With `--persist`, also writes `routingMode: "solo"`. Live workers stay reachable; only `delegate_task` is gated off. |
 
 Both commands are non-destructive:
 

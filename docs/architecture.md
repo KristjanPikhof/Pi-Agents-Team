@@ -157,11 +157,30 @@ Persisted session state does **not** include:
 - tool output dumps
 - the `<final_answer>` block on disk (it lives on `WorkerRuntimeState` but storage honors the compact-state rule; `config.persistence.storeTranscripts` is `false` by default)
 
+## Routing mode
+
+`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line. `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
+
+The initial mode is derived once per `session_start` from the loaded config:
+
+| Loaded config | Initial mode |
+|---|---|
+| `enabled: false` or invalid (delegation off) | `solo` |
+| `enabled: true`, no persisted `routingMode` | `team` |
+| `enabled: true`, persisted `routingMode` | that value |
+
+`/team-on` and `/team-off` flip the in-memory mode. `--persist global|local` writes `routingMode` to the scoped `agents-team.json` via `atomicWriteFileSync`. The loader pulls the persisted value into `LoadedTeamProjectConfig.persistedRoutingMode`, so `/team-off --persist` survives reload.
+
+Routing toggles run through `ensureNotReloading()` like the orchestrator tools, so a toggle fired during the `session_start` config swap fails fast instead of mutating a soon-to-be-disposed `TeamManager`.
+
+Routing only narrows behavior. It does not stop live workers; `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay callable in solo so workers spawned earlier can still be inspected, steered, or cancelled.
+
 ## Operator surface
 
 Slash commands are supervision controls, not alternate chat channels:
 
 - `/team` and `/team <worker-id>`
+- `/team-on`, `/team-off` (and `--persist global|local`)
 - `/team-copy <worker-id>`
 - `/agent-result`, `/agent-steer`, `/agent-followup`, `/agent-cancel`
 
