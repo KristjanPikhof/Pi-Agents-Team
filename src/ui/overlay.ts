@@ -207,12 +207,13 @@ function buildRosterRow(worker: WorkerRuntimeState, selected: boolean, width: nu
 }
 
 // Worker output frequently contains tabs and other control bytes whose
-// visibleWidth (1) does not match the terminal's rendered width (8 for tabs,
-// undefined for control codes). Normalize before any measurement so wrapLines
-// and enforceWidth produce lines that actually fit the panel under pi-tui's
-// render-width validator.
+// visibleWidth (1) does not match the terminal's rendered width. Normalize
+// before any measurement. ESC (0x1b) is preserved so our own ANSI styling
+// (theme.ts) and pi-tui's ANSI-aware truncate keep working.
 function sanitizeText(text: string): string {
-	return text.replace(/\t/g, "    ").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+	return text
+		.replace(/\t/g, "    ")
+		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, "");
 }
 
 function wrapLines(text: string, width: number): string[] {
