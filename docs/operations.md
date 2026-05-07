@@ -140,13 +140,31 @@ Aborts the RPC session and shuts down the worker process. The compact state is m
 /agent-close all
 ```
 
-Use `/agent-close` when a worker is `idle` or `waiting_followup` and you don't intend to reuse it: it disposes the underlying RPC process and marks the worker `exited`, freeing the slot without waiting for `/team-prune`. Running/starting workers refuse `/agent-close` — cancel them with `/agent-cancel` first. `all` closes every reusable worker, swallowing per-worker errors.
+Disposes the RPC session of an `idle` or `waiting_followup` worker and flips it to `exited`. Use this instead of `/agent-cancel` when a worker is already done and you want to free the process without waiting for the next `/team-prune` sweep.
 
-`/team-prune` now also disposes any leftover live RPC handles for idle/waiting_followup entries before removing them from the dashboard, so old "prune leaks processes" no longer applies.
+Rules:
+
+- Refuses `running`/`starting` workers. Use `/agent-cancel` for those.
+- Refuses already-terminal workers (`completed`/`aborted`/`error`/`exited`). Use `/team-prune` to clear them from the dashboard.
+- `all` closes every reusable worker. Per-worker failures don't abort the broadcast.
+
+`/team-prune` was a leak before this change: it removed terminal entries from the dashboard but left their RPC processes alive (idle workers still hold a live session). Prune now disposes those handles before removing the entry, so the old "idle worker survives prune as a zombie process" bug is gone.
 
 ## Reuse an idle worker
 
-When the orchestrator's next task fits the same role and roughly the same path scope as a worker already sitting idle, it can pass that worker's id to `delegate_task.reuseWorkerId` instead of spawning a fresh one. The runtime resets the per-task summary, final answer, last tool, and relay questions, allocates a fresh `taskId`, and re-prompts the existing RPC session — keeping warm role context and saving spawn cost. Reuse only succeeds on `idle`/`waiting_followup` same-profile workers; cross-profile or unreachable targets fail fast with a clear hint. `agent_status` payloads now carry `reusable: true` for valid candidates.
+When the next task is the same role, same scope, and same launch settings as an idle worker, the orchestrator can pass that worker's id as `delegate_task.reuseWorkerId` instead of spawning a fresh process. Reuse re-prompts the existing RPC session, allocates a fresh `taskId`, and resets per-task state (summary, `<final_answer>`, last tool, relay questions). The result: warm role context survives, spawn cost is skipped.
+
+`agent_status` reports `reusable: true` on workers in `idle` or `waiting_followup`. Anything else has either no live session (`completed`/`aborted`/`error`/`exited`) or work in flight (`running`/`starting`) — reuse fails fast with a per-status hint.
+
+What blocks reuse:
+
+| Mismatch | Why |
+|---|---|
+| Different `profileName` | Different role, different prompt; spawn fresh. |
+| Different `model`, `tools`, `cwd`, `systemPromptPath`, `extensionMode`, `thinkingLevel`, or `skills` presence | Baked into the worker process at spawn. The RPC can't change them mid-life. |
+| Status not `idle`/`waiting_followup` | RPC session disposed or busy. |
+
+When reuse rejects, the error spells out which fields differ. The fix is usually to either align the request or drop `reuseWorkerId` and let a fresh worker spawn.
 
 ## Toggle routing without reload
 
