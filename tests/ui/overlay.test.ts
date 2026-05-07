@@ -191,8 +191,8 @@ test("openTeamDashboardOverlay uses the widened responsive overlay options", asy
 
 	await openTeamDashboardOverlay(ctx, manager);
 	assert.deepEqual((capturedOptions as { overlayOptions: unknown }).overlayOptions, TEAM_DASHBOARD_OVERLAY_OPTIONS);
-	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.width, "30%");
-	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight, "100%");
+	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.width, "40%");
+	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight, "70%");
 	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.anchor, "top-right");
 });
 
