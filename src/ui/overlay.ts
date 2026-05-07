@@ -650,17 +650,9 @@ export function createTeamDashboardOverlayComponent(
 		return enforceWidth(all.slice(top, top + rows), width);
 	};
 
-	const renderRosterPane = (width: number, rows: number): string[] => {
-		const lines: string[] = ["Workers"];
-		for (const section of buildRosterSections(snapshot)) {
-			if (section.workers.length === 0) continue;
-			lines.push(`${section.label} (${section.workers.length})`);
-			for (const worker of section.workers) {
-				lines.push(buildRosterRow(worker, worker.workerId === state.selectedWorkerId, width));
-			}
-		}
-		if (lines.length === 1) lines.push("(none)");
-		return enforceWidth(lines, width).slice(0, rows);
+	const renderRosterPane = (_width: number, _rows: number): string[] => {
+		// Split layout dropped: panel is always narrow (right-anchored 30%).
+		return [];
 	};
 
 	const renderBody = (width: number, rows: number): string[] => {
