@@ -525,12 +525,12 @@ export function createTeamDashboardOverlayComponent(
 			}
 			const worker = snapshot.activeWorkers[workerId];
 			if (!worker) return;
-			if (kind === "steer" && worker.status !== "running") {
-				setStatus("Steer needs a running worker; use [m]sg for idle/waiting workers");
-				return;
-			}
-			if (TERMINAL_STATUSES.has(worker.status) && worker.status !== "idle" && worker.status !== "waiting_followup" && kind === "message") {
-				setStatus(`Worker ${workerId} is ${worker.status} — cannot message`);
+			// Block only truly unreachable workers. `messageWorker` resolver
+			// auto-upgrades steer/follow_up to a fresh prompt for idle and
+			// waiting_followup, matching /agent-steer and /agent-followup.
+			const unreachable = new Set<WorkerStatus>(["completed", "aborted", "error", "exited"]);
+			if (unreachable.has(worker.status)) {
+				setStatus(`Worker ${workerId} is ${worker.status} — RPC disposed; delegate fresh`);
 				return;
 			}
 			state.modal = {
@@ -544,6 +544,10 @@ export function createTeamDashboardOverlayComponent(
 		// new_task
 		if (!teamManager.delegateTask) {
 			setStatus("delegate_task not wired in this context");
+			return;
+		}
+		if (teamManager.routingMode === "solo") {
+			setStatus("Team routing off. Run /team-on to delegate.");
 			return;
 		}
 		const profile = currentWorker()?.profileName ?? teamManager.config?.profiles[0]?.name;
