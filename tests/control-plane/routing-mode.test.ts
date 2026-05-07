@@ -1,8 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = "none";
+
+import { loadActiveTeamConfig } from "../../src/project-config/loader";
+import { TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE } from "../../src/types";
 import { DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config";
 import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
