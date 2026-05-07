@@ -71,7 +71,6 @@ export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 };
 
 const MIN_OVERLAY_ROWS = 14;
-const MIN_BODY_ROWS = 6;
 // Must match TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight. Pi-tui clips returned
 // lines to the overlay's pixel rectangle; if our render produces more rows
 // than the panel can display, the bottom (frame + footer) gets cut. Compute
@@ -282,7 +281,8 @@ function computeOverlayRows(termRows: number): number {
 	// Match the overlay's maxHeight so the returned line count fits the panel
 	// rectangle exactly. Without this, pi-tui truncates our output and the
 	// bottom frame + footer disappear.
-	return Math.max(MIN_OVERLAY_ROWS, Math.floor(termRows * OVERLAY_HEIGHT_PCT));
+	const maxRows = Math.floor(termRows * OVERLAY_HEIGHT_PCT);
+	return Math.max(1, Math.min(MIN_OVERLAY_ROWS, maxRows), maxRows);
 }
 
 function frameRow(content: string, innerWidth: number): string {
@@ -693,6 +693,7 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	const renderBody = (width: number, rows: number): string[] => {
+		if (rows <= 0) return [];
 		switch (state.tab) {
 			case "workers":
 				return renderWorkersBody(width, rows);
@@ -742,7 +743,10 @@ export function createTeamDashboardOverlayComponent(
 		// Reject control sequences other than printable ASCII / unicode.
 		if (data.length === 1 && data.charCodeAt(0) < 0x20) return true;
 		if (data.startsWith("\x1b")) return true;
-		state.modal.buffer += data;
+		const printable = data
+			.replace(/[\r\n]+/g, " ")
+			.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+		if (printable.length > 0) state.modal.buffer += printable;
 		return true;
 	};
 
@@ -791,7 +795,7 @@ export function createTeamDashboardOverlayComponent(
 
 			// Reserve rows: top frame (1) + header lines + blank + body + blank + footer + bottom frame (1).
 			const overhead = 1 + headerLines.length + 1 + 1 + footerLines.length + 1;
-			const bodyRows = Math.max(MIN_BODY_ROWS, totalRows - overhead);
+			const bodyRows = Math.max(0, totalRows - overhead);
 
 			const body = renderBody(innerWidth, bodyRows);
 			while (body.length < bodyRows) body.push("");
