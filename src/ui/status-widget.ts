@@ -21,9 +21,13 @@ export function hasAnimatedWorkers(state: PersistedTeamState): boolean {
 
 export interface WidgetRenderOptions {
 	frame?: number;
+	routingMode?: "team" | "solo";
 }
 
-export function buildTeamStatusLine(state: PersistedTeamState): string {
+export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team"): string {
+	if (routingMode === "solo") {
+		return truncateToWidth("Pi Agents Team — solo", HEADER_WIDTH);
+	}
 	const workerCount = Object.keys(state.activeWorkers).length;
 	const relayCount = state.relayQueue.length;
 	return truncateToWidth(`${state.sessionMode} · workers=${workerCount} · relays=${relayCount}`, HEADER_WIDTH);
