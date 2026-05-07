@@ -71,7 +71,7 @@ export interface AssistantChunk {
 
 const CONSOLE_BUFFER_LIMIT = 500;
 const ASSISTANT_TEXT_BATCH_MS = 400;
-const ASSISTANT_BUFFER_LINE_CAP = 4096;
+const ASSISTANT_BUFFER_CHUNK_CAP = 4096;
 const ASSISTANT_BUFFER_BYTE_CAP = 256 * 1024;
 
 export interface WorkerLaunchSnapshot {
@@ -428,7 +428,7 @@ export class WorkerManager {
 		// single oversized delta would self-evict and leave the live tail empty.
 		while (
 			record.assistantChunks.length > 1
-			&& (record.assistantChunks.length > ASSISTANT_BUFFER_LINE_CAP
+			&& (record.assistantChunks.length > ASSISTANT_BUFFER_CHUNK_CAP
 				|| record.assistantChunkBytes > ASSISTANT_BUFFER_BYTE_CAP)
 		) {
 			const dropped = record.assistantChunks.shift();
