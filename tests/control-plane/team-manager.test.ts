@@ -527,6 +527,73 @@ test("delegateTask with reuseWorkerId rejects unknown / running / exited targets
 	);
 });
 
+test("delegateTask with reuseWorkerId rejects when launch-affecting fields differ (model)", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const teamManager = new TeamManager({ workerManager });
+
+	const first = await teamManager.delegateTask({
+		title: "First",
+		goal: "first task with model A",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		model: "provider/model-a",
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Reuse with different model",
+				goal: "should reject",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				model: "provider/model-b",
+				reuseWorkerId: first.worker.workerId,
+			}),
+		/launch settings differ.*model/,
+	);
+});
+
+test("delegateTask with reuseWorkerId rejects when skills/tools/cwd differ", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const teamManager = new TeamManager({ workerManager });
+
+	const noSkills = await teamManager.delegateTask({
+		title: "No skills",
+		goal: "launched without skills",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Reuse with skills",
+				goal: "should reject — process launched with --no-skills",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				skills: ["some-skill"],
+				reuseWorkerId: noSkills.worker.workerId,
+			}),
+		/launch settings differ.*skills/,
+	);
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Reuse with cwd",
+				goal: "should reject",
+				profileName: "reviewer",
+				cwd: "/tmp/other-dir",
+				reuseWorkerId: noSkills.worker.workerId,
+			}),
+		/launch settings differ.*cwd/,
+	);
+});
+
 test("delegateTask with reuseWorkerId rejects cross-profile reuse", async () => {
 	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
 	const teamManager = new TeamManager({ workerManager });
