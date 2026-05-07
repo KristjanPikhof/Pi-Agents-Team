@@ -63,16 +63,30 @@ test("orchestrator prompt swaps the profile catalog for a solo directive when ro
 	assert.doesNotMatch(soloBundle, /## Available worker profiles/);
 });
 
-test("widget collapses to a single solo badge line when routingMode is solo", () => {
-	const state = createDefaultTeamState();
-	const teamLines = buildTeamWidgetLines(state, { routingMode: "team" });
-	assert.deepEqual(teamLines, [], "team mode hides widget when no workers");
+test("widget collapses to a single solo badge line when routingMode is solo and workers are tracked", () => {
+	const emptyState = createDefaultTeamState();
+	const teamLinesEmpty = buildTeamWidgetLines(emptyState, { routingMode: "team" });
+	assert.deepEqual(teamLinesEmpty, [], "team mode hides widget when no workers");
 
-	const soloLines = buildTeamWidgetLines(state, { routingMode: "solo" });
-	assert.equal(soloLines.length, 1);
-	assert.match(soloLines[0]!, /Pi Agents Team — solo/);
+	const soloLinesEmpty = buildTeamWidgetLines(emptyState, { routingMode: "solo" });
+	assert.deepEqual(soloLinesEmpty, [], "solo mode also hides widget when no workers — status line still shows the badge");
 
-	const soloStatus = buildTeamStatusLine(state, "solo");
+	const stateWithWorker = createDefaultTeamState();
+	stateWithWorker.activeWorkers.w1 = {
+		workerId: "w1",
+		profileName: "reviewer",
+		sessionMode: "worker",
+		status: "running",
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		pendingRelayQuestions: [],
+		usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+	};
+	const soloLinesWithWorker = buildTeamWidgetLines(stateWithWorker, { routingMode: "solo" });
+	assert.equal(soloLinesWithWorker.length, 1);
+	assert.match(soloLinesWithWorker[0]!, /Pi Agents Team — solo/);
+
+	const soloStatus = buildTeamStatusLine(emptyState, "solo");
 	assert.match(soloStatus, /Pi Agents Team — solo/);
 });
 
