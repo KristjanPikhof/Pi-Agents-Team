@@ -279,7 +279,10 @@ function padToWidth(line: string, width: number): string {
 }
 
 function computeOverlayRows(termRows: number): number {
-	return Math.max(MIN_OVERLAY_ROWS, termRows);
+	// Match the overlay's maxHeight so the returned line count fits the panel
+	// rectangle exactly. Without this, pi-tui truncates our output and the
+	// bottom frame + footer disappear.
+	return Math.max(MIN_OVERLAY_ROWS, Math.floor(termRows * OVERLAY_HEIGHT_PCT));
 }
 
 function frameRow(content: string, innerWidth: number): string {
@@ -756,7 +759,7 @@ export function createTeamDashboardOverlayComponent(
 			lastRenderMetrics.layout = "stack";
 			const cap = Math.min(width, Math.max(1, tui.terminal.columns));
 			const innerWidth = Math.max(1, cap - 4); // outer frame: │ + space + content + space + │
-			const totalRows = Math.max(MIN_OVERLAY_ROWS, Math.max(tui.terminal.rows, MIN_OVERLAY_ROWS));
+			const totalRows = computeOverlayRows(tui.terminal.rows);
 			const routingMode = teamManager.routingMode ?? "team";
 			const status = activeStatus();
 
