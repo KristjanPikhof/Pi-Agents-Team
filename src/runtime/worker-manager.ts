@@ -232,6 +232,9 @@ export class WorkerManager {
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
 			closing: false,
+			assistantChunks: [],
+			assistantChunkBytes: 0,
+			assistantNextIndex: 0,
 			launchSnapshot: {
 				cwd: options.cwd,
 				model: options.model,
@@ -311,6 +314,9 @@ export class WorkerManager {
 		record.textBuffer = "";
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
+		record.assistantChunks = [];
+		record.assistantChunkBytes = 0;
+		record.assistantNextIndex = 0;
 		await this.promptWorker(workerId, message);
 	}
 
