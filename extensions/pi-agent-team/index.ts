@@ -9,6 +9,7 @@ import {
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager";
 import { loadActiveTeamConfig } from "../../src/project-config/loader";
+import { registerAgentCloseCommand } from "../../src/commands/agent-close";
 import { registerCancelCommand } from "../../src/commands/cancel";
 import { registerCopyCommand } from "../../src/commands/copy";
 import { registerCostCommand } from "../../src/commands/cost";
