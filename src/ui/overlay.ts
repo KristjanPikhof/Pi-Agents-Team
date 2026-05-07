@@ -70,7 +70,6 @@ export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 	margin: 0,
 };
 
-const MIN_OVERLAY_ROWS = 14;
 // Must match TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight. Pi-tui clips returned
 // lines to the overlay's pixel rectangle; if our render produces more rows
 // than the panel can display, the bottom (frame + footer) gets cut. Compute
@@ -281,8 +280,7 @@ function computeOverlayRows(termRows: number): number {
 	// Match the overlay's maxHeight so the returned line count fits the panel
 	// rectangle exactly. Without this, pi-tui truncates our output and the
 	// bottom frame + footer disappear.
-	const maxRows = Math.floor(termRows * OVERLAY_HEIGHT_PCT);
-	return Math.max(1, Math.min(MIN_OVERLAY_ROWS, maxRows), maxRows);
+	return Math.max(1, Math.floor(termRows * OVERLAY_HEIGHT_PCT));
 }
 
 function frameRow(content: string, innerWidth: number): string {
