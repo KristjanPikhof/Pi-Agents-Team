@@ -302,8 +302,10 @@ export default function (pi: ExtensionAPI): void {
 	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
 		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
 
-	const deriveInitialRoutingMode = (loaded: LoadedTeamProjectConfig): "team" | "solo" =>
-		loaded.enabled && loaded.delegationEnabled ? "team" : "solo";
+	const deriveInitialRoutingMode = (loaded: LoadedTeamProjectConfig): "team" | "solo" => {
+		if (!loaded.enabled || !loaded.delegationEnabled) return "solo";
+		return loaded.persistedRoutingMode ?? "team";
+	};
 
 	let teamManager = new TeamManager({
 		config: activeProjectConfig.config,
