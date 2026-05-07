@@ -13,6 +13,7 @@ interface RoutingCommandDependencies {
 	getTeamManager: () => TeamManager;
 	getProjectConfig: () => LoadedTeamProjectConfig;
 	emitText: (ctx: ExtensionContext, text: string) => void;
+	ensureNotReloading: () => void;
 }
 
 interface ParsedArgs {

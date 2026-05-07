@@ -451,6 +451,7 @@ export default function (pi: ExtensionAPI): void {
 		getTeamManager: () => teamManager,
 		getProjectConfig: () => activeProjectConfig,
 		emitText: commandDependencies.emitText,
+		ensureNotReloading,
 	});
 
 	pi.registerCommand("agent-result", {
