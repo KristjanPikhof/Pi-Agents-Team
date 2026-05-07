@@ -482,6 +482,9 @@ export default function (pi: ExtensionAPI): void {
 			if (!activeProjectConfig.delegationEnabled) {
 				throw new Error(getDelegationDisabledMessage(activeProjectConfig));
 			}
+			if (teamManager.routingMode === "solo") {
+				throw new Error("Team routing off. Run /team on to delegate.");
+			}
 			const pathScope = params.pathScopeRoots?.length
 				? {
 					roots: params.pathScopeRoots,
