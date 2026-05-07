@@ -444,6 +444,7 @@ export default function (pi: ExtensionAPI): void {
 	registerTeamCommand(pi, commandDependencies);
 	registerWorkerMessageCommands(pi, commandDependencies);
 	registerCancelCommand(pi, commandDependencies);
+	registerAgentCloseCommand(pi, commandDependencies);
 	registerCopyCommand(pi, commandDependencies);
 	registerPruneCommand(pi, commandDependencies);
 	registerCostCommand(pi, commandDependencies);
