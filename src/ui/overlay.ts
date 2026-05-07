@@ -700,13 +700,10 @@ export function createTeamDashboardOverlayComponent(
 				return;
 			}
 
-			// Legacy hotkeys mapped to nearest new tab. Tip surfaced in help row.
-			if (state.tab === "workers" || state.tab === "inspect") {
-				if (data === "o") { state.tab = "inspect"; return; }
-				if (data === "d") { state.tab = "inspect"; return; }
-			}
-			if (data !== "c" && (state.tab === "workers" || state.tab === "inspect" || state.tab === "console") && data === "C") {
-				state.tab = "console";
+			// Legacy `o` / `d` aliases land you on Inspect (the merged Overview/Deliverable view).
+			// `c` is no longer the Console alias — it's the action-bar close hotkey.
+			if (data === "o" || data === "d") {
+				state.tab = "inspect";
 				return;
 			}
 
