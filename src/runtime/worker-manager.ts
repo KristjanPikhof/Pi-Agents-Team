@@ -221,6 +221,15 @@ export class WorkerManager {
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
 			closing: false,
+			launchSnapshot: {
+				cwd: options.cwd,
+				model: options.model,
+				thinkingLevel: options.thinkingLevel,
+				tools: options.tools ? [...options.tools] : undefined,
+				systemPromptPath: options.systemPromptPath,
+				extensionMode: options.extensionMode,
+				allowSkills: options.allowSkills === true,
+			},
 		};
 		this.workers.set(options.workerId, record);
 
