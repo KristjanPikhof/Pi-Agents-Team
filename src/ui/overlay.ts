@@ -659,14 +659,16 @@ export function createTeamDashboardOverlayComponent(
 		const chunks = teamManager.getAssistantTail(worker.workerId);
 		const events = teamManager.getWorkerConsole(worker.workerId) ?? [];
 		const all = wrapLines(buildConsoleLines(worker, chunks, events).join("\n"), width);
-		const maxTop = Math.max(0, all.length - rows);
+		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
+		const visible = Math.max(1, rows - 1);
+		const maxTop = Math.max(0, all.length - visible);
 		if (state.consoleFollow) state.consoleScroll = maxTop;
 		const top = clamp(state.consoleScroll, 0, maxTop);
 		state.consoleScroll = top;
-		lastRenderMetrics.bodyPageSize = rows;
+		lastRenderMetrics.bodyPageSize = visible;
 		const followTag = state.consoleFollow ? "[follow]" : "[paused — End to follow]";
-		const header = `${followTag}  scroll ${all.length === 0 ? 0 : top + 1}-${Math.min(all.length, top + rows)} / ${all.length}`;
-		return enforceWidth([header, ...all.slice(top, top + Math.max(0, rows - 1))], width);
+		const header = `${followTag}  scroll ${all.length === 0 ? 0 : top + 1}-${Math.min(all.length, top + visible)} / ${all.length}`;
+		return enforceWidth([header, ...all.slice(top, top + visible)], width);
 	};
 
 	const renderCostBody = (width: number, rows: number): string[] => {
