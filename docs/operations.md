@@ -183,7 +183,7 @@ When reuse rejects, the error spells out which fields differ. The fix is usually
 What changes in **solo** mode:
 
 - `delegate_task` rejects with `Team routing off. Run /team on to delegate.`. The orchestrator prompt drops the profile catalog and gets a one-line directive telling it to answer directly.
-- The widget collapses to a single `Pi Agents Team — solo` line.
+- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The status line keeps the badge either way.
 - `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay live so workers spawned earlier can still be inspected, steered, or shut down.
 
 What `--persist` actually does: writes `routingMode: "team"` or `"solo"` to the scoped `agents-team.json` (atomic write, project file wins over global by file presence). Without `--persist` the toggle is in-memory only and the next session restarts from the derived default.

@@ -195,7 +195,7 @@ Persisted session state does **not** include:
 
 ## Routing mode
 
-`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line. `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
+`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line when workers are tracked (or hides the widget entirely when none are — the status line still carries the `solo` badge). `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
 
 The initial mode is derived once per `session_start` from the loaded config:
 
