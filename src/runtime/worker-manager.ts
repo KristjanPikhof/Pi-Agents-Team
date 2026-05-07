@@ -489,10 +489,14 @@ export class WorkerManager {
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				break;
 			case "worker_exit":
-				record.state.status = event.signal === "SIGTERM" ? "aborted" : "exited";
-				if (event.code && event.code !== 0) {
-					record.state.status = "error";
-					record.state.error = event.stderr || `Worker exited with code ${event.code}`;
+				if (record.closing) {
+					record.state.status = "exited";
+				} else {
+					record.state.status = event.signal === "SIGTERM" ? "aborted" : "exited";
+					if (event.code && event.code !== 0) {
+						record.state.status = "error";
+						record.state.error = event.stderr || `Worker exited with code ${event.code}`;
+					}
 				}
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer || event.stderr || "Worker exited");
 				this.flushPendingText(record);
