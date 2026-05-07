@@ -33,6 +33,7 @@ const DelegateTaskSchema = Type.Object({
 	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
 	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of installed Pi skill names to enable on the worker. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches) and the worker is told to load and apply the requested skills by name. Omit if no specialized skill is needed." })),
 	model: Type.Optional(Type.String({ description: "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model." })),
+	reuseWorkerId: Type.Optional(Type.String({ description: "Reuse an existing idle (or waiting_followup) worker's RPC session for this task instead of spawning a fresh process. Use when the next task is in scope of the previous role and roughly the same path scope — saves spawn cost and keeps warm role context. The worker's prior summary, finalAnswer, and lastTool are reset; a new taskId is allocated. Rejected if the target is running/starting/completed/aborted/error/exited (its RPC is already disposed); cancel + delegate fresh in that case. Check agent_status for `reusable: true` to find candidates." })),
 });
 
 const WorkerLookupSchema = Type.Object({
