@@ -133,6 +133,39 @@ The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "fol
 
 Aborts the RPC session and shuts down the worker process. The compact state is marked `exited`; persisted state survives. `all` cancels every non-terminal worker in one call and prints a per-worker summary.
 
+## Close an idle worker
+
+```text
+/agent-close <worker-id>
+/agent-close all
+```
+
+Disposes the RPC session of an `idle` or `waiting_followup` worker and flips it to `exited`. Use this instead of `/agent-cancel` when a worker is already done and you want to free the process without waiting for the next `/team-prune` sweep.
+
+Rules:
+
+- Refuses `running`/`starting` workers. Use `/agent-cancel` for those.
+- Refuses already-terminal workers (`completed`/`aborted`/`error`/`exited`). Use `/team-prune` to clear them from the dashboard.
+- `all` closes every reusable worker. Per-worker failures don't abort the broadcast.
+
+`/team-prune` was a leak before this change: it removed terminal entries from the dashboard but left their RPC processes alive (idle workers still hold a live session). Prune now disposes those handles before removing the entry, so the old "idle worker survives prune as a zombie process" bug is gone.
+
+## Reuse an idle worker
+
+When the next task is the same role, same scope, and same launch settings as an idle worker, the orchestrator can pass that worker's id as `delegate_task.reuseWorkerId` instead of spawning a fresh process. Reuse re-prompts the existing RPC session, allocates a fresh `taskId`, and resets per-task state (summary, `<final_answer>`, last tool, relay questions). The result: warm role context survives, spawn cost is skipped.
+
+`agent_status` reports `reusable: true` on workers in `idle` or `waiting_followup`. Anything else has either no live session (`completed`/`aborted`/`error`/`exited`) or work in flight (`running`/`starting`); reuse fails fast with a per-status hint.
+
+What blocks reuse:
+
+| Mismatch | Why |
+|---|---|
+| Different `profileName` | Different role, different prompt; spawn fresh. |
+| Different `model`, `tools`, `cwd`, `systemPromptPath`, `extensionMode`, `thinkingLevel`, or `skills` presence | Baked into the worker process at spawn. The RPC can't change them mid-life. |
+| Status not `idle`/`waiting_followup` | RPC session disposed or busy. |
+
+When reuse rejects, the error spells out which fields differ. The fix is usually to either align the request or drop `reuseWorkerId` and let a fresh worker spawn.
+
 ## Toggle routing without reload
 
 `/team-off` and `/team-on` flip orchestrator behavior live, no `/reload` needed.

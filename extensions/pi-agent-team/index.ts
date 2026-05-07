@@ -9,6 +9,7 @@ import {
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager";
 import { loadActiveTeamConfig } from "../../src/project-config/loader";
+import { registerAgentCloseCommand } from "../../src/commands/agent-close";
 import { registerCancelCommand } from "../../src/commands/cancel";
 import { registerCopyCommand } from "../../src/commands/copy";
 import { registerCostCommand } from "../../src/commands/cost";
@@ -33,6 +34,7 @@ const DelegateTaskSchema = Type.Object({
 	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
 	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of installed Pi skill names to enable on the worker. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches) and the worker is told to load and apply the requested skills by name. Omit if no specialized skill is needed." })),
 	model: Type.Optional(Type.String({ description: "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model." })),
+	reuseWorkerId: Type.Optional(Type.String({ description: "Reuse an existing idle (or waiting_followup) worker's RPC session for this task instead of spawning a fresh process. Use when the next task is in scope of the previous role and roughly the same path scope — saves spawn cost and keeps warm role context. The worker's prior summary, finalAnswer, and lastTool are reset; a new taskId is allocated. Rejected if the target is running/starting/completed/aborted/error/exited (its RPC is already disposed); cancel + delegate fresh in that case. Check agent_status for `reusable: true` to find candidates." })),
 });
 
 const WorkerLookupSchema = Type.Object({
@@ -442,6 +444,7 @@ export default function (pi: ExtensionAPI): void {
 	registerTeamCommand(pi, commandDependencies);
 	registerWorkerMessageCommands(pi, commandDependencies);
 	registerCancelCommand(pi, commandDependencies);
+	registerAgentCloseCommand(pi, commandDependencies);
 	registerCopyCommand(pi, commandDependencies);
 	registerPruneCommand(pi, commandDependencies);
 	registerCostCommand(pi, commandDependencies);
@@ -520,6 +523,7 @@ export default function (pi: ExtensionAPI): void {
 				skills: params.skills,
 				model: params.model,
 				orchestratorModel,
+				reuseWorkerId: params.reuseWorkerId,
 			});
 			teamState = teamManager.snapshot();
 			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
@@ -538,16 +542,20 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_status",
 		label: "Agent Status",
-		description: "Return compact status for one worker or all tracked workers. Done statuses are idle/completed/aborted/error/exited; starting/running/waiting_followup are not done. For the worker's actual output, call agent_result.",
+		description: "Return compact status for one worker or all tracked workers. Done statuses are idle/completed/aborted/error/exited; starting/running/waiting_followup are not done. Each worker carries `reusable: true` when its RPC session is still alive (idle or waiting_followup) — pass that workerId as delegate_task.reuseWorkerId to skip spawning a fresh process. For the worker's actual output, call agent_result.",
 		parameters: WorkerLookupSchema,
 		async execute(_toolCallId, params) {
 			const resolvedId = params.workerId ? teamManager.resolveWorkerId(params.workerId) ?? params.workerId : undefined;
 			const workers = resolvedId
 				? [teamManager.getWorkerStatus(resolvedId)].filter((worker): worker is WorkerRuntimeState => Boolean(worker))
 				: teamManager.listWorkers();
+			const decorated = workers.map((worker) => ({
+				...worker,
+				reusable: worker.status === "idle" || worker.status === "waiting_followup",
+			}));
 			return {
 				content: [{ type: "text", text: formatWorkers(workers) }],
-				details: { workers },
+				details: { workers: decorated },
 			};
 		},
 	});

@@ -61,6 +61,18 @@ export interface DelegateTaskRequest {
 	tools?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
+	reuseWorkerId?: string;
+}
+
+const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
+
+function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	if (a.length !== b.length) return false;
+	const sortedA = [...a].sort();
+	const sortedB = [...b].sort();
+	return sortedA.every((value, index) => value === sortedB[index]);
 }
 
 export interface AgentResult {
@@ -174,6 +186,10 @@ export class TeamManager {
 			throw new Error(
 				`Unknown team profile: ${request.profileName}. Configured profiles: ${available}.`,
 			);
+		}
+
+		if (request.reuseWorkerId) {
+			return this.reuseWorkerForTask(request);
 		}
 		const launchPlan = applyLaunchPolicy(
 			{
@@ -354,6 +370,121 @@ export class TeamManager {
 		});
 	}
 
+	private async reuseWorkerForTask(request: DelegateTaskRequest): Promise<AgentResult> {
+		const requestedId = request.reuseWorkerId!;
+		const resolvedId = this.resolveWorkerId(requestedId) ?? requestedId;
+		const target = this.registry.getWorker(resolvedId);
+		if (!target) {
+			throw new Error(`Unknown workerId: ${requestedId}. Cannot reuse a worker that is not tracked.`);
+		}
+		if (!REUSABLE_STATUSES.has(target.status)) {
+			const hint = UNREACHABLE_STATUSES.has(target.status)
+				? `worker is ${target.status} — its RPC session is already disposed; launch a new one with delegate_task (omit reuseWorkerId).`
+				: `worker is ${target.status} — wait for it to become idle, or delegate a fresh worker.`;
+			throw new Error(`Cannot reuse worker ${resolvedId}: ${hint}`);
+		}
+		if (target.profileName !== request.profileName) {
+			throw new Error(
+				`Cannot reuse worker ${resolvedId}: its profile is ${target.profileName}, request is ${request.profileName}. Reuse only same-profile workers.`,
+			);
+		}
+
+		const launchPlan = applyLaunchPolicy(
+			{
+				cwd: request.cwd,
+				profile: this.config.profiles.find((item) => item.name === request.profileName)!,
+				pathScope: request.pathScope,
+				model: request.model,
+				orchestratorModel: request.orchestratorModel,
+				thinkingLevel: request.thinkingLevel,
+				tools: request.tools,
+				extensionMode: request.extensionMode,
+				systemPromptPath: request.systemPromptPath,
+			},
+			this.config,
+		);
+
+		const skills = request.skills?.map((name) => name.trim()).filter((name) => name.length > 0);
+		const newAllowSkills = skills !== undefined && skills.length > 0;
+		const existing = this.workerManager.getLaunchSnapshot(resolvedId);
+		if (!existing) {
+			throw new Error(`Cannot reuse worker ${resolvedId}: runtime record missing. Delegate fresh.`);
+		}
+		const mismatches: string[] = [];
+		if (existing.cwd !== launchPlan.cwd) mismatches.push(`cwd (${existing.cwd} → ${launchPlan.cwd})`);
+		if (existing.model !== launchPlan.model) mismatches.push(`model (${existing.model ?? "default"} → ${launchPlan.model ?? "default"})`);
+		if (existing.thinkingLevel !== launchPlan.thinkingLevel) mismatches.push(`thinkingLevel`);
+		if (existing.systemPromptPath !== launchPlan.systemPromptPath) mismatches.push(`systemPromptPath`);
+		if (existing.extensionMode !== launchPlan.extensionMode) mismatches.push(`extensionMode`);
+		if (!toolsetEqual(existing.tools, launchPlan.tools)) mismatches.push(`tools`);
+		if (existing.allowSkills !== newAllowSkills) {
+			mismatches.push(`skills (worker launched with allowSkills=${existing.allowSkills}, request needs ${newAllowSkills})`);
+		}
+		if (mismatches.length > 0) {
+			throw new Error(
+				`Cannot reuse worker ${resolvedId}: launch settings differ on ${mismatches.join(", ")}. These are baked into the worker process at spawn and cannot change between tasks. Delegate fresh (omit reuseWorkerId) or align the request.`,
+			);
+		}
+
+		const taskId = this.nextTaskId();
+		const task: DelegatedTaskInput = {
+			taskId,
+			title: request.title,
+			goal: request.goal,
+			requestedBy: "orchestrator",
+			profileName: request.profileName,
+			cwd: request.cwd,
+			contextHints: request.contextHints ?? [],
+			expectedOutput: request.expectedOutput,
+			pathScope: launchPlan.pathScope,
+			skills: skills && skills.length > 0 ? skills : undefined,
+			createdAt: Date.now(),
+		};
+
+		this.registry.registerTask(task);
+		await this.workerManager.reuseWorker(resolvedId, buildWorkerTaskPrompt(task), task);
+		const liveWorker = this.workerManager.getWorker(resolvedId);
+		if (liveWorker) {
+			this.registry.upsertWorker(liveWorker.state);
+		}
+		this.events.emit("state_change", this.snapshot());
+		return { worker: liveWorker?.state ?? target, task };
+	}
+
+	async closeWorker(workerId: string, reason = "Worker closed by operator."): Promise<AgentResult> {
+		const worker = this.requireWorker(workerId);
+		if (!REUSABLE_STATUSES.has(worker.status)) {
+			throw new Error(
+				`Cannot close worker ${workerId}: status is ${worker.status}. Only idle/waiting_followup workers can be closed; running workers need /agent-cancel.`,
+			);
+		}
+		await this.workerManager.closeWorker(workerId, reason);
+		const updated = this.registry.markWorkerExited(workerId, reason);
+		if (!updated) {
+			throw new Error(`Unknown worker: ${workerId}`);
+		}
+		this.events.emit("state_change", this.snapshot());
+		return this.requireResult(workerId);
+	}
+
+	async closeAllWorkers(): Promise<AgentResult[]> {
+		const targets = this.listWorkers().filter((worker) => REUSABLE_STATUSES.has(worker.status));
+		const results: AgentResult[] = [];
+		for (const worker of targets) {
+			try {
+				results.push(await this.closeWorker(worker.workerId));
+			} catch (error) {
+				const latest = this.registry.getWorker(worker.workerId);
+				if (!latest) continue;
+				results.push({
+					worker: { ...latest, error: error instanceof Error ? error.message : String(error) },
+					task: latest.currentTask ? this.registry.getTask(latest.currentTask.taskId) : undefined,
+				});
+			}
+		}
+		return results;
+	}
+
 	async cancelWorker(workerId: string): Promise<AgentResult> {
 		await this.workerManager.abortWorker(workerId);
 		await this.workerManager.shutdownWorker(workerId);
@@ -369,10 +500,17 @@ export class TeamManager {
 		await this.workerManager.dispose();
 	}
 
-	pruneTerminalWorkers(): WorkerRuntimeState[] {
+	async pruneTerminalWorkers(): Promise<WorkerRuntimeState[]> {
 		const terminal = this.registry.listWorkers().filter((worker) => isTerminalWorkerStatus(worker.status));
 		const removed: WorkerRuntimeState[] = [];
 		for (const worker of terminal) {
+			if (this.workerManager.hasWorker(worker.workerId)) {
+				try {
+					await this.workerManager.removeWorker(worker.workerId);
+				} catch {
+					// Best-effort: don't let runtime cleanup failure block dashboard prune.
+				}
+			}
 			const result = this.registry.removeWorker(worker.workerId);
 			if (result) removed.push(result);
 		}

@@ -23,6 +23,8 @@ import type {
 	WorkerUsageStats,
 } from "../types";
 
+const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
+
 export interface LaunchWorkerOptions {
 	workerId: string;
 	profileName: string;
@@ -64,12 +66,24 @@ export interface WorkerConsoleEvent {
 const CONSOLE_BUFFER_LIMIT = 500;
 const ASSISTANT_TEXT_BATCH_MS = 400;
 
+export interface WorkerLaunchSnapshot {
+	cwd: string;
+	model?: string;
+	thinkingLevel?: ThinkingLevel;
+	tools?: string[];
+	systemPromptPath?: string;
+	extensionMode?: WorkerExtensionMode;
+	allowSkills: boolean;
+}
+
 interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	textBuffer: string;
 	console: WorkerConsoleEvent[];
 	pendingTextDelta: string;
 	pendingTextFlushAt: number;
 	unsubscribers: Array<() => void>;
+	closing: boolean;
+	launchSnapshot: WorkerLaunchSnapshot;
 }
 
 function emptyUsage(): WorkerUsageStats {
@@ -206,6 +220,16 @@ export class WorkerManager {
 			pendingTextDelta: "",
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
+			closing: false,
+			launchSnapshot: {
+				cwd: options.cwd,
+				model: options.model,
+				thinkingLevel: options.thinkingLevel,
+				tools: options.tools ? [...options.tools] : undefined,
+				systemPromptPath: options.systemPromptPath,
+				extensionMode: options.extensionMode,
+				allowSkills: options.allowSkills === true,
+			},
 		};
 		this.workers.set(options.workerId, record);
 
@@ -234,6 +258,61 @@ export class WorkerManager {
 
 		await this.refreshState(options.workerId);
 		return this.snapshot(options.workerId)!;
+	}
+
+	hasWorker(workerId: string): boolean {
+		return this.workers.has(workerId);
+	}
+
+	getLaunchSnapshot(workerId: string): WorkerLaunchSnapshot | undefined {
+		const record = this.workers.get(workerId);
+		return record ? { ...record.launchSnapshot, tools: record.launchSnapshot.tools ? [...record.launchSnapshot.tools] : undefined } : undefined;
+	}
+
+	async removeWorker(workerId: string): Promise<void> {
+		const record = this.workers.get(workerId);
+		if (!record) return;
+		if (REUSABLE_STATUSES.has(record.state.status)) {
+			try {
+				await this.closeWorker(workerId, "Worker auto-closed on removal.");
+			} catch {
+				// Best-effort: still drop the map entry below.
+			}
+		}
+		for (const off of record.unsubscribers) off();
+		record.client.dispose("Worker removed");
+		this.workers.delete(workerId);
+	}
+
+	async reuseWorker(workerId: string, message: string, task: DelegatedTaskInput): Promise<void> {
+		const record = this.requireWorker(workerId);
+		if (!REUSABLE_STATUSES.has(record.state.status)) {
+			throw new Error(
+				`Worker ${workerId} cannot be reused (status=${record.state.status}). Only idle and waiting_followup workers retain a live RPC session.`,
+			);
+		}
+		record.state.currentTask = task;
+		record.state.finalAnswer = undefined;
+		record.state.lastToolName = undefined;
+		record.state.pendingRelayQuestions = [];
+		record.state.lastSummary = undefined;
+		record.state.error = undefined;
+		record.textBuffer = "";
+		record.pendingTextDelta = "";
+		record.pendingTextFlushAt = 0;
+		await this.promptWorker(workerId, message);
+	}
+
+	async closeWorker(workerId: string, reason = "Worker closed by operator."): Promise<void> {
+		const record = this.requireWorker(workerId);
+		if (!REUSABLE_STATUSES.has(record.state.status)) {
+			throw new Error(
+				`Worker ${workerId} cannot be closed (status=${record.state.status}). Only idle and waiting_followup workers can be closed; running workers need /agent-cancel.`,
+			);
+		}
+		record.closing = true;
+		record.state.error = reason;
+		await record.handle.dispose();
 	}
 
 	async promptWorker(workerId: string, message: string): Promise<void> {
@@ -446,10 +525,14 @@ export class WorkerManager {
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				break;
 			case "worker_exit":
-				record.state.status = event.signal === "SIGTERM" ? "aborted" : "exited";
-				if (event.code && event.code !== 0) {
-					record.state.status = "error";
-					record.state.error = event.stderr || `Worker exited with code ${event.code}`;
+				if (record.closing) {
+					record.state.status = "exited";
+				} else {
+					record.state.status = event.signal === "SIGTERM" ? "aborted" : "exited";
+					if (event.code && event.code !== 0) {
+						record.state.status = "error";
+						record.state.error = event.stderr || `Worker exited with code ${event.code}`;
+					}
 				}
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer || event.stderr || "Worker exited");
 				this.flushPendingText(record);
