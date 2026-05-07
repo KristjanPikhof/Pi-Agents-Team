@@ -540,16 +540,20 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_status",
 		label: "Agent Status",
-		description: "Return compact status for one worker or all tracked workers. Done statuses are idle/completed/aborted/error/exited; starting/running/waiting_followup are not done. For the worker's actual output, call agent_result.",
+		description: "Return compact status for one worker or all tracked workers. Done statuses are idle/completed/aborted/error/exited; starting/running/waiting_followup are not done. Each worker carries `reusable: true` when its RPC session is still alive (idle or waiting_followup) — pass that workerId as delegate_task.reuseWorkerId to skip spawning a fresh process. For the worker's actual output, call agent_result.",
 		parameters: WorkerLookupSchema,
 		async execute(_toolCallId, params) {
 			const resolvedId = params.workerId ? teamManager.resolveWorkerId(params.workerId) ?? params.workerId : undefined;
 			const workers = resolvedId
 				? [teamManager.getWorkerStatus(resolvedId)].filter((worker): worker is WorkerRuntimeState => Boolean(worker))
 				: teamManager.listWorkers();
+			const decorated = workers.map((worker) => ({
+				...worker,
+				reusable: worker.status === "idle" || worker.status === "waiting_followup",
+			}));
 			return {
 				content: [{ type: "text", text: formatWorkers(workers) }],
-				details: { workers },
+				details: { workers: decorated },
 			};
 		},
 	});
