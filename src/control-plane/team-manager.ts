@@ -44,6 +44,8 @@ const UNREACHABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
 	"exited",
 ]);
 
+export type RoutingMode = "team" | "solo";
+
 export interface DelegateTaskRequest {
 	title: string;
 	goal: string;
