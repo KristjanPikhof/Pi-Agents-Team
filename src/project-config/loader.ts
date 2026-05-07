@@ -723,6 +723,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	const winningScope: TeamConfigScope = projectFilePresent ? "project" : "global";
 
 	let winningLayer: ParsedLayer | undefined;
+	let persistedRoutingMode: "team" | "solo" | undefined;
 	if (projectFilePresent) {
 		// Project wins by presence. If it parsed cleanly, use it; otherwise we
 		// explicitly fall through to built-ins (winningLayer stays undefined).
