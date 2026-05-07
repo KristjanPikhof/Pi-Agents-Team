@@ -46,7 +46,7 @@ Package entrypoint (extensions/index.ts)
   └─ Operator UI
       ├─ Footer status          (buildTeamStatusLine)
       ├─ Widget                 (buildTeamWidgetLines)
-      ├─ Dashboard overlay      (queue + inspector shell with overview/deliverable/console tabs)
+      ├─ Dashboard overlay      (Workers/Inspect/Console/Cost tab bar with action bar + inline modal)
       ├─ Terminal-status toasts (debounced batch per wake)
       └─ Slash commands         (/team, /team-copy, /team-prune, /team-cost, /agent-*)
 ```
