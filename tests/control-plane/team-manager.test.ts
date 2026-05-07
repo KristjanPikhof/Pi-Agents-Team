@@ -444,6 +444,174 @@ test("TeamManager applies model precedence: tool param, role model, orchestrator
 	assert.equal(captures[3]?.model, undefined);
 });
 
+test("delegateTask with reuseWorkerId routes to reuse path on idle worker, allocates a fresh taskId, and reuses the same handle", async () => {
+	const transports: MockWorkerTransport[] = [];
+	const handles: MockWorkerHandle[] = [];
+	const workerManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport();
+		transports.push(transport);
+		const handle = new MockWorkerHandle(transport);
+		handles.push(handle);
+		return handle;
+	});
+	const teamManager = new TeamManager({ workerManager });
+
+	const first = await teamManager.delegateTask({
+		title: "First",
+		goal: "first task",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	const second = await teamManager.delegateTask({
+		title: "Second",
+		goal: "second task on the same worker",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		reuseWorkerId: first.worker.workerId,
+	});
+
+	assert.equal(handles.length, 1, "reuse should not spawn a second handle");
+	assert.equal(second.worker.workerId, first.worker.workerId);
+	assert.notEqual(second.task?.taskId, first.task?.taskId);
+	assert.equal(transports[0]?.commands.filter((c) => c.type === "prompt").length, 2);
+});
+
+test("delegateTask with reuseWorkerId rejects unknown / running / exited targets", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
+	const teamManager = new TeamManager({ workerManager });
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Unknown",
+				goal: "unknown reuse target",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				reuseWorkerId: "ghost",
+			}),
+		/Unknown workerId/,
+	);
+
+	const running = await teamManager.delegateTask({
+		title: "Running",
+		goal: "stays running",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Reuse running",
+				goal: "should fail",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				reuseWorkerId: running.worker.workerId,
+			}),
+		/Cannot reuse worker/,
+	);
+
+	await teamManager.cancelWorker(running.worker.workerId);
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Reuse exited",
+				goal: "should fail",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				reuseWorkerId: running.worker.workerId,
+			}),
+		/RPC session is already disposed|launch a new one/,
+	);
+});
+
+test("delegateTask with reuseWorkerId rejects cross-profile reuse", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const teamManager = new TeamManager({ workerManager });
+
+	const reviewer = await teamManager.delegateTask({
+		title: "Reviewer first",
+		goal: "establish reviewer worker",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Wrong profile",
+				goal: "try to reuse with different role",
+				profileName: "fixer",
+				cwd: process.cwd(),
+				reuseWorkerId: reviewer.worker.workerId,
+			}),
+		/profile is reviewer/,
+	);
+});
+
+test("closeWorker disposes idle worker, marks exited; rejects running workers", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
+	const teamManager = new TeamManager({ workerManager });
+
+	const idle = await teamManager.delegateTask({
+		title: "Idle",
+		goal: "will idle quickly",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	// flip to idle by completing
+	const transport = (workerManager as any).workers.get(idle.worker.workerId)?.handle?.transport as MockWorkerTransport;
+	transport?.completePrompt();
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	assert.equal(teamManager.getWorkerStatus(idle.worker.workerId)?.status, "idle");
+
+	const closed = await teamManager.closeWorker(idle.worker.workerId);
+	assert.equal(closed.worker.status, "exited");
+
+	const running = await teamManager.delegateTask({
+		title: "Running",
+		goal: "stays running",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await assert.rejects(
+		() => teamManager.closeWorker(running.worker.workerId),
+		/Cannot close worker/,
+	);
+});
+
+test("pruneTerminalWorkers disposes the live RPC client of an idle worker before removal", async () => {
+	const transports: MockWorkerTransport[] = [];
+	const workerManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport();
+		transports.push(transport);
+		return new MockWorkerHandle(transport);
+	});
+	const teamManager = new TeamManager({ workerManager });
+
+	const idle = await teamManager.delegateTask({
+		title: "Idle for prune",
+		goal: "becomes idle then pruned",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	assert.equal(teamManager.getWorkerStatus(idle.worker.workerId)?.status, "idle");
+	assert.ok(workerManager.hasWorker(idle.worker.workerId));
+
+	const removed = await teamManager.pruneTerminalWorkers();
+	assert.equal(removed.length, 1);
+	assert.equal(removed[0]?.workerId, idle.worker.workerId);
+	assert.ok(!workerManager.hasWorker(idle.worker.workerId), "prune must dispose the RPC handle");
+	assert.equal(teamManager.listWorkers().length, 0);
+});
+
 test("messageWorker rejects messages to terminal workers with a clear error", async () => {
 	// cr-expert P2-12: previously, calling messageWorker on an aborted/exited
 	// worker would resolve delivery to "prompt", which promptWorker then ran
