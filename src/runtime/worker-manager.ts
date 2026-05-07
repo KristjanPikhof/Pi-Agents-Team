@@ -238,6 +238,56 @@ export class WorkerManager {
 		return this.snapshot(options.workerId)!;
 	}
 
+	hasWorker(workerId: string): boolean {
+		return this.workers.has(workerId);
+	}
+
+	async reuseWorker(workerId: string, message: string, task: DelegatedTaskInput): Promise<void> {
+		const record = this.requireWorker(workerId);
+		if (!REUSABLE_STATUSES.has(record.state.status)) {
+			throw new Error(
+				`Worker ${workerId} cannot be reused (status=${record.state.status}). Only idle and waiting_followup workers retain a live RPC session.`,
+			);
+		}
+		record.state.currentTask = task;
+		record.state.finalAnswer = undefined;
+		record.state.lastToolName = undefined;
+		record.state.pendingRelayQuestions = [];
+		record.state.lastSummary = undefined;
+		record.state.error = undefined;
+		record.textBuffer = "";
+		record.pendingTextDelta = "";
+		record.pendingTextFlushAt = 0;
+		this.emitter.emit("event", this.snapshot(workerId), {
+			type: "worker_running",
+			timestamp: Date.now(),
+		});
+		await this.promptWorker(workerId, message);
+	}
+
+	async closeWorker(workerId: string, reason = "Worker closed by operator."): Promise<void> {
+		const record = this.requireWorker(workerId);
+		if (!REUSABLE_STATUSES.has(record.state.status)) {
+			throw new Error(
+				`Worker ${workerId} cannot be closed (status=${record.state.status}). Only idle and waiting_followup workers can be closed; running workers need /agent-cancel.`,
+			);
+		}
+		await record.handle.dispose();
+		const timestamp = Date.now();
+		record.state.status = "exited";
+		record.state.lastEventAt = timestamp;
+		record.state.error = reason;
+		this.flushPendingText(record);
+		this.appendConsole(record, { ts: timestamp, kind: "exit", text: `closed: ${reason}` });
+		this.emitter.emit("event", this.snapshot(workerId), {
+			type: "worker_exit",
+			code: 0,
+			signal: null,
+			stderr: reason,
+			timestamp,
+		});
+	}
+
 	async promptWorker(workerId: string, message: string): Promise<void> {
 		const record = this.requireWorker(workerId);
 		record.state.status = "running";
