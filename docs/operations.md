@@ -37,12 +37,12 @@ tsx --test tests/runtime/worker-manager.test.ts
 ```
 
 - `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact dashboard summary in print mode.
-- Wide terminals render a split queue + inspector layout; narrower terminals keep the same keyboard flow but stack list and detail views.
-- `/team <worker-id>` skips the queue and opens the overlay directly on that worker's inspector view (tab completion suggests live worker ids).
+- Top tabs (`1` Workers · `2` Inspect · `3` Console · `4` Cost) are jumped with the number row, or `tab` / `shift+tab` to cycle. Wide terminals split the roster beside Inspect / Console; narrow terminals stack them.
+- `/team <worker-id>` skips the roster and opens the overlay on that worker's Inspect tab (tab completion suggests live worker ids).
 
 Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
 
-The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) so there is no separate "status" slash command. Use `/team` when you need the full view.
+The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when usage is non-zero — there is no separate "status" slash command.
 
 ### Dashboard keys
 
@@ -50,22 +50,25 @@ Inside the `/team` overlay:
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` | Move selection in the worker list, or scroll the inspector when it has focus |
-| `←` / `→` | Move focus between queue and inspector in split layout |
-| `enter` | Open the selected worker in the inspector |
-| `tab` / `shift+tab` | Cycle Overview / Deliverable / Console tabs |
-| `o` / `d` / `c` | Jump straight to Overview / Deliverable / Console |
-| `j`/`k` or `↑`/`↓` | Scroll detail view |
-| `PgUp` / `PgDn` | Page scroll |
-| `g` / `G` | Jump to top / bottom |
-| `r` | Re-ping workers (fresh RPC state + stats) and refresh snapshot |
-| `y` | Copy the current worker's task, summary, final answer, transcript, and console to the clipboard (in the list view, copies the highlighted worker) |
-| `esc` | Back to the queue (or close from the queue) |
-| `q` | Close overlay |
+| `1` / `2` / `3` / `4` | Jump to Workers / Inspect / Console / Cost |
+| `tab` / `shift+tab` | Cycle tabs |
+| `↑` / `↓` (or `j` / `k`) | Move selection in the roster, or scroll the body of Inspect / Console / Cost |
+| `enter` | Open the highlighted worker in Inspect (Workers tab) |
+| `PgUp` / `PgDn` | Page scroll. On Console, `PgUp` pauses follow; `End` (or `G`) resumes follow at the tail |
+| `g` / `G` | Top / bottom |
+| `s` | Steer the selected worker — opens an inline single-line input |
+| `m` | Send a message to the selected worker (auto-routes by status) |
+| `n` | New task — inline input; uses the selected worker's profile (or the first profile) and forwards `reuseWorkerId` when the selected worker is reusable |
+| `c` | Close (idle / waiting_followup only) — disposes the RPC handle |
+| `x` | Cancel — aborts and shuts down a running worker |
+| `p` | Prune terminal workers |
+| `r` | Re-ping workers (fresh RPC state + stats) |
+| `y` | Copy the selected worker's task, summary, final answer, transcript, and console to the clipboard |
+| `q` / `esc` | Close overlay (`esc` also cancels a modal) |
 
-The keybinding help line is pinned right under the tabs, so it stays visible even if the body scrolls or the terminal clips the overlay. A transient `» …` line shows copy/refresh status for a few seconds, also above the scrolling body.
+The header carries a tab bar, the per-tab help row, and the selected worker's priority snippet. When routing is off, the bar shows a `solo` badge; idle workers carry a `[reuse]` tag in the roster row and `[reusable]` in the Inspect header so reusable sessions are obvious. A transient `» …` status line surfaces last action / refresh / error feedback for a few seconds.
 
-Overview front-loads status, task, usage, operator-needs, and the latest compact summary. Deliverable puts the worker's `<final_answer>` block first, followed by supporting artifacts and the latest assistant text. Console shows a bounded ring buffer of status transitions, tool starts and ends, assistant-text flushes, queue updates, errors, and exit reasons. Use it when a summary is not enough.
+Inspect renders status, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, plus the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. Cost shows a `Σ` aggregate row plus per-worker turns / in / out / cost.
 
 ## Inspect a worker's result
 
