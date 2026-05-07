@@ -572,14 +572,11 @@ export function createTeamDashboardOverlayComponent(
 		}
 	};
 
-	ensureSelectedWorker();
-
 	function renderWorkersBody(width: number, rows: number): string[] {
-		// hoisted above with proper signature; keep redundant assignment to satisfy TS shape
 		const lines: string[] = [];
 		for (const section of buildRosterSections(snapshot)) {
 			if (section.workers.length === 0) continue;
-			lines.push(section.workers.length === 0 ? section.label : `${section.label} (${section.workers.length})`);
+			lines.push(`${section.label} (${section.workers.length})`);
 			for (const worker of section.workers) {
 				lines.push(buildRosterRow(worker, worker.workerId === state.selectedWorkerId, width));
 			}
@@ -590,6 +587,8 @@ export function createTeamDashboardOverlayComponent(
 		lastRenderMetrics.listPageSize = Math.max(1, rows - 1);
 		return enforceWidth(lines, width).slice(0, rows);
 	}
+
+	ensureSelectedWorker();
 
 	const handleModalInput = (data: string): boolean => {
 		if (!state.modal) return false;
