@@ -72,6 +72,7 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	pendingTextDelta: string;
 	pendingTextFlushAt: number;
 	unsubscribers: Array<() => void>;
+	closing: boolean;
 }
 
 function emptyUsage(): WorkerUsageStats {
