@@ -506,23 +506,7 @@ export function createTeamDashboardOverlayComponent(
 		}
 	};
 
-	const renderWorkersBody = (width: number, rows: number): string[] {
-		const lines: string[] = [];
-		for (const section of buildRosterSections(snapshot)) {
-			if (section.workers.length === 0) continue;
-			lines.push(`${section.label} (${section.workers.length})`);
-			for (const worker of section.workers) {
-				lines.push(buildRosterRow(worker, worker.workerId === state.selectedWorkerId, width));
-			}
-			lines.push("");
-		}
-		while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-		if (lines.length === 0) lines.push("No tracked workers. Press [n] to delegate one.");
-		lastRenderMetrics.listPageSize = Math.max(1, rows - 1);
-		return enforceWidth(lines, width).slice(0, rows);
-	};
-
-	const renderInspectBody = (width: number, rows: number): string[] {
+	const renderInspectBody = (width: number, rows: number): string[] => {
 		const worker = currentWorker();
 		if (!worker) {
 			return enforceWidth(["No worker selected. Switch to Workers (1) to pick one."], width).slice(0, rows);
