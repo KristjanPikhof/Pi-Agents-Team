@@ -209,6 +209,7 @@ export class WorkerManager {
 			pendingTextDelta: "",
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
+			closing: false,
 		};
 		this.workers.set(options.workerId, record);
 
