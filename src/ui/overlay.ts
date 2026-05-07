@@ -580,6 +580,10 @@ export function createTeamDashboardOverlayComponent(
 				await teamManager.messageWorker?.(modal.workerId, trimmed, "auto");
 				setStatus(`Sent message to ${modal.workerId}`);
 			} else if (modal.kind === "new_task") {
+				if (teamManager.routingMode === "solo") {
+					setStatus("Team routing off. Run /team-on to delegate.");
+					return;
+				}
 				const profile = currentWorker()?.profileName ?? teamManager.config?.profiles[0]?.name;
 				if (!profile) {
 					setStatus("No profile available");
