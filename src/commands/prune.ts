@@ -11,7 +11,7 @@ export function registerPruneCommand(pi: ExtensionAPI, dependencies: CommandRegi
 				dependencies.emitText(ctx, "Nothing to prune — all tracked workers are still active.");
 				return;
 			}
-			const removed = dependencies.teamManager.pruneTerminalWorkers();
+			const removed = await dependencies.teamManager.pruneTerminalWorkers();
 			const lines = removed.map((worker) => `- ${worker.workerId} (${worker.profileName}) · ${worker.status}`);
 			dependencies.emitText(ctx, [`Pruned ${removed.length} terminal worker(s):`, ...lines].join("\n"));
 		},
