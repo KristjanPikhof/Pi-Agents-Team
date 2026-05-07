@@ -469,10 +469,17 @@ export class TeamManager {
 		await this.workerManager.dispose();
 	}
 
-	pruneTerminalWorkers(): WorkerRuntimeState[] {
+	async pruneTerminalWorkers(): Promise<WorkerRuntimeState[]> {
 		const terminal = this.registry.listWorkers().filter((worker) => isTerminalWorkerStatus(worker.status));
 		const removed: WorkerRuntimeState[] = [];
 		for (const worker of terminal) {
+			if (REUSABLE_STATUSES.has(worker.status) && this.workerManager.hasWorker(worker.workerId)) {
+				try {
+					await this.workerManager.closeWorker(worker.workerId, "Worker auto-closed on /team-prune.");
+				} catch {
+					// Ignore — close failure (e.g. already disposed) shouldn't block prune.
+				}
+			}
 			const result = this.registry.removeWorker(worker.workerId);
 			if (result) removed.push(result);
 		}
