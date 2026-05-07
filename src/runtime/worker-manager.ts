@@ -71,6 +71,10 @@ export interface AssistantChunk {
 
 const CONSOLE_BUFFER_LIMIT = 500;
 const ASSISTANT_TEXT_BATCH_MS = 400;
+// Cap is on the number of buffered text-delta chunks, NOT rendered lines —
+// a single chunk may contain newlines. Memory is bounded by the byte cap;
+// the chunk cap exists to keep the array from growing unboundedly when each
+// chunk is small. Either limit shifts the oldest chunk out.
 const ASSISTANT_BUFFER_CHUNK_CAP = 4096;
 const ASSISTANT_BUFFER_BYTE_CAP = 256 * 1024;
 
