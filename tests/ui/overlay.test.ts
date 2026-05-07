@@ -297,6 +297,53 @@ test("action bar dispatches steer/message/close/cancel/prune/refresh/copy throug
 	assert.equal(calls.pings, 1);
 });
 
+test("[s]teer accepts idle/waiting workers (delivery resolver upgrades to prompt)", async () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.status = "idle";
+	const { component, calls } = makeComponent({ state, rows: 28, cols: 100, initialWorkerId: "w1" });
+
+	component.handleInput("s");
+	let lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("Steer w1:")), "expected steer modal to open on idle worker");
+	for (const ch of "wake up") component.handleInput(ch);
+	component.handleInput("\r");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(calls.messages.length, 1);
+	assert.equal(calls.messages[0]!.delivery, "steer", "overlay forwards steer; resolver in messageWorker handles upgrade");
+});
+
+test("[s]teer rejects only truly unreachable terminal workers", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.status = "exited";
+	const { component, calls } = makeComponent({ state, rows: 28, cols: 100, initialWorkerId: "w1" });
+	component.handleInput("s");
+	const lines = renderPlain(component, 100);
+	assert.ok(!lines.some((line) => line.includes("Steer w1:")), "expected modal to refuse exited worker");
+	assert.ok(lines.some((line) => line.includes("RPC disposed")), "expected status hint");
+	assert.equal(calls.messages.length, 0);
+});
+
+test("[n]ew is refused while routingMode is solo", async () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.status = "idle";
+	const { component, calls } = makeComponent({ state, rows: 28, cols: 100, initialWorkerId: "w1", routingMode: "solo" });
+	component.handleInput("n");
+	const lines = renderPlain(component, 100);
+	assert.ok(!lines.some((line) => line.includes("New task (")), "modal must not open in solo");
+	assert.ok(lines.some((line) => line.includes("Team routing off")), "expected solo guard tip");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(calls.delegates.length, 0);
+});
+
+test("console auto-follow keeps the newest line visible", () => {
+	const state = makeState(1);
+	const chunks: AssistantChunk[] = Array.from({ length: 30 }, (_, i) => ({ index: i, ts: Date.now() + i, text: `line-${i}` }));
+	const { component } = makeComponent({ state, rows: 22, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+	const lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("line-29")), `expected last chunk in tail render; lines:\n${lines.join("\n")}`);
+});
+
 test("inline modal captures keystrokes and esc cancels", () => {
 	const { component, calls } = makeComponent({ rows: 28, cols: 100, initialWorkerId: "w1" });
 	component.handleInput("s");
