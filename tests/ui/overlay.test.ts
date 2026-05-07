@@ -9,6 +9,11 @@ import {
 	openTeamDashboardOverlay,
 	TEAM_DASHBOARD_OVERLAY_OPTIONS,
 } from "../../src/ui/overlay";
+import { stripAnsi } from "../../src/ui/theme";
+
+function plainLines(lines: string[]): string[] {
+	return lines.map(stripAnsi);
+}
 import type { AssistantChunk, WorkerConsoleEvent } from "../../src/runtime/worker-manager";
 import type { PersistedTeamState, WorkerRuntimeState, WorkerStatus } from "../../src/types";
 
