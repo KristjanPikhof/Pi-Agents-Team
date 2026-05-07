@@ -133,6 +133,21 @@ The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "fol
 
 Aborts the RPC session and shuts down the worker process. The compact state is marked `exited`; persisted state survives. `all` cancels every non-terminal worker in one call and prints a per-worker summary.
 
+## Close an idle worker
+
+```text
+/agent-close <worker-id>
+/agent-close all
+```
+
+Use `/agent-close` when a worker is `idle` or `waiting_followup` and you don't intend to reuse it: it disposes the underlying RPC process and marks the worker `exited`, freeing the slot without waiting for `/team-prune`. Running/starting workers refuse `/agent-close` — cancel them with `/agent-cancel` first. `all` closes every reusable worker, swallowing per-worker errors.
+
+`/team-prune` now also disposes any leftover live RPC handles for idle/waiting_followup entries before removing them from the dashboard, so old "prune leaks processes" no longer applies.
+
+## Reuse an idle worker
+
+When the orchestrator's next task fits the same role and roughly the same path scope as a worker already sitting idle, it can pass that worker's id to `delegate_task.reuseWorkerId` instead of spawning a fresh one. The runtime resets the per-task summary, final answer, last tool, and relay questions, allocates a fresh `taskId`, and re-prompts the existing RPC session — keeping warm role context and saving spawn cost. Reuse only succeeds on `idle`/`waiting_followup` same-profile workers; cross-profile or unreachable targets fail fast with a clear hint. `agent_status` payloads now carry `reusable: true` for valid candidates.
+
 ## Toggle routing without reload
 
 `/team-off` and `/team-on` flip orchestrator behavior live, no `/reload` needed.
