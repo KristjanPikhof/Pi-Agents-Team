@@ -221,8 +221,12 @@ function getAttentionOrderedWorkerIds(state: PersistedTeamState): string[] {
 function buildRosterRow(worker: WorkerRuntimeState, selected: boolean, width: number): string {
 	const prefix = selected ? "▶ " : "  ";
 	const reuse = REUSABLE_STATUSES.has(worker.status) ? " [reuse]" : "";
-	const text = `${prefix}${worker.workerId} · ${worker.profileName} · ${worker.status}${reuse} · ${buildWorkerPrioritySnippet(worker)}`;
-	return truncateToWidth(text, width, "…");
+	const head = `${prefix}${worker.workerId} · ${worker.profileName} · ${worker.status}${reuse}`;
+	const tail = ` · ${buildWorkerPrioritySnippet(worker)}`;
+	const truncated = truncateToWidth(`${head}${tail}`, width, "…");
+	const color = colorForWorker(worker);
+	if (selected) return color(bold(truncated));
+	return color(truncated);
 }
 
 // Worker output frequently contains tabs and other control bytes whose
