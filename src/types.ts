@@ -196,6 +196,7 @@ export interface TeamProjectConfigFile {
 	schemaVersion: typeof TEAM_PROJECT_SCHEMA_VERSION;
 	scaffoldVersion?: number;
 	enabled?: boolean;
+	routingMode?: "team" | "solo";
 	workerAccess?: TeamProjectWorkerAccessConfig;
 	roles?: PartialRawProjectRoleConfigMap;
 }
