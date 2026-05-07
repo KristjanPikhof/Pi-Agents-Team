@@ -16,6 +16,7 @@ import { registerPruneCommand } from "../../src/commands/prune";
 import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
 import { registerTeamInitCommand } from "../../src/commands/team-init";
+import { registerTeamRoutingCommands } from "../../src/commands/team-routing";
 import { registerTeamToggleCommands } from "../../src/commands/team-toggle";
 import { formatUnknownWorker, suggestTargets } from "../../src/util/suggest";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
