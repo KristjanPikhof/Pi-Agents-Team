@@ -518,6 +518,22 @@ test("visibleWidth is enforced across all tabs and worst-case content", () => {
 	}
 });
 
+test("render row count matches overlay maxHeight so the bottom frame is never clipped", () => {
+	const state = makeState(1);
+	for (const termRows of [30, 40, 60, 80]) {
+		const { component } = makeComponent({ state, rows: termRows, cols: 100, initialWorkerId: "w1" });
+		const lines = renderPlain(component, 100);
+		const expected = Math.max(14, Math.floor(termRows * 0.9));
+		assert.equal(
+			lines.length,
+			expected,
+			`termRows=${termRows} got ${lines.length} rows, expected ${expected} (must match maxHeight 90%)`,
+		);
+		assert.ok(lines[0].startsWith("╭"), `top frame missing for termRows=${termRows}`);
+		assert.ok(lines[lines.length - 1].startsWith("╰"), `bottom frame missing for termRows=${termRows}`);
+	}
+});
+
 test("framed panel renders top/bottom borders and side bars at any width", () => {
 	const state = makeState(4);
 	const { component } = makeComponent({ state, rows: 32, cols: 60, initialWorkerId: "w1" });
