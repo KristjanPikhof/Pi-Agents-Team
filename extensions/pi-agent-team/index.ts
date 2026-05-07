@@ -445,6 +445,11 @@ export default function (pi: ExtensionAPI): void {
 	registerCostCommand(pi, commandDependencies);
 	registerTeamInitCommand(pi, { emitText: commandDependencies.emitText });
 	registerTeamToggleCommands(pi, { emitText: commandDependencies.emitText });
+	registerTeamRoutingCommands(pi, {
+		getTeamManager: () => teamManager,
+		getProjectConfig: () => activeProjectConfig,
+		emitText: commandDependencies.emitText,
+	});
 
 	pi.registerCommand("agent-result", {
 		description: "Show the full result for a worker: /agent-result <worker-id>",
