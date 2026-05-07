@@ -170,10 +170,13 @@ function buildWorkerLines(workers: WorkerRuntimeState[], frame: number): { lines
 export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetRenderOptions = {}): string[] {
 	const frame = options.frame ?? 0;
 	const routingMode = options.routingMode ?? "team";
+	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	if (routingMode === "solo") {
+		// In solo mode the status line already says "Pi Agents Team — solo".
+		// Only surface the widget when there is actual worker state worth showing.
+		if (workers.length === 0) return [];
 		return [truncateToWidth("Pi Agents Team — solo", HEADER_WIDTH)];
 	}
-	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	if (workers.length === 0) return [];
 
 	const status = buildStatusRow(state);
