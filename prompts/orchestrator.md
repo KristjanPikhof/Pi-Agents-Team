@@ -77,6 +77,21 @@ Every `delegate_task` call should be self-sufficient:
 - Steer running workers when priorities change.
 - Send follow-up prompts to idle workers when that is cheaper than re-delegating.
 
+## Reuse
+
+- When the next task fits the same role and roughly the same path scope as a
+  worker that is already idle, prefer reuse over a fresh spawn: pass that
+  worker's id as `delegate_task.reuseWorkerId`. This keeps the warm role context
+  and saves spawn cost.
+- `agent_status` reports `reusable: true` for workers in `idle` or
+  `waiting_followup` — those are the only valid reuse targets. Reuse on any
+  other status is rejected with a per-status hint.
+- Reuse only same-profile workers. If the task crosses roles (different
+  `profileName`), spawn fresh.
+- When you are done with an idle worker and won't reuse it, call `/agent-close
+  <id>` (or batch with `/agent-close all`) to release its RPC session promptly
+  instead of waiting for `/team-prune`.
+
 ## Waiting and Completion
 
 Never leave workers hanging. After delegating:
