@@ -275,10 +275,6 @@ export class WorkerManager {
 		record.textBuffer = "";
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
-		this.emitter.emit("event", this.snapshot(workerId), {
-			type: "worker_running",
-			timestamp: Date.now(),
-		});
 		await this.promptWorker(workerId, message);
 	}
 
