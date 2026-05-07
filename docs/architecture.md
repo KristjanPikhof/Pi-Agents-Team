@@ -218,7 +218,7 @@ Slash commands are supervision controls, not alternate chat channels:
 - `/team` and `/team <worker-id>`
 - `/team-on`, `/team-off` (and `--persist global|local`)
 - `/team-copy <worker-id>`
-- `/agent-result`, `/agent-steer`, `/agent-followup`, `/agent-cancel`
+- `/agent-result`, `/agent-steer`, `/agent-followup`, `/agent-cancel`, `/agent-close`
 
 The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
