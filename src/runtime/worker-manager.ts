@@ -66,6 +66,16 @@ export interface WorkerConsoleEvent {
 const CONSOLE_BUFFER_LIMIT = 500;
 const ASSISTANT_TEXT_BATCH_MS = 400;
 
+export interface WorkerLaunchSnapshot {
+	cwd: string;
+	model?: string;
+	thinkingLevel?: ThinkingLevel;
+	tools?: string[];
+	systemPromptPath?: string;
+	extensionMode?: WorkerExtensionMode;
+	allowSkills: boolean;
+}
+
 interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	textBuffer: string;
 	console: WorkerConsoleEvent[];
@@ -73,6 +83,7 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	pendingTextFlushAt: number;
 	unsubscribers: Array<() => void>;
 	closing: boolean;
+	launchSnapshot: WorkerLaunchSnapshot;
 }
 
 function emptyUsage(): WorkerUsageStats {
