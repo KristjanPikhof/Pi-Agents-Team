@@ -294,6 +294,7 @@ export function createTeamDashboardOverlayComponent(
 	render(width: number): string[];
 	invalidate(): void;
 	handleInput(data: string): void;
+	dispose(): void;
 } {
 	let snapshot = initialSnapshot;
 	const initialWorker = options.initialWorkerId && initialSnapshot.activeWorkers[options.initialWorkerId]
@@ -333,7 +334,10 @@ export function createTeamDashboardOverlayComponent(
 			requestRender();
 		}
 	});
+	let disposed = false;
 	const dispose = () => {
+		if (disposed) return;
+		disposed = true;
 		offChunk?.();
 	};
 	const finish = () => {
@@ -633,7 +637,7 @@ export function createTeamDashboardOverlayComponent(
 			const helpRow = state.tab === "workers"
 				? "↑/↓ select · enter inspect · 1-4 tabs · tab/shift-tab cycle · q quit"
 				: state.tab === "inspect"
-					? "↑/↓ scroll · PgUp/PgDn page · 1-4 tabs · q quit · (legacy o/d/c → 2/2/3)"
+					? "↑/↓ scroll · PgUp/PgDn page · 1-4 tabs · q quit"
 					: state.tab === "console"
 						? "↑/↓ scroll · PgUp pause · End follow · 1-4 tabs · q quit"
 						: "↑/↓ scroll · 1-4 tabs · q quit";
@@ -675,6 +679,9 @@ export function createTeamDashboardOverlayComponent(
 			return enforceWidth([...header, "", ...body, "", ...footerLines], width);
 		},
 		invalidate() {},
+		dispose() {
+			dispose();
+		},
 		handleInput(data: string) {
 			if (handleModalInput(data)) return;
 
