@@ -473,11 +473,11 @@ export class TeamManager {
 		const terminal = this.registry.listWorkers().filter((worker) => isTerminalWorkerStatus(worker.status));
 		const removed: WorkerRuntimeState[] = [];
 		for (const worker of terminal) {
-			if (REUSABLE_STATUSES.has(worker.status) && this.workerManager.hasWorker(worker.workerId)) {
+			if (this.workerManager.hasWorker(worker.workerId)) {
 				try {
-					await this.workerManager.closeWorker(worker.workerId, "Worker auto-closed on /team-prune.");
+					await this.workerManager.removeWorker(worker.workerId);
 				} catch {
-					// Ignore — close failure (e.g. already disposed) shouldn't block prune.
+					// Best-effort: don't let runtime cleanup failure block dashboard prune.
 				}
 			}
 			const result = this.registry.removeWorker(worker.workerId);
