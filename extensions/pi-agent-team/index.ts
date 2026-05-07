@@ -302,7 +302,13 @@ export default function (pi: ExtensionAPI): void {
 	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
 		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
 
-	let teamManager = new TeamManager({ config: activeProjectConfig.config });
+	const deriveInitialRoutingMode = (loaded: LoadedTeamProjectConfig): "team" | "solo" =>
+		loaded.enabled && loaded.delegationEnabled ? "team" : "solo";
+
+	let teamManager = new TeamManager({
+		config: activeProjectConfig.config,
+		routingMode: deriveInitialRoutingMode(activeProjectConfig),
+	});
 	let teamState = createDefaultTeamState(activeProjectConfig.config);
 	let activeContext: ExtensionContext | undefined;
 	let detachTeamManagerListener = () => {};
