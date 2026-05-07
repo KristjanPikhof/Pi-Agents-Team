@@ -174,7 +174,7 @@ Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) i
 - supervision: `pendingRelayQuestions`
 - accounting: `usage` (turns, input/output tokens, cache, costUsd, contextTokens)
 
-`WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager` (`record.textBuffer`) and a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard. They are never persisted.
+`WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager`: `record.textBuffer` (raw concatenated assistant text), a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard, and a separate per-worker assistant-chunk ring buffer (`ASSISTANT_BUFFER_LINE_CAP = 4096` lines, `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`, monotonic per-task indexes, exposed via `getAssistantTail(workerId, fromIndex?)` and `onAssistantChunk(listener)`) that powers the overlay's Console live-tail. Reuse resets the chunk buffer and rewinds `nextIndex` to 0. Nothing here is persisted.
 
 ## What gets persisted
 
