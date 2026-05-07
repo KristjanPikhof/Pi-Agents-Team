@@ -264,7 +264,7 @@ test("pruneTerminalWorkers removes only terminal workers and leaves live ones al
 	await teamManager.cancelWorker(doomed.worker.workerId);
 
 	assert.equal(teamManager.listWorkers().length, 2);
-	const removed = teamManager.pruneTerminalWorkers();
+	const removed = await teamManager.pruneTerminalWorkers();
 	assert.equal(removed.length, 1);
 	assert.equal(removed[0]?.workerId, doomed.worker.workerId);
 	const remaining = teamManager.listWorkers();
