@@ -58,7 +58,7 @@ Inside the `/team` overlay:
 | `g` / `G` | Top / bottom |
 | `s` | Steer the selected worker — opens an inline single-line input |
 | `m` | Send a message to the selected worker (auto-routes by status) |
-| `n` | New task — inline input; uses the selected worker's profile (or the first profile) and forwards `reuseWorkerId` when the selected worker is reusable |
+| `n` | New task — inline input; uses the selected worker's profile (or the first profile). Always delegates a fresh worker; reuse is orchestrator-only via `delegate_task.reuseWorkerId`. Refused in solo mode |
 | `c` | Close (idle / waiting_followup only) — disposes the RPC handle |
 | `x` | Cancel — aborts and shuts down a running worker |
 | `p` | Prune terminal workers |
