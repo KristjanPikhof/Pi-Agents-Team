@@ -428,7 +428,7 @@ export function createTeamDashboardOverlayComponent(
 	};
 	let statusMessage: string | undefined;
 	let statusExpires = 0;
-	let lastRenderMetrics: RenderMetrics = { layout: computeLayoutMode(tui.terminal.columns), listPageSize: 8, bodyPageSize: 10 };
+	let lastRenderMetrics: RenderMetrics = { layout: "stack", listPageSize: 8, bodyPageSize: 10 };
 
 	const requestRender = () => {
 		tui.requestRender?.();
