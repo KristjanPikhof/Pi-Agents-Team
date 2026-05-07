@@ -230,6 +230,7 @@ export interface LoadedTeamProjectConfig {
 	enabledSource: TeamEnabledSource;
 	diagnostics: ProjectConfigDiagnostic[];
 	delegationEnabled: boolean;
+	persistedRoutingMode?: "team" | "solo";
 }
 
 export interface DelegatedTaskInput {
