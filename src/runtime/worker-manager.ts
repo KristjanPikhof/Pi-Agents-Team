@@ -23,6 +23,8 @@ import type {
 	WorkerUsageStats,
 } from "../types";
 
+const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
+
 export interface LaunchWorkerOptions {
 	workerId: string;
 	profileName: string;
