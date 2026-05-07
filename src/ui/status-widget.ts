@@ -78,9 +78,17 @@ function buildUsageLine(state: PersistedTeamState): string | undefined {
 	}
 	if (turns === 0 && inputTokens === 0 && outputTokens === 0 && costUsd === 0) return undefined;
 	return truncateToWidth(
-		`Σ turns=${turns}  in=${formatTokens(inputTokens)}  out=${formatTokens(outputTokens)}  cost=$${costUsd.toFixed(4)}`,
+		`Σ turns=${turns} · in=${formatTokens(inputTokens)} · out=${formatTokens(outputTokens)} · $${costUsd.toFixed(4)}`,
 		HEADER_WIDTH,
 	);
+}
+
+function buildStatusRow(state: PersistedTeamState): string {
+	const counts = buildCountsLine(state);
+	const usage = buildUsageLine(state);
+	if (!usage) return counts;
+	const combined = `${counts} · ${usage}`;
+	return visibleWidth(combined) <= HEADER_WIDTH ? combined : counts;
 }
 
 function buildCountsLine(state: PersistedTeamState): string {
