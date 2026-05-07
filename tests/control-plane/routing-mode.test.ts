@@ -92,6 +92,23 @@ test("parseRoutingArgs accepts no args and --persist global|local", () => {
 	assert.match(garbage.error ?? "", /Unknown argument/);
 });
 
+test("loadActiveTeamConfig surfaces persistedRoutingMode from the project file", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-routing-load-"));
+	try {
+		const configDir = join(root, TEAM_PROJECT_CONFIG_DIR);
+		mkdirSync(configDir, { recursive: true });
+		writeFileSync(
+			join(configDir, TEAM_PROJECT_CONFIG_FILE),
+			JSON.stringify({ schemaVersion: 4, routingMode: "solo" }, null, 2),
+		);
+		const loaded = loadActiveTeamConfig({ cwd: root });
+		assert.equal(loaded.persistedRoutingMode, "solo");
+		assert.equal(loaded.enabled, true);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("persistRoutingMode writes routingMode atomically to a fresh project file", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-routing-"));
 	try {
