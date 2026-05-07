@@ -83,6 +83,12 @@ function runSetRoutingMode(
 	ctx: ExtensionContext,
 	deps: RoutingCommandDependencies,
 ): void {
+	try {
+		deps.ensureNotReloading();
+	} catch (error) {
+		ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+		return;
+	}
 	const parsed = parseRoutingArgs(args);
 	if (parsed.error) {
 		ctx.ui.notify(parsed.error, "warning");
