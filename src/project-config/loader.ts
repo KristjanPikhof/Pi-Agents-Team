@@ -709,13 +709,6 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		enabledSource = layer.scope;
 	}
 
-	let persistedRoutingMode: "team" | "solo" | undefined;
-	for (const layer of parsedLayers) {
-		if (layer.parsed.routingMode === "team" || layer.parsed.routingMode === "solo") {
-			persistedRoutingMode = layer.parsed.routingMode;
-		}
-	}
-
 	// Pick the winning layer based on FILE PRESENCE first, not validity. If a
 	// project file exists (valid, mismatched, or fatal-parse), project wins — a
 	// stale/broken project must NOT let global silently take over, because that
