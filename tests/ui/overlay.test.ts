@@ -471,15 +471,18 @@ test("visibleWidth is enforced across all tabs and worst-case content", () => {
 	}
 });
 
-test("split layout renders roster beside inspector at wide widths", () => {
+test("framed panel renders top/bottom borders and side bars at any width", () => {
 	const state = makeState(4);
-	const { component } = makeComponent({ state, rows: 32, cols: 140, initialWorkerId: "w1" });
+	const { component } = makeComponent({ state, rows: 32, cols: 60, initialWorkerId: "w1" });
 	component.handleInput("2");
-	const lines = renderPlain(component, 140);
-	assert.ok(lines.some((line) => line.includes("│")), "expected separator in split layout");
+	const lines = renderPlain(component, 60);
+	assert.ok(lines[0].startsWith("╭") && lines[0].endsWith("╮"), `expected top frame, got: ${lines[0]}`);
+	assert.ok(lines[lines.length - 1].startsWith("╰") && lines[lines.length - 1].endsWith("╯"), `expected bottom frame, got: ${lines[lines.length - 1]}`);
+	assert.ok(lines.slice(1, -1).every((line) => line.startsWith("│") && line.endsWith("│")), "every body row must have side bars");
+	assert.ok(lines.some((line) => line.includes("Pi Agents Team")), "title in top frame");
 	assert.ok(lines.some((line) => line.includes("Final answer") || line.includes("Latest assistant text")));
 	for (const line of lines) {
-		assert.ok(visibleWidth(line) <= 140, `line exceeds width: ${visibleWidth(line)} ${line}`);
+		assert.ok(visibleWidth(line) <= 60, `line exceeds width: ${visibleWidth(line)} ${line}`);
 	}
 });
 
