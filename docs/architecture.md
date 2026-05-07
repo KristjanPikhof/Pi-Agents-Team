@@ -241,7 +241,7 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 - **Live ping on open** and on `r`. The overlay issues `teamManager.pingWorkers({ mode: "active" })` so token counts and streaming status are current.
 - **Direct focus.** `/team <worker-id>` opens the overlay already on the Inspect tab for that worker. Tab completion on the `/team` argument pulls live worker ids.
 - **Console live tail.** Console subscribes to `teamManager.onAssistantChunk` and reads `getAssistantTail(workerId)` on render. Auto-follows the tail; `PgUp` / `↑` pauses follow, `End` / `G` resumes; per-worker isolation is enforced by tying the visible chunks to `state.selectedWorkerId`.
-- **Reuse hint.** Idle / waiting_followup workers render `[reuse]` in the roster row and `[reusable]` in the Inspect header. The `n` modal forwards the selected worker's id as `reuseWorkerId` when applicable.
+- **Reuse hint.** Idle / waiting_followup workers render `[reuse]` in the roster row and `[reusable]` in the Inspect header. The `n` modal always delegates a fresh worker (never silently reuses the selected one); reuse is intentionally exposed only via `delegate_task.reuseWorkerId` from the orchestrator side.
 - **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload (task, summary, relays, usage, final answer, latest assistant text, console timeline) via pbcopy / clip.exe / wl-copy / xclip / xsel.
 
 ## Notifications
