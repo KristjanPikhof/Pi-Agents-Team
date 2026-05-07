@@ -426,6 +426,40 @@ test("assistant ring buffer keeps a single oversized chunk rather than self-evic
 	assert.equal(chunks[0].text.length, huge.length);
 });
 
+test("assistant ring buffer accepts a newline-heavy chunk without bypassing the byte cap", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-buffer-newlines",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-buffer-newlines",
+			title: "Newline chunk",
+			goal: "Verify chunk-cap semantics under newline-heavy delta",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+
+	await manager.promptWorker("worker-buffer-newlines", "go");
+	await waitForMicrotasks();
+	const newlineHeavy = "x\n".repeat(2000) + "tail";
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: newlineHeavy } });
+	await waitForMicrotasks();
+
+	const chunks = manager.getAssistantTail("worker-buffer-newlines");
+	const totalBytes = chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk.text, "utf8"), 0);
+	assert.ok(totalBytes <= 256 * 1024, `byte cap must hold even when one chunk has 2000 newlines, got ${totalBytes}`);
+	assert.ok(chunks.some((chunk) => chunk.text.includes("\n")), "chunk should preserve newlines as delivered");
+});
+
 test("assistant ring buffer caps line and byte budget", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
