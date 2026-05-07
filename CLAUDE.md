@@ -33,7 +33,7 @@ Commands are thin wrappers over `TeamManager`; never touch `WorkerManager` direc
 
 ## Operator + tool surface
 
-- 13 slash commands. See [`README.md`](README.md) and [`docs/operations.md`](docs/operations.md).
+- 14 slash commands (incl. `/agent-result`). See [`README.md`](README.md) and [`docs/operations.md`](docs/operations.md).
 - 7 orchestrator tools (unchanged): `delegate_task`, `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, `agent_cancel`.
 - Overlay surface (`/team`): top tabs `Workers / Inspect / Console / Cost` (`1`–`4`, `tab` cycle), persistent action bar `[s]teer [m]sg [n]ew [c]lose [x]cancel [p]rune [r]efresh [y]copy [q]uit`, inline single-line modal for `s` / `m` / `n`, live-tail Console wired to `getAssistantTail` + `onAssistantChunk`, header `solo` badge from `routingMode`, `[reuse]` tag on idle/waiting_followup roster rows.
 - Deliberately removed, do NOT re-add without discussion: `/team-status`, `/agents`, `/ping-agents`. The widget + `/team` cover them.
