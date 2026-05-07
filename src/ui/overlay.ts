@@ -689,7 +689,8 @@ export function createTeamDashboardOverlayComponent(
 				body = renderBody(width, bodyRows);
 			}
 
-			return enforceWidth([...header, "", ...body, "", ...footerLines], width);
+			const cap = Math.min(width, Math.max(1, tui.terminal.columns));
+			return enforceWidth([...header, "", ...body, "", ...footerLines], cap);
 		},
 		invalidate() {},
 		dispose() {
