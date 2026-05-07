@@ -63,8 +63,16 @@ export interface WorkerConsoleEvent {
 	text: string;
 }
 
+export interface AssistantChunk {
+	index: number;
+	ts: number;
+	text: string;
+}
+
 const CONSOLE_BUFFER_LIMIT = 500;
 const ASSISTANT_TEXT_BATCH_MS = 400;
+const ASSISTANT_BUFFER_LINE_CAP = 4096;
+const ASSISTANT_BUFFER_BYTE_CAP = 256 * 1024;
 
 export interface WorkerLaunchSnapshot {
 	cwd: string;
