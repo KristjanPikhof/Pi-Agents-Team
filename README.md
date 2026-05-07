@@ -57,7 +57,7 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 
 | Command | What it does |
 |---|---|
-| `/team` | Open the keyboard-first dashboard overlay. Wide terminals show a split queue + inspector view; narrow terminals stack them. `/team <worker-id>` jumps straight to that worker's inspector. Press `r` in the overlay to re-ping, `y` to copy, and use Overview / Deliverable / Console tabs for worker detail. |
+| `/team` | Open the keyboard-first dashboard overlay. Top tabs are **Workers / Inspect / Console / Cost**, jump with `1`–`4` (or `tab` / `shift+tab` to cycle). The persistent action bar dispatches `[s]teer [m]sg [n]ew [c]lose [x]cancel [p]rune [r]efresh [y]copy [q]uit` against the selected worker; `s`, `m`, and `n` open an inline single-line modal. Console streams the live worker assistant text from a bounded ring buffer (auto-follow at the tail, `PgUp` to pause, `End` to resume). `/team <worker-id>` jumps straight to that worker's Inspect tab. The header shows a `solo` badge when routing is off; idle workers carry a `[reuse]` tag so you can spot reusable sessions. |
 | `/team-copy <worker-id>` | Copy the worker's task, summary, final answer, and console timeline to the clipboard. |
 | `/team-prune` | Remove every terminal worker (idle/completed/aborted/error/exited) from the dashboard. |
 | `/team-cost` | Per-worker token usage plus a `Σ` aggregate row. Orchestrator usage stays in the Pi footer. |
