@@ -70,6 +70,7 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 | `/agent-steer <worker-id\|all> <msg>` | Send a message. Routes by status: `steer` if running, re-`prompt` if idle/waiting_followup (wakes the session). |
 | `/agent-followup <worker-id\|all> <msg>` | Queue onto the live stream if running; re-`prompt` if idle/waiting_followup. |
 | `/agent-cancel <worker-id\|all>` | Abort one worker, or every non-terminal worker. |
+| `/agent-close <worker-id\|all>` | Dispose the RPC session of an idle/waiting_followup worker (or every reusable worker) and mark it `exited`. Refuses running workers — use `/agent-cancel` for those. |
 
 ## How it works (in one paragraph)
 
