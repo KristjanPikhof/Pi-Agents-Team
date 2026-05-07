@@ -3,8 +3,13 @@ import assert from "node:assert/strict";
 import { visibleWidth } from "@mariozechner/pi-tui";
 import { createDefaultTeamState } from "../../src/config";
 import type { TeamManager } from "../../src/control-plane/team-manager";
-import { createTeamDashboardOverlayComponent, openTeamDashboardOverlay, TEAM_DASHBOARD_OVERLAY_OPTIONS } from "../../src/ui/overlay";
-import type { WorkerConsoleEvent } from "../../src/runtime/worker-manager";
+import {
+	buildTabBar,
+	createTeamDashboardOverlayComponent,
+	openTeamDashboardOverlay,
+	TEAM_DASHBOARD_OVERLAY_OPTIONS,
+} from "../../src/ui/overlay";
+import type { AssistantChunk, WorkerConsoleEvent } from "../../src/runtime/worker-manager";
 import type { PersistedTeamState, WorkerRuntimeState, WorkerStatus } from "../../src/types";
 
 function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string; status: WorkerStatus }): WorkerRuntimeState {
@@ -62,49 +67,105 @@ function makeState(workerCount = 2): PersistedTeamState {
 	return state;
 }
 
-function makeManager(
-	state: PersistedTeamState,
-	transcriptMap: Record<string, string> = {},
-	consoleMap: Record<string, WorkerConsoleEvent[]> = {},
-): TeamManager {
+interface FakeManagerOptions {
+	state: PersistedTeamState;
+	transcripts?: Record<string, string>;
+	consoles?: Record<string, WorkerConsoleEvent[]>;
+	chunks?: Record<string, AssistantChunk[]>;
+	routingMode?: "team" | "solo";
+	profiles?: string[];
+	calls?: FakeManagerCalls;
+}
+
+interface FakeManagerCalls {
+	pings: number;
+	messages: Array<{ workerId: string; message: string; delivery: string }>;
+	closes: string[];
+	cancels: string[];
+	prunes: number;
+	delegates: Array<{ profileName: string; goal: string; reuseWorkerId?: string }>;
+}
+
+function makeFakeManager(options: FakeManagerOptions): TeamManager {
+	const calls = options.calls ?? {
+		pings: 0,
+		messages: [],
+		closes: [],
+		cancels: [],
+		prunes: 0,
+		delegates: [],
+	};
+	options.calls = calls;
 	return {
-		snapshot: () => state,
-		pingWorkers: async () => undefined,
-		getWorkerTranscript: (workerId: string) => transcriptMap[workerId],
-		getWorkerConsole: (workerId: string) => consoleMap[workerId] ?? [],
+		snapshot: () => options.state,
+		pingWorkers: async () => {
+			calls.pings += 1;
+		},
+		getWorkerTranscript: (workerId: string) => options.transcripts?.[workerId],
+		getWorkerConsole: (workerId: string) => options.consoles?.[workerId] ?? [],
+		getAssistantTail: (workerId: string) => options.chunks?.[workerId] ?? [],
+		onAssistantChunk: () => () => {},
+		messageWorker: async (workerId: string, message: string, delivery = "auto") => {
+			calls.messages.push({ workerId, message, delivery });
+			return { worker: options.state.activeWorkers[workerId]!, delivery };
+		},
+		closeWorker: async (workerId: string) => {
+			calls.closes.push(workerId);
+			return { worker: options.state.activeWorkers[workerId]! };
+		},
+		cancelWorker: async (workerId: string) => {
+			calls.cancels.push(workerId);
+			return { worker: options.state.activeWorkers[workerId]! };
+		},
+		pruneTerminalWorkers: async () => {
+			calls.prunes += 1;
+			return [];
+		},
+		delegateTask: async (request: { profileName: string; goal: string; reuseWorkerId?: string }) => {
+			calls.delegates.push({ profileName: request.profileName, goal: request.goal, reuseWorkerId: request.reuseWorkerId });
+			return { worker: options.state.activeWorkers[Object.keys(options.state.activeWorkers)[0]]! };
+		},
+		routingMode: options.routingMode ?? "team",
+		config: { profiles: (options.profiles ?? ["reviewer", "fixer"]).map((name) => ({ name })) },
 	} as unknown as TeamManager;
 }
 
-function makeComponent(options: {
+function makeComponent(opts: {
 	state?: PersistedTeamState;
 	rows?: number;
 	cols?: number;
 	initialWorkerId?: string;
 	transcripts?: Record<string, string>;
 	consoles?: Record<string, WorkerConsoleEvent[]>;
+	chunks?: Record<string, AssistantChunk[]>;
+	routingMode?: "team" | "solo";
 }) {
-	const state = options.state ?? makeState();
+	const state = opts.state ?? makeState();
 	const tui = {
-		terminal: { rows: options.rows ?? 30, columns: options.cols ?? 100 },
+		terminal: { rows: opts.rows ?? 30, columns: opts.cols ?? 100 },
 		requestRender: () => {},
 	};
-	const manager = makeManager(state, options.transcripts, options.consoles);
-	const component = createTeamDashboardOverlayComponent(
-		tui,
-		manager,
+	const managerOpts: FakeManagerOptions = {
 		state,
-		() => {},
-		{ initialWorkerId: options.initialWorkerId },
-	);
-	return { component, state, tui, manager };
+		transcripts: opts.transcripts,
+		consoles: opts.consoles,
+		chunks: opts.chunks,
+		routingMode: opts.routingMode,
+	};
+	const manager = makeFakeManager(managerOpts);
+	const component = createTeamDashboardOverlayComponent(tui, manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1], state, () => {}, {
+		initialWorkerId: opts.initialWorkerId,
+	});
+	return { component, state, tui, manager, calls: managerOpts.calls! };
 }
 
 test("openTeamDashboardOverlay uses the widened responsive overlay options", async () => {
 	const state = makeState();
-	const manager = makeManager(state);
+	const manager = makeFakeManager({ state });
 	let capturedOptions: unknown;
 	const ctx = {
 		hasUI: true,
+		cwd: process.cwd(),
 		ui: {
 			custom: async (factory: (...args: unknown[]) => unknown, customOptions: unknown) => {
 				capturedOptions = customOptions;
@@ -119,191 +180,242 @@ test("openTeamDashboardOverlay uses the widened responsive overlay options", asy
 	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight, "90%");
 });
 
-test("detail viewport height grows with terminal rows instead of a fixed body budget", () => {
-	const transcripts = {
-		w1: Array.from({ length: 120 }, (_, index) => `line ${index + 1} ${"x".repeat(40)}`).join("\n"),
-	};
-	const small = makeComponent({ rows: 20, cols: 100, initialWorkerId: "w1", transcripts });
-	const large = makeComponent({ rows: 40, cols: 100, initialWorkerId: "w1", transcripts });
+test("buildTabBar marks the active tab and shows solo badge when routingMode=solo", () => {
+	const team = buildTabBar("workers", "team");
+	assert.match(team, /\[1 Workers\]/);
+	assert.match(team, /2 Inspect/);
+	assert.match(team, /3 Console/);
+	assert.match(team, /4 Cost/);
+	assert.doesNotMatch(team, /solo/);
 
-	const smallLines = small.component.render(100);
-	const largeLines = large.component.render(100);
-
-	assert.ok(largeLines.length > smallLines.length, `expected more visible lines for taller terminal (${smallLines.length} vs ${largeLines.length})`);
-	assert.ok(smallLines.some((line) => line.includes("Scroll ")));
-	assert.ok(largeLines.some((line) => line.includes("Scroll ")));
+	const solo = buildTabBar("inspect", "solo");
+	assert.match(solo, /\[2 Inspect\]/);
+	assert.match(solo, /solo/);
 });
 
-test("wide terminals render grouped queue sections beside the inspector", () => {
-	const state = makeState(4);
-	state.activeWorkers.w1!.pendingRelayQuestions = [{
-		relayId: "r1",
-		workerId: "w1",
-		taskId: "t1",
-		question: "Need operator reply",
-		assumption: "wait",
-		urgency: "high",
-		createdAt: Date.now(),
-	}];
-	state.activeWorkers.w2!.status = "error";
-	state.activeWorkers.w2!.error = "rpc failed";
-	state.activeWorkers.w3!.status = "running";
-	state.activeWorkers.w4!.status = "idle";
-	state.activeWorkers.w4!.finalAnswer = "headline: done";
+test("number keys 1-4 jump to each tab and tab/shift-tab cycle", () => {
+	const { component } = makeComponent({ rows: 28, cols: 100, initialWorkerId: "w1" });
 
+	let lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[2 Inspect]")), "expected initial inspect tab");
+
+	component.handleInput("3");
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[3 Console]")));
+
+	component.handleInput("4");
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[4 Cost]")));
+
+	component.handleInput("1");
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[1 Workers]")));
+
+	component.handleInput("\t");
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[2 Inspect]")));
+
+	component.handleInput("\x1b[Z");
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[1 Workers]")));
+});
+
+test("workers tab renders roster sections, reuse tag for idle workers, and supports up/down selection", () => {
+	const state = makeState(3);
+	state.activeWorkers.w2!.status = "idle";
+	state.activeWorkers.w2!.finalAnswer = "headline: done";
+	const { component } = makeComponent({ state, rows: 32, cols: 100 });
+
+	component.handleInput("1");
+	let lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[reuse]")), "expected reuse hint for idle worker");
+	assert.ok(lines.some((line) => line.includes("In progress")));
+	assert.ok(lines.some((line) => line.includes("Completed or idle")));
+
+	component.handleInput("j");
+	component.handleInput("j");
+	lines = component.render(100);
+	const selectedRow = lines.find((line) => line.includes("▶"));
+	assert.ok(selectedRow, "expected selection arrow on a row");
+});
+
+test("action bar dispatches steer/message/close/cancel/prune/refresh/copy through the manager", async () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.status = "running";
+	const { component, calls } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1" });
+
+	let lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[s]teer")));
+
+	component.handleInput("s");
+	for (const ch of "focus on transport") component.handleInput(ch);
+	component.handleInput("\r");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(calls.messages.length, 1);
+	assert.equal(calls.messages[0]!.delivery, "steer");
+	assert.equal(calls.messages[0]!.message, "focus on transport");
+
+	state.activeWorkers.w1!.status = "idle";
+	component.handleInput("m");
+	for (const ch of "next step") component.handleInput(ch);
+	component.handleInput("\r");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(calls.messages.length, 2);
+	assert.equal(calls.messages[1]!.delivery, "auto");
+
+	component.handleInput("c");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(calls.closes, ["w1"]);
+
+	state.activeWorkers.w1!.status = "running";
+	component.handleInput("x");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(calls.cancels, ["w1"]);
+
+	component.handleInput("p");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(calls.prunes, 1);
+
+	component.handleInput("r");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(calls.pings, 1);
+});
+
+test("inline modal captures keystrokes and esc cancels", () => {
+	const { component, calls } = makeComponent({ rows: 28, cols: 100, initialWorkerId: "w1" });
+	component.handleInput("s");
+	let lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("Steer w1:")), "expected steer modal label");
+
+	for (const ch of "abort") component.handleInput(ch);
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("Steer w1: abort")));
+
+	component.handleInput("\x1b");
+	lines = component.render(100);
+	assert.ok(!lines.some((line) => line.includes("Steer w1:")));
+	assert.equal(calls.messages.length, 0);
+});
+
+test("new task modal calls delegateTask with the selected worker's profile and reuseWorkerId", async () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.profileName = "reviewer";
+	state.activeWorkers.w1!.status = "idle";
+	const { component, calls } = makeComponent({ state, rows: 28, cols: 100, initialWorkerId: "w1" });
+
+	component.handleInput("n");
+	let lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("New task (reviewer):")));
+	for (const ch of "ship the doc") component.handleInput(ch);
+	component.handleInput("\r");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(calls.delegates.length, 1);
+	assert.equal(calls.delegates[0]!.profileName, "reviewer");
+	assert.equal(calls.delegates[0]!.goal, "ship the doc");
+	assert.equal(calls.delegates[0]!.reuseWorkerId, "w1");
+});
+
+test("console tab streams ring-buffer chunks with auto-follow toggle", () => {
+	const state = makeState(1);
+	const chunks: AssistantChunk[] = Array.from({ length: 8 }, (_, i) => ({ index: i, ts: Date.now() + i * 10, text: `chunk ${i}` }));
+	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+
+	component.handleInput("3");
+	let lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("chunks=8")));
+	assert.ok(lines.some((line) => line.includes("[follow]")));
+	assert.ok(lines.some((line) => line.includes("chunk 7")));
+
+	component.handleInput("\x1b[5~");
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[paused")));
+
+	component.handleInput("G");
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("[follow]")));
+});
+
+test("console isolates assistant text per worker", () => {
+	const state = makeState(2);
+	const { component } = makeComponent({
+		state,
+		rows: 30,
+		cols: 100,
+		initialWorkerId: "w1",
+		chunks: {
+			w1: [{ index: 0, ts: Date.now(), text: "alpha" }],
+			w2: [{ index: 0, ts: Date.now(), text: "beta" }],
+		},
+	});
+	component.handleInput("3");
+	let lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("alpha")));
+	assert.ok(!lines.some((line) => line.includes("beta")));
+
+	component.handleInput("1");
+	component.handleInput("j");
+	component.handleInput("3");
+	lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("beta")));
+	assert.ok(!lines.some((line) => line.includes("alpha")));
+});
+
+test("solo routing mode shows badge in tab bar", () => {
+	const { component } = makeComponent({ rows: 28, cols: 100, initialWorkerId: "w1", routingMode: "solo" });
+	const lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("solo")));
+});
+
+test("cost tab shows aggregate Σ and per-worker rows", () => {
+	const state = makeState(2);
+	state.activeWorkers.w1!.usage = { ...state.activeWorkers.w1!.usage, turns: 3, inputTokens: 100, outputTokens: 50, costUsd: 0.25 };
+	state.activeWorkers.w2!.usage = { ...state.activeWorkers.w2!.usage, turns: 1, inputTokens: 20, outputTokens: 5, costUsd: 0.05 };
+	const { component } = makeComponent({ state, rows: 28, cols: 100 });
+	component.handleInput("4");
+	const lines = component.render(100);
+	assert.ok(lines.some((line) => line.includes("Σ")));
+	assert.ok(lines.some((line) => line.includes("$0.3000")));
+	assert.ok(lines.some((line) => line.includes("w1") && line.includes("reviewer")));
+});
+
+test("visibleWidth is enforced across all tabs and worst-case content", () => {
+	const state = makeState(4);
+	state.activeWorkers.w1!.lastSummary!.headline = "x".repeat(300);
+	state.activeWorkers.w1!.currentTask!.title = "🚀".repeat(80);
+	const widths = [60, 80, 100, 140];
+	for (const cols of widths) {
+		const { component } = makeComponent({ state, rows: 30, cols });
+		for (const tabKey of ["1", "2", "3", "4"]) {
+			component.handleInput(tabKey);
+			const lines = component.render(cols);
+			for (const line of lines) {
+				assert.ok(visibleWidth(line) <= cols, `tab ${tabKey} cols=${cols} line ${visibleWidth(line)}: ${line}`);
+			}
+		}
+	}
+});
+
+test("split layout renders roster beside inspector at wide widths", () => {
+	const state = makeState(4);
 	const { component } = makeComponent({ state, rows: 32, cols: 140, initialWorkerId: "w1" });
+	component.handleInput("2");
 	const lines = component.render(140);
-	assert.ok(lines.some((line) => line.includes("Needs reply (1)")));
-	assert.ok(lines.some((line) => line.includes("Inspector") && line.includes("│")));
-	assert.ok(lines.some((line) => line.includes("Needs recovery (1)")));
-	assert.ok(lines.some((line) => line.includes("In progress (1)")));
-	assert.ok(lines.some((line) => line.includes("Completed or idle (1)")));
+	assert.ok(lines.some((line) => line.includes("│")), "expected separator in split layout");
+	assert.ok(lines.some((line) => line.includes("Final answer") || line.includes("Latest assistant text")));
 	for (const line of lines) {
 		assert.ok(visibleWidth(line) <= 140, `line exceeds width: ${visibleWidth(line)} ${line}`);
 	}
 });
 
-test("overview front-loads status task needs-operator summary and usage, with deliverable before transcript", () => {
+test("q quits the overlay", () => {
 	const state = makeState(1);
-	state.activeWorkers.w1!.pendingRelayQuestions = [{
-		relayId: "relay-1",
-		workerId: "w1",
-		taskId: "t1",
-		question: "Ship now or wait for ops?",
-		assumption: "wait for ops",
-		urgency: "medium",
-		createdAt: Date.now(),
-	}];
-	state.activeWorkers.w1!.usage.turns = 3;
-	state.activeWorkers.w1!.usage.inputTokens = 120;
-	state.activeWorkers.w1!.usage.outputTokens = 45;
-	state.activeWorkers.w1!.usage.costUsd = 0.12;
-	state.activeWorkers.w1!.lastSummary!.changedFiles = ["src/ui/overlay.ts"];
-	state.activeWorkers.w1!.lastSummary!.risks = ["manual smoke still pending"];
-	state.activeWorkers.w1!.lastSummary!.nextRecommendation = "verify in TUI";
-	state.activeWorkers.w1!.finalAnswer = "headline: shipped\nchanged_files:\n- src/ui/overlay.ts";
-	const transcript = "assistant transcript body";
-	const consoles = {
-		w1: [{ ts: 1_700_000_000_000, kind: "status", text: "running" }],
-	};
-	const { component } = makeComponent({ state, rows: 34, cols: 100, initialWorkerId: "w1", transcripts: { w1: transcript }, consoles });
-
-	let lines = component.render(100);
-	assert.ok(lines.some((line) => line.includes("[Overview] Deliverable Console")));
-	assert.ok(lines.some((line) => line.includes("Status")));
-	assert.ok(lines.some((line) => line.includes("Needs operator")));
-	assert.ok(lines.some((line) => line.includes("Latest summary")));
-	assert.ok(lines.some((line) => line.includes("Usage")) || lines.some((line) => line.includes("turns=3 input=120 output=45 cost=$0.1200")));
-	assert.ok(!lines.some((line) => line.includes("assistant transcript body")));
-
-	component.handleInput("d");
-	lines = component.render(100);
-	assert.ok(lines.some((line) => line.includes("Overview [Deliverable] Console")));
-	const deliverableIndex = lines.findIndex((line) => line.includes("Final answer"));
-	const transcriptIndex = lines.findIndex((line) => line.includes("Latest assistant text"));
-	assert.ok(deliverableIndex >= 0);
-	assert.ok(transcriptIndex > deliverableIndex);
-	assert.ok(lines.some((line) => line.includes("headline: shipped")));
-
-	component.handleInput("c");
-	lines = component.render(100);
-	assert.ok(lines.some((line) => line.includes("Overview Deliverable [Console]")));
-	assert.ok(lines.some((line) => line.includes("[status] running")));
-});
-
-test("selection survives direct open, refresh, and escape back to queue", async () => {
-	const state = makeState(3);
-	let pinged = 0;
-	const manager = {
-		snapshot: () => state,
-		pingWorkers: async () => {
-			pinged += 1;
-			state.activeWorkers.w2!.status = "idle";
-		},
-		getWorkerTranscript: () => "summary body",
-		getWorkerConsole: () => [],
-	} as unknown as TeamManager;
-	const component = createTeamDashboardOverlayComponent(
-		{ terminal: { rows: 28, columns: 100 }, requestRender: () => {} },
-		manager,
-		state,
-		() => {},
-		{ initialWorkerId: "w2" },
-	);
-
-	let lines = component.render(100);
-	assert.ok(lines.some((line) => line.includes("selected=w2")));
-	assert.ok(lines.some((line) => line.includes("Inspector · w2")));
-
-	component.handleInput("r");
-	await new Promise((resolve) => setImmediate(resolve));
-	lines = component.render(100);
-	assert.equal(pinged, 1);
-	assert.ok(lines.some((line) => line.includes("selected=w2")));
-	assert.ok(lines.some((line) => line.includes("fixer:idle")) || lines.some((line) => line.includes("- Status: idle")));
-	const helpIndex = lines.findIndex((line) => line.includes("tab cycle tabs") || line.includes("enter inspect"));
-	const statusIndex = lines.findIndex((line) => line.startsWith("» Refreshed "));
-	const bodyIndex = lines.findIndex((line) => line.includes("Queue · 3 tracked") || line.includes("Inspector · w2"));
-	assert.ok(helpIndex >= 0, "expected help row to stay visible in header");
-	assert.ok(statusIndex >= 0, "expected refresh status row to stay visible in header");
-	assert.ok(bodyIndex > statusIndex, `expected body after header (${bodyIndex} <= ${statusIndex})`);
-
-	component.handleInput("\x1b");
-	lines = component.render(100);
-	assert.ok(lines.some((line) => line.includes("Queue · 3 tracked")));
-	assert.ok(lines.some((line) => line.includes("Focus: list")));
-});
-
-test("page keys use visible page size and tab or shift-tab cycle inspector tabs", () => {
-	const state = makeState(1);
-	state.activeWorkers.w1!.pendingRelayQuestions = [{
-		relayId: "r1",
-		workerId: "w1",
-		askId: "t1",
-		question: "Need reply",
-		assumption: "wait",
-		urgency: "medium",
-		createdAt: Date.now(),
-	}];
-	const { component } = makeComponent({ rows: 24, cols: 100, initialWorkerId: "w1" });
-
-	let lines = component.render(100);
-	assert.ok(lines.some((line) => line.includes("[Overview] Deliverable Console")));
-
-	component.handleInput("\t");
-	lines = component.render(100);
-	assert.ok(lines.some((line) => line.includes("Overview [Deliverable] Console")));
-
-	component.handleInput("\x1b[Z");
-	lines = component.render(100);
-	assert.ok(lines.some((line) => line.includes("[Overview] Deliverable Console")));
-
-	const before = lines.find((line) => line.startsWith("Scroll "));
-	assert.ok(before);
-	component.handleInput("\x1b[6~");
-	lines = component.render(100);
-	const after = lines.find((line) => line.startsWith("Scroll "));
-	assert.ok(after);
-	assert.notEqual(after, before, "expected page down to move by the rendered page size");
-});
-
-test("narrow layouts keep help visible and enforce width while switching between queue and inspector", () => {
-	const state = makeState(2);
-	state.activeWorkers.w1!.lastSummary!.headline = "x".repeat(200);
-	const { component } = makeComponent({ state, rows: 22, cols: 72 });
-
-	let lines = component.render(72);
-	assert.ok(lines.some((line) => line.includes("enter inspect")), "expected narrow list help row");
-	assert.ok(lines.some((line) => line.includes("Queue · 2 tracked")));
-	for (const line of lines) {
-		assert.ok(visibleWidth(line) <= 72, `line exceeds width: ${visibleWidth(line)} ${line}`);
-	}
-
-	component.handleInput("\r");
-	lines = component.render(72);
-	assert.ok(lines.some((line) => line.includes("g/G top/bottom")), "expected inspector help row after opening detail");
-	assert.ok(lines.some((line) => line.includes("Inspector · w1")));
-	for (const line of lines) {
-		assert.ok(visibleWidth(line) <= 72, `line exceeds width: ${visibleWidth(line)} ${line}`);
-	}
+	const tui = { terminal: { rows: 28, columns: 100 }, requestRender: () => {} };
+	const manager = makeFakeManager({ state });
+	let closed = 0;
+	const component = createTeamDashboardOverlayComponent(tui, manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1], state, () => {
+		closed += 1;
+	});
+	component.render(100);
+	component.handleInput("q");
+	assert.equal(closed, 1);
 });
