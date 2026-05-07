@@ -109,6 +109,26 @@ test("loadActiveTeamConfig surfaces persistedRoutingMode from the project file",
 	}
 });
 
+test("loadActiveTeamConfig does not leak global routingMode when the project file is schema-mismatched", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-routing-mismatch-"));
+	try {
+		const configDir = join(root, TEAM_PROJECT_CONFIG_DIR);
+		mkdirSync(configDir, { recursive: true });
+		// Project file present but uses an unsupported schemaVersion. By the
+		// "project wins by presence, never downshift" rule the global layer's
+		// routingMode must NOT bleed into this repo.
+		writeFileSync(
+			join(configDir, TEAM_PROJECT_CONFIG_FILE),
+			JSON.stringify({ schemaVersion: 1 }, null, 2),
+		);
+		const loaded = loadActiveTeamConfig({ cwd: root });
+		assert.equal(loaded.status, "builtin");
+		assert.equal(loaded.persistedRoutingMode, undefined);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("persistRoutingMode writes routingMode atomically to a fresh project file", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-routing-"));
 	try {
