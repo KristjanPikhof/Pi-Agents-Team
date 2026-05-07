@@ -78,9 +78,19 @@ function buildUsageLine(state: PersistedTeamState): string | undefined {
 	}
 	if (turns === 0 && inputTokens === 0 && outputTokens === 0 && costUsd === 0) return undefined;
 	return truncateToWidth(
-		`Σ turns=${turns}  in=${formatTokens(inputTokens)}  out=${formatTokens(outputTokens)}  cost=$${costUsd.toFixed(4)}`,
+		`Σ turns=${turns} · in=${formatTokens(inputTokens)} · out=${formatTokens(outputTokens)} · $${costUsd.toFixed(4)}`,
 		HEADER_WIDTH,
 	);
+}
+
+function buildStatusRow(state: PersistedTeamState): { row: string; includesUsage: boolean } {
+	const counts = buildCountsLine(state);
+	const usage = buildUsageLine(state);
+	if (!usage) return { row: counts, includesUsage: false };
+	const combined = `${counts} · ${usage}`;
+	return visibleWidth(combined) <= HEADER_WIDTH
+		? { row: combined, includesUsage: true }
+		: { row: counts, includesUsage: false };
 }
 
 function buildCountsLine(state: PersistedTeamState): string {
@@ -160,15 +170,21 @@ function buildWorkerLines(workers: WorkerRuntimeState[], frame: number): { lines
 export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetRenderOptions = {}): string[] {
 	const frame = options.frame ?? 0;
 	const routingMode = options.routingMode ?? "team";
+	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	if (routingMode === "solo") {
+		// In solo mode the status line already says "Pi Agents Team — solo".
+		// Only surface the widget when there is actual worker state worth showing.
+		if (workers.length === 0) return [];
 		return [truncateToWidth("Pi Agents Team — solo", HEADER_WIDTH)];
 	}
-	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	if (workers.length === 0) return [];
 
-	const lines = ["Pi Agents Team", buildCountsLine(state)];
-	const usageLine = buildUsageLine(state);
-	if (usageLine) lines.push(usageLine);
+	const status = buildStatusRow(state);
+	const lines = ["Pi Agents Team", status.row];
+	if (!status.includesUsage) {
+		const usageLine = buildUsageLine(state);
+		if (usageLine) lines.push(usageLine);
+	}
 	const { lines: workerLines, hiddenCount } = buildWorkerLines(workers, frame);
 	lines.push(...workerLines);
 	if (hiddenCount > 0) {

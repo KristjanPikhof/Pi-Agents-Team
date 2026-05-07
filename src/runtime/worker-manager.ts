@@ -63,8 +63,20 @@ export interface WorkerConsoleEvent {
 	text: string;
 }
 
+export interface AssistantChunk {
+	index: number;
+	ts: number;
+	text: string;
+}
+
 const CONSOLE_BUFFER_LIMIT = 500;
 const ASSISTANT_TEXT_BATCH_MS = 400;
+// Cap is on the number of buffered text-delta chunks, NOT rendered lines —
+// a single chunk may contain newlines. Memory is bounded by the byte cap;
+// the chunk cap exists to keep the array from growing unboundedly when each
+// chunk is small. Either limit shifts the oldest chunk out.
+const ASSISTANT_BUFFER_CHUNK_CAP = 4096;
+const ASSISTANT_BUFFER_BYTE_CAP = 256 * 1024;
 
 export interface WorkerLaunchSnapshot {
 	cwd: string;
@@ -84,6 +96,9 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	unsubscribers: Array<() => void>;
 	closing: boolean;
 	launchSnapshot: WorkerLaunchSnapshot;
+	assistantChunks: AssistantChunk[];
+	assistantChunkBytes: number;
+	assistantNextIndex: number;
 }
 
 function emptyUsage(): WorkerUsageStats {
@@ -221,6 +236,9 @@ export class WorkerManager {
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
 			closing: false,
+			assistantChunks: [],
+			assistantChunkBytes: 0,
+			assistantNextIndex: 0,
 			launchSnapshot: {
 				cwd: options.cwd,
 				model: options.model,
@@ -300,6 +318,9 @@ export class WorkerManager {
 		record.textBuffer = "";
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
+		record.assistantChunks = [];
+		record.assistantChunkBytes = 0;
+		record.assistantNextIndex = 0;
 		await this.promptWorker(workerId, message);
 	}
 
@@ -389,6 +410,38 @@ export class WorkerManager {
 		return record.console.slice();
 	}
 
+	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[] {
+		const record = this.workers.get(workerId);
+		if (!record) return [];
+		if (fromIndex === undefined) return record.assistantChunks.slice();
+		return record.assistantChunks.filter((chunk) => chunk.index >= fromIndex);
+	}
+
+	onAssistantChunk(listener: (workerId: string, chunk: AssistantChunk) => void): () => void {
+		this.emitter.on("assistant_chunk", listener);
+		return () => this.emitter.off("assistant_chunk", listener);
+	}
+
+	private appendAssistantChunk(record: WorkerRuntimeRecord, ts: number, text: string): void {
+		if (!text) return;
+		const chunk: AssistantChunk = { index: record.assistantNextIndex, ts, text };
+		record.assistantNextIndex += 1;
+		record.assistantChunks.push(chunk);
+		record.assistantChunkBytes += Buffer.byteLength(text, "utf8");
+		// Keep at least one chunk even if it overshoots the byte cap; otherwise a
+		// single oversized delta would self-evict and leave the live tail empty.
+		while (
+			record.assistantChunks.length > 1
+			&& (record.assistantChunks.length > ASSISTANT_BUFFER_CHUNK_CAP
+				|| record.assistantChunkBytes > ASSISTANT_BUFFER_BYTE_CAP)
+		) {
+			const dropped = record.assistantChunks.shift();
+			if (!dropped) break;
+			record.assistantChunkBytes -= Buffer.byteLength(dropped.text, "utf8");
+		}
+		this.emitter.emit("assistant_chunk", record.workerId, chunk);
+	}
+
 	private appendConsole(record: WorkerRuntimeRecord, event: WorkerConsoleEvent): void {
 		record.console.push(event);
 		if (record.console.length > CONSOLE_BUFFER_LIMIT) {
@@ -443,6 +496,7 @@ export class WorkerManager {
 				if (event.timestamp - record.pendingTextFlushAt >= ASSISTANT_TEXT_BATCH_MS || record.pendingTextDelta.length > 320) {
 					this.flushPendingText(record);
 				}
+				this.appendAssistantChunk(record, event.timestamp, event.delta);
 				break;
 			case "worker_message": {
 				this.flushPendingText(record);

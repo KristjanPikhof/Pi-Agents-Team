@@ -343,6 +343,161 @@ test("closeWorker rejects running workers", async () => {
 	);
 });
 
+test("assistant ring buffer records text deltas, emits chunk events, and respects from-index", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-buffer-1",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-buffer-1",
+			title: "Buffer test",
+			goal: "Verify ring buffer",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+
+	const observed: Array<{ workerId: string; index: number; text: string }> = [];
+	const off = manager.onAssistantChunk((workerId, chunk) => {
+		observed.push({ workerId, index: chunk.index, text: chunk.text });
+	});
+
+	await manager.promptWorker("worker-buffer-1", "first");
+	await waitForMicrotasks();
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "alpha " } });
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "beta " } });
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "gamma" } });
+	await waitForMicrotasks();
+	off();
+
+	const all = manager.getAssistantTail("worker-buffer-1");
+	assert.ok(all.length >= 4);
+	const texts = all.map((chunk) => chunk.text).join("");
+	assert.match(texts, /alpha beta gamma/);
+	for (let i = 1; i < all.length; i += 1) {
+		assert.equal(all[i].index, all[i - 1].index + 1, "expected monotonic indexes");
+	}
+
+	const tail = manager.getAssistantTail("worker-buffer-1", all[all.length - 2].index);
+	assert.equal(tail.length, 2);
+	assert.equal(tail[0].index, all[all.length - 2].index);
+	assert.ok(observed.length >= 4);
+	assert.equal(observed[0].workerId, "worker-buffer-1");
+});
+
+test("assistant ring buffer keeps a single oversized chunk rather than self-evicting", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-buffer-big",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-buffer-big",
+			title: "Oversized chunk",
+			goal: "Verify single-chunk preservation",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+
+	await manager.promptWorker("worker-buffer-big", "go");
+	await waitForMicrotasks();
+	const huge = "x".repeat(300 * 1024);
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: huge } });
+	await waitForMicrotasks();
+
+	const chunks = manager.getAssistantTail("worker-buffer-big");
+	assert.equal(chunks.length, 1, "oversized single chunk must be preserved");
+	assert.equal(chunks[0].text.length, huge.length);
+});
+
+test("assistant ring buffer accepts a newline-heavy chunk without bypassing the byte cap", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-buffer-newlines",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-buffer-newlines",
+			title: "Newline chunk",
+			goal: "Verify chunk-cap semantics under newline-heavy delta",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+
+	await manager.promptWorker("worker-buffer-newlines", "go");
+	await waitForMicrotasks();
+	const newlineHeavy = "x\n".repeat(2000) + "tail";
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: newlineHeavy } });
+	await waitForMicrotasks();
+
+	const chunks = manager.getAssistantTail("worker-buffer-newlines");
+	const totalBytes = chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk.text, "utf8"), 0);
+	assert.ok(totalBytes <= 256 * 1024, `byte cap must hold even when one chunk has 2000 newlines, got ${totalBytes}`);
+	assert.ok(chunks.some((chunk) => chunk.text.includes("\n")), "chunk should preserve newlines as delivered");
+});
+
+test("assistant ring buffer caps line and byte budget", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-buffer-cap",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-buffer-cap",
+			title: "Cap test",
+			goal: "Verify cap",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+
+	await manager.promptWorker("worker-buffer-cap", "go");
+	await waitForMicrotasks();
+	const big = "x".repeat(1024);
+	for (let i = 0; i < 300; i += 1) {
+		transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: big } });
+	}
+	await waitForMicrotasks();
+
+	const chunks = manager.getAssistantTail("worker-buffer-cap");
+	const totalBytes = chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk.text, "utf8"), 0);
+	assert.ok(totalBytes <= 256 * 1024, `expected byte cap respected, got ${totalBytes}`);
+	assert.ok(chunks.length <= 4096, `expected chunk cap respected, got ${chunks.length}`);
+	const last = chunks[chunks.length - 1];
+	assert.ok(last.index >= 299, `expected monotonic indexes preserved across cap, last=${last.index}`);
+});
+
 test("applyNormalizedEvent captures <final_answer> contents on message_end", async () => {
 	const finalAnswerBody = "headline: guard regression verified\nfiles:\n- src/runtime/worker-manager.ts";
 	const transport = new MockWorkerTransport({

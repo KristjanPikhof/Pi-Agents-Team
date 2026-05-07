@@ -46,7 +46,7 @@ Package entrypoint (extensions/index.ts)
   └─ Operator UI
       ├─ Footer status          (buildTeamStatusLine)
       ├─ Widget                 (buildTeamWidgetLines)
-      ├─ Dashboard overlay      (queue + inspector shell with overview/deliverable/console tabs)
+      ├─ Dashboard overlay      (Workers/Inspect/Console/Cost tab bar with action bar + inline modal)
       ├─ Terminal-status toasts (debounced batch per wake)
       └─ Slash commands         (/team, /team-copy, /team-prune, /team-cost, /agent-*)
 ```
@@ -174,7 +174,7 @@ Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) i
 - supervision: `pendingRelayQuestions`
 - accounting: `usage` (turns, input/output tokens, cache, costUsd, contextTokens)
 
-`WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager` (`record.textBuffer`) and a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard. They are never persisted.
+`WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager`: `record.textBuffer` (raw concatenated assistant text), a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard, and a separate per-worker assistant-chunk ring buffer (`ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks — *not* rendered lines, since one delta may contain `\n`s — `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`, monotonic per-task indexes, exposed via `getAssistantTail(workerId, fromIndex?)` and `onAssistantChunk(listener)`) that powers the overlay's Console live-tail. Memory is bounded by the byte cap; the chunk cap defends against many tiny deltas. Reuse resets the chunk buffer and rewinds `nextIndex` to 0. Nothing here is persisted.
 
 ## What gets persisted
 
@@ -195,7 +195,7 @@ Persisted session state does **not** include:
 
 ## Routing mode
 
-`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line. `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
+`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line when workers are tracked (or hides the widget entirely when none are — the status line still carries the `solo` badge). `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
 
 The initial mode is derived once per `session_start` from the loaded config:
 
@@ -235,11 +235,13 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 
 `openTeamDashboardOverlay` (`src/ui/overlay.ts`):
 
-- **Responsive shell.** Wide terminals render queue and inspector side by side; narrower terminals stack them while keeping the same keyboard model.
-- **Sticky help + status.** The keybinding help line is rendered immediately under the tab row, not at the bottom, and the transient `» …` status line also stays above the scrolling body. Terminals that clip the overlay height can't hide either line.
+- **Top tab bar.** `Workers / Inspect / Console / Cost` with `1`–`4` hotkeys and `tab` / `shift+tab` cycling. The bar appends a `solo` badge when `teamManager.routingMode === "solo"`.
+- **Persistent action bar.** Single-line footer: `[s]teer [m]sg [n]ew [c]lose [x]cancel [p]rune [r]efresh [y]copy [q]uit`. Each key dispatches the matching `TeamManager` call against the selected worker. `s`, `m`, and `n` open an inline single-line modal (label + buffer + cursor) above the action bar; `enter` submits, `esc` cancels.
+- **Right-side stack panel.** The overlay is a single right-anchored panel. `Workers`, `Inspect`, `Console`, and `Cost` are selected through the top tab bar; Inspect and Console do not render a separate roster beside the body.
 - **Live ping on open** and on `r`. The overlay issues `teamManager.pingWorkers({ mode: "active" })` so token counts and streaming status are current.
-- **Direct focus.** `/team <worker-id>` opens the overlay already on that worker's inspector, with Overview selected by default. Tab completion on the `/team` argument pulls live worker ids.
-- **Detail tabs.** Overview front-loads status/task/usage/relay context, Deliverable starts with the worker's `<final_answer>` block and supporting artifacts, and Console shows the bounded event timeline.
+- **Direct focus.** `/team <worker-id>` opens the overlay already on the Inspect tab for that worker. Tab completion on the `/team` argument pulls live worker ids.
+- **Console live tail.** Console subscribes to `teamManager.onAssistantChunk` and reads `getAssistantTail(workerId)` on render. Auto-follows the tail; `PgUp` / `↑` pauses follow, `End` / `G` resumes; per-worker isolation is enforced by tying the visible chunks to `state.selectedWorkerId`.
+- **Reuse hint.** Idle / waiting_followup workers render `[reuse]` in the roster row and `[reusable]` in the Inspect header. The `n` modal always delegates a fresh worker (never silently reuses the selected one); reuse is intentionally exposed only via `delegate_task.reuseWorkerId` from the orchestrator side.
 - **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload (task, summary, relays, usage, final answer, latest assistant text, console timeline) via pbcopy / clip.exe / wl-copy / xclip / xsel.
 
 ## Notifications

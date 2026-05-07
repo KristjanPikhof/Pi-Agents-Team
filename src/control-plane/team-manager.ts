@@ -4,7 +4,7 @@ import { TaskRegistry } from "./task-registry";
 import { resolveWorkerMessageDelivery, type WorkerMessageDeliveryResolved } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
-import { WorkerManager, type WorkerConsoleEvent } from "../runtime/worker-manager";
+import { WorkerManager, type AssistantChunk, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
 import type {
 	DelegatedTaskInput,
@@ -275,6 +275,14 @@ export class TeamManager {
 
 	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined {
 		return this.workerManager.getWorkerConsole(workerId);
+	}
+
+	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[] {
+		return this.workerManager.getAssistantTail(workerId, fromIndex);
+	}
+
+	onAssistantChunk(listener: (workerId: string, chunk: AssistantChunk) => void): () => void {
+		return this.workerManager.onAssistantChunk(listener);
 	}
 
 	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult> {
