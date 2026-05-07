@@ -424,9 +424,12 @@ export class WorkerManager {
 		record.assistantNextIndex += 1;
 		record.assistantChunks.push(chunk);
 		record.assistantChunkBytes += Buffer.byteLength(text, "utf8");
+		// Keep at least one chunk even if it overshoots the byte cap; otherwise a
+		// single oversized delta would self-evict and leave the live tail empty.
 		while (
-			record.assistantChunks.length > ASSISTANT_BUFFER_LINE_CAP
-			|| record.assistantChunkBytes > ASSISTANT_BUFFER_BYTE_CAP
+			record.assistantChunks.length > 1
+			&& (record.assistantChunks.length > ASSISTANT_BUFFER_LINE_CAP
+				|| record.assistantChunkBytes > ASSISTANT_BUFFER_BYTE_CAP)
 		) {
 			const dropped = record.assistantChunks.shift();
 			if (!dropped) break;
