@@ -297,7 +297,7 @@ test("inline modal captures keystrokes and esc cancels", () => {
 	assert.equal(calls.messages.length, 0);
 });
 
-test("new task modal calls delegateTask with the selected worker's profile and reuseWorkerId", async () => {
+test("new task modal calls delegateTask fresh (never reuses the selected worker)", async () => {
 	const state = makeState(1);
 	state.activeWorkers.w1!.profileName = "reviewer";
 	state.activeWorkers.w1!.status = "idle";
@@ -312,7 +312,31 @@ test("new task modal calls delegateTask with the selected worker's profile and r
 	assert.equal(calls.delegates.length, 1);
 	assert.equal(calls.delegates[0]!.profileName, "reviewer");
 	assert.equal(calls.delegates[0]!.goal, "ship the doc");
-	assert.equal(calls.delegates[0]!.reuseWorkerId, "w1");
+	assert.equal(calls.delegates[0]!.reuseWorkerId, undefined, "expected fresh delegate, not silent reuse");
+});
+
+test("dispose unsubscribes the assistant-chunk listener (and is idempotent)", () => {
+	const state = makeState(1);
+	let subscribed = 0;
+	let unsubscribed = 0;
+	const tui = { terminal: { rows: 28, columns: 100 }, requestRender: () => {} };
+	const manager = makeFakeManager({ state });
+	(manager as unknown as { onAssistantChunk: () => () => void }).onAssistantChunk = () => {
+		subscribed += 1;
+		return () => {
+			unsubscribed += 1;
+		};
+	};
+	const component = createTeamDashboardOverlayComponent(tui, manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1], state, () => {});
+	component.render(100);
+	assert.equal(subscribed, 1);
+	assert.equal(unsubscribed, 0);
+	component.dispose();
+	assert.equal(unsubscribed, 1);
+	component.dispose();
+	assert.equal(unsubscribed, 1, "expected dispose to be idempotent");
+	component.handleInput("q");
+	assert.equal(unsubscribed, 1, "q after explicit dispose must not double-unsubscribe");
 });
 
 test("console tab streams ring-buffer chunks with auto-follow toggle", () => {
