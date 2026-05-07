@@ -61,7 +61,10 @@ export interface DelegateTaskRequest {
 	tools?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
+	reuseWorkerId?: string;
 }
+
+const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
 
 export interface AgentResult {
 	worker: WorkerRuntimeState;
