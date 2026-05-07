@@ -86,6 +86,8 @@ Full runtime topology and data flow: [`docs/architecture.md`](docs/architecture.
 
 **Cost totals: agents only.** `aggregateUsage()` and the widget `Σ` line sum tracked workers. Orchestrator cost stays in Pi's footer. Don't double-surface.
 
+**Routing mode is in-memory + optionally persisted.** `TeamManager.routingMode` (`"team"` or `"solo"`) gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single line. `setRoutingMode` emits `state_change`. The other `agent_*` tools stay callable in solo so live workers remain reachable. Initial mode comes from `deriveInitialRoutingMode`: `solo` when delegation is off, otherwise `LoadedTeamProjectConfig.persistedRoutingMode` if present, else `team`. `/team-on` / `/team-off --persist global|local` writes `routingMode` to the scoped `agents-team.json`; loader reads it back via `persistedRoutingMode`. Both routing commands honor `ensureNotReloading()` so toggles during the session_start swap window aren't lost. Don't put routingMode in `PersistedTeamState` — it's a control-plane field, not registry state.
+
 ## Conventions
 
 - Strict TypeScript, ESM (`"type": "module"`). `node:test` + `node:assert/strict` — never jest / vitest / bun.

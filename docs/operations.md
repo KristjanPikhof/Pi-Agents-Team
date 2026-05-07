@@ -133,6 +133,38 @@ The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "fol
 
 Aborts the RPC session and shuts down the worker process. The compact state is marked `exited`; persisted state survives. `all` cancels every non-terminal worker in one call and prints a per-worker summary.
 
+## Toggle routing without reload
+
+`/team-off` and `/team-on` flip orchestrator behavior live, no `/reload` needed.
+
+```text
+/team-off                       # solo for this session
+/team-off --persist local       # solo + write routingMode to ./.pi/agent/agents-team.json
+/team-on                        # back to team
+/team-on --persist global       # team + write routingMode to ~/.pi/agent/agents-team.json
+```
+
+What changes in **solo** mode:
+
+- `delegate_task` rejects with `Team routing off. Run /team on to delegate.`. The orchestrator prompt drops the profile catalog and gets a one-line directive telling it to answer directly.
+- The widget collapses to a single `Pi Agents Team — solo` line.
+- `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay live so workers spawned earlier can still be inspected, steered, or shut down.
+
+What `--persist` actually does: writes `routingMode: "team"` or `"solo"` to the scoped `agents-team.json` (atomic write, project file wins over global by file presence). Without `--persist` the toggle is in-memory only and the next session restarts from the derived default.
+
+When the session boots, `routingMode` is derived this way:
+
+| Config state | Initial routingMode |
+|---|---|
+| `enabled: false` or invalid (delegation off) | `solo` |
+| `enabled: true`, no persisted `routingMode` | `team` |
+| `enabled: true`, persisted `routingMode: "solo"` | `solo` |
+| `enabled: true`, persisted `routingMode: "team"` | `team` |
+
+Use `/team-off` (no flag) when you want a one-shot single-agent answer. Use `--persist` when you actually want this repo to default to solo.
+
+`/team-on` errors with an "enable first" hint when `enabled: false`. Run `/team-enable <scope>` + `/reload` first; routing toggles only mean something when delegation itself is on.
+
 ## Delegation notes
 
 The orchestrator-facing tool is `delegate_task`. In normal use you do not type the tool call yourself: ask the orchestrator for the work and it decides when to delegate.
