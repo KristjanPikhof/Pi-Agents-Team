@@ -521,6 +521,7 @@ export default function (pi: ExtensionAPI): void {
 				skills: params.skills,
 				model: params.model,
 				orchestratorModel,
+				reuseWorkerId: params.reuseWorkerId,
 			});
 			teamState = teamManager.snapshot();
 			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
