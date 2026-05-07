@@ -393,6 +393,39 @@ test("assistant ring buffer records text deltas, emits chunk events, and respect
 	assert.equal(observed[0].workerId, "worker-buffer-1");
 });
 
+test("assistant ring buffer keeps a single oversized chunk rather than self-evicting", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-buffer-big",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-buffer-big",
+			title: "Oversized chunk",
+			goal: "Verify single-chunk preservation",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+
+	await manager.promptWorker("worker-buffer-big", "go");
+	await waitForMicrotasks();
+	const huge = "x".repeat(300 * 1024);
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: huge } });
+	await waitForMicrotasks();
+
+	const chunks = manager.getAssistantTail("worker-buffer-big");
+	assert.equal(chunks.length, 1, "oversized single chunk must be preserved");
+	assert.equal(chunks[0].text.length, huge.length);
+});
+
 test("assistant ring buffer caps line and byte budget", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
