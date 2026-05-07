@@ -177,6 +177,172 @@ test("worker_state transitions a non-starting worker based on isStreaming", asyn
 	assert.equal(afterDowngrade?.state.status, "idle");
 });
 
+test("reuseWorker resets per-task state, sends a fresh prompt, and emits a state event", async () => {
+	const transports: MockWorkerTransport[] = [];
+	const manager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport({
+			promptText: "<final_answer>headline: first run</final_answer>",
+		});
+		transports.push(transport);
+		return new MockWorkerHandle(transport);
+	});
+
+	await manager.launchWorker({
+		workerId: "worker-reuse-1",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-reuse-1",
+			title: "First task",
+			goal: "Do the first thing",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+
+	await manager.promptWorker("worker-reuse-1", "first prompt");
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	const afterFirst = manager.getWorker("worker-reuse-1");
+	assert.equal(afterFirst?.state.status, "idle");
+	assert.match(afterFirst?.state.finalAnswer ?? "", /first run/);
+	const firstCommandCount = transports[0]?.commands.length ?? 0;
+
+	const events: string[] = [];
+	const off = manager.onEvent((_worker, event) => {
+		events.push(event.type);
+	});
+
+	await manager.reuseWorker("worker-reuse-1", "second prompt", {
+		taskId: "task-reuse-2",
+		title: "Second task",
+		goal: "Do the second thing",
+		requestedBy: "orchestrator",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		contextHints: [],
+		createdAt: Date.now(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	off();
+
+	const afterReuse = manager.getWorker("worker-reuse-1");
+	assert.equal(afterReuse?.state.status, "idle");
+	assert.equal(afterReuse?.state.currentTask?.taskId, "task-reuse-2");
+	assert.equal(afterReuse?.state.currentTask?.title, "Second task");
+	const promptCommands = transports[0]?.commands.filter((cmd) => cmd.type === "prompt") ?? [];
+	assert.equal(promptCommands.length, 2);
+	assert.equal(promptCommands.at(-1)?.message, "second prompt");
+	assert.ok(events.includes("worker_running"));
+	assert.ok((transports[0]?.commands.length ?? 0) > firstCommandCount);
+});
+
+test("reuseWorker rejects targets that are not idle or waiting_followup", async () => {
+	const manager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
+	await manager.launchWorker({
+		workerId: "worker-reuse-running",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-reuse-running",
+			title: "Stays running",
+			goal: "stay running",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-reuse-running", "first");
+	await waitForMicrotasks();
+
+	await assert.rejects(
+		() => manager.reuseWorker("worker-reuse-running", "second", {
+			taskId: "task-reuse-x",
+			title: "x",
+			goal: "x",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		}),
+		/cannot be reused/i,
+	);
+});
+
+test("closeWorker disposes the live RPC and marks the worker exited (not aborted)", async () => {
+	const transport = new MockWorkerTransport();
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-close-1",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-close-1",
+			title: "Close test",
+			goal: "Verify close",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-close-1", "do work");
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	assert.equal(manager.getWorker("worker-close-1")?.state.status, "idle");
+
+	await manager.closeWorker("worker-close-1");
+	await waitForMicrotasks();
+
+	const closed = manager.getWorker("worker-close-1");
+	assert.equal(closed?.state.status, "exited");
+	assert.match(closed?.state.error ?? "", /closed by operator/i);
+});
+
+test("closeWorker rejects running workers", async () => {
+	const manager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
+	await manager.launchWorker({
+		workerId: "worker-close-running",
+		profileName: "reviewer",
+		task: {
+			taskId: "task-close-running",
+			title: "Running",
+			goal: "stay running",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-close-running", "go");
+	await waitForMicrotasks();
+
+	await assert.rejects(
+		() => manager.closeWorker("worker-close-running"),
+		/cannot be closed/i,
+	);
+});
+
 test("applyNormalizedEvent captures <final_answer> contents on message_end", async () => {
 	const finalAnswerBody = "headline: guard regression verified\nfiles:\n- src/runtime/worker-manager.ts";
 	const transport = new MockWorkerTransport({
