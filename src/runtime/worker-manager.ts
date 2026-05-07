@@ -489,6 +489,7 @@ export class WorkerManager {
 				if (event.timestamp - record.pendingTextFlushAt >= ASSISTANT_TEXT_BATCH_MS || record.pendingTextDelta.length > 320) {
 					this.flushPendingText(record);
 				}
+				this.appendAssistantChunk(record, event.timestamp, event.delta);
 				break;
 			case "worker_message": {
 				this.flushPendingText(record);
