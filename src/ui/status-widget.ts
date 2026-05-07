@@ -83,12 +83,14 @@ function buildUsageLine(state: PersistedTeamState): string | undefined {
 	);
 }
 
-function buildStatusRow(state: PersistedTeamState): string {
+function buildStatusRow(state: PersistedTeamState): { row: string; includesUsage: boolean } {
 	const counts = buildCountsLine(state);
 	const usage = buildUsageLine(state);
-	if (!usage) return counts;
+	if (!usage) return { row: counts, includesUsage: false };
 	const combined = `${counts} · ${usage}`;
-	return visibleWidth(combined) <= HEADER_WIDTH ? combined : counts;
+	return visibleWidth(combined) <= HEADER_WIDTH
+		? { row: combined, includesUsage: true }
+		: { row: counts, includesUsage: false };
 }
 
 function buildCountsLine(state: PersistedTeamState): string {
@@ -174,9 +176,12 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	if (workers.length === 0) return [];
 
-	const lines = ["Pi Agents Team", buildStatusRow(state)];
-	const usageLine = buildUsageLine(state);
-	if (usageLine && !lines[1].includes(usageLine)) lines.push(usageLine);
+	const status = buildStatusRow(state);
+	const lines = ["Pi Agents Team", status.row];
+	if (!status.includesUsage) {
+		const usageLine = buildUsageLine(state);
+		if (usageLine) lines.push(usageLine);
+	}
 	const { lines: workerLines, hiddenCount } = buildWorkerLines(workers, frame);
 	lines.push(...workerLines);
 	if (hiddenCount > 0) {
