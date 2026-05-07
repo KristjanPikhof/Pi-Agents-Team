@@ -360,6 +360,19 @@ test("inline modal captures keystrokes and esc cancels", () => {
 	assert.equal(calls.messages.length, 0);
 });
 
+test("inline modal normalizes pasted multiline input to one rendered line", async () => {
+	const { component, calls } = makeComponent({ rows: 28, cols: 100, initialWorkerId: "w1" });
+	component.handleInput("s");
+	component.handleInput("first line\nsecond line\r\nthird line");
+	const lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("Steer w1: first line second line third line")));
+	assert.ok(!lines.some((line) => line === "second line" || line === "third line"), "modal input must not create unframed rows");
+
+	component.handleInput("\r");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(calls.messages[0]!.message, "first line second line third line");
+});
+
 test("new task modal calls delegateTask fresh (never reuses the selected worker)", async () => {
 	const state = makeState(1);
 	state.activeWorkers.w1!.profileName = "reviewer";
@@ -520,10 +533,10 @@ test("visibleWidth is enforced across all tabs and worst-case content", () => {
 
 test("render row count matches overlay maxHeight so the bottom frame is never clipped", () => {
 	const state = makeState(1);
-	for (const termRows of [30, 40, 60, 80]) {
+	for (const termRows of [14, 15, 30, 40, 60, 80]) {
 		const { component } = makeComponent({ state, rows: termRows, cols: 100, initialWorkerId: "w1" });
 		const lines = renderPlain(component, 100);
-		const expected = Math.max(14, Math.floor(termRows * 0.9));
+		const expected = Math.floor(termRows * 0.9);
 		assert.equal(
 			lines.length,
 			expected,
