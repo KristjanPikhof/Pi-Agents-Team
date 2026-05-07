@@ -37,7 +37,7 @@ tsx --test tests/runtime/worker-manager.test.ts
 ```
 
 - `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact dashboard summary in print mode.
-- Top tabs (`1` Workers · `2` Inspect · `3` Console · `4` Cost) are jumped with the number row, or `tab` / `shift+tab` to cycle. Wide terminals split the roster beside Inspect / Console; narrow terminals stack them.
+- Top tabs (`1` Workers · `2` Inspect · `3` Console · `4` Cost) are jumped with the number row, or `tab` / `shift+tab` to cycle. The overlay is a single right-anchored stack panel; switch to `Workers` to change selection, then use `Inspect` or `Console` for the selected worker.
 - `/team <worker-id>` skips the roster and opens the overlay on that worker's Inspect tab (tab completion suggests live worker ids).
 
 Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
