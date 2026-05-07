@@ -406,6 +406,35 @@ export class WorkerManager {
 		return record.console.slice();
 	}
 
+	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[] {
+		const record = this.workers.get(workerId);
+		if (!record) return [];
+		if (fromIndex === undefined) return record.assistantChunks.slice();
+		return record.assistantChunks.filter((chunk) => chunk.index >= fromIndex);
+	}
+
+	onAssistantChunk(listener: (workerId: string, chunk: AssistantChunk) => void): () => void {
+		this.emitter.on("assistant_chunk", listener);
+		return () => this.emitter.off("assistant_chunk", listener);
+	}
+
+	private appendAssistantChunk(record: WorkerRuntimeRecord, ts: number, text: string): void {
+		if (!text) return;
+		const chunk: AssistantChunk = { index: record.assistantNextIndex, ts, text };
+		record.assistantNextIndex += 1;
+		record.assistantChunks.push(chunk);
+		record.assistantChunkBytes += Buffer.byteLength(text, "utf8");
+		while (
+			record.assistantChunks.length > ASSISTANT_BUFFER_LINE_CAP
+			|| record.assistantChunkBytes > ASSISTANT_BUFFER_BYTE_CAP
+		) {
+			const dropped = record.assistantChunks.shift();
+			if (!dropped) break;
+			record.assistantChunkBytes -= Buffer.byteLength(dropped.text, "utf8");
+		}
+		this.emitter.emit("assistant_chunk", record.workerId, chunk);
+	}
+
 	private appendConsole(record: WorkerRuntimeRecord, event: WorkerConsoleEvent): void {
 		record.console.push(event);
 		if (record.console.length > CONSOLE_BUFFER_LIMIT) {
