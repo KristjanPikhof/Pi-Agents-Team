@@ -103,6 +103,16 @@ function runSetRoutingMode(
 		);
 		return;
 	}
+	if (mode === "team" && !projectConfig.delegationEnabled) {
+		const firstError = projectConfig.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+		const sourceSuffix = projectConfig.sourcePath ? ` at ${projectConfig.sourcePath}` : "";
+		const errorSuffix = firstError ? `: ${firstError.message}` : ".";
+		ctx.ui.notify(
+			`Cannot enable team routing: agents-team.json is invalid${sourceSuffix}${errorSuffix} Fix the config and /reload first.`,
+			"warning",
+		);
+		return;
+	}
 
 	const manager = deps.getTeamManager();
 	const previousMode = manager.routingMode;
