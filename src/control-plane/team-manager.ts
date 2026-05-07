@@ -178,6 +178,10 @@ export class TeamManager {
 				`Unknown team profile: ${request.profileName}. Configured profiles: ${available}.`,
 			);
 		}
+
+		if (request.reuseWorkerId) {
+			return this.reuseWorkerForTask(request);
+		}
 		const launchPlan = applyLaunchPolicy(
 			{
 				cwd: request.cwd,
