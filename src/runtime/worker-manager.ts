@@ -274,20 +274,9 @@ export class WorkerManager {
 				`Worker ${workerId} cannot be closed (status=${record.state.status}). Only idle and waiting_followup workers can be closed; running workers need /agent-cancel.`,
 			);
 		}
-		await record.handle.dispose();
-		const timestamp = Date.now();
-		record.state.status = "exited";
-		record.state.lastEventAt = timestamp;
+		record.closing = true;
 		record.state.error = reason;
-		this.flushPendingText(record);
-		this.appendConsole(record, { ts: timestamp, kind: "exit", text: `closed: ${reason}` });
-		this.emitter.emit("event", this.snapshot(workerId), {
-			type: "worker_exit",
-			code: 0,
-			signal: null,
-			stderr: reason,
-			timestamp,
-		});
+		await record.handle.dispose();
 	}
 
 	async promptWorker(workerId: string, message: string): Promise<void> {
