@@ -680,14 +680,15 @@ export function createTeamDashboardOverlayComponent(
 		const lines: string[] = [];
 		for (const section of buildRosterSections(snapshot)) {
 			if (section.workers.length === 0) continue;
-			lines.push(`${section.label} (${section.workers.length})`);
+			const label = `${FRAME.sectionMark} ${section.label} (${section.workers.length})`;
+			lines.push(colorForGroupBold(section.key)(label));
 			for (const worker of section.workers) {
 				lines.push(buildRosterRow(worker, worker.workerId === state.selectedWorkerId, width));
 			}
 			lines.push("");
 		}
 		while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-		if (lines.length === 0) lines.push("No tracked workers. Press [n] to delegate one.");
+		if (lines.length === 0) lines.push(dim("No tracked workers. Press [n] to delegate one."));
 		lastRenderMetrics.listPageSize = Math.max(1, rows - 1);
 		return enforceWidth(lines, width).slice(0, rows);
 	}
