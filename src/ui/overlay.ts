@@ -59,15 +59,15 @@ interface OverlayLikeTui {
 	requestRender?: (force?: boolean) => void;
 }
 
-// The overlay anchors to the right edge and fills the full terminal height,
-// occupying roughly 30% of the width so it sits beside the chat without
-// covering it. The minimum width keeps the tab bar legible on narrow setups;
-// resizing the terminal automatically reflows the panel.
+// Pi-tui has no "push main pane" primitive: overlays float on top of the
+// main chat. We compromise by anchoring to the top-right at 40% width and
+// only 70% height so the bottom band of the chat (latest messages + input)
+// stays visible across the full terminal width.
 export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 	anchor: "top-right",
-	width: "30%",
-	minWidth: 38,
-	maxHeight: "100%",
+	width: "40%",
+	minWidth: 44,
+	maxHeight: "70%",
 	margin: 0,
 };
 
