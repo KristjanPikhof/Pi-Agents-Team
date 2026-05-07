@@ -159,6 +159,10 @@ function buildWorkerLines(workers: WorkerRuntimeState[], frame: number): { lines
 
 export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetRenderOptions = {}): string[] {
 	const frame = options.frame ?? 0;
+	const routingMode = options.routingMode ?? "team";
+	if (routingMode === "solo") {
+		return [truncateToWidth("Pi Agents Team — solo", HEADER_WIDTH)];
+	}
 	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	if (workers.length === 0) return [];
 
