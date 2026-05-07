@@ -459,7 +459,7 @@ test("assistant ring buffer caps line and byte budget", async () => {
 	const chunks = manager.getAssistantTail("worker-buffer-cap");
 	const totalBytes = chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk.text, "utf8"), 0);
 	assert.ok(totalBytes <= 256 * 1024, `expected byte cap respected, got ${totalBytes}`);
-	assert.ok(chunks.length <= 4096, `expected line cap respected, got ${chunks.length}`);
+	assert.ok(chunks.length <= 4096, `expected chunk cap respected, got ${chunks.length}`);
 	const last = chunks[chunks.length - 1];
 	assert.ok(last.index >= 299, `expected monotonic indexes preserved across cap, last=${last.index}`);
 });
