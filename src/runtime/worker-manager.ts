@@ -264,6 +264,11 @@ export class WorkerManager {
 		return this.workers.has(workerId);
 	}
 
+	getLaunchSnapshot(workerId: string): WorkerLaunchSnapshot | undefined {
+		const record = this.workers.get(workerId);
+		return record ? { ...record.launchSnapshot, tools: record.launchSnapshot.tools ? [...record.launchSnapshot.tools] : undefined } : undefined;
+	}
+
 	async removeWorker(workerId: string): Promise<void> {
 		const record = this.workers.get(workerId);
 		if (!record) return;
