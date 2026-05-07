@@ -72,6 +72,11 @@ export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 
 const MIN_OVERLAY_ROWS = 14;
 const MIN_BODY_ROWS = 6;
+// Must match TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight. Pi-tui clips returned
+// lines to the overlay's pixel rectangle; if our render produces more rows
+// than the panel can display, the bottom (frame + footer) gets cut. Compute
+// our row budget from this constant, not from terminal rows directly.
+const OVERLAY_HEIGHT_PCT = 0.9;
 const PANEL_BG_OPEN = "\x1b[48;5;236m";
 const PANEL_BG_CLOSE = "\x1b[0m";
 
