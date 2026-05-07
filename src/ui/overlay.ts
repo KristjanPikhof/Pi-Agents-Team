@@ -275,11 +275,31 @@ function padToWidth(line: string, width: number): string {
 }
 
 function computeOverlayRows(termRows: number): number {
-	return Math.max(MIN_OVERLAY_ROWS, Math.min(Math.max(1, termRows - 2), Math.floor(termRows * 0.9)));
+	return Math.max(MIN_OVERLAY_ROWS, termRows);
 }
 
-function computeLayoutMode(termWidth: number): LayoutMode {
-	return termWidth >= WIDE_LAYOUT_MIN_WIDTH ? "split" : "stack";
+function frameRow(content: string, innerWidth: number): string {
+	const padded = padToWidth(content, innerWidth);
+	const sides = accent(FRAME.vertical);
+	return `${PANEL_BG_OPEN}${sides} ${padded} ${sides}${PANEL_BG_CLOSE}`;
+}
+
+function frameTopWithTitle(titleStyled: string, totalWidth: number): string {
+	const titleVisible = visibleWidth(titleStyled);
+	const inner = Math.max(2, totalWidth - 2);
+	const titleFragment = ` ${titleStyled} `;
+	const titleVisibleWithPad = titleVisible + 2;
+	const remaining = Math.max(0, inner - titleVisibleWithPad);
+	const leftPad = Math.min(2, remaining);
+	const rightFill = Math.max(0, remaining - leftPad);
+	const top = `${accent(FRAME.topLeft)}${accent(FRAME.horizontal.repeat(leftPad))}${titleFragment}${accent(FRAME.horizontal.repeat(rightFill))}${accent(FRAME.topRight)}`;
+	return `${PANEL_BG_OPEN}${top}${PANEL_BG_CLOSE}`;
+}
+
+function frameBottom(totalWidth: number): string {
+	const inner = Math.max(0, totalWidth - 2);
+	const bottom = `${accent(FRAME.bottomLeft)}${accent(FRAME.horizontal.repeat(inner))}${accent(FRAME.bottomRight)}`;
+	return `${PANEL_BG_OPEN}${bottom}${PANEL_BG_CLOSE}`;
 }
 
 export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo"): string {
