@@ -36,7 +36,7 @@ Single test: `tsx --test tests/runtime/worker-manager.test.ts`. Local load: `pi 
 
 Terminal status set is canonical. `isTerminalWorkerStatus` = `idle | completed | aborted | error | exited`. `starting | running | waiting_followup` non-terminal. Gates `wait_for_agents`, terminal toasts, widget glyph, "all" broadcasts, UI "done" states. Keep `deriveStatusFromSessionState` and `applyNormalizedEvent` aligned.
 
-`starting → idle` race guard. `WorkerManager.launchWorker` calls `refreshState` before `promptWorker`; `isStreaming: false` would naively map to `idle`. `worker_state` branch keeps `starting` while `isStreaming` is false; `flushTerminalNotifications` re-filters queued toasts against current status. Guard scoped to `status === "starting" && !event.state.isStreaming`. Widening breaks running→idle; narrowing reintroduces "worker finished" toasts.
+`starting → idle` race guard. `WorkerManager.launchWorker` calls `refreshState` before `promptWorker`; `isStreaming: false` naively maps to `idle`. `worker_state` keeps `starting` while `isStreaming` is false; `flushTerminalNotifications` re-filters queued toasts vs current status. Guard scope: `status === "starting" && !event.state.isStreaming`. Widening breaks running→idle; narrowing brings back "worker finished" toasts.
 
 Rejected prompt acceptance is terminal. `promptWorker` marks worker `running` before RPC `prompt` returns. If call rejects, catch, mark `error`, emit state change, rethrow. No ghost-running workers.
 
