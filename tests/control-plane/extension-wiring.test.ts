@@ -33,9 +33,34 @@ test("extension registers control-plane tools and operator commands", () => {
 		tools.map((tool) => tool.name).sort(),
 		["agent_cancel", "agent_message", "agent_result", "agent_status", "delegate_task", "ping_agents", "wait_for_agents"],
 	);
+	// Wave 1 of slash-command consolidation: new team-* commands (team-enable
+	// on/off, team-result, team-steer, team-stop) are registered alongside the
+	// legacy commands they will replace in wave 2. The duplicate "team-enable"
+	// here is intentional — the legacy team-toggle command and the new routing
+	// command both register under that name; pi's command Map.set keeps the
+	// later (new) registration as the live one.
 	assert.deepEqual(
 		commands.map((command) => command.name).sort(),
-		["agent-cancel", "agent-close", "agent-followup", "agent-result", "agent-steer", "team", "team-copy", "team-cost", "team-disable", "team-enable", "team-init", "team-off", "team-on", "team-prune"],
+		[
+			"agent-cancel",
+			"agent-close",
+			"agent-followup",
+			"agent-result",
+			"agent-steer",
+			"team",
+			"team-copy",
+			"team-cost",
+			"team-disable",
+			"team-enable",
+			"team-enable",
+			"team-init",
+			"team-off",
+			"team-on",
+			"team-prune",
+			"team-result",
+			"team-steer",
+			"team-stop",
+		],
 	);
 	assert.ok(!commands.some((command) => command.name === "team-status"));
 	assert.ok(!commands.some((command) => command.name === "agents"));
