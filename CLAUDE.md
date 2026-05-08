@@ -82,7 +82,7 @@ Overlay `dispose()` is exposed and idempotent. Component returns `{ render, inva
 
 Session restore is honest. `markRestoredWorkersExited` flips every restored worker to `exited` on session start. Handler threads `SessionStartEvent.reason` through error string, emits one warning toast when `reason !== "startup"` and ≥1 worker flipped. Never silently reattach live RPC processes.
 
-Reload gates tool execution. `session_start` sets `reloading = true` before `replaceTeamManager`, `false` in `finally`. Every tool `execute` calls `ensureNotReloading()` first. `/team-on`/`/team-off` also call it. Read-only operator commands (`/team-prune`, `/team-cost`, `/agent-result`, …) skip the guard.
+Reload gates tool execution. `session_start` sets `reloading = true` before `replaceTeamManager`, `false` in `finally`. Every tool `execute` calls `ensureNotReloading()` first. `/team-enable` also calls it. Read-only operator commands (`/team-result`, `/team-copy`, …) skip the guard.
 
 Scaffold-stale toasts are per-process de-duped. `Map<scope, scaffoldVersion>` ensures one warning per `(scope, scaffoldVersion)` per process lifetime. Pi fires `session_start` on startup/reload/new/resume/fork; without dedup, `/reload` spams.
 
