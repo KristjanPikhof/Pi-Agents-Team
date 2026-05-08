@@ -115,6 +115,23 @@ With this restriction enabled, delegated worker path scopes must stay inside the
 
 without being forced to stay fully inside the repo root.
 
+### Display options
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `display.cost` | boolean | `true` | Show the `Σ` aggregate row in the footer widget and the **Cost** tab in the `/team` overlay. Set to `false` to hide both. |
+
+Example — hide cost UI:
+
+```json
+{
+  "schemaVersion": 4,
+  "display": {
+    "cost": false
+  }
+}
+```
+
 ### Per-role fields
 
 All optional. Omit to get the default.
