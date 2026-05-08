@@ -22,6 +22,7 @@ export function hasAnimatedWorkers(state: PersistedTeamState): boolean {
 export interface WidgetRenderOptions {
 	frame?: number;
 	routingMode?: "team" | "solo";
+	displayCost?: boolean;
 }
 
 export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team"): string {
