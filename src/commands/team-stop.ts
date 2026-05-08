@@ -79,7 +79,7 @@ async function stopOne(
 
 export function registerTeamStopCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {
 	pi.registerCommand("team-stop", {
-		description: "Stop a worker: /team-stop <worker-id|all>. Cancels running/starting; closes idle/waiting_followup; refuses already-terminal entries (use /team-prune to clear them).",
+		description: "Stop a worker: /team-stop <worker-id|all>. Cancels running/starting; closes idle/waiting_followup; refuses already-terminal entries (use overlay [p] to clear them).",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			const completions = [] as { value: string; label: string; description: string }[];
