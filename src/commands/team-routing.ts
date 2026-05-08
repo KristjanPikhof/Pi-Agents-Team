@@ -163,7 +163,7 @@ export function registerTeamRoutingCommands(pi: ExtensionAPI, dependencies: Rout
 	});
 
 	pi.registerCommand("team-off", {
-		description: "Turn team routing off for this session — Pi answers directly without delegating: /team-off [--persist global|local]",
+		description: "Turn team routing off (Pi answers directly) and persist routingMode to the active agents-team.json (override scope with --persist global|local)",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			return ["--persist"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value, description: "persist routingMode to agents-team.json" }));
