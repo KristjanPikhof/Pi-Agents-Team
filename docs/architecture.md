@@ -151,9 +151,9 @@ Three verbs with different intents. Don't conflate them.
 
 | Verb | Target status | What it does | Final status |
 |---|---|---|---|
-| `/agent-cancel` | non-terminal (`starting`, `running`, `waiting_followup`) | Aborts the active stream and SIGTERMs the worker process. | `exited` (or `aborted` if the abort raced) |
-| `/agent-close` | reusable (`idle`, `waiting_followup`) | Disposes the live RPC handle, sets the `closing` flag so `worker_exit` lands as `exited` not `aborted`. | `exited` |
-| `/team-prune` | terminal (`idle`, `completed`, `aborted`, `error`, `exited`) | Calls `WorkerManager.removeWorker` (which closes any leftover live handle for `idle`/`waiting_followup` entries), unsubscribes RPC listeners, drops the registry entry. | (entry removed) |
+| `/team-stop` (cancel path) | non-terminal (`starting`, `running`) | Aborts the active stream and SIGTERMs the worker process. | `exited` (or `aborted` if the abort raced) |
+| `/team-stop` (close path) | reusable (`idle`, `waiting_followup`) | Disposes the live RPC handle, sets the `closing` flag so `worker_exit` lands as `exited` not `aborted`. | `exited` |
+| overlay `[p]` prune | terminal (`idle`, `completed`, `aborted`, `error`, `exited`) | Calls `WorkerManager.removeWorker` (which closes any leftover live handle for `idle`/`waiting_followup` entries), unsubscribes RPC listeners, drops the registry entry. | (entry removed) |
 
 `closing` is a per-record flag on `WorkerRuntimeRecord`. `closeWorker` sets it before disposing the handle so the natural `worker_exit` event fired by the dispose can map to `exited` instead of the default `signal === "SIGTERM" ? "aborted" : "exited"` branch. Without the flag, an explicit close would arrive as a fake abort.
 
