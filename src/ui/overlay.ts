@@ -421,6 +421,9 @@ export function createTeamDashboardOverlayComponent(
 	handleInput(data: string): void;
 	dispose(): void;
 } {
+	const displayCost = options.displayCost !== false;
+	const visibleTabOrder: OverlayTab[] = displayCost ? TAB_ORDER : TAB_ORDER.filter((tab) => tab !== "cost");
+
 	let snapshot = initialSnapshot;
 	const initialWorker = options.initialWorkerId && initialSnapshot.activeWorkers[options.initialWorkerId]
 		? options.initialWorkerId
