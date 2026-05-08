@@ -48,7 +48,7 @@ Package entrypoint (extensions/index.ts)
       ├─ Widget                 (buildTeamWidgetLines)
       ├─ Dashboard overlay      (Workers/Inspect/Console/Cost tab bar with action bar + inline modal)
       ├─ Terminal-status toasts (debounced batch per wake)
-      └─ Slash commands         (/team, /team-copy, /team-prune, /team-cost, /agent-*)
+      └─ Slash commands         (/team, /team-steer, /team-stop, /team-copy, /team-result, /team-enable, /team-init)
 ```
 
 ## Delegation flow
