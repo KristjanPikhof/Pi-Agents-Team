@@ -328,7 +328,7 @@ export class WorkerManager {
 		const record = this.requireWorker(workerId);
 		if (!REUSABLE_STATUSES.has(record.state.status)) {
 			throw new Error(
-				`Worker ${workerId} cannot be closed (status=${record.state.status}). Only idle and waiting_followup workers can be closed; running workers need /agent-cancel.`,
+				`Worker ${workerId} cannot be closed (status=${record.state.status}). Only idle and waiting_followup workers can be closed; running workers need /team-stop.`,
 			);
 		}
 		record.closing = true;
