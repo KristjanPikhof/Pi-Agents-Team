@@ -11,27 +11,23 @@ interface ParsedArgs {
 }
 
 function parseSteerArgs(raw: string): ParsedArgs {
-	const trimmed = raw.trimStart();
-	if (!trimmed) {
+	if (!raw.trim()) {
 		return { queue: false, error: "Usage: /team-steer <worker-id|all> [--queue] <message>" };
 	}
-	const tokens = trimmed.split(/\s+/);
+	// Walk the raw string consuming whitespace + leading "--queue"/target tokens;
+	// the remainder is the message body verbatim (preserves embedded whitespace).
+	let pos = 0;
 	let target: string | undefined;
 	let queue = false;
-	let messageStartIndex: number | undefined;
-	let cursor = 0;
-	// Whitespace-skipping char index walk so we can extract the message verbatim
-	// once we've consumed the leading flags/target.
-	let charIndex = 0;
-	const advanceCharIndex = (until: number): void => {
-		// Skip whitespace, then skip the next token, then skip following whitespace.
-		while (charIndex < raw.length && /\s/.test(raw[charIndex]!)) charIndex += 1;
-		const start = charIndex;
-		while (charIndex < raw.length && !/\s/.test(raw[charIndex]!)) charIndex += 1;
-		messageStartIndex = until;
+	const skipSpaces = () => {
+		while (pos < raw.length && /\s/.test(raw[pos]!)) pos += 1;
 	};
-	for (cursor = 0; cursor < tokens.length; cursor += 1) {
-		const token = tokens[cursor]!;
+	while (pos < raw.length) {
+		skipSpaces();
+		if (pos >= raw.length) break;
+		const start = pos;
+		while (pos < raw.length && !/\s/.test(raw[pos]!)) pos += 1;
+		const token = raw.slice(start, pos);
 		if (token === "--queue") {
 			queue = true;
 			continue;
@@ -40,35 +36,17 @@ function parseSteerArgs(raw: string): ParsedArgs {
 			target = token;
 			continue;
 		}
-		// First non-flag token after target marks the start of the message.
+		// First non-flag, non-target token marks the start of the message body.
+		pos = start;
 		break;
 	}
 	if (!target) {
 		return { queue, error: "Usage: /team-steer <worker-id|all> [--queue] <message>" };
 	}
-
-	// Reconstruct the message: walk raw left-to-right consuming whitespace and
-	// the tokens we've already accepted as flags/target, leaving everything
-	// else as the message body verbatim.
-	let pos = 0;
-	let consumed = 0;
-	const consumedTokens: string[] = [];
-	for (let i = 0; i < cursor; i += 1) consumedTokens.push(tokens[i]!);
-	for (const token of consumedTokens) {
-		while (pos < raw.length && /\s/.test(raw[pos]!)) pos += 1;
-		if (raw.slice(pos, pos + token.length) === token) {
-			pos += token.length;
-		}
-		consumed += 1;
-	}
-	while (pos < raw.length && /\s/.test(raw[pos]!)) pos += 1;
-	const message = raw.slice(pos);
-	if (!message.trim()) {
+	const message = raw.slice(pos).trim();
+	if (!message) {
 		return { target, queue, error: "Usage: /team-steer <worker-id|all> [--queue] <message>" };
 	}
-	void advanceCharIndex;
-	void messageStartIndex;
-	void consumed;
 	return { target, message, queue };
 }
 
