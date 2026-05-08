@@ -16,6 +16,7 @@ import { registerCostCommand } from "../../src/commands/cost";
 import { registerPruneCommand } from "../../src/commands/prune";
 import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
+import { registerTeamEnableCommand } from "../../src/commands/team-enable";
 import { registerTeamInitCommand } from "../../src/commands/team-init";
 import { registerTeamRoutingCommands } from "../../src/commands/team-routing";
 import { registerTeamToggleCommands } from "../../src/commands/team-toggle";
