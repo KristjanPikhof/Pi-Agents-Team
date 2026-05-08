@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isTerminalWorkerStatus } from "../control-plane/team-manager";
 import type { WorkerRuntimeState, WorkerStatus } from "../types";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
