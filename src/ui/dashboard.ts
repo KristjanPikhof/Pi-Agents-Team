@@ -71,7 +71,7 @@ export function buildTeamDashboardLines(state: PersistedTeamState): string[] {
 		`Mode ${state.sessionMode} · relay queue ${state.relayQueue.length}`,
 		"/team opens a keyboard-first overlay: queue on the left, inspector on the right when width allows.",
 		"Use /team <worker-id> for direct focus, then inspect Overview / Deliverable / Console tabs. Print mode stays summary-only.",
-		"Use /agent-result <id> for the final deliverable block.",
+		"Use /team-result <id> for the final deliverable block.",
 		"",
 	];
 

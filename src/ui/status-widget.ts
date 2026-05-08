@@ -192,6 +192,6 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	if (hiddenCount > 0) {
 		lines.push(truncateToWidth(`  +${hiddenCount} more · /team to view`, HEADER_WIDTH));
 	}
-	lines.push("tip: /team · /agent-result <id> · /team-copy <id>");
+	lines.push("tip: /team · /team-result <id> · /team-copy <id>");
 	return lines.map((line) => truncateToWidth(line, HEADER_WIDTH));
 }
