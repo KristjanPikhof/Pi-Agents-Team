@@ -285,7 +285,7 @@ Launch policy is doing its job. `fixer` requires an explicit writable `pathScope
 
 ### `agent_result` returns an empty `<final_answer>`
 
-The worker finished but did not follow the contract. Three moves, in order of preference: re-delegate with smaller slices, steer the existing worker with a corrective message asking it to re-issue the final answer, or cancel and re-spawn with a better brief. Do not fall back to running `bash`/`read`/`grep` yourself.
+The worker finished but did not follow the contract. Three moves, in order of preference: re-delegate with smaller slices, steer the existing worker with `/team-steer <id> <corrective message>` asking it to re-issue the final answer, or stop and re-spawn with a better brief. Do not fall back to running `bash`/`read`/`grep` yourself.
 
 ### "Worker finished" toast fired, but the worker is still running
 
