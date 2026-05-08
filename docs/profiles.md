@@ -77,10 +77,11 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 | Field | Required | Meaning |
 |---|---|---|
 | `schemaVersion` | yes | Tells the loader which shape this file is. Currently `4`. A mismatch triggers a warning and falls back to built-ins for that layer. |
-| `scaffoldVersion` | no | Freshness marker. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
+| `scaffoldVersion` | no | Freshness marker. Currently `2`. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
 | `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
-| `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-on` and `/team-off` rewrite it on every toggle (auto-persisting to the active config), and you can hand-edit it. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
+| `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-enable on\|off` rewrites it on every toggle (auto-persisting to the active config), and you can hand-edit it. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
 | `workerAccess` | no | Global access policy for delegated workers. Omit to keep the defaults. |
+| `display` | no | UI display options. Omit to keep the defaults. See "Display options" below. |
 | `roles.<name>` | no | Free-form map. Name whatever you want. No role entry means built-in fallback (or nothing, if you want no roles at all). |
 
 ### Top-level worker access fields
