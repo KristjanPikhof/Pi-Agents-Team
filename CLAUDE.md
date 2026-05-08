@@ -48,7 +48,7 @@ Delivery resolution is a 3-way union. `AgentMessageResult.delivery` = `"steer" |
 
 Placeholder relay filter, 3 layers. Models drift and emit `relay_question: none | n/a | - | null`. (1) `extractRelayQuestions` filters via `PLACEHOLDER_RELAY_VALUES`; (2) relay-toast listener refuses empty/whitespace; (3) `buildWorkerTaskPrompt` tells models to omit. Remove any layer → "needs guidance: none" noise returns.
 
-Summary file aliases are deliberate. `buildWorkerSummaryFromText` accepts `read_files`/`changed_files` AND `files_read`/`files_changed`. Dropping either hides file evidence from `/team`, `agent_result`, copy payloads.
+Summary file aliases are deliberate. `buildWorkerSummaryFromText` accepts `read_files`/`changed_files` AND `files_read`/`files_changed`. Drop either → file evidence hidden from `/team`, `agent_result`, copy payloads.
 
 Assistant-chunk ring buffer is bounded and never persisted. Per-worker `assistantChunks` ring (`ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks — chunks, not rendered lines, since one delta can contain `\n`s — and `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`) with monotonic per-task indexes. Memory bounded by byte cap; chunk cap defends against many tiny deltas. `getAssistantTail(workerId, fromIndex?)` returns chunks ≥ fromIndex; `onAssistantChunk(listener)` lets Console live-tail without polling. Reuse resets buffer (chunks=[], bytes=0, nextIndex=0). `config.persistence.storeTranscripts` stays `false`. Eviction loop must keep at least one chunk; otherwise a single oversized delta self-evicts and Console blanks.
 
