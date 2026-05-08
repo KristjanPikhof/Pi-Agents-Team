@@ -2,7 +2,7 @@
 
 **TL;DR.** Pi Agents Team ships with seven default worker roles. Drop a file at `.pi/agent/agents-team.json` to customize them, add new ones, or cut the list down. The orchestrator only delegates to roles that exist in the loaded config, so the file is a direct knob on what your team of workers can do.
 
-The fastest path: run `/team-init local` in a repo, edit the resulting file, run `/reload`. Done.
+The fastest path: run `/team-init` in a repo, edit the resulting file, run `/reload`. Done.
 
 ## When to reach for this
 
