@@ -813,6 +813,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			diagnostics,
 			delegationEnabled: false,
 			persistedRoutingMode,
+			displayCost,
 		};
 	}
 
@@ -844,6 +845,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			diagnostics,
 			delegationEnabled: true,
 			persistedRoutingMode,
+			displayCost,
 		};
 	}
 
@@ -877,6 +879,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		diagnostics,
 		delegationEnabled: true,
 		persistedRoutingMode,
+		displayCost,
 	};
 }
 
