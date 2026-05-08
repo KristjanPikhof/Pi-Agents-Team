@@ -406,6 +406,7 @@ interface OverlayTeamManager {
 export interface OpenTeamDashboardOptions {
 	initialWorkerId?: string;
 	cwd?: string;
+	displayCost?: boolean;
 }
 
 export function createTeamDashboardOverlayComponent(
