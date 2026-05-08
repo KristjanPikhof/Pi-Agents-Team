@@ -90,8 +90,8 @@ Every `delegate_task` call should be self-sufficient:
   profile, model, tools, cwd, skills, extension mode, prompt path). Cross-role
   or differing launch fields force a fresh spawn; `delegate_task` rejects with
   a "launch settings differ" hint when they don't match.
-- Idle worker cleanup (releasing RPC sessions before `/team-prune`) is an
-  operator action via `/agent-close`; the orchestrator does not invoke it.
+- Idle worker cleanup (releasing RPC sessions before pruning) is an
+  operator action via `/team-stop`; the orchestrator does not invoke it.
 
 ## Waiting and Completion
 
