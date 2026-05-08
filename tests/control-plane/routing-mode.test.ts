@@ -13,7 +13,9 @@ import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { buildTeamStatusLine, buildTeamWidgetLines } from "../../src/ui/status-widget";
-import { _testing as routingTesting } from "../../src/commands/team-routing";
+import { _testing as routingTesting, registerTeamRoutingCommands } from "../../src/commands/team-routing";
+import type { LoadedTeamProjectConfig } from "../../src/types";
+import { existsSync } from "node:fs";
 import { MockWorkerHandle, MockWorkerTransport } from "../runtime/test-helpers";
 
 test("TeamManager defaults routingMode to team and accepts an override", () => {
