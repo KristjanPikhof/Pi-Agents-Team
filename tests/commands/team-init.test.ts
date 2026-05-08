@@ -98,6 +98,7 @@ test("/team-init local writes a full scaffold inside the project", async () => {
 	assert.equal(parsed.schemaVersion, 4);
 	assert.equal(parsed.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(parsed.enabled, true);
+	assert.equal(parsed.routingMode, "team");
 	assert.equal(parsed.workerAccess.allowPathsOutsideProject, true);
 	const roleNames = Object.keys(parsed.roles ?? {}).sort();
 	assert.deepEqual(roleNames, DEFAULT_TEAM_CONFIG.profiles.map((profile) => profile.name).sort());
