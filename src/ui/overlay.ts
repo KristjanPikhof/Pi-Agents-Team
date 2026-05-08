@@ -952,7 +952,7 @@ export async function openTeamDashboardOverlay(
 			teamManager as unknown as OverlayTeamManager,
 			state,
 			done,
-			{ initialWorkerId: focusWorkerId, cwd: options.cwd ?? ctx.cwd },
+			{ initialWorkerId: focusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost },
 		),
 		{
 			overlay: true,
