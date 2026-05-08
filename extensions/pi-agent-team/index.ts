@@ -9,21 +9,13 @@ import {
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager";
 import { loadActiveTeamConfig } from "../../src/project-config/loader";
-import { registerAgentCloseCommand } from "../../src/commands/agent-close";
-import { registerCancelCommand } from "../../src/commands/cancel";
 import { registerCopyCommand } from "../../src/commands/copy";
-import { registerCostCommand } from "../../src/commands/cost";
-import { registerPruneCommand } from "../../src/commands/prune";
-import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
 import { registerTeamEnableCommand } from "../../src/commands/team-enable";
 import { registerTeamInitCommand } from "../../src/commands/team-init";
 import { registerTeamResultCommand } from "../../src/commands/team-result";
-import { registerTeamRoutingCommands } from "../../src/commands/team-routing";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
-import { registerTeamToggleCommands } from "../../src/commands/team-toggle";
-import { formatUnknownWorker, suggestTargets } from "../../src/util/suggest";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, WorkerRuntimeState } from "../../src/types";
 
