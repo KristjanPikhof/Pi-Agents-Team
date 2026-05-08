@@ -41,6 +41,14 @@ function parseRoutingArgs(args: string): ParsedArgs {
 	return { persist };
 }
 
+function deriveScopeFromSourcePath(sourcePath: string, cwd: string): "global" | "local" | undefined {
+	const localPath = getProjectConfigPathForScope("project", cwd);
+	if (localPath && sourcePath === localPath) return "local";
+	const globalPath = getProjectConfigPathForScope("global", cwd);
+	if (globalPath && sourcePath === globalPath) return "global";
+	return undefined;
+}
+
 function persistRoutingMode(scope: "global" | "local", routingMode: RoutingMode, cwd: string): { path: string; warning?: string } | { error: string } {
 	const internalScope = scope === "local" ? "project" : "global";
 	const path = getProjectConfigPathForScope(internalScope, cwd);
@@ -122,10 +130,15 @@ function runSetRoutingMode(
 		`Routing mode: ${previousMode} → ${mode}.`,
 	];
 
-	if (parsed.persist) {
-		const result = persistRoutingMode(parsed.persist, mode, ctx.cwd);
+	const explicitScope = parsed.persist;
+	const autoScope: "global" | "local" | undefined = explicitScope
+		? undefined
+		: (projectConfig.sourcePath ? deriveScopeFromSourcePath(projectConfig.sourcePath, ctx.cwd) : undefined) ?? "local";
+	const persistScope = explicitScope ?? autoScope;
+	if (persistScope) {
+		const result = persistRoutingMode(persistScope, mode, ctx.cwd);
 		if ("error" in result) {
-			lines.push(`--persist failed: ${result.error}`);
+			lines.push(explicitScope ? `--persist failed: ${result.error}` : `Could not persist routingMode: ${result.error}`);
 		} else {
 			lines.push(`Persisted routingMode=${mode} to ${result.path}.`);
 			if (result.warning) lines.push(result.warning);
@@ -141,7 +154,7 @@ function runSetRoutingMode(
 
 export function registerTeamRoutingCommands(pi: ExtensionAPI, dependencies: RoutingCommandDependencies): void {
 	pi.registerCommand("team-on", {
-		description: "Turn team routing on for this session: /team-on [--persist global|local]",
+		description: "Turn team routing on and persist routingMode to the active agents-team.json (override scope with --persist global|local)",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			return ["--persist"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value, description: "persist routingMode to agents-team.json" }));
@@ -150,7 +163,7 @@ export function registerTeamRoutingCommands(pi: ExtensionAPI, dependencies: Rout
 	});
 
 	pi.registerCommand("team-off", {
-		description: "Turn team routing off for this session — Pi answers directly without delegating: /team-off [--persist global|local]",
+		description: "Turn team routing off (Pi answers directly) and persist routingMode to the active agents-team.json (override scope with --persist global|local)",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			return ["--persist"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value, description: "persist routingMode to agents-team.json" }));
@@ -159,4 +172,4 @@ export function registerTeamRoutingCommands(pi: ExtensionAPI, dependencies: Rout
 	});
 }
 
-export const _testing = { parseRoutingArgs, persistRoutingMode };
+export const _testing = { parseRoutingArgs, persistRoutingMode, deriveScopeFromSourcePath };

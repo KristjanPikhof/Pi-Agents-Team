@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,7 +13,8 @@ import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { buildTeamStatusLine, buildTeamWidgetLines } from "../../src/ui/status-widget";
-import { _testing as routingTesting } from "../../src/commands/team-routing";
+import { _testing as routingTesting, registerTeamRoutingCommands } from "../../src/commands/team-routing";
+import type { LoadedTeamProjectConfig } from "../../src/types";
 import { MockWorkerHandle, MockWorkerTransport } from "../runtime/test-helpers";
 
 test("TeamManager defaults routingMode to team and accepts an override", () => {
@@ -153,5 +154,122 @@ test("persistRoutingMode writes routingMode atomically to a fresh project file",
 		assert.equal(typeof written.schemaVersion, "number");
 	} finally {
 		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("deriveScopeFromSourcePath maps the local project file to local", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-derive-"));
+	try {
+		const localPath = join(cwd, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		assert.equal(routingTesting.deriveScopeFromSourcePath(localPath, cwd), "local");
+		assert.equal(routingTesting.deriveScopeFromSourcePath("/tmp/somewhere-else.json", cwd), undefined);
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+interface RegisteredCommand {
+	name: string;
+	handler: (args: string, ctx: any) => Promise<void> | void;
+}
+
+function installRoutingCommands(cwd: string, projectConfig: LoadedTeamProjectConfig) {
+	const commands: RegisteredCommand[] = [];
+	const teamManager = new TeamManager({
+		workerManager: new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport())),
+	});
+	const emitted: string[] = [];
+	const notifications: Array<{ message: string; level?: string }> = [];
+	registerTeamRoutingCommands(
+		{
+			registerCommand(name: string, spec: RegisteredCommand) {
+				commands.push({ name, handler: spec.handler });
+			},
+		} as any,
+		{
+			getTeamManager: () => teamManager,
+			getProjectConfig: () => projectConfig,
+			emitText: (_ctx, text) => emitted.push(text),
+			ensureNotReloading: () => {},
+		},
+	);
+	const teamOn = commands.find((c) => c.name === "team-on")!;
+	const teamOff = commands.find((c) => c.name === "team-off")!;
+	const ctx = { cwd, ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) } } as any;
+	return {
+		run: (cmd: "team-on" | "team-off", args = "") => (cmd === "team-on" ? teamOn.handler(args, ctx) : teamOff.handler(args, ctx)),
+		emitted,
+		notifications,
+		teamManager,
+	};
+}
+
+function buildLoadedConfig(overrides: Partial<LoadedTeamProjectConfig> = {}): LoadedTeamProjectConfig {
+	return {
+		status: "builtin",
+		config: DEFAULT_TEAM_CONFIG,
+		layers: [],
+		enabled: true,
+		enabledSource: "default",
+		diagnostics: [],
+		delegationEnabled: true,
+		...overrides,
+	};
+}
+
+test("/team-off without --persist auto-creates a local stub when no config file exists", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-autopersist-stub-"));
+	try {
+		const harness = installRoutingCommands(root, buildLoadedConfig());
+		await harness.run("team-off");
+		const expected = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		assert.ok(existsSync(expected), `expected stub at ${expected}`);
+		const written = JSON.parse(readFileSync(expected, "utf8"));
+		assert.equal(written.routingMode, "solo");
+		assert.equal(harness.teamManager.routingMode, "solo");
+		assert.ok(harness.emitted[0]?.includes(`Persisted routingMode=solo to ${expected}`));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("/team-on without --persist patches the winning local file in place and preserves roles", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-autopersist-local-"));
+	try {
+		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
+		writeFileSync(
+			localPath,
+			JSON.stringify({ schemaVersion: 4, routingMode: "solo", roles: { reviewer: { whenToUse: "Use for review", access: { tools: [] }, prompt: "<default>" } } }, null, 2),
+		);
+		const harness = installRoutingCommands(root, buildLoadedConfig({ sourcePath: localPath }));
+		await harness.run("team-on");
+		const written = JSON.parse(readFileSync(localPath, "utf8"));
+		assert.equal(written.routingMode, "team");
+		assert.ok(written.roles?.reviewer, "roles must be preserved on auto-persist patch");
+		assert.equal(harness.teamManager.routingMode, "team");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("/team-off --persist global is still honored as an explicit override", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-autopersist-explicit-"));
+	const globalDir = mkdtempSync(join(tmpdir(), "pi-agent-team-autopersist-global-"));
+	const globalPath = join(globalDir, TEAM_PROJECT_CONFIG_FILE);
+	const previous = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+	process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = globalPath;
+	try {
+		const harness = installRoutingCommands(root, buildLoadedConfig());
+		await harness.run("team-off", "--persist global");
+		const written = JSON.parse(readFileSync(globalPath, "utf8"));
+		assert.equal(written.routingMode, "solo");
+		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		assert.equal(existsSync(localPath), false, "explicit --persist global must not also create a local stub");
+	} finally {
+		if (previous === undefined) delete process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+		else process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = previous;
+		rmSync(root, { recursive: true, force: true });
+		rmSync(globalDir, { recursive: true, force: true });
 	}
 });

@@ -10,7 +10,7 @@ One Pi session orchestrates. Background RPC workers do the work. The orchestrato
 Install from npm:
 
 ```bash
-pi install pi-agents-team
+pi install npm:pi-agents-team
 ```
 
 You can also install from Git using one of the options below.
@@ -61,11 +61,11 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 | `/team-copy <worker-id>` | Copy the worker's task, summary, final answer, and console timeline to the clipboard. |
 | `/team-prune` | Remove every terminal worker (idle/completed/aborted/error/exited) from the dashboard. |
 | `/team-cost` | Per-worker token usage plus a `Σ` aggregate row. Orchestrator usage stays in the Pi footer. |
-| `/team-init global\|local [--force]` | Scaffold `agents-team.json` with every built-in role stamped in place, plus the current `schemaVersion` + `scaffoldVersion` markers and top-level worker access defaults like `allowPathsOutsideProject: true`. Refuses existing files without `--force`; on `--force` the previous file is copied (not renamed — original stays put until the new write succeeds) to `YYYY-MM-DD-HHMMSS-agents-team.json` first. |
+| `/team-init global\|local [--force]` | Scaffold `agents-team.json` with every built-in role stamped in place, plus the current `schemaVersion` + `scaffoldVersion` markers, the default `routingMode: "team"`, and top-level worker access defaults like `allowPathsOutsideProject: true`. Refuses existing files without `--force`; on `--force` the previous file is copied (not renamed; the original stays put until the new write succeeds) to `YYYY-MM-DD-HHMMSS-agents-team.json` first. |
 | `/team-enable global\|local` | Set `enabled: true` in the scoped config file. Run `/reload` to apply. |
 | `/team-disable global\|local` | Set `enabled: false` in the scoped config file. The extension stays loaded but goes dormant (no tools, no prompt, no UI) until re-enabled. |
-| `/team-off [--persist global\|local]` | Flip routing to **solo** for this session: the orchestrator answers directly and `delegate_task` rejects with `Team routing off. Run /team on to delegate.`. Other `agent_*` tools stay live so you can still inspect or steer workers spawned earlier. The widget collapses to a single `Pi Agents Team — solo` line while workers are tracked, and disappears entirely when none are. With `--persist`, writes `routingMode: "solo"` to the scoped `agents-team.json` so the choice survives restart. |
-| `/team-on [--persist global\|local]` | Flip routing back to **team**. Errors with an "enable first" hint when `enabled: false`. With `--persist`, writes `routingMode: "team"` to the scoped config. |
+| `/team-off [--persist global\|local]` | Flip routing to **solo** and write `routingMode: "solo"` to the active `agents-team.json` so the choice survives restart. The orchestrator answers directly; `delegate_task` rejects with `Team routing off. Run /team on to delegate.`. Other `agent_*` tools stay live so workers spawned earlier can still be inspected or steered. The widget collapses to a single `Pi Agents Team — solo` line while workers are tracked, and disappears entirely when none are. The persisted target is the winning config layer if one is loaded, otherwise a fresh local stub at `./.pi/agent/agents-team.json`. Pass `--persist global\|local` to force a specific scope. |
+| `/team-on [--persist global\|local]` | Flip routing back to **team** and write `routingMode: "team"` to the active `agents-team.json`. Errors with an "enable first" hint when `enabled: false`. Same scope resolution as `/team-off`: winning layer, else fresh local stub; override with `--persist global\|local`. |
 | `/agent-result <worker-id>` | Print the compact summary plus the verbatim `<final_answer>` block. |
 | `/agent-steer <worker-id\|all> <msg>` | Send a message. Routes by status: `steer` if running, re-`prompt` if idle/waiting_followup (wakes the session). |
 | `/agent-followup <worker-id\|all> <msg>` | Queue onto the live stream if running; re-`prompt` if idle/waiting_followup. |

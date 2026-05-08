@@ -66,6 +66,7 @@ function buildFullScaffold(): TeamProjectConfigFile {
 		schemaVersion: TEAM_PROJECT_SCHEMA_VERSION,
 		scaffoldVersion: CURRENT_SCAFFOLD_VERSION,
 		enabled: true,
+		routingMode: "team",
 		workerAccess: {
 			allowPathsOutsideProject: true,
 		},
