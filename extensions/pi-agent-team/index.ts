@@ -467,6 +467,7 @@ export default function (pi: ExtensionAPI): void {
 		ensureNotReloading,
 	});
 	registerTeamResultCommand(pi, commandDependencies);
+	registerTeamSteerCommand(pi, commandDependencies);
 	registerTeamStopCommand(pi, commandDependencies);
 
 	pi.registerCommand("agent-result", {
