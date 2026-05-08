@@ -307,9 +307,10 @@ function frameBottom(totalWidth: number): string {
 	return `${PANEL_BG_OPEN}${bottom}${PANEL_BG_CLOSE}`;
 }
 
-export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo"): string {
-	const cells = TAB_ORDER.map((tab, index) => {
-		const num = index + 1;
+export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo", displayCost = true): string {
+	const visibleTabs = displayCost ? TAB_ORDER : TAB_ORDER.filter((tab) => tab !== "cost");
+	const cells = visibleTabs.map((tab) => {
+		const num = TAB_ORDER.indexOf(tab) + 1;
 		const label = `${num} ${TAB_LABELS[tab]}`;
 		return tab === active ? accentBold(`[${label}]`) : dim(` ${label} `);
 	});
