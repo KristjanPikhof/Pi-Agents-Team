@@ -205,7 +205,7 @@ The initial mode is derived once per `session_start` from the loaded config:
 | `enabled: true`, no persisted `routingMode` | `team` |
 | `enabled: true`, persisted `routingMode` | that value |
 
-`/team-on` and `/team-off` flip the in-memory mode. `--persist global|local` writes `routingMode` to the scoped `agents-team.json` via `atomicWriteFileSync`. The loader pulls the persisted value into `LoadedTeamProjectConfig.persistedRoutingMode`, so `/team-off --persist` survives reload.
+`/team-on` and `/team-off` flip the in-memory mode and persist `routingMode` to disk so the choice survives restart. The persistence target is resolved in this order: `--persist global|local` if passed; otherwise `LoadedTeamProjectConfig.sourcePath` (mapped back to its scope via `deriveScopeFromSourcePath`) when a config layer is loaded; otherwise a fresh local stub at `<cwd>/.pi/agent/agents-team.json`. Writes go through `atomicWriteFileSync` and shallow-merge into the existing JSON, so roles, `enabled`, and `workerAccess` survive the patch. The loader pulls the persisted value into `LoadedTeamProjectConfig.persistedRoutingMode` on the next `session_start`.
 
 Routing toggles run through `ensureNotReloading()` like the orchestrator tools, so a toggle fired during the `session_start` config swap fails fast instead of mutating a soon-to-be-disposed `TeamManager`.
 
