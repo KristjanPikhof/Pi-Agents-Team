@@ -90,11 +90,11 @@ Broadcasts swallow per-worker errors. `messageAllWorkers` / `cancelAllWorkers` c
 
 Config precedence is by file presence, not validity. `agents-team.json` lives at `~/.pi/agent/` or `<cwd-ancestor>/.pi/agent/` (ancestor walk stops at `homedir()`). Project file present (valid, schema-mismatched, fatal-parse) → project wins outright. Invalid winning layer → built-in fallback for that scope; never downshifts. Fatal parse on non-winning layer is diagnostic-only. Full rules: [`docs/profiles.md`](docs/profiles.md).
 
-`schemaVersion` vs `scaffoldVersion`. Both in `src/project-config/versions.ts`: schema=`4`, scaffold=`1`. Schema = parsing contract, breaking-change bump. Scaffold = content-freshness marker, soft "stale" toast only. When-to-bump: [`docs/profiles.md`](docs/profiles.md) "Version bumps".
+`schemaVersion` vs `scaffoldVersion`. Both in `src/project-config/versions.ts`: schema=`4`, scaffold=`1`. Schema = parsing contract, breaking-change bump. Scaffold = content-freshness marker, soft "stale" toast only. When to bump: [`docs/profiles.md`](docs/profiles.md) "Version bumps".
 
-Path scope is a prompt convention, NOT an OS sandbox. Tells worker where to focus; blocks "read-only profile with `write: true`" at delegate time. Does NOT contain `bash`, network, subprocess spawn, or a worker that ignores its prompt. If a profile has `bash`, you trust the prompt.
+Path scope is prompt convention, NOT OS sandbox. Tells worker where to focus; blocks "read-only profile with `write: true`" at delegate time. Does NOT contain `bash`, network, subprocess spawn, or a worker that ignores its prompt. If profile has `bash`, you trust the prompt.
 
-User strings in prompts are fenced + length-capped. Role `name` ≤64, `whenToUse` / `description` ≤500. Sanitized and wrapped with `<!-- BEGIN available-profiles -->` sentinels before reaching orchestrator prompt. Defense against prompt-injection via crafted `whenToUse` in shared configs.
+User strings in prompts are fenced + length-capped. Role `name` ≤64, `whenToUse` / `description` ≤500. Sanitized + wrapped with `<!-- BEGIN available-profiles -->` sentinels before reaching orchestrator prompt. Defense against prompt-injection via crafted `whenToUse` in shared configs.
 
 Config writes are atomic. `src/util/backup.ts#atomicWriteFileSync` stages to `<path>.tmp.<pid>.<ts>` and `renameSync`s into place. Backups: `copyFileSync` with `COPYFILE_EXCL`. Dirs `0o700`, files `0o600` (noop on Windows). `/team-enable`, `/team-disable`, `/team-on`, `/team-off`, `/team-init` use it; toggle commands shallow-merge into existing JSON so roles/`enabled`/`workerAccess` survive the patch.
 
