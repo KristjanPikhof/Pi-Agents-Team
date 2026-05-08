@@ -41,6 +41,14 @@ function parseRoutingArgs(args: string): ParsedArgs {
 	return { persist };
 }
 
+function deriveScopeFromSourcePath(sourcePath: string, cwd: string): "global" | "local" | undefined {
+	const localPath = getProjectConfigPathForScope("project", cwd);
+	if (localPath && sourcePath === localPath) return "local";
+	const globalPath = getProjectConfigPathForScope("global", cwd);
+	if (globalPath && sourcePath === globalPath) return "global";
+	return undefined;
+}
+
 function persistRoutingMode(scope: "global" | "local", routingMode: RoutingMode, cwd: string): { path: string; warning?: string } | { error: string } {
 	const internalScope = scope === "local" ? "project" : "global";
 	const path = getProjectConfigPathForScope(internalScope, cwd);
