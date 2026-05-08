@@ -205,7 +205,7 @@ The initial mode is derived once per `session_start` from the loaded config:
 | `enabled: true`, no persisted `routingMode` | `team` |
 | `enabled: true`, persisted `routingMode` | that value |
 
-`/team-on` and `/team-off` flip the in-memory mode and persist `routingMode` to disk so the choice survives restart. The persistence target is resolved in this order: `--persist global|local` if passed; otherwise `LoadedTeamProjectConfig.sourcePath` (mapped back to its scope via `deriveScopeFromSourcePath`) when a config layer is loaded; otherwise a fresh local stub at `<cwd>/.pi/agent/agents-team.json`. Writes go through `atomicWriteFileSync` and shallow-merge into the existing JSON, so roles, `enabled`, and `workerAccess` survive the patch. The loader pulls the persisted value into `LoadedTeamProjectConfig.persistedRoutingMode` on the next `session_start`.
+`/team-enable on|off` flips the in-memory mode and persists `routingMode` to disk so the choice survives restart. The persistence target is resolved in this order: `--persist global|local` if passed; otherwise `LoadedTeamProjectConfig.sourcePath` (mapped back to its scope via `deriveScopeFromSourcePath`) when a config layer is loaded; otherwise a fresh local stub at `<cwd>/.pi/agent/agents-team.json`. Writes go through `atomicWriteFileSync` and shallow-merge into the existing JSON, so roles, `enabled`, and `workerAccess` survive the patch. The loader pulls the persisted value into `LoadedTeamProjectConfig.persistedRoutingMode` on the next `session_start`.
 
 Routing toggles run through `ensureNotReloading()` like the orchestrator tools, so a toggle fired during the `session_start` config swap fails fast instead of mutating a soon-to-be-disposed `TeamManager`.
 
@@ -216,9 +216,11 @@ Routing only narrows behavior. It does not stop live workers; `agent_status`, `a
 Slash commands are supervision controls, not alternate chat channels:
 
 - `/team` and `/team <worker-id>`
-- `/team-on`, `/team-off` (and `--persist global|local`)
-- `/team-copy <worker-id>`
-- `/agent-result`, `/agent-steer`, `/agent-followup`, `/agent-cancel`, `/agent-close`
+- `/team-enable on|off` (and `--persist global|local`)
+- `/team-steer <id|all> <message> [--queue]`
+- `/team-stop <id|all>`
+- `/team-copy <id>`, `/team-result <id>`
+- `/team-init [global|local] [--force]`
 
 The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
