@@ -384,20 +384,8 @@ export default function (pi: ExtensionAPI): void {
 		emitText: (ctx: ExtensionContext, text: string) => emitCommandOutput(pi, ctx, text, activeProjectConfig.config),
 	};
 	registerTeamCommand(pi, commandDependencies);
-	registerWorkerMessageCommands(pi, commandDependencies);
-	registerCancelCommand(pi, commandDependencies);
-	registerAgentCloseCommand(pi, commandDependencies);
 	registerCopyCommand(pi, commandDependencies);
-	registerPruneCommand(pi, commandDependencies);
-	registerCostCommand(pi, commandDependencies);
 	registerTeamInitCommand(pi, { emitText: commandDependencies.emitText });
-	registerTeamToggleCommands(pi, { emitText: commandDependencies.emitText });
-	registerTeamRoutingCommands(pi, {
-		getTeamManager: () => teamManager,
-		getProjectConfig: () => activeProjectConfig,
-		emitText: commandDependencies.emitText,
-		ensureNotReloading,
-	});
 	registerTeamEnableCommand(pi, {
 		getTeamManager: () => teamManager,
 		getProjectConfig: () => activeProjectConfig,
@@ -407,31 +395,6 @@ export default function (pi: ExtensionAPI): void {
 	registerTeamResultCommand(pi, commandDependencies);
 	registerTeamSteerCommand(pi, commandDependencies);
 	registerTeamStopCommand(pi, commandDependencies);
-
-	pi.registerCommand("agent-result", {
-		description: "Show the full result for a worker: /agent-result <worker-id>",
-		getArgumentCompletions: (prefix) => workerIdCompletions(teamManager, prefix),
-		handler: async (args, ctx) => {
-			const input = args.trim();
-			if (!input) {
-				ctx.ui.notify("Usage: /agent-result <worker-id>", "warning");
-				return;
-			}
-			const resolved = teamManager.resolveWorkerId(input);
-			const candidates = teamManager.listWorkers().map((worker) => worker.workerId);
-			if (!resolved) {
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
-				return;
-			}
-			const result = teamManager.getWorkerResult(resolved);
-			if (!result) {
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
-				return;
-			}
-			const transcript = teamManager.getWorkerTranscript(resolved);
-			emitCommandOutput(pi, ctx, formatWorkerDetail(result.worker, transcript), activeProjectConfig.config);
-		},
-	});
 
 	function ensureNotReloading(): void {
 		if (reloading) {
