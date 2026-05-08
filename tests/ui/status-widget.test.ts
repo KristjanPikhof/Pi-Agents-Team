@@ -164,3 +164,39 @@ test("hasAnimatedWorkers flips with non-terminal status", () => {
 	state.activeWorkers.w2 = makeWorker({ workerId: "w2", status: "running" });
 	assert.equal(hasAnimatedWorkers(state), true);
 });
+
+test("widget shows Σ cost line when displayCost is true", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = makeWorker({
+		workerId: "w1",
+		status: "running",
+		usage: {
+			turns: 2,
+			inputTokens: 500,
+			outputTokens: 100,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0.0123,
+		},
+	});
+	const lines = buildTeamWidgetLines(state, { frame: 0, displayCost: true });
+	assert.ok(lines.some((line) => line.includes("Σ")), `expected Σ line; got:\n${lines.join("\n")}`);
+});
+
+test("widget hides Σ cost line when displayCost is false", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = makeWorker({
+		workerId: "w1",
+		status: "running",
+		usage: {
+			turns: 2,
+			inputTokens: 500,
+			outputTokens: 100,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0.0123,
+		},
+	});
+	const lines = buildTeamWidgetLines(state, { frame: 0, displayCost: false });
+	assert.ok(!lines.some((line) => line.includes("Σ")), `expected no Σ line; got:\n${lines.join("\n")}`);
+});
