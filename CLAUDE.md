@@ -50,7 +50,7 @@ Placeholder relay filter, 3 layers. Models drift and emit `relay_question: none 
 
 Summary file aliases are deliberate. `buildWorkerSummaryFromText` accepts `read_files`/`changed_files` AND `files_read`/`files_changed`. Drop either → file evidence hidden from `/team`, `agent_result`, copy payloads.
 
-Assistant-chunk ring buffer is bounded and never persisted. Per-worker `assistantChunks` ring (`ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks — chunks, not rendered lines, since one delta can contain `\n`s — and `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`) with monotonic per-task indexes. Memory bounded by byte cap; chunk cap defends against many tiny deltas. `getAssistantTail(workerId, fromIndex?)` returns chunks ≥ fromIndex; `onAssistantChunk(listener)` lets Console live-tail without polling. Reuse resets buffer (chunks=[], bytes=0, nextIndex=0). `config.persistence.storeTranscripts` stays `false`. Eviction loop must keep at least one chunk; otherwise a single oversized delta self-evicts and Console blanks.
+Assistant-chunk ring buffer is bounded, never persisted. Per-worker `assistantChunks` ring: `ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks (chunks not lines; one delta may contain `\n`s) + `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`, monotonic per-task indexes. Byte cap bounds memory; chunk cap defends against many tiny deltas. `getAssistantTail(workerId, fromIndex?)` returns chunks ≥ fromIndex; `onAssistantChunk(listener)` lets Console live-tail without polling. Reuse resets (chunks=[], bytes=0, nextIndex=0). `config.persistence.storeTranscripts` stays `false`. Eviction must keep ≥1 chunk; else single oversized delta self-evicts and Console blanks.
 
 Close vs cancel vs prune are distinct.
 
