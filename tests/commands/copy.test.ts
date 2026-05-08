@@ -160,9 +160,13 @@ test("buildCopyPayload includes task block when currentTask is present", () => {
 			taskId: "t1",
 			title: "Audit auth flow",
 			goal: "Find auth gaps",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
 			contextHints: ["Focus on JWT expiry"],
 			pathScope: { roots: ["/src/auth"] },
 			expectedOutput: "Bug list",
+			createdAt: now,
 		},
 		usage: {
 			turns: 0,
