@@ -71,6 +71,10 @@ export const TeamProjectWorkerAccessSchema = Type.Object({
 	allowPathsOutsideProject: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 
+export const TeamProjectDisplaySchema = Type.Object({
+	cost: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+
 const FlatPromptValueSchema = Type.Union([Type.String(), Type.Null(), ProjectRolePromptSchema]);
 
 /**
@@ -106,6 +110,7 @@ export const TeamProjectConfigSchema = Type.Object({
 	enabled: Type.Optional(Type.Boolean()),
 	routingMode: Type.Optional(Type.Union([Type.Literal("team"), Type.Literal("solo")])),
 	workerAccess: Type.Optional(TeamProjectWorkerAccessSchema),
+	display: Type.Optional(TeamProjectDisplaySchema),
 	roles: Type.Optional(Type.Record(Type.String(), ProjectRoleConfigSchema)),
 }, { additionalProperties: false });
 
