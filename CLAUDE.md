@@ -80,15 +80,15 @@ Console viewport reserves 1 row for `[follow]/[paused]` header. `renderConsoleBo
 
 Overlay `dispose()` is exposed and idempotent. Component returns `{ render, invalidate, handleInput, dispose }`. `q`/`esc` paths call `dispose()` then `done()`. If pi-tui closes overlay outside our `done()`, host should call `dispose()` to unsubscribe `onAssistantChunk`; else listener leaks across open/close cycles.
 
-Session restore is honest. `markRestoredWorkersExited` flips every restored worker to `exited` on session start. Handler threads `SessionStartEvent.reason` through error string and emits one warning toast when `reason !== "startup"` and ≥1 worker flipped. Never silently reattach live RPC processes.
+Session restore is honest. `markRestoredWorkersExited` flips every restored worker to `exited` on session start. Handler threads `SessionStartEvent.reason` through error string, emits one warning toast when `reason !== "startup"` and ≥1 worker flipped. Never silently reattach live RPC processes.
 
-Reload gates tool execution. `session_start` sets `reloading = true` before `replaceTeamManager`, `false` in `finally`. Every tool `execute` calls `ensureNotReloading()` first. `/team-on`/`/team-off` also call it. Read-only operator commands (`/team-prune`, `/team-cost`, `/agent-result`, …) don't need the guard.
+Reload gates tool execution. `session_start` sets `reloading = true` before `replaceTeamManager`, `false` in `finally`. Every tool `execute` calls `ensureNotReloading()` first. `/team-on`/`/team-off` also call it. Read-only operator commands (`/team-prune`, `/team-cost`, `/agent-result`, …) skip the guard.
 
-Scaffold-stale toasts are per-process de-duped. `Map<scope, scaffoldVersion>` ensures one warning per `(scope, scaffoldVersion)` per process lifetime. Pi fires `session_start` on startup/reload/new/resume/fork; without dedup, `/reload` iterations spam.
+Scaffold-stale toasts are per-process de-duped. `Map<scope, scaffoldVersion>` ensures one warning per `(scope, scaffoldVersion)` per process lifetime. Pi fires `session_start` on startup/reload/new/resume/fork; without dedup, `/reload` spams.
 
 Broadcasts swallow per-worker errors. `messageAllWorkers` / `cancelAllWorkers` collect failures into result array. One bad worker must never abort the whole broadcast.
 
-Config precedence is by file presence, not validity. `agents-team.json` lives at `~/.pi/agent/` or `<cwd-ancestor>/.pi/agent/` (ancestor walk stops at `homedir()`). Project file present (valid, schema-mismatched, fatal-parse) → project wins outright. Invalid winning layer → built-in fallback for that scope; never downshifts. Fatal parse on NON-winning layer is diagnostic-only. Full rules: [`docs/profiles.md`](docs/profiles.md).
+Config precedence is by file presence, not validity. `agents-team.json` lives at `~/.pi/agent/` or `<cwd-ancestor>/.pi/agent/` (ancestor walk stops at `homedir()`). Project file present (valid, schema-mismatched, fatal-parse) → project wins outright. Invalid winning layer → built-in fallback for that scope; never downshifts. Fatal parse on non-winning layer is diagnostic-only. Full rules: [`docs/profiles.md`](docs/profiles.md).
 
 `schemaVersion` vs `scaffoldVersion`. Both in `src/project-config/versions.ts`: schema=`4`, scaffold=`1`. Schema = parsing contract, breaking-change bump. Scaffold = content-freshness marker, soft "stale" toast only. When-to-bump: [`docs/profiles.md`](docs/profiles.md) "Version bumps".
 
