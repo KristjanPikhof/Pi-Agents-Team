@@ -754,9 +754,11 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	const handleNumberKey = (data: string): boolean => {
-		const idx = ["1", "2", "3", "4"].indexOf(data);
-		if (idx < 0) return false;
-		state.tab = TAB_ORDER[idx];
+		const numIdx = ["1", "2", "3", "4"].indexOf(data);
+		if (numIdx < 0) return false;
+		const tab = TAB_ORDER[numIdx];
+		if (!tab || !visibleTabOrder.includes(tab)) return false;
+		state.tab = tab;
 		return true;
 	};
 
@@ -822,13 +824,13 @@ export function createTeamDashboardOverlayComponent(
 
 			if (handleNumberKey(data)) return;
 			if (matchesKey(data, "tab")) {
-				const idx = TAB_ORDER.indexOf(state.tab);
-				state.tab = TAB_ORDER[(idx + 1) % TAB_ORDER.length];
+				const idx = visibleTabOrder.indexOf(state.tab);
+				state.tab = visibleTabOrder[(idx + 1) % visibleTabOrder.length]!;
 				return;
 			}
 			if (matchesKey(data, "shift+tab")) {
-				const idx = TAB_ORDER.indexOf(state.tab);
-				state.tab = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length];
+				const idx = visibleTabOrder.indexOf(state.tab);
+				state.tab = visibleTabOrder[(idx - 1 + visibleTabOrder.length) % visibleTabOrder.length]!;
 				return;
 			}
 
