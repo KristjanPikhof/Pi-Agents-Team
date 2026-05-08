@@ -90,21 +90,18 @@ test("/team-result without an id notifies usage", async () => {
 	assert.match(harness.notifications[0]!.message, /Usage: \/team-result/);
 });
 
-test("/team-result for a tracked worker without captured assistant text still emits structure with placeholder line", async () => {
-	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
-	const teamManager = new TeamManager({ workerManager });
-
-	const delegated = await teamManager.delegateTask({
-		title: "Long runner",
-		goal: "do not finish",
+test("formatWorkerDetail without transcript renders the placeholder line (parity with inline agent-result)", () => {
+	const worker: WorkerRuntimeState = {
+		workerId: "w7",
 		profileName: "reviewer",
-		cwd: process.cwd(),
-	});
-
-	const harness = installTeamResultCommand(teamManager);
-	await harness.run(delegated.worker.workerId);
-
-	assert.equal(harness.emitted.length, 1);
-	// Mirror of inline behavior — when transcript is empty, the placeholder must appear.
-	assert.match(harness.emitted[0]!, /No assistant text captured yet/);
+		sessionMode: "worker",
+		status: "idle",
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		pendingRelayQuestions: [],
+		usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+	};
+	const text = resultTesting.formatWorkerDetail(worker, undefined);
+	assert.match(text, /Worker: w7/);
+	assert.match(text, /No assistant text captured yet/);
 });
