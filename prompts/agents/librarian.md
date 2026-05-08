@@ -70,7 +70,7 @@ Example shape:
 headline: requested skills are loaded from Pi's available skill context
 
 authoritative_findings:
-- node_modules/@mariozechner/pi-coding-agent/docs/skills.md: skills are listed in the system prompt and loaded on demand
+- node_modules/@earendil-works/pi-coding-agent/docs/skills.md: skills are listed in the system prompt and loaded on demand
 - pi-coding-agent README.md: skills can be invoked explicitly or loaded automatically
 
 caveats:

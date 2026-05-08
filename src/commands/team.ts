@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { openTeamDashboardOverlay } from "../ui/overlay";
 import type { TeamManager } from "../control-plane/team-manager";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
