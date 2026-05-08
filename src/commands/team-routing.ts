@@ -130,10 +130,15 @@ function runSetRoutingMode(
 		`Routing mode: ${previousMode} → ${mode}.`,
 	];
 
-	if (parsed.persist) {
-		const result = persistRoutingMode(parsed.persist, mode, ctx.cwd);
+	const explicitScope = parsed.persist;
+	const autoScope: "global" | "local" | undefined = explicitScope
+		? undefined
+		: (projectConfig.sourcePath ? deriveScopeFromSourcePath(projectConfig.sourcePath, ctx.cwd) : undefined) ?? "local";
+	const persistScope = explicitScope ?? autoScope;
+	if (persistScope) {
+		const result = persistRoutingMode(persistScope, mode, ctx.cwd);
 		if ("error" in result) {
-			lines.push(`--persist failed: ${result.error}`);
+			lines.push(explicitScope ? `--persist failed: ${result.error}` : `Could not persist routingMode: ${result.error}`);
 		} else {
 			lines.push(`Persisted routingMode=${mode} to ${result.path}.`);
 			if (result.warning) lines.push(result.warning);
