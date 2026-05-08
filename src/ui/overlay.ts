@@ -772,14 +772,15 @@ export function createTeamDashboardOverlayComponent(
 
 			const titleRaw = "Pi Agents Team · /team";
 			const titleStyled = accentBold(titleRaw);
-			const tabBar = buildTabBar(state.tab, routingMode);
+			const tabBar = buildTabBar(state.tab, routingMode, displayCost);
+			const tabHint = displayCost ? "1-4 tabs" : "1-3 tabs";
 			const helpRow = state.tab === "workers"
-				? "↑/↓ select · enter inspect · 1-4 tabs · tab cycle · q quit"
+				? `↑/↓ select · enter inspect · ${tabHint} · tab cycle · q quit`
 				: state.tab === "inspect"
-					? "↑/↓ scroll · PgUp/PgDn page · 1-4 tabs · q quit"
+					? `↑/↓ scroll · PgUp/PgDn page · ${tabHint} · q quit`
 					: state.tab === "console"
-						? "↑/↓ scroll · PgUp pause · End follow · 1-4 tabs · q quit"
-						: "↑/↓ scroll · 1-4 tabs · q quit";
+						? `↑/↓ scroll · PgUp pause · End follow · ${tabHint} · q quit`
+						: `↑/↓ scroll · ${tabHint} · q quit`;
 			const sel = state.selectedWorkerId ?? "none";
 			const snippet = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
 			const subHeader = `selected=${sel}  ·  ${snippet}`;
