@@ -167,18 +167,18 @@ When reuse rejects, the error spells out which fields differ. The fix is usually
 
 ## Toggle routing without reload
 
-`/team-off` and `/team-on` flip orchestrator behavior live. No `/reload` needed, and the choice sticks across restarts because both commands write `routingMode` to the active `agents-team.json` by default.
+`/team-enable on` and `/team-enable off` flip orchestrator behavior live. No `/reload` needed, and the choice sticks across restarts because the command writes `routingMode` to the active `agents-team.json` by default.
 
 ```text
-/team-off                       # solo, persist to the active config file
-/team-off --persist local       # force write to ./.pi/agent/agents-team.json
-/team-on                        # back to team, persist to the active config file
-/team-on --persist global       # force write to ~/.pi/agent/agents-team.json
+/team-enable off                       # solo, persist to the active config file
+/team-enable off --persist local       # force write to ./.pi/agent/agents-team.json
+/team-enable on                        # back to team, persist to the active config file
+/team-enable on --persist global       # force write to ~/.pi/agent/agents-team.json
 ```
 
 What changes in **solo** mode:
 
-- `delegate_task` rejects with `Team routing off. Run /team on to delegate.`. The orchestrator prompt drops the profile catalog and gets a one-line directive telling it to answer directly.
+- `delegate_task` rejects with `Team routing off. Run /team-enable on to delegate.`. The orchestrator prompt drops the profile catalog and gets a one-line directive telling it to answer directly.
 - The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The status line keeps the badge either way.
 - `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay live so workers spawned earlier can still be inspected, steered, or shut down.
 
@@ -200,7 +200,7 @@ When a fresh session boots, the initial `routingMode` falls out of the same conf
 | `enabled: true`, persisted `routingMode: "solo"` | `solo` |
 | `enabled: true`, persisted `routingMode: "team"` | `team` |
 
-`/team-on` errors with an "enable first" hint when `enabled: false`. Run `/team-enable <scope>` + `/reload` first; routing toggles only mean something when delegation itself is on.
+`/team-enable on` errors with an "enable first" hint when `enabled: false`. Edit `agents-team.json` to set `enabled: true`, then `/reload`; routing toggles only mean something when delegation itself is on.
 
 ## Delegation notes
 
