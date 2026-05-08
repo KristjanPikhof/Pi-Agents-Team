@@ -62,10 +62,9 @@ test("display.cost: old config without display block parses fine (additive non-b
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-display-old-config-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	// Minimal valid v4 file — no display field at all.
-	writeFileSync(
-		projectConfigPath(root),
-		JSON.stringify({ schemaVersion: 4, enabled: true }, null, 2),
-	);
+	const configPath = projectConfigPath(root);
+	mkdirSync(resolve(configPath, ".."), { recursive: true });
+	writeFileSync(configPath, JSON.stringify({ schemaVersion: 4, enabled: true }, null, 2));
 
 	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
 	assert.ok(result.status !== "invalid", `expected non-invalid status, got ${result.status}`);
