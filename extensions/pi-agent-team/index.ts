@@ -457,6 +457,12 @@ export default function (pi: ExtensionAPI): void {
 		emitText: commandDependencies.emitText,
 		ensureNotReloading,
 	});
+	registerTeamEnableCommand(pi, {
+		getTeamManager: () => teamManager,
+		getProjectConfig: () => activeProjectConfig,
+		emitText: commandDependencies.emitText,
+		ensureNotReloading,
+	});
 
 	pi.registerCommand("agent-result", {
 		description: "Show the full result for a worker: /agent-result <worker-id>",
