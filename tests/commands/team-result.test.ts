@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
-import { registerTeamResultCommand } from "../../src/commands/team-result";
+import { _testing as resultTesting, registerTeamResultCommand } from "../../src/commands/team-result";
+import type { WorkerRuntimeState } from "../../src/types";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "../runtime/test-helpers";
 
 interface RegisteredCommand {
