@@ -9,9 +9,9 @@ The fastest path: run `/team-init` in a repo, edit the resulting file, run `/rel
 | Goal | What to do |
 |---|---|
 | Use the extension as-is with sensible defaults | Nothing. No config file needed. |
-| Tune one role (e.g. pin a model for `oracle`) | `/team-init local`, edit that one role block, `/reload`. |
-| Swap the default names for your own vocabulary | Edit the `roles` keys after `/team-init local`. |
-| Build a repo-specific team from scratch | `/team-init local`, delete every role you don't want, add the ones you do. |
+| Tune one role (e.g. pin a model for `oracle`) | `/team-init`, edit that one role block, `/reload`. |
+| Swap the default names for your own vocabulary | Edit the `roles` keys after `/team-init`. |
+| Build a repo-specific team from scratch | `/team-init`, delete every role you don't want, add the ones you do. |
 | Share a config with your team | Commit `.pi/agent/agents-team.json`. Teammates pick it up on next session start. |
 | Apply the same config across every repo | Write `~/.pi/agent/agents-team.json` (or use `/team-init global`). |
 
