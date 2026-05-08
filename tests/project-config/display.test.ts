@@ -30,10 +30,9 @@ test("display.cost: display.cost omitted inside display block → displayCost de
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-display-cost-omitted-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	// Write a display block with no cost field.
-	writeFileSync(
-		projectConfigPath(root),
-		JSON.stringify({ schemaVersion: 4, display: {} }, null, 2),
-	);
+	const configPath = projectConfigPath(root);
+	mkdirSync(resolve(configPath, ".."), { recursive: true });
+	writeFileSync(configPath, JSON.stringify({ schemaVersion: 4, display: {} }, null, 2));
 
 	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
 	assert.equal(result.displayCost, true, "omitted cost inside display must default to true");
