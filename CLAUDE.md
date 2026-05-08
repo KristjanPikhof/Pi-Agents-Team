@@ -72,7 +72,7 @@ Visible-width + ANSI handling in TUI code. Widget + overlay use pi-tui `visibleW
 
 Overlay row budget must match `maxHeight`. `TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight = "90%"` paired with `OVERLAY_HEIGHT_PCT = 0.9`. `computeOverlayRows(termRows) = floor(termRows * OVERLAY_HEIGHT_PCT)`. Render > clipped rectangle → pi-tui truncates tail, bottom frame + footer disappear. Bumping one requires bumping the other + updating row-budget regression test in `tests/ui/overlay.test.ts`.
 
-Console viewport reserves 1 row for the `[follow]/[paused]` header. `renderConsoleBody` computes `visible = rows - 1` and uses that for both `maxTop` and the slice. Using bare `rows` for `maxTop` while slicing `rows - 1` drops the newest line at the tail.
+Console viewport reserves 1 row for `[follow]/[paused]` header. `renderConsoleBody` computes `visible = rows - 1`, uses for both `maxTop` and slice. Bare `rows` for `maxTop` while slicing `rows - 1` drops newest line at tail.
 
 `/team` `[n]ew` mirrors `delegate_task` solo guard. Both modal-open AND submit-time check `teamManager.routingMode === "solo"` and refuse with `"Team routing off. Run /team-on to delegate."`. Submit-side guard catches the operator toggling solo while modal is open. Without it, `[n]ew` would bypass the tool-side guard.
 
