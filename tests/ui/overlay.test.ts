@@ -88,6 +88,7 @@ interface FakeManagerOptions {
 	consoles?: Record<string, WorkerConsoleEvent[]>;
 	chunks?: Record<string, AssistantChunk[]>;
 	routingMode?: "team" | "solo";
+	displayCost?: boolean;
 	profiles?: string[];
 	calls?: FakeManagerCalls;
 }
