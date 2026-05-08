@@ -401,6 +401,7 @@ interface OverlayTeamManager {
 	}): Promise<unknown>;
 	routingMode?: "team" | "solo";
 	config?: { profiles: Array<{ name: string }> };
+	displayCost?: boolean;
 }
 
 export interface OpenTeamDashboardOptions {
