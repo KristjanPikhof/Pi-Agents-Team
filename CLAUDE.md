@@ -96,7 +96,7 @@ Path scope is prompt convention, NOT OS sandbox. Tells worker where to focus; bl
 
 User strings in prompts are fenced + length-capped. Role `name` ≤64, `whenToUse` / `description` ≤500. Sanitized + wrapped with `<!-- BEGIN available-profiles -->` sentinels before reaching orchestrator prompt. Defense against prompt-injection via crafted `whenToUse` in shared configs.
 
-Config writes are atomic. `src/util/backup.ts#atomicWriteFileSync` stages to `<path>.tmp.<pid>.<ts>` and `renameSync`s into place. Backups: `copyFileSync` with `COPYFILE_EXCL`. Dirs `0o700`, files `0o600` (noop on Windows). `/team-enable`, `/team-disable`, `/team-on`, `/team-off`, `/team-init` use it; toggle commands shallow-merge into existing JSON so roles/`enabled`/`workerAccess` survive the patch.
+Config writes are atomic. `src/util/backup.ts#atomicWriteFileSync` stages to `<path>.tmp.<pid>.<ts>` and `renameSync`s into place. Backups: `copyFileSync` with `COPYFILE_EXCL`. Dirs `0o700`, files `0o600` (noop on Windows). `/team-enable` and `/team-init` use it; `/team-enable` shallow-merges into existing JSON so roles/`enabled`/`workerAccess`/`display` survive the patch.
 
 Team profiles vs Pi skills. `delegate_task.profileName` = role from active config; `delegate_task.skills: string[]` = installed Pi skills worker should load. Which skills exist is install-specific; never bake skill names into prompts, examples, role defaults. Orchestrator's "Available worker profiles" block built dynamically from `config.profiles` at startup.
 
