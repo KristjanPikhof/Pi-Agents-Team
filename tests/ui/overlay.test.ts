@@ -156,6 +156,7 @@ function makeComponent(opts: {
 	consoles?: Record<string, WorkerConsoleEvent[]>;
 	chunks?: Record<string, AssistantChunk[]>;
 	routingMode?: "team" | "solo";
+	displayCost?: boolean;
 }) {
 	const state = opts.state ?? makeState();
 	const tui = {
@@ -168,6 +169,7 @@ function makeComponent(opts: {
 		consoles: opts.consoles,
 		chunks: opts.chunks,
 		routingMode: opts.routingMode,
+		displayCost: opts.displayCost,
 	};
 	const manager = makeFakeManager(managerOpts);
 	const component = createTeamDashboardOverlayComponent(tui, manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1], state, () => {}, {
