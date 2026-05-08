@@ -538,7 +538,7 @@ export function createTeamDashboardOverlayComponent(
 			if (!worker) return;
 			// Block only truly unreachable workers. `messageWorker` resolver
 			// auto-upgrades steer/follow_up to a fresh prompt for idle and
-			// waiting_followup, matching /agent-steer and /agent-followup.
+			// waiting_followup, matching /team-steer.
 			const unreachable = new Set<WorkerStatus>(["completed", "aborted", "error", "exited"]);
 			if (unreachable.has(worker.status)) {
 				setStatus(`Worker ${workerId} is ${worker.status} — RPC disposed; delegate fresh`);
@@ -558,7 +558,7 @@ export function createTeamDashboardOverlayComponent(
 			return;
 		}
 		if (teamManager.routingMode === "solo") {
-			setStatus("Team routing off. Run /team-on to delegate.");
+			setStatus("Team routing off. Run /team-enable on to delegate.");
 			return;
 		}
 		const profile = currentWorker()?.profileName ?? teamManager.config?.profiles[0]?.name;
@@ -592,7 +592,7 @@ export function createTeamDashboardOverlayComponent(
 				setStatus(`Sent message to ${modal.workerId}`);
 			} else if (modal.kind === "new_task") {
 				if (teamManager.routingMode === "solo") {
-					setStatus("Team routing off. Run /team-on to delegate.");
+					setStatus("Team routing off. Run /team-enable on to delegate.");
 					return;
 				}
 				const profile = currentWorker()?.profileName ?? teamManager.config?.profiles[0]?.name;

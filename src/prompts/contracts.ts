@@ -140,7 +140,7 @@ function buildAvailableProfilesBlock(config: TeamConfig): string {
 const SOLO_ROUTING_DIRECTIVE = [
 	"## Routing mode: solo",
 	"",
-	"Team routing is off. Answer the user directly without delegating to workers — do not call `delegate_task`. The other agent_* tools remain available for inspecting any workers spawned earlier; the operator can flip routing back on with `/team-on`.",
+	"Team routing is off. Answer the user directly without delegating to workers — do not call `delegate_task`. The other agent_* tools remain available for inspecting any workers spawned earlier; the operator can flip routing back on with `/team-enable on`.",
 ].join("\n");
 
 export function buildOrchestratorPromptBundle(
