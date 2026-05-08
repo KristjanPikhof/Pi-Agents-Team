@@ -96,17 +96,20 @@ export class TeamManager {
 	private workerCounter = 0;
 	private taskCounter = 0;
 	private _routingMode: RoutingMode;
+	readonly displayCost: boolean;
 
 	constructor(options?: {
 		config?: TeamConfig;
 		registry?: TaskRegistry;
 		workerManager?: WorkerManager;
 		routingMode?: RoutingMode;
+		displayCost?: boolean;
 	}) {
 		this.config = options?.config ?? DEFAULT_TEAM_CONFIG;
 		this.registry = options?.registry ?? new TaskRegistry();
 		this.workerManager = options?.workerManager ?? new WorkerManager();
 		this._routingMode = options?.routingMode ?? "team";
+		this.displayCost = options?.displayCost !== false;
 		this.workerManager.onEvent((worker) => {
 			this.registry.upsertWorker(worker.state);
 			this.events.emit("state_change", this.snapshot());
