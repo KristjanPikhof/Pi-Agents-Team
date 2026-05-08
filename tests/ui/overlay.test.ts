@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { visibleWidth } from "@mariozechner/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { createDefaultTeamState } from "../../src/config";
 import type { TeamManager } from "../../src/control-plane/team-manager";
 import {
