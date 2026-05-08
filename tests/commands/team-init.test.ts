@@ -51,6 +51,7 @@ test("buildFullScaffold pre-populates every builtin profile in the schema v4 sha
 	assert.equal(scaffold.schemaVersion, 4);
 	assert.equal(scaffold.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
 	assert.equal(scaffold.enabled, true);
+	assert.equal(scaffold.routingMode, "team");
 	assert.equal(scaffold.workerAccess?.allowPathsOutsideProject, true);
 	const roles = scaffold.roles ?? {};
 	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
