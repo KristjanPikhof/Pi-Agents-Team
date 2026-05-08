@@ -255,6 +255,7 @@ export default function (pi: ExtensionAPI): void {
 	let teamManager = new TeamManager({
 		config: activeProjectConfig.config,
 		routingMode: deriveInitialRoutingMode(activeProjectConfig),
+		displayCost: activeProjectConfig.displayCost,
 	});
 	let teamState = createDefaultTeamState(activeProjectConfig.config);
 	let activeContext: ExtensionContext | undefined;
