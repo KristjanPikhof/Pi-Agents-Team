@@ -371,7 +371,7 @@ export default function (pi: ExtensionAPI): void {
 	async function replaceTeamManager(config: TeamConfig): Promise<void> {
 		detachTeamManagerListener();
 		await teamManager.dispose();
-		teamManager = new TeamManager({ config, routingMode: deriveInitialRoutingMode(activeProjectConfig) });
+		teamManager = new TeamManager({ config, routingMode: deriveInitialRoutingMode(activeProjectConfig), displayCost: activeProjectConfig.displayCost });
 		attachTeamManagerListener(teamManager);
 		teamState = createDefaultTeamState(config);
 		applyUi(activeContext, teamState, spinnerFrame, config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
