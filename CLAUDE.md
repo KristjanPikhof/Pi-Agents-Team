@@ -74,11 +74,11 @@ Overlay row budget must match `maxHeight`. `TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHe
 
 Console viewport reserves 1 row for `[follow]/[paused]` header. `renderConsoleBody` computes `visible = rows - 1`, uses for both `maxTop` and slice. Bare `rows` for `maxTop` while slicing `rows - 1` drops newest line at tail.
 
-`/team` `[n]ew` mirrors `delegate_task` solo guard. Both modal-open AND submit-time check `teamManager.routingMode === "solo"` and refuse with `"Team routing off. Run /team-on to delegate."`. Submit-side guard catches the operator toggling solo while modal is open. Without it, `[n]ew` would bypass the tool-side guard.
+`/team` `[n]ew` mirrors `delegate_task` solo guard. Both modal-open AND submit-time check `teamManager.routingMode === "solo"`, refuse with `"Team routing off. Run /team-on to delegate."`. Submit-side guard catches operator toggling solo while modal is open; without it, `[n]ew` bypasses tool-side guard.
 
-`[n]ew` always delegates fresh — never silently forwards `reuseWorkerId` from selected worker. Forwarding would reset that worker's `<final_answer>`/summary on submit. Reuse stays orchestrator-only via `delegate_task.reuseWorkerId`.
+`[n]ew` always delegates fresh; never silently forwards `reuseWorkerId` from selected worker. Forwarding would reset that worker's `<final_answer>`/summary on submit. Reuse stays orchestrator-only via `delegate_task.reuseWorkerId`.
 
-Overlay `dispose()` is exposed and idempotent. Component returns `{ render, invalidate, handleInput, dispose }`. `q`/`esc` paths call `dispose()` then `done()`. If pi-tui closes overlay outside our `done()`, host should call `dispose()` to unsubscribe `onAssistantChunk`. Without it the listener leaks across open/close cycles.
+Overlay `dispose()` is exposed and idempotent. Component returns `{ render, invalidate, handleInput, dispose }`. `q`/`esc` paths call `dispose()` then `done()`. If pi-tui closes overlay outside our `done()`, host should call `dispose()` to unsubscribe `onAssistantChunk`; else listener leaks across open/close cycles.
 
 Session restore is honest. `markRestoredWorkersExited` flips every restored worker to `exited` on session start. Handler threads `SessionStartEvent.reason` through error string and emits one warning toast when `reason !== "startup"` and ≥1 worker flipped. Never silently reattach live RPC processes.
 
