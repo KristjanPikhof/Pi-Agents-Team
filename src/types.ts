@@ -236,6 +236,8 @@ export interface LoadedTeamProjectConfig {
 	diagnostics: ProjectConfigDiagnostic[];
 	delegationEnabled: boolean;
 	persistedRoutingMode?: "team" | "solo";
+	/** Whether to show cost in the UI. Defaults to true when absent. Read via `config.display?.cost ?? true`. */
+	displayCost: boolean;
 }
 
 export interface DelegatedTaskInput {
