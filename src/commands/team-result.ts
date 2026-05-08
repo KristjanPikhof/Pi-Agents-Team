@@ -42,15 +42,6 @@ function formatWorkerDetail(worker: WorkerRuntimeState, transcript?: string): st
 		lines.push("", "No assistant text captured yet (worker has not emitted a final message).");
 	}
 
-	if (worker.finalAnswer && worker.finalAnswer.trim()) {
-		lines.push("", "--- Final answer (from worker's <final_answer> block) ---", worker.finalAnswer.trim());
-	} else {
-		lines.push(
-			"",
-			`No <final_answer> block extracted yet. If the worker is idle and this is empty, it did not follow the final-answer contract — re-delegate or steer it with: \`Please wrap your final deliverable in <final_answer>…</final_answer> tags.\``,
-		);
-	}
-
 	return lines.join("\n");
 }
 
