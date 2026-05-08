@@ -71,11 +71,7 @@ export function registerTeamResultCommand(pi: ExtensionAPI, dependencies: Comman
 				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
 				return;
 			}
-			const result = dependencies.teamManager.getWorkerResult(resolved);
-			if (!result) {
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
-				return;
-			}
+			const result = dependencies.teamManager.getWorkerResult(resolved)!;
 			const transcript = dependencies.teamManager.getWorkerTranscript(resolved);
 			dependencies.emitText(ctx, formatWorkerDetail(result.worker, transcript));
 		},
