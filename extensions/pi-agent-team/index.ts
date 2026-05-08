@@ -466,6 +466,7 @@ export default function (pi: ExtensionAPI): void {
 		ensureNotReloading,
 	});
 	registerTeamResultCommand(pi, commandDependencies);
+	registerTeamStopCommand(pi, commandDependencies);
 
 	pi.registerCommand("agent-result", {
 		description: "Show the full result for a worker: /agent-result <worker-id>",
