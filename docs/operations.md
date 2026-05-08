@@ -260,7 +260,7 @@ Common causes (hard errors):
 
 Soft warnings don't disable delegation (the config keeps working):
 
-- `schemaVersion` doesn't match the current schema. The layer falls back to built-ins and you get a toast pointing at `/team-init <scope> --force`. See [`profiles.md`](profiles.md) "Version bumps."
+- `schemaVersion` doesn't match the current schema. The layer falls back to built-ins and you get a toast pointing at `/team-init --force`. See [`profiles.md`](profiles.md) "Version bumps."
 - A prompt string that doesn't resolve to a file. It gets treated as inline prompt text, which is usually what you want. If you actually meant a path, fix the typo.
 
 See [`profiles.md`](profiles.md) for the full role shape and prompt-resolution rules.
