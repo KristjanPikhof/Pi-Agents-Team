@@ -286,7 +286,7 @@ export default function (pi: ExtensionAPI): void {
 				stopSpinner();
 				return;
 			}
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 		}, SPINNER_INTERVAL_MS);
 		if (typeof spinnerTimer.unref === "function") spinnerTimer.unref();
 	}
@@ -329,7 +329,7 @@ export default function (pi: ExtensionAPI): void {
 		detachTeamManagerListener = manager.onStateChange((state) => {
 			teamState = state;
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 
 			if (hasAnimatedWorkers(teamState)) {
 				ensureSpinnerRunning();
@@ -441,7 +441,7 @@ export default function (pi: ExtensionAPI): void {
 				reuseWorkerId: params.reuseWorkerId,
 			});
 			teamState = teamManager.snapshot();
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			return {
 				content: [
 					{
