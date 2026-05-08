@@ -116,47 +116,38 @@ Clipboard providers are picked by platform: `pbcopy` on macOS, `clip.exe` on Win
 ## Steer or queue follow-up work
 
 ```text
-/agent-steer <worker-id> narrow to src/runtime only
-/agent-steer all remember: the user cares about power, not just perf
-/agent-followup <worker-id> after that, summarize the remaining risks
-/agent-followup all when you finish, include a risks section
+/team-steer <worker-id> narrow to src/runtime only
+/team-steer all remember: the user cares about power, not just perf
+/team-steer <worker-id> --queue after that, summarize the remaining risks
+/team-steer all --queue when you finish, include a risks section
 ```
 
-`/agent-steer` and `/agent-followup` both route by current worker status:
+`/team-steer` routes by current worker status:
 
-- **Running workers** (actively streaming): `/agent-steer` sends a mid-stream steer; `/agent-followup` queues the message onto the live stream so it runs after the current turn. The confirmation line reads `Steered w1 (…:running)` or `Queued follow-up for w1 (…:running)`.
-- **Idle / waiting_followup workers** (session alive but not streaming): **both** commands wake the session with the message as a fresh user prompt, regardless of which you typed. This is the behavior you want — a bare `follow_up` RPC on an idle session just sits in a pending queue and nothing consumes it, so the worker would otherwise appear to "do nothing". The confirmation line reads `Prompted w1 (…:idle)` to make this explicit.
+- **Running workers** (actively streaming): sends a mid-stream steer by default. With `--queue`, queues the message onto the live stream so it runs after the current turn. The confirmation line reads `Steered w1 (…:running)` or `Queued follow-up for w1 (…:running)`.
+- **Idle / waiting_followup workers** (session alive but not streaming): wakes the session with the message as a fresh user prompt, regardless of whether `--queue` was passed. This is the behavior you want — a bare `follow_up` RPC on an idle session just sits in a pending queue and nothing consumes it, so the worker would otherwise appear to "do nothing". The confirmation line reads `Prompted w1 (…:idle)` to make this explicit.
 - **Terminal workers** (`exited`, `aborted`, `error`, `completed`): cannot receive messages and are skipped.
 
 Use `all` to broadcast to every deliverable worker at once. The printed mode is per-worker, so you can see whether each target was steered, queued behind a live stream, or re-prompted.
 
-The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "follow_up"` and follows the same rules. Its tool result text now ends with the resolved mode, e.g. `Sent message to w1 (prompt).`
+The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "follow_up"` and follows the same rules. Its tool result text ends with the resolved mode, e.g. `Sent message to w1 (prompt).`
 
-## Cancel a worker
+Inside the `/team` overlay, `s` steers the selected worker and `m` sends a message — both defer to the same delivery resolver and only block unreachable terminal workers.
 
-```text
-/agent-cancel <worker-id>
-/agent-cancel all
-```
-
-Aborts the RPC session and shuts down the worker process. The compact state is marked `exited`; persisted state survives. `all` cancels every non-terminal worker in one call and prints a per-worker summary.
-
-## Close an idle worker
+## Stop a worker
 
 ```text
-/agent-close <worker-id>
-/agent-close all
+/team-stop <worker-id>
+/team-stop all
 ```
 
-Disposes the RPC session of an `idle` or `waiting_followup` worker and flips it to `exited`. Use this instead of `/agent-cancel` when a worker is already done and you want to free the process without waiting for the next `/team-prune` sweep.
+Stops one worker or every non-terminal worker. The command automatically picks the right verb:
 
-Rules:
+- **Running / starting** workers: cancels — aborts the RPC session and shuts down the process. State is marked `exited`; persisted state (summary, final answer) survives.
+- **Idle / waiting_followup** workers: closes — disposes the RPC session and flips status to `exited`. Use this when a worker is done and you want to free the process immediately rather than waiting for the next prune.
+- **Already-terminal** workers (`completed`/`aborted`/`error`/`exited`): refused with a note. Open `/team` and press `p` to remove them from the dashboard.
 
-- Refuses `running`/`starting` workers. Use `/agent-cancel` for those.
-- Refuses already-terminal workers (`completed`/`aborted`/`error`/`exited`). Use `/team-prune` to clear them from the dashboard.
-- `all` closes every reusable worker. Per-worker failures don't abort the broadcast.
-
-`/team-prune` was a leak before this change: it removed terminal entries from the dashboard but left their RPC processes alive (idle workers still hold a live session). Prune now disposes those handles before removing the entry, so the old "idle worker survives prune as a zombie process" bug is gone.
+`all` processes every non-terminal worker in one call and prints a per-worker summary. Per-worker failures don't abort the broadcast.
 
 ## Reuse an idle worker
 
