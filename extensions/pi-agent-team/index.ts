@@ -18,6 +18,7 @@ import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
 import { registerTeamEnableCommand } from "../../src/commands/team-enable";
 import { registerTeamInitCommand } from "../../src/commands/team-init";
+import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamRoutingCommands } from "../../src/commands/team-routing";
 import { registerTeamToggleCommands } from "../../src/commands/team-toggle";
 import { formatUnknownWorker, suggestTargets } from "../../src/util/suggest";
