@@ -285,7 +285,7 @@ Two counters, two purposes.
 | `schemaVersion` | The shape contract. Bumped on breaking schema changes (renamed fields, re-layouts). | Hard warning toast on session start. Layer falls back to built-in roles. Run `/team-init <scope> --force` to regenerate. |
 | `scaffoldVersion` | Freshness marker for scaffold content. Bumped when `/team-init` would write different defaults. | Soft warning toast suggesting re-init. File keeps loading as-is. |
 
-Both constants live in `src/project-config/versions.ts`. Bump there, nothing else needs to change. See [CLAUDE.md](../CLAUDE.md) "Schema versioning" for the rules on which counter to move.
+Both constants live in `src/project-config/versions.ts` (currently `schemaVersion=4`, `scaffoldVersion=2`). Bump there, nothing else needs to change. See [CLAUDE.md](../CLAUDE.md) "Schema versioning" for the rules on which counter to move.
 
 ## Launch-time safety
 
