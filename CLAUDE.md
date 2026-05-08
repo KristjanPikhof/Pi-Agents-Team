@@ -42,7 +42,7 @@ Rejected prompt acceptance is terminal. `promptWorker` marks worker `running` be
 
 Terminal workers reject messages. `messageWorker` throws when `worker.status` ∈ `UNREACHABLE_STATUSES` (`completed | aborted | error | exited`). `idle` and `waiting_followup` stay alive — RPC accepts prompts.
 
-Delivery resolution is a 3-way union. `AgentMessageResult.delivery` = `"steer" | "follow_up" | "prompt"`. `steer`/`follow_up` only while streaming; on idle/waiting_followup both `/agent-steer` and `/agent-followup` upgrade to `"prompt"` (fresh RPC wakes session). Dropping `"prompt"` reintroduces "queued but nothing happens" bug. Overlay `[s]teer`/`[m]sg` defer to this resolver — only block unreachable terminal pre-call; do NOT pre-block idle/waiting.
+Delivery resolution is a 3-way union. `AgentMessageResult.delivery` = `"steer" | "follow_up" | "prompt"`. `steer`/`follow_up` only while streaming; on idle/waiting_followup `/team-steer` (with or without `--queue`) upgrades to `"prompt"` (fresh RPC wakes session). Dropping `"prompt"` reintroduces "queued but nothing happens" bug. Overlay `[s]teer`/`[m]sg` defer to this resolver — only block unreachable terminal pre-call; do NOT pre-block idle/waiting.
 
 `wait_for_agents` wakes on relays. Resolves `all_terminal | relay_raised | timeout | aborted`. `relay_raised` carries `newRelays: {workerId, profileName, question, urgency}[]`. Baseline relay count snapshotted per call. Opt out: `wakeOnRelay: false`. See "Wait, don't poll" in [`docs/architecture.md`](docs/architecture.md).
 
@@ -60,7 +60,7 @@ Close vs cancel vs prune are distinct.
 | `closeWorker` | idle/waiting_followup | disposes RPC; sets `closing` so `worker_exit` lands as `exited` not `aborted` | `exited` |
 | `pruneTerminalWorkers` | terminal entries | per entry: `WorkerManager.removeWorker` (closes leftover live handle for idle/waiting), unsubscribes RPC, drops registry entry. Async | (removed) |
 
-No auto-prune on terminal transition: operators want batch history until `/team-prune`. Prune disposes idle handles to stop leaking processes.
+No auto-prune on terminal transition: operators want batch history until they press `p` in the overlay. Prune disposes idle handles to stop leaking processes.
 
 Reuse is launch-strict. `delegate_task.reuseWorkerId` re-prompts existing idle/waiting_followup worker's RPC instead of spawning. Process-launch flags (`model`, `tools`, `cwd`, `systemPromptPath`, `extensionMode`, `thinkingLevel`, `allowSkills`) bake at spawn. `WorkerManager` snapshots on `launchWorker` (`record.launchSnapshot`); `TeamManager.reuseWorkerForTask` recomputes via `applyLaunchPolicy`, rejects per-field on mismatch. Cross-profile reuse rejected. Reuse resets per-task state (`textBuffer`, `finalAnswer`, `lastTool`, `relayQuestions`, `lastSummary`, `error`, `assistantChunks`) before re-prompting.
 
