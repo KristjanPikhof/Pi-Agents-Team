@@ -466,7 +466,7 @@ export class TeamManager {
 		const worker = this.requireWorker(workerId);
 		if (!REUSABLE_STATUSES.has(worker.status)) {
 			throw new Error(
-				`Cannot close worker ${workerId}: status is ${worker.status}. Only idle/waiting_followup workers can be closed; running workers need /agent-cancel.`,
+				`Cannot close worker ${workerId}: status is ${worker.status}. Only idle/waiting_followup workers can be closed; running workers need /team-stop.`,
 			);
 		}
 		await this.workerManager.closeWorker(workerId, reason);
