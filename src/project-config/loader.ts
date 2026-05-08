@@ -741,6 +741,9 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			? winningLayer.parsed.routingMode
 			: undefined;
 
+	// Read display.cost from the winning layer; default true when absent.
+	const displayCost: boolean = winningLayer?.parsed.display?.cost ?? true;
+
 	// A fatal parse error on the WINNING layer disables delegation (the user's
 	// intended config is broken and they need a diagnostic). A fatal parse on a
 	// non-winning layer is surfaced as a diagnostic but doesn't block the
@@ -763,6 +766,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			diagnostics,
 			delegationEnabled: false,
 			persistedRoutingMode,
+			displayCost,
 		};
 	}
 
