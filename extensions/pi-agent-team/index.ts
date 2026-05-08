@@ -83,6 +83,7 @@ function applyUi(
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
 	active = true,
 	routingMode: "team" | "solo" = "team",
+	displayCost = true,
 ): void {
 	if (!ctx?.hasUI) return;
 	if (!active) {
@@ -91,7 +92,7 @@ function applyUi(
 		return;
 	}
 
-	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode });
+	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode, displayCost });
 	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode));
 	ctx.ui.setWidget(config.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
