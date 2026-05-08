@@ -298,22 +298,22 @@ The loader trusts whatever you put in the file. `launch-policy.ts` runs every ti
 
 Launch-time overrides (tools, path scope, extension mode) may only narrow the role's declared rights. They cannot broaden them.
 
-## Toggle commands
+## Routing commands
 
 | Command | What it does |
 |---|---|
-| `/team-enable global\|local` | Sets `enabled: true` in the target file. Creates the file with just the flag if missing. |
-| `/team-disable global\|local` | Sets `enabled: false` in the target file. |
-| `/team-on [--persist global\|local]` | Flip routing to `team` and persist `routingMode: "team"` to the active `agents-team.json` (winning layer, or a fresh local stub if no file exists). Pass `--persist` to force a specific scope. Errors when `enabled: false`. |
-| `/team-off [--persist global\|local]` | Flip routing to `solo` and persist `routingMode: "solo"` to the active `agents-team.json` (winning layer, or a fresh local stub). Live workers stay reachable; only `delegate_task` is gated off. |
+| `/team-enable on [--persist global\|local]` | Flip routing to `team` and persist `routingMode: "team"` to the active `agents-team.json` (winning layer, or a fresh local stub if no file exists). Pass `--persist` to force a specific scope. Errors when `enabled: false`. |
+| `/team-enable off [--persist global\|local]` | Flip routing to `solo` and persist `routingMode: "solo"` to the active `agents-team.json` (winning layer, or a fresh local stub). Live workers stay reachable; only `delegate_task` is gated off. |
 
-Both commands are non-destructive:
+Both forms are non-destructive:
 
-- If the file is valid, `enabled` is patched in place. Your roles, prompts, models, and scopes stay untouched.
-- If the file parses as JSON but drifts from the current schema (unknown fields, future fields, old-shape roles), the toggle preserves your raw object and only patches `enabled`. A warning surfaces that the file still needs a schema-level fix.
-- If the file isn't parseable JSON at all, the toggle copies it to `YYYY-MM-DD-HHMMSS-agents-team.json` in the same directory (seconds included so same-minute reruns don't collide; exclusive-create so concurrent runs don't clobber each other's backups; original stays in place until the new write succeeds) before writing a minimal `{ schemaVersion, enabled }` replacement. All config writes are atomic via staged `<path>.tmp.<pid>.<ts>` → `renameSync`, so a ctrl-C mid-write leaves the original file intact.
+- If the file is valid, `routingMode` is patched in place. Your roles, prompts, models, scopes, and `enabled` flag stay untouched.
+- If the file parses as JSON but drifts from the current schema, the command preserves your raw object and only patches `routingMode`. A warning surfaces that the file still needs a schema-level fix.
+- If the file isn't parseable JSON at all, the command errors out without touching the in-memory toggle.
 
-Follow any toggle with `/reload` to apply the change in the current Pi session.
+All config writes are atomic via staged `<path>.tmp.<pid>.<ts>` → `renameSync`, so a ctrl-C mid-write leaves the original file intact.
+
+To toggle the `enabled` flag itself, edit `agents-team.json` by hand and follow with `/reload`. The `enabled` flag controls whether delegation is active at all; `/team-enable on|off` controls only the routing mode within an already-enabled setup.
 
 ## Files that package this
 
