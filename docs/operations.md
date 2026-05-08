@@ -73,30 +73,35 @@ Inspect renders status, task, operator-needs, summary, the worker's `<final_answ
 ## Inspect a worker's result
 
 ```text
-/agent-result <worker-id>
+/team-result <worker-id>
 ```
 
-Prints the compact summary (headline, files read/changed, risks, next recommendation, pending relays, usage) plus the verbatim contents of the worker's `<final_answer>` block. This is the authoritative deliverable. If the block is empty, the worker did not follow the contract: re-delegate, steer it with a corrective message, or cancel.
+Prints the compact summary (headline, files read/changed, risks, next recommendation, pending relays, usage) plus the verbatim contents of the worker's `<final_answer>` block. This is the authoritative deliverable. If the block is empty, the worker did not follow the contract: re-delegate, steer it with a corrective message, or stop it.
 
 ## Clean up finished workers
 
-```text
-/team-prune
-```
+Press `p` inside the `/team` overlay to prune every terminal worker (`idle`, `completed`, `aborted`, `error`, `exited`) from the dashboard. Useful after a cancelled batch when you want to start fresh without old rows cluttering the widget. Non-terminal workers are left alone, so pruning is safe while new workers are still active.
 
-Removes every terminal worker (`idle`, `completed`, `aborted`, `error`, `exited`) from the dashboard. Useful after a cancelled batch when you want to start fresh without the old rows cluttering the widget and `/team` overlay. Non-terminal workers are left alone, so this is safe to run while new workers are still active.
-
-If you want a hard reset, run `/agent-cancel all` first, then `/team-prune`.
+For a hard reset: `/team-stop all` first to stop every live worker, then `p` in the overlay to clear the terminal rows.
 
 ## See aggregate token usage and cost
 
-```text
-/team-cost
+Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per tracked worker (turns, input/output tokens, cache reads/writes, cost) plus a `Σ` aggregate row. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
+
+The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any worker has non-zero usage, so you don't have to open the overlay for the running total.
+
+To hide the `Σ` row and Cost tab, set `display.cost: false` in your `agents-team.json`:
+
+```json
+{
+  "schemaVersion": 4,
+  "display": {
+    "cost": false
+  }
+}
 ```
 
-Prints one line per tracked worker (turns, input/output tokens, cache reads/writes, cost) plus a `Σ` total row. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so `/team-cost` focuses on the agent team.
-
-The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any worker has non-zero usage, so you don't have to run the command to see the running total.
+Defaults to `true` when the field is absent.
 
 ## Copy a worker's output to the clipboard
 
