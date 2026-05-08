@@ -142,6 +142,7 @@ function makeFakeManager(options: FakeManagerOptions): TeamManager {
 			return { worker: options.state.activeWorkers[Object.keys(options.state.activeWorkers)[0]]! };
 		},
 		routingMode: options.routingMode ?? "team",
+		displayCost: options.displayCost !== false,
 		config: { profiles: (options.profiles ?? ["reviewer", "fixer"]).map((name) => ({ name })) },
 	} as unknown as TeamManager;
 }
