@@ -27,10 +27,10 @@ Single test: `tsx --test tests/runtime/worker-manager.test.ts`. Local load: `pi 
 
 ## Operator + tool surface
 
-- 14 slash commands (incl. `/agent-result`). See [`README.md`](README.md), [`docs/operations.md`](docs/operations.md).
+- 7 slash commands: `/team`, `/team-steer`, `/team-stop`, `/team-copy`, `/team-result`, `/team-enable`, `/team-init`. See [`README.md`](README.md), [`docs/operations.md`](docs/operations.md).
 - 7 orchestrator tools: `delegate_task`, `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, `agent_cancel`.
 - Overlay (`/team`): top tabs `Workers / Inspect / Console / Cost` (`1`–`4`, tab cycle); persistent action bar `[s]teer [m]sg [n]ew [c]lose [x]cancel [p]rune [r]efresh [y]copy [q]uit`; inline single-line modal for `s`/`m`/`n`; live-tail Console via `getAssistantTail` + `onAssistantChunk`; header solo badge from `routingMode`; `[reuse]` tag on idle/waiting_followup rows. Theme via `src/ui/theme.ts` (ANSI helpers + box-drawing frame chars).
-- Removed, do NOT re-add without discussion: `/team-status`, `/agents`, `/ping-agents`.
+- Removed, do NOT re-add without discussion: `/team-status`, `/agents`, `/ping-agents`, `/team-on`, `/team-off`, `/team-cost`, `/team-prune`, `/team-disable`, `/agent-cancel`, `/agent-close`, `/agent-steer`, `/agent-followup`, `/agent-result`.
 
 ## Load-bearing invariants
 
