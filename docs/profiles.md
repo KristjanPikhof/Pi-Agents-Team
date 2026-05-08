@@ -51,10 +51,13 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 ```json
 {
   "schemaVersion": 4,
-  "scaffoldVersion": 1,
+  "scaffoldVersion": 2,
   "enabled": true,
   "workerAccess": {
     "allowPathsOutsideProject": true
+  },
+  "display": {
+    "cost": true
   },
   "roles": {
     "explorer": {
