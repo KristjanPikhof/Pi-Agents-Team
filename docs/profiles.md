@@ -38,9 +38,10 @@ Only `fixer` can write by default. Every write-capable role (that is, `access.wr
 ### Scaffold a starter file
 
 ```
+/team-init           → writes ./.pi/agent/agents-team.json (local default)
 /team-init local     → writes ./.pi/agent/agents-team.json
 /team-init global    → writes ~/.pi/agent/agents-team.json
-/team-init <scope> --force    → replace existing file (backs up the previous one first)
+/team-init --force   → replace existing file (backs up the previous one first)
 ```
 
 The scaffold contains all seven built-in roles in the current shape. Edit whatever you want.
