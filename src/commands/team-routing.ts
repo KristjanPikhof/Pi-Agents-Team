@@ -154,7 +154,7 @@ function runSetRoutingMode(
 
 export function registerTeamRoutingCommands(pi: ExtensionAPI, dependencies: RoutingCommandDependencies): void {
 	pi.registerCommand("team-on", {
-		description: "Turn team routing on for this session: /team-on [--persist global|local]",
+		description: "Turn team routing on and persist routingMode to the active agents-team.json (override scope with --persist global|local)",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			return ["--persist"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value, description: "persist routingMode to agents-team.json" }));
