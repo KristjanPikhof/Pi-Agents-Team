@@ -33,7 +33,7 @@ function parseTeamEnableArgs(args: string): ParsedArgs {
 		const token = tokens[i]!;
 		if (token === "on" || token === "off") {
 			if (mode) {
-				return { error: `Specify on|off only once (got "${mode === "team" ? "on" : "off"}" and "${token}").` };
+				return { error: `Specify on|off only once.` };
 			}
 			mode = token === "on" ? "team" : "solo";
 			continue;
@@ -105,7 +105,7 @@ export function persistRoutingMode(
 
 export function runSetRoutingMode(
 	mode: RoutingMode,
-	args: string,
+	persist: "global" | "local" | undefined,
 	ctx: ExtensionContext,
 	deps: TeamEnableCommandDependencies,
 ): void {
@@ -113,11 +113,6 @@ export function runSetRoutingMode(
 		deps.ensureNotReloading();
 	} catch (error) {
 		ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
-		return;
-	}
-	const parsed = parseTeamEnableArgs(`${mode === "team" ? "on" : "off"}${args.trim() ? ` ${args.trim()}` : ""}`);
-	if (parsed.error) {
-		ctx.ui.notify(parsed.error, "warning");
 		return;
 	}
 
@@ -148,7 +143,7 @@ export function runSetRoutingMode(
 		`Routing mode: ${previousMode} → ${mode}.`,
 	];
 
-	const explicitScope = parsed.persist;
+	const explicitScope = persist;
 	const autoScope: "global" | "local" | undefined = explicitScope
 		? undefined
 		: (projectConfig.sourcePath ? deriveScopeFromSourcePath(projectConfig.sourcePath, ctx.cwd) : undefined) ?? "local";
@@ -189,19 +184,12 @@ export function registerTeamEnableCommand(pi: ExtensionAPI, dependencies: TeamEn
 				}));
 		},
 		handler: async (args, ctx) => {
-			try {
-				dependencies.ensureNotReloading();
-			} catch (error) {
-				ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
-				return;
-			}
 			const parsed = parseTeamEnableArgs(args);
 			if (parsed.error || !parsed.mode) {
 				ctx.ui.notify(parsed.error ?? "Usage: /team-enable on|off [--persist global|local]", "warning");
 				return;
 			}
-			const trailing = parsed.persist ? `--persist ${parsed.persist}` : "";
-			runSetRoutingMode(parsed.mode, trailing, ctx, dependencies);
+			runSetRoutingMode(parsed.mode, parsed.persist, ctx, dependencies);
 		},
 	});
 }
