@@ -172,4 +172,4 @@ export function registerTeamRoutingCommands(pi: ExtensionAPI, dependencies: Rout
 	});
 }
 
-export const _testing = { parseRoutingArgs, persistRoutingMode };
+export const _testing = { parseRoutingArgs, persistRoutingMode, deriveScopeFromSourcePath };
