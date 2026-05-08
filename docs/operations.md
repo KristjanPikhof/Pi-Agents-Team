@@ -283,6 +283,10 @@ Look at the confirmation line: if it says `Prompted w<id> (…:idle)`, the worke
 
 Launch policy is doing its job. `fixer` requires an explicit writable `pathScope`. Either provide one on the delegated task or switch to a read-only profile like `explorer`, `reviewer`, or `oracle`.
 
+### Routing toggle fails with "enable first"
+
+`/team-enable on` requires `enabled: true` in `agents-team.json`. If delegation is turned off, edit the file manually to set `enabled: true` and run `/reload`. Routing toggles only take effect when delegation itself is on.
+
 ### `agent_result` returns an empty `<final_answer>`
 
 The worker finished but did not follow the contract. Three moves, in order of preference: re-delegate with smaller slices, steer the existing worker with `/team-steer <id> <corrective message>` asking it to re-issue the final answer, or stop and re-spawn with a better brief. Do not fall back to running `bash`/`read`/`grep` yourself.
