@@ -10,7 +10,7 @@ One Pi session orchestrates. Background RPC workers do the work. The orchestrato
 Install from npm:
 
 ```bash
-pi install pi-agents-team
+pi install npm:pi-agents-team
 ```
 
 You can also install from Git using one of the options below.
