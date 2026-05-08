@@ -113,7 +113,7 @@ export function registerTeamStopCommand(pi: ExtensionAPI, dependencies: CommandR
 					dependencies.emitText(ctx, "No workers tracked.");
 					return;
 				}
-				const stoppable = tracked.filter((worker) => !isTerminalWorkerStatus(worker.status) || worker.status === "idle" || worker.status === "waiting_followup");
+				const stoppable = tracked.filter((worker) => !UNREACHABLE_TERMINAL.has(worker.status));
 				if (stoppable.length === 0) {
 					dependencies.emitText(ctx, "No live or reusable workers to stop (all tracked workers are already terminal).");
 					return;
