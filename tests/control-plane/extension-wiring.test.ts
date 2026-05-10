@@ -35,11 +35,21 @@ test("extension registers control-plane tools and operator commands", () => {
 	);
 	assert.deepEqual(
 		commands.map((command) => command.name).sort(),
-		["agent-cancel", "agent-close", "agent-followup", "agent-result", "agent-steer", "team", "team-copy", "team-cost", "team-disable", "team-enable", "team-init", "team-off", "team-on", "team-prune"],
+		["team", "team-copy", "team-enable", "team-init", "team-result", "team-steer", "team-stop"],
 	);
 	assert.ok(!commands.some((command) => command.name === "team-status"));
 	assert.ok(!commands.some((command) => command.name === "agents"));
 	assert.ok(!commands.some((command) => command.name === "ping-agents"));
+	assert.ok(!commands.some((command) => command.name === "agent-result"));
+	assert.ok(!commands.some((command) => command.name === "agent-cancel"));
+	assert.ok(!commands.some((command) => command.name === "agent-close"));
+	assert.ok(!commands.some((command) => command.name === "agent-steer"));
+	assert.ok(!commands.some((command) => command.name === "agent-followup"));
+	assert.ok(!commands.some((command) => command.name === "team-cost"));
+	assert.ok(!commands.some((command) => command.name === "team-prune"));
+	assert.ok(!commands.some((command) => command.name === "team-on"));
+	assert.ok(!commands.some((command) => command.name === "team-off"));
+	assert.ok(!commands.some((command) => command.name === "team-disable"));
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("before_agent_start"));
 });

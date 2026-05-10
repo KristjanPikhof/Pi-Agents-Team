@@ -103,7 +103,7 @@ test("buildTeamDashboardText groups workers by operator attention and surfaces p
 	assert.match(text, /Needs reply 1 · Needs recovery 1 · In progress 0 · Completed or idle 1/);
 	assert.match(text, /keyboard-first overlay: queue on the left, inspector on the right when width allows/);
 	assert.match(text, /Use \/team <worker-id> for direct focus, then inspect Overview \/ Deliverable \/ Console tabs/);
-	assert.match(text, /Use \/agent-result <id> for the final deliverable block/);
+	assert.match(text, /Use \/team-result <id> for the final deliverable block/);
 	assert.match(text, /Needs reply \(1\)/);
 	assert.match(text, /worker-1 \(reviewer\) — reply: Need operator confirmation/);
 	assert.match(text, /Needs recovery \(1\)/);

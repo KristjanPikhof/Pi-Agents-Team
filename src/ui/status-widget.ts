@@ -22,6 +22,7 @@ export function hasAnimatedWorkers(state: PersistedTeamState): boolean {
 export interface WidgetRenderOptions {
 	frame?: number;
 	routingMode?: "team" | "solo";
+	displayCost?: boolean;
 }
 
 export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team"): string {
@@ -170,6 +171,7 @@ function buildWorkerLines(workers: WorkerRuntimeState[], frame: number): { lines
 export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetRenderOptions = {}): string[] {
 	const frame = options.frame ?? 0;
 	const routingMode = options.routingMode ?? "team";
+	const displayCost = options.displayCost !== false;
 	const workers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	if (routingMode === "solo") {
 		// In solo mode the status line already says "Pi Agents Team — solo".
@@ -179,9 +181,9 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	}
 	if (workers.length === 0) return [];
 
-	const status = buildStatusRow(state);
+	const status = displayCost ? buildStatusRow(state) : { row: buildCountsLine(state), includesUsage: false };
 	const lines = ["Pi Agents Team", status.row];
-	if (!status.includesUsage) {
+	if (displayCost && !status.includesUsage) {
 		const usageLine = buildUsageLine(state);
 		if (usageLine) lines.push(usageLine);
 	}
@@ -190,6 +192,6 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	if (hiddenCount > 0) {
 		lines.push(truncateToWidth(`  +${hiddenCount} more · /team to view`, HEADER_WIDTH));
 	}
-	lines.push("tip: /team · /agent-result <id> · /team-copy <id>");
+	lines.push("tip: /team · /team-result <id> · /team-copy <id>");
 	return lines.map((line) => truncateToWidth(line, HEADER_WIDTH));
 }

@@ -13,7 +13,7 @@ import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { buildTeamStatusLine, buildTeamWidgetLines } from "../../src/ui/status-widget";
-import { _testing as routingTesting, registerTeamRoutingCommands } from "../../src/commands/team-routing";
+import { _testing as enableTesting, registerTeamEnableCommand } from "../../src/commands/team-enable";
 import type { LoadedTeamProjectConfig } from "../../src/types";
 import { MockWorkerHandle, MockWorkerTransport } from "../runtime/test-helpers";
 
@@ -91,20 +91,26 @@ test("widget collapses to a single solo badge line when routingMode is solo and 
 	assert.match(soloStatus, /Pi Agents Team — solo/);
 });
 
-test("parseRoutingArgs accepts no args and --persist global|local", () => {
-	assert.deepEqual(routingTesting.parseRoutingArgs(""), {});
-	assert.deepEqual(routingTesting.parseRoutingArgs("  "), {});
-	assert.deepEqual(routingTesting.parseRoutingArgs("--persist global"), { persist: "global" });
-	assert.deepEqual(routingTesting.parseRoutingArgs("--persist local"), { persist: "local" });
+test("parseTeamEnableArgs requires on|off and accepts --persist global|local", () => {
+	assert.deepEqual(enableTesting.parseTeamEnableArgs("on"), { mode: "team", persist: undefined });
+	assert.deepEqual(enableTesting.parseTeamEnableArgs("off"), { mode: "solo", persist: undefined });
+	assert.deepEqual(enableTesting.parseTeamEnableArgs("on --persist global"), { mode: "team", persist: "global" });
+	assert.deepEqual(enableTesting.parseTeamEnableArgs("off --persist local"), { mode: "solo", persist: "local" });
 
-	const missingScope = routingTesting.parseRoutingArgs("--persist");
+	const empty = enableTesting.parseTeamEnableArgs("");
+	assert.match(empty.error ?? "", /Usage: \/team-enable/);
+
+	const missingScope = enableTesting.parseTeamEnableArgs("on --persist");
 	assert.match(missingScope.error ?? "", /--persist requires a scope/);
 
-	const badScope = routingTesting.parseRoutingArgs("--persist nope");
+	const badScope = enableTesting.parseTeamEnableArgs("on --persist nope");
 	assert.match(badScope.error ?? "", /--persist requires a scope/);
 
-	const garbage = routingTesting.parseRoutingArgs("foo");
+	const garbage = enableTesting.parseTeamEnableArgs("foo");
 	assert.match(garbage.error ?? "", /Unknown argument/);
+
+	const bothModes = enableTesting.parseTeamEnableArgs("on off");
+	assert.match(bothModes.error ?? "", /only once/);
 });
 
 test("loadActiveTeamConfig surfaces persistedRoutingMode from the project file", () => {
@@ -147,7 +153,7 @@ test("loadActiveTeamConfig does not leak global routingMode when the project fil
 test("persistRoutingMode writes routingMode atomically to a fresh project file", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-routing-"));
 	try {
-		const result = routingTesting.persistRoutingMode("local", "solo", root);
+		const result = enableTesting.persistRoutingMode("local", "solo", root);
 		assert.ok(!("error" in result), `expected success, got ${JSON.stringify(result)}`);
 		const written = JSON.parse(readFileSync((result as { path: string }).path, "utf8"));
 		assert.equal(written.routingMode, "solo");
@@ -161,8 +167,8 @@ test("deriveScopeFromSourcePath maps the local project file to local", () => {
 	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-derive-"));
 	try {
 		const localPath = join(cwd, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
-		assert.equal(routingTesting.deriveScopeFromSourcePath(localPath, cwd), "local");
-		assert.equal(routingTesting.deriveScopeFromSourcePath("/tmp/somewhere-else.json", cwd), undefined);
+		assert.equal(enableTesting.deriveScopeFromSourcePath(localPath, cwd), "local");
+		assert.equal(enableTesting.deriveScopeFromSourcePath("/tmp/somewhere-else.json", cwd), undefined);
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
@@ -173,14 +179,14 @@ interface RegisteredCommand {
 	handler: (args: string, ctx: any) => Promise<void> | void;
 }
 
-function installRoutingCommands(cwd: string, projectConfig: LoadedTeamProjectConfig) {
+function installEnableCommand(cwd: string, projectConfig: LoadedTeamProjectConfig) {
 	const commands: RegisteredCommand[] = [];
 	const teamManager = new TeamManager({
 		workerManager: new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport())),
 	});
 	const emitted: string[] = [];
 	const notifications: Array<{ message: string; level?: string }> = [];
-	registerTeamRoutingCommands(
+	registerTeamEnableCommand(
 		{
 			registerCommand(name: string, spec: RegisteredCommand) {
 				commands.push({ name, handler: spec.handler });
@@ -193,11 +199,10 @@ function installRoutingCommands(cwd: string, projectConfig: LoadedTeamProjectCon
 			ensureNotReloading: () => {},
 		},
 	);
-	const teamOn = commands.find((c) => c.name === "team-on")!;
-	const teamOff = commands.find((c) => c.name === "team-off")!;
+	const teamEnable = commands.find((c) => c.name === "team-enable")!;
 	const ctx = { cwd, ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) } } as any;
 	return {
-		run: (cmd: "team-on" | "team-off", args = "") => (cmd === "team-on" ? teamOn.handler(args, ctx) : teamOff.handler(args, ctx)),
+		run: (args: string) => teamEnable.handler(args, ctx),
 		emitted,
 		notifications,
 		teamManager,
@@ -217,11 +222,11 @@ function buildLoadedConfig(overrides: Partial<LoadedTeamProjectConfig> = {}): Lo
 	};
 }
 
-test("/team-off without --persist auto-creates a local stub when no config file exists", async () => {
+test("/team-enable off without --persist auto-creates a local stub when no config file exists", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-autopersist-stub-"));
 	try {
-		const harness = installRoutingCommands(root, buildLoadedConfig());
-		await harness.run("team-off");
+		const harness = installEnableCommand(root, buildLoadedConfig());
+		await harness.run("off");
 		const expected = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 		assert.ok(existsSync(expected), `expected stub at ${expected}`);
 		const written = JSON.parse(readFileSync(expected, "utf8"));
@@ -233,7 +238,7 @@ test("/team-off without --persist auto-creates a local stub when no config file 
 	}
 });
 
-test("/team-on without --persist patches the winning local file in place and preserves roles", async () => {
+test("/team-enable on without --persist patches the winning local file in place and preserves roles", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-autopersist-local-"));
 	try {
 		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
@@ -242,8 +247,8 @@ test("/team-on without --persist patches the winning local file in place and pre
 			localPath,
 			JSON.stringify({ schemaVersion: 4, routingMode: "solo", roles: { reviewer: { whenToUse: "Use for review", access: { tools: [] }, prompt: "<default>" } } }, null, 2),
 		);
-		const harness = installRoutingCommands(root, buildLoadedConfig({ sourcePath: localPath }));
-		await harness.run("team-on");
+		const harness = installEnableCommand(root, buildLoadedConfig({ sourcePath: localPath }));
+		await harness.run("on");
 		const written = JSON.parse(readFileSync(localPath, "utf8"));
 		assert.equal(written.routingMode, "team");
 		assert.ok(written.roles?.reviewer, "roles must be preserved on auto-persist patch");
@@ -253,15 +258,15 @@ test("/team-on without --persist patches the winning local file in place and pre
 	}
 });
 
-test("/team-off --persist global is still honored as an explicit override", async () => {
+test("/team-enable off --persist global is still honored as an explicit override", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-autopersist-explicit-"));
 	const globalDir = mkdtempSync(join(tmpdir(), "pi-agent-team-autopersist-global-"));
 	const globalPath = join(globalDir, TEAM_PROJECT_CONFIG_FILE);
 	const previous = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
 	process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = globalPath;
 	try {
-		const harness = installRoutingCommands(root, buildLoadedConfig());
-		await harness.run("team-off", "--persist global");
+		const harness = installEnableCommand(root, buildLoadedConfig());
+		await harness.run("off --persist global");
 		const written = JSON.parse(readFileSync(globalPath, "utf8"));
 		assert.equal(written.routingMode, "solo");
 		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);

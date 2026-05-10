@@ -9,17 +9,13 @@ import {
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
 import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager";
 import { loadActiveTeamConfig } from "../../src/project-config/loader";
-import { registerAgentCloseCommand } from "../../src/commands/agent-close";
-import { registerCancelCommand } from "../../src/commands/cancel";
 import { registerCopyCommand } from "../../src/commands/copy";
-import { registerCostCommand } from "../../src/commands/cost";
-import { registerPruneCommand } from "../../src/commands/prune";
-import { registerWorkerMessageCommands } from "../../src/commands/steer";
 import { registerTeamCommand } from "../../src/commands/team";
+import { registerTeamEnableCommand } from "../../src/commands/team-enable";
 import { registerTeamInitCommand } from "../../src/commands/team-init";
-import { registerTeamRoutingCommands } from "../../src/commands/team-routing";
-import { registerTeamToggleCommands } from "../../src/commands/team-toggle";
-import { formatUnknownWorker, suggestTargets } from "../../src/util/suggest";
+import { registerTeamResultCommand } from "../../src/commands/team-result";
+import { registerTeamSteerCommand } from "../../src/commands/team-steer";
+import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, WorkerRuntimeState } from "../../src/types";
 
@@ -87,6 +83,7 @@ function applyUi(
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
 	active = true,
 	routingMode: "team" | "solo" = "team",
+	displayCost = true,
 ): void {
 	if (!ctx?.hasUI) return;
 	if (!active) {
@@ -95,7 +92,7 @@ function applyUi(
 		return;
 	}
 
-	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode });
+	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode, displayCost });
 	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode));
 	ctx.ui.setWidget(config.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
@@ -170,60 +167,6 @@ function formatWorkerCompact(worker: WorkerRuntimeState): string {
 	return lines.join("\n");
 }
 
-function formatWorkerDetail(worker: WorkerRuntimeState, transcript?: string): string {
-	const lines = [
-		`Worker: ${worker.workerId}`,
-		`Profile: ${worker.profileName}`,
-		`Status: ${worker.status}`,
-	];
-	if (worker.currentTask?.title) lines.push(`Task: ${worker.currentTask.title}`);
-	if (worker.currentTask?.goal) lines.push(`Goal: ${worker.currentTask.goal}`);
-	if (worker.lastToolName) lines.push(`Last tool: ${worker.lastToolName}`);
-	if (worker.error) lines.push(`Error: ${worker.error}`);
-
-	const summary = worker.lastSummary;
-	if (summary) {
-		if (summary.headline) lines.push(`Headline: ${summary.headline}`);
-		if (summary.readFiles.length) lines.push(`Read files: ${summary.readFiles.join(", ")}`);
-		if (summary.changedFiles.length) lines.push(`Changed files: ${summary.changedFiles.join(", ")}`);
-		if (summary.risks.length) lines.push(`Risks: ${summary.risks.join("; ")}`);
-		if (summary.nextRecommendation) lines.push(`Next: ${summary.nextRecommendation}`);
-	}
-
-	if (worker.pendingRelayQuestions.length > 0) {
-		lines.push("", "Pending relay questions:");
-		for (const relay of worker.pendingRelayQuestions) {
-			lines.push(`- [${relay.urgency}] ${relay.question}`);
-			lines.push(`  assumption: ${relay.assumption}`);
-		}
-	}
-
-	lines.push(
-		"",
-		`Usage: turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens} cost=$${worker.usage.costUsd.toFixed(4)}`,
-	);
-
-	if (transcript && transcript.trim()) {
-		lines.push("", "--- Latest assistant text ---", transcript.trim());
-	} else {
-		lines.push("", "No assistant text captured yet (worker has not emitted a final message).");
-	}
-
-	return lines.join("\n");
-}
-
-function workerIdCompletions(teamManager: TeamManager, prefix: string) {
-	if (/\s/.test(prefix)) return [];
-	return teamManager
-		.listWorkers()
-		.filter((worker) => worker.workerId.startsWith(prefix))
-		.map((worker) => ({
-			value: worker.workerId,
-			label: worker.workerId,
-			description: `${worker.profileName} · ${worker.status}${worker.currentTask?.title ? ` · ${worker.currentTask.title}` : ""}`,
-		}));
-}
-
 function emitCommandOutput(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
@@ -249,9 +192,8 @@ function isTeamActive(config: LoadedTeamProjectConfig): boolean {
 function getDisabledMessage(config: LoadedTeamProjectConfig): string {
 	const sourceLayer = config.layers.find((layer) => layer.scope === config.enabledSource);
 	const path = sourceLayer?.path;
-	const enableScope = config.enabledSource === "project" ? "local" : "global";
 	const pathSuffix = path ? ` (source: ${path})` : "";
-	return `Pi Agents Team is disabled${pathSuffix}. Use /team-enable ${enableScope} then /reload to turn it on.`;
+	return `Pi Agents Team is disabled${pathSuffix}. Enable it by editing agents-team.json (set enabled: true), then /reload.`;
 }
 
 function getProjectConfigNotice(result: LoadedTeamProjectConfig): { level: "info" | "warning"; message: string } | undefined {
@@ -312,6 +254,7 @@ export default function (pi: ExtensionAPI): void {
 	let teamManager = new TeamManager({
 		config: activeProjectConfig.config,
 		routingMode: deriveInitialRoutingMode(activeProjectConfig),
+		displayCost: activeProjectConfig.displayCost,
 	});
 	let teamState = createDefaultTeamState(activeProjectConfig.config);
 	let activeContext: ExtensionContext | undefined;
@@ -343,7 +286,7 @@ export default function (pi: ExtensionAPI): void {
 				stopSpinner();
 				return;
 			}
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 		}, SPINNER_INTERVAL_MS);
 		if (typeof spinnerTimer.unref === "function") spinnerTimer.unref();
 	}
@@ -386,7 +329,7 @@ export default function (pi: ExtensionAPI): void {
 		detachTeamManagerListener = manager.onStateChange((state) => {
 			teamState = state;
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 
 			if (hasAnimatedWorkers(teamState)) {
 				ensureSpinnerRunning();
@@ -427,10 +370,10 @@ export default function (pi: ExtensionAPI): void {
 	async function replaceTeamManager(config: TeamConfig): Promise<void> {
 		detachTeamManagerListener();
 		await teamManager.dispose();
-		teamManager = new TeamManager({ config, routingMode: deriveInitialRoutingMode(activeProjectConfig) });
+		teamManager = new TeamManager({ config, routingMode: deriveInitialRoutingMode(activeProjectConfig), displayCost: activeProjectConfig.displayCost });
 		attachTeamManagerListener(teamManager);
 		teamState = createDefaultTeamState(config);
-		applyUi(activeContext, teamState, spinnerFrame, config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+		applyUi(activeContext, teamState, spinnerFrame, config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 	}
 
 	attachTeamManagerListener(teamManager);
@@ -442,45 +385,17 @@ export default function (pi: ExtensionAPI): void {
 		emitText: (ctx: ExtensionContext, text: string) => emitCommandOutput(pi, ctx, text, activeProjectConfig.config),
 	};
 	registerTeamCommand(pi, commandDependencies);
-	registerWorkerMessageCommands(pi, commandDependencies);
-	registerCancelCommand(pi, commandDependencies);
-	registerAgentCloseCommand(pi, commandDependencies);
 	registerCopyCommand(pi, commandDependencies);
-	registerPruneCommand(pi, commandDependencies);
-	registerCostCommand(pi, commandDependencies);
 	registerTeamInitCommand(pi, { emitText: commandDependencies.emitText });
-	registerTeamToggleCommands(pi, { emitText: commandDependencies.emitText });
-	registerTeamRoutingCommands(pi, {
+	registerTeamEnableCommand(pi, {
 		getTeamManager: () => teamManager,
 		getProjectConfig: () => activeProjectConfig,
 		emitText: commandDependencies.emitText,
 		ensureNotReloading,
 	});
-
-	pi.registerCommand("agent-result", {
-		description: "Show the full result for a worker: /agent-result <worker-id>",
-		getArgumentCompletions: (prefix) => workerIdCompletions(teamManager, prefix),
-		handler: async (args, ctx) => {
-			const input = args.trim();
-			if (!input) {
-				ctx.ui.notify("Usage: /agent-result <worker-id>", "warning");
-				return;
-			}
-			const resolved = teamManager.resolveWorkerId(input);
-			const candidates = teamManager.listWorkers().map((worker) => worker.workerId);
-			if (!resolved) {
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
-				return;
-			}
-			const result = teamManager.getWorkerResult(resolved);
-			if (!result) {
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
-				return;
-			}
-			const transcript = teamManager.getWorkerTranscript(resolved);
-			emitCommandOutput(pi, ctx, formatWorkerDetail(result.worker, transcript), activeProjectConfig.config);
-		},
-	});
+	registerTeamResultCommand(pi, commandDependencies);
+	registerTeamSteerCommand(pi, commandDependencies);
+	registerTeamStopCommand(pi, commandDependencies);
 
 	function ensureNotReloading(): void {
 		if (reloading) {
@@ -502,7 +417,7 @@ export default function (pi: ExtensionAPI): void {
 				throw new Error(getDelegationDisabledMessage(activeProjectConfig));
 			}
 			if (teamManager.routingMode === "solo") {
-				throw new Error("Team routing off. Run /team on to delegate.");
+				throw new Error("Team routing off. Run /team-enable on to delegate.");
 			}
 			const pathScope = params.pathScopeRoots?.length
 				? {
@@ -526,7 +441,7 @@ export default function (pi: ExtensionAPI): void {
 				reuseWorkerId: params.reuseWorkerId,
 			});
 			teamState = teamManager.snapshot();
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			return {
 				content: [
 					{
@@ -688,7 +603,7 @@ export default function (pi: ExtensionAPI): void {
 			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
 			teamManager.restore(teamState);
-			applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+			applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
 
 			if (!ctx.hasUI) return;
@@ -732,7 +647,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		activeContext = ctx;
 		teamState = teamManager.snapshot();
-		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 		if (!activeProjectConfig.enabled) {
 			return { systemPrompt: event.systemPrompt };
 		}

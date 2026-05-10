@@ -88,6 +88,7 @@ interface FakeManagerOptions {
 	consoles?: Record<string, WorkerConsoleEvent[]>;
 	chunks?: Record<string, AssistantChunk[]>;
 	routingMode?: "team" | "solo";
+	displayCost?: boolean;
 	profiles?: string[];
 	calls?: FakeManagerCalls;
 }
@@ -141,6 +142,7 @@ function makeFakeManager(options: FakeManagerOptions): TeamManager {
 			return { worker: options.state.activeWorkers[Object.keys(options.state.activeWorkers)[0]]! };
 		},
 		routingMode: options.routingMode ?? "team",
+		displayCost: options.displayCost !== false,
 		config: { profiles: (options.profiles ?? ["reviewer", "fixer"]).map((name) => ({ name })) },
 	} as unknown as TeamManager;
 }
@@ -154,6 +156,7 @@ function makeComponent(opts: {
 	consoles?: Record<string, WorkerConsoleEvent[]>;
 	chunks?: Record<string, AssistantChunk[]>;
 	routingMode?: "team" | "solo";
+	displayCost?: boolean;
 }) {
 	const state = opts.state ?? makeState();
 	const tui = {
@@ -166,6 +169,7 @@ function makeComponent(opts: {
 		consoles: opts.consoles,
 		chunks: opts.chunks,
 		routingMode: opts.routingMode,
+		displayCost: opts.displayCost,
 	};
 	const manager = makeFakeManager(managerOpts);
 	const component = createTeamDashboardOverlayComponent(tui, manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1], state, () => {}, {
@@ -573,4 +577,61 @@ test("q quits the overlay", () => {
 	renderPlain(component, 100);
 	component.handleInput("q");
 	assert.equal(closed, 1);
+});
+
+test("overlay tab list shows 4 tabs when displayCost is true", () => {
+	const { component } = makeComponent({ rows: 28, cols: 100, displayCost: true });
+	const lines = renderPlain(component, 100);
+	const tabLine = lines.find((line) => line.includes("Workers") && line.includes("Inspect") && line.includes("Console"));
+	assert.ok(tabLine, "expected tab bar line");
+	assert.ok(tabLine!.includes("Cost"), "expected Cost tab when displayCost=true");
+});
+
+test("overlay tab list shows 3 tabs (no Cost) when displayCost is false", () => {
+	const { component } = makeComponent({ rows: 28, cols: 100, displayCost: false });
+	const lines = renderPlain(component, 100);
+	const tabLine = lines.find((line) => line.includes("Workers") && line.includes("Inspect") && line.includes("Console"));
+	assert.ok(tabLine, "expected tab bar line");
+	assert.ok(!tabLine!.includes("Cost"), "expected Cost tab absent when displayCost=false");
+});
+
+test("key 4 is ignored when displayCost is false", () => {
+	const { component } = makeComponent({ rows: 28, cols: 100, displayCost: false });
+	component.handleInput("1");
+	let lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[1 Workers]")), "should be on workers tab");
+
+	component.handleInput("4");
+	lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[1 Workers]")), "key 4 must be a no-op when Cost tab is hidden");
+});
+
+test("tab cycle wraps through only 3 tabs when displayCost is false", () => {
+	const { component } = makeComponent({ rows: 28, cols: 100, displayCost: false });
+	component.handleInput("1");
+	component.handleInput("\t");
+	let lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[2 Inspect]")));
+
+	component.handleInput("\t");
+	lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[3 Console]")));
+
+	component.handleInput("\t");
+	lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[1 Workers]")), "cycle should wrap back to Workers, skipping Cost");
+});
+
+test("render row count matches overlay maxHeight when displayCost is false", () => {
+	const state = makeState(1);
+	for (const termRows of [14, 15, 30, 40]) {
+		const { component } = makeComponent({ state, rows: termRows, cols: 100, displayCost: false });
+		const lines = renderPlain(component, 100);
+		const expected = Math.floor(termRows * 0.9);
+		assert.equal(
+			lines.length,
+			expected,
+			`termRows=${termRows} got ${lines.length} rows, expected ${expected} (must match maxHeight 90%)`,
+		);
+	}
 });

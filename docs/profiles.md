@@ -2,16 +2,16 @@
 
 **TL;DR.** Pi Agents Team ships with seven default worker roles. Drop a file at `.pi/agent/agents-team.json` to customize them, add new ones, or cut the list down. The orchestrator only delegates to roles that exist in the loaded config, so the file is a direct knob on what your team of workers can do.
 
-The fastest path: run `/team-init local` in a repo, edit the resulting file, run `/reload`. Done.
+The fastest path: run `/team-init` in a repo, edit the resulting file, run `/reload`. Done.
 
 ## When to reach for this
 
 | Goal | What to do |
 |---|---|
 | Use the extension as-is with sensible defaults | Nothing. No config file needed. |
-| Tune one role (e.g. pin a model for `oracle`) | `/team-init local`, edit that one role block, `/reload`. |
-| Swap the default names for your own vocabulary | Edit the `roles` keys after `/team-init local`. |
-| Build a repo-specific team from scratch | `/team-init local`, delete every role you don't want, add the ones you do. |
+| Tune one role (e.g. pin a model for `oracle`) | `/team-init`, edit that one role block, `/reload`. |
+| Swap the default names for your own vocabulary | Edit the `roles` keys after `/team-init`. |
+| Build a repo-specific team from scratch | `/team-init`, delete every role you don't want, add the ones you do. |
 | Share a config with your team | Commit `.pi/agent/agents-team.json`. Teammates pick it up on next session start. |
 | Apply the same config across every repo | Write `~/.pi/agent/agents-team.json` (or use `/team-init global`). |
 
@@ -38,9 +38,10 @@ Only `fixer` can write by default. Every write-capable role (that is, `access.wr
 ### Scaffold a starter file
 
 ```
+/team-init           → writes ./.pi/agent/agents-team.json (local default)
 /team-init local     → writes ./.pi/agent/agents-team.json
 /team-init global    → writes ~/.pi/agent/agents-team.json
-/team-init <scope> --force    → replace existing file (backs up the previous one first)
+/team-init --force   → replace existing file (backs up the previous one first)
 ```
 
 The scaffold contains all seven built-in roles in the current shape. Edit whatever you want.
@@ -50,10 +51,13 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 ```json
 {
   "schemaVersion": 4,
-  "scaffoldVersion": 1,
+  "scaffoldVersion": 2,
   "enabled": true,
   "workerAccess": {
     "allowPathsOutsideProject": true
+  },
+  "display": {
+    "cost": true
   },
   "roles": {
     "explorer": {
@@ -73,10 +77,11 @@ The scaffold contains all seven built-in roles in the current shape. Edit whatev
 | Field | Required | Meaning |
 |---|---|---|
 | `schemaVersion` | yes | Tells the loader which shape this file is. Currently `4`. A mismatch triggers a warning and falls back to built-ins for that layer. |
-| `scaffoldVersion` | no | Freshness marker. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
+| `scaffoldVersion` | no | Freshness marker. Currently `2`. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
 | `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
-| `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-on` and `/team-off` rewrite it on every toggle (auto-persisting to the active config), and you can hand-edit it. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
+| `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-enable on\|off` rewrites it on every toggle (auto-persisting to the active config), and you can hand-edit it. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
 | `workerAccess` | no | Global access policy for delegated workers. Omit to keep the defaults. |
+| `display` | no | UI display options. Omit to keep the defaults. See "Display options" below. |
 | `roles.<name>` | no | Free-form map. Name whatever you want. No role entry means built-in fallback (or nothing, if you want no roles at all). |
 
 ### Top-level worker access fields
@@ -109,6 +114,23 @@ With this restriction enabled, delegated worker path scopes must stay inside the
 ```
 
 without being forced to stay fully inside the repo root.
+
+### Display options
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `display.cost` | boolean | `true` | Show the `Σ` aggregate row in the footer widget and the **Cost** tab in the `/team` overlay. Set to `false` to hide both. |
+
+Example — hide cost UI:
+
+```json
+{
+  "schemaVersion": 4,
+  "display": {
+    "cost": false
+  }
+}
+```
 
 ### Per-role fields
 
@@ -263,7 +285,7 @@ Two counters, two purposes.
 | `schemaVersion` | The shape contract. Bumped on breaking schema changes (renamed fields, re-layouts). | Hard warning toast on session start. Layer falls back to built-in roles. Run `/team-init <scope> --force` to regenerate. |
 | `scaffoldVersion` | Freshness marker for scaffold content. Bumped when `/team-init` would write different defaults. | Soft warning toast suggesting re-init. File keeps loading as-is. |
 
-Both constants live in `src/project-config/versions.ts`. Bump there, nothing else needs to change. See [CLAUDE.md](../CLAUDE.md) "Schema versioning" for the rules on which counter to move.
+Both constants live in `src/project-config/versions.ts` (currently `schemaVersion=4`, `scaffoldVersion=2`). Bump there, nothing else needs to change. See [CLAUDE.md](../CLAUDE.md) "Schema versioning" for the rules on which counter to move.
 
 ## Launch-time safety
 
@@ -276,22 +298,22 @@ The loader trusts whatever you put in the file. `launch-policy.ts` runs every ti
 
 Launch-time overrides (tools, path scope, extension mode) may only narrow the role's declared rights. They cannot broaden them.
 
-## Toggle commands
+## Routing commands
 
 | Command | What it does |
 |---|---|
-| `/team-enable global\|local` | Sets `enabled: true` in the target file. Creates the file with just the flag if missing. |
-| `/team-disable global\|local` | Sets `enabled: false` in the target file. |
-| `/team-on [--persist global\|local]` | Flip routing to `team` and persist `routingMode: "team"` to the active `agents-team.json` (winning layer, or a fresh local stub if no file exists). Pass `--persist` to force a specific scope. Errors when `enabled: false`. |
-| `/team-off [--persist global\|local]` | Flip routing to `solo` and persist `routingMode: "solo"` to the active `agents-team.json` (winning layer, or a fresh local stub). Live workers stay reachable; only `delegate_task` is gated off. |
+| `/team-enable on [--persist global\|local]` | Flip routing to `team` and persist `routingMode: "team"` to the active `agents-team.json` (winning layer, or a fresh local stub if no file exists). Pass `--persist` to force a specific scope. Errors when `enabled: false`. |
+| `/team-enable off [--persist global\|local]` | Flip routing to `solo` and persist `routingMode: "solo"` to the active `agents-team.json` (winning layer, or a fresh local stub). Live workers stay reachable; only `delegate_task` is gated off. |
 
-Both commands are non-destructive:
+Both forms are non-destructive:
 
-- If the file is valid, `enabled` is patched in place. Your roles, prompts, models, and scopes stay untouched.
-- If the file parses as JSON but drifts from the current schema (unknown fields, future fields, old-shape roles), the toggle preserves your raw object and only patches `enabled`. A warning surfaces that the file still needs a schema-level fix.
-- If the file isn't parseable JSON at all, the toggle copies it to `YYYY-MM-DD-HHMMSS-agents-team.json` in the same directory (seconds included so same-minute reruns don't collide; exclusive-create so concurrent runs don't clobber each other's backups; original stays in place until the new write succeeds) before writing a minimal `{ schemaVersion, enabled }` replacement. All config writes are atomic via staged `<path>.tmp.<pid>.<ts>` → `renameSync`, so a ctrl-C mid-write leaves the original file intact.
+- If the file is valid, `routingMode` is patched in place. Your roles, prompts, models, scopes, and `enabled` flag stay untouched.
+- If the file parses as JSON but drifts from the current schema, the command preserves your raw object and only patches `routingMode`. A warning surfaces that the file still needs a schema-level fix.
+- If the file isn't parseable JSON at all, the command errors out without touching the in-memory toggle.
 
-Follow any toggle with `/reload` to apply the change in the current Pi session.
+All config writes are atomic via staged `<path>.tmp.<pid>.<ts>` → `renameSync`, so a ctrl-C mid-write leaves the original file intact.
+
+To toggle the `enabled` flag itself, edit `agents-team.json` by hand and follow with `/reload`. The `enabled` flag controls whether delegation is active at all; `/team-enable on|off` controls only the routing mode within an already-enabled setup.
 
 ## Files that package this
 

@@ -123,7 +123,7 @@ test("/team-init refuses to overwrite without --force and mentions backup", asyn
 	assert.ok(emitted[0]?.toLowerCase().includes("backed up"));
 });
 
-test("/team-init --force backs up the old file before overwriting", async () => {
+test("/team-init --force defaults to local and backs up the old file before overwriting", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-init-force-"));
 	const targetPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 	mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
@@ -131,7 +131,7 @@ test("/team-init --force backs up the old file before overwriting", async () => 
 
 	const emitted: string[] = [];
 	const { run } = installInitCommand((text) => emitted.push(text), () => {}, root);
-	await run("local --force");
+	await run("--force");
 
 	const contents = JSON.parse(readFileSync(targetPath, "utf8"));
 	assert.equal(contents.enabled, true);
@@ -147,7 +147,7 @@ test("/team-init --force backs up the old file before overwriting", async () => 
 	assert.ok(emitted[0]?.includes("Backed up previous config"));
 });
 
-test("/team-init requires an explicit scope", async () => {
+test("/team-init defaults to local scope when no scope is provided", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-init-noscope-"));
 	const emitted: string[] = [];
 	const notifications: Array<{ message: string; level?: string }> = [];
@@ -157,6 +157,11 @@ test("/team-init requires an explicit scope", async () => {
 		root,
 	);
 	await run("");
-	assert.equal(emitted.length, 0);
-	assert.match(notifications[0]?.message ?? "", /Usage: \/team-init/);
+
+	const expectedPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+	assert.ok(existsSync(expectedPath));
+	assert.equal(notifications.length, 0);
+	assert.equal(emitted.length, 1);
+	assert.ok(emitted[0]?.includes("Wrote local agents-team.json scaffold"));
+	assert.ok(emitted[0]?.includes(expectedPath));
 });

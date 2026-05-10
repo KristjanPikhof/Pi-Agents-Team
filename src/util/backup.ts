@@ -52,7 +52,7 @@ export function backupExisting(path: string, now: Date = new Date()): string {
  * Write `body` to `path` atomically: stage to `<path>.tmp.<pid>.<ts>`, fsync
  * the write by virtue of `renameSync` being atomic within a filesystem, then
  * rename into place. A crash before the rename leaves the original file
- * untouched. Used by `/team-init` and `/team-toggle` to avoid the
+ * untouched. Used by `/team-init` and `/team-enable` to avoid the
  * `writeFileSync(path, ...)` truncate-then-write window that would leave the
  * config empty on ctrl-C mid-write.
  */

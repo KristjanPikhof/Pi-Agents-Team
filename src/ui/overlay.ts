@@ -307,9 +307,10 @@ function frameBottom(totalWidth: number): string {
 	return `${PANEL_BG_OPEN}${bottom}${PANEL_BG_CLOSE}`;
 }
 
-export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo"): string {
-	const cells = TAB_ORDER.map((tab, index) => {
-		const num = index + 1;
+export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo", displayCost = true): string {
+	const visibleTabs = displayCost ? TAB_ORDER : TAB_ORDER.filter((tab) => tab !== "cost");
+	const cells = visibleTabs.map((tab) => {
+		const num = TAB_ORDER.indexOf(tab) + 1;
 		const label = `${num} ${TAB_LABELS[tab]}`;
 		return tab === active ? accentBold(`[${label}]`) : dim(` ${label} `);
 	});
@@ -400,11 +401,13 @@ interface OverlayTeamManager {
 	}): Promise<unknown>;
 	routingMode?: "team" | "solo";
 	config?: { profiles: Array<{ name: string }> };
+	displayCost?: boolean;
 }
 
 export interface OpenTeamDashboardOptions {
 	initialWorkerId?: string;
 	cwd?: string;
+	displayCost?: boolean;
 }
 
 export function createTeamDashboardOverlayComponent(
@@ -419,6 +422,9 @@ export function createTeamDashboardOverlayComponent(
 	handleInput(data: string): void;
 	dispose(): void;
 } {
+	const displayCost = (options.displayCost ?? teamManager.displayCost) !== false;
+	const visibleTabOrder: OverlayTab[] = displayCost ? TAB_ORDER : TAB_ORDER.filter((tab) => tab !== "cost");
+
 	let snapshot = initialSnapshot;
 	const initialWorker = options.initialWorkerId && initialSnapshot.activeWorkers[options.initialWorkerId]
 		? options.initialWorkerId
@@ -532,7 +538,7 @@ export function createTeamDashboardOverlayComponent(
 			if (!worker) return;
 			// Block only truly unreachable workers. `messageWorker` resolver
 			// auto-upgrades steer/follow_up to a fresh prompt for idle and
-			// waiting_followup, matching /agent-steer and /agent-followup.
+			// waiting_followup, matching /team-steer.
 			const unreachable = new Set<WorkerStatus>(["completed", "aborted", "error", "exited"]);
 			if (unreachable.has(worker.status)) {
 				setStatus(`Worker ${workerId} is ${worker.status} — RPC disposed; delegate fresh`);
@@ -552,7 +558,7 @@ export function createTeamDashboardOverlayComponent(
 			return;
 		}
 		if (teamManager.routingMode === "solo") {
-			setStatus("Team routing off. Run /team-on to delegate.");
+			setStatus("Team routing off. Run /team-enable on to delegate.");
 			return;
 		}
 		const profile = currentWorker()?.profileName ?? teamManager.config?.profiles[0]?.name;
@@ -586,7 +592,7 @@ export function createTeamDashboardOverlayComponent(
 				setStatus(`Sent message to ${modal.workerId}`);
 			} else if (modal.kind === "new_task") {
 				if (teamManager.routingMode === "solo") {
-					setStatus("Team routing off. Run /team-on to delegate.");
+					setStatus("Team routing off. Run /team-enable on to delegate.");
 					return;
 				}
 				const profile = currentWorker()?.profileName ?? teamManager.config?.profiles[0]?.name;
@@ -749,9 +755,11 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	const handleNumberKey = (data: string): boolean => {
-		const idx = ["1", "2", "3", "4"].indexOf(data);
-		if (idx < 0) return false;
-		state.tab = TAB_ORDER[idx];
+		const numIdx = ["1", "2", "3", "4"].indexOf(data);
+		if (numIdx < 0) return false;
+		const tab = TAB_ORDER[numIdx];
+		if (!tab || !visibleTabOrder.includes(tab)) return false;
+		state.tab = tab;
 		return true;
 	};
 
@@ -767,14 +775,15 @@ export function createTeamDashboardOverlayComponent(
 
 			const titleRaw = "Pi Agents Team · /team";
 			const titleStyled = accentBold(titleRaw);
-			const tabBar = buildTabBar(state.tab, routingMode);
+			const tabBar = buildTabBar(state.tab, routingMode, displayCost);
+			const tabHint = displayCost ? "1-4 tabs" : "1-3 tabs";
 			const helpRow = state.tab === "workers"
-				? "↑/↓ select · enter inspect · 1-4 tabs · tab cycle · q quit"
+				? `↑/↓ select · enter inspect · ${tabHint} · tab cycle · q quit`
 				: state.tab === "inspect"
-					? "↑/↓ scroll · PgUp/PgDn page · 1-4 tabs · q quit"
+					? `↑/↓ scroll · PgUp/PgDn page · ${tabHint} · q quit`
 					: state.tab === "console"
-						? "↑/↓ scroll · PgUp pause · End follow · 1-4 tabs · q quit"
-						: "↑/↓ scroll · 1-4 tabs · q quit";
+						? `↑/↓ scroll · PgUp pause · End follow · ${tabHint} · q quit`
+						: `↑/↓ scroll · ${tabHint} · q quit`;
 			const sel = state.selectedWorkerId ?? "none";
 			const snippet = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
 			const subHeader = `selected=${sel}  ·  ${snippet}`;
@@ -816,13 +825,13 @@ export function createTeamDashboardOverlayComponent(
 
 			if (handleNumberKey(data)) return;
 			if (matchesKey(data, "tab")) {
-				const idx = TAB_ORDER.indexOf(state.tab);
-				state.tab = TAB_ORDER[(idx + 1) % TAB_ORDER.length];
+				const idx = visibleTabOrder.indexOf(state.tab);
+				state.tab = visibleTabOrder[(idx + 1) % visibleTabOrder.length]!;
 				return;
 			}
 			if (matchesKey(data, "shift+tab")) {
-				const idx = TAB_ORDER.indexOf(state.tab);
-				state.tab = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length];
+				const idx = visibleTabOrder.indexOf(state.tab);
+				state.tab = visibleTabOrder[(idx - 1 + visibleTabOrder.length) % visibleTabOrder.length]!;
 				return;
 			}
 
@@ -944,7 +953,7 @@ export async function openTeamDashboardOverlay(
 			teamManager as unknown as OverlayTeamManager,
 			state,
 			done,
-			{ initialWorkerId: focusWorkerId, cwd: options.cwd ?? ctx.cwd },
+			{ initialWorkerId: focusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost },
 		),
 		{
 			overlay: true,

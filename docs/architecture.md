@@ -48,7 +48,7 @@ Package entrypoint (extensions/index.ts)
       ├─ Widget                 (buildTeamWidgetLines)
       ├─ Dashboard overlay      (Workers/Inspect/Console/Cost tab bar with action bar + inline modal)
       ├─ Terminal-status toasts (debounced batch per wake)
-      └─ Slash commands         (/team, /team-copy, /team-prune, /team-cost, /agent-*)
+      └─ Slash commands         (/team, /team-steer, /team-stop, /team-copy, /team-result, /team-enable, /team-init)
 ```
 
 ## Delegation flow
@@ -112,7 +112,7 @@ On session start the extension calls `loadActiveTeamConfig({ cwd })`. If it find
 
 The runtime does **not** hot-reload `agents-team.json` mid-session. This avoids a class of bugs where active workers were launched under one role definition and later supervision/tooling reads a different one. If the WINNING config layer is invalid, the extension keeps packaged defaults available for display but marks delegation disabled until the next fixed session start. A fatal parse on a NON-WINNING layer (e.g. a typo in `~/.pi/agent/agents-team.json` while a valid project-local config exists) is diagnostic-only — project wins by file presence, and the broken global surfaces as a warning rather than disabling delegation.
 
-Config writes (`/team-init`, `/team-enable`, `/team-disable`) are atomic: they stage to `<path>.tmp.<pid>.<ts>` and `renameSync` into place. Backups use `copyFileSync` with `COPYFILE_EXCL` so the original file stays in place until the new write succeeds and concurrent runs can't clobber each other's backups. A crash mid-write leaves the original file intact. Directories get mode `0o700` and files get mode `0o600` (noop on Windows).
+Config writes (`/team-init`, `/team-enable`) are atomic: they stage to `<path>.tmp.<pid>.<ts>` and `renameSync` into place. Backups use `copyFileSync` with `COPYFILE_EXCL` so the original file stays in place until the new write succeeds and concurrent runs can't clobber each other's backups. A crash mid-write leaves the original file intact. Directories get mode `0o700` and files get mode `0o600` (noop on Windows).
 
 `safety.projectRoot` always has a value at launch time: the project config's root when a project-scope config exists, else `options.cwd`. Delegated worker path scopes may point outside that root by default, so global-only and no-config setups can accept operator-supplied roots such as `/tmp` or sibling repos. If the winning `agents-team.json` sets `workerAccess.allowPathsOutsideProject: false`, the launch-policy containment guard restricts delegated worker path scopes to the project root/current cwd. The visible orchestrator session and worker prompt files are unchanged: prompt-file containment always applies. When containment is enforced, path checks use `realpathSync.native` so symlink escapes are caught at both load and delegate time. **`pathScope` is a prompt convention, not an OS sandbox** — Pi's `bash` tool can still execute arbitrary shell commands in the worker's cwd regardless of the declared scope. See CLAUDE.md "Path scope is a prompt convention, not an OS sandbox" for the full framing.
 
@@ -151,9 +151,9 @@ Three verbs with different intents. Don't conflate them.
 
 | Verb | Target status | What it does | Final status |
 |---|---|---|---|
-| `/agent-cancel` | non-terminal (`starting`, `running`, `waiting_followup`) | Aborts the active stream and SIGTERMs the worker process. | `exited` (or `aborted` if the abort raced) |
-| `/agent-close` | reusable (`idle`, `waiting_followup`) | Disposes the live RPC handle, sets the `closing` flag so `worker_exit` lands as `exited` not `aborted`. | `exited` |
-| `/team-prune` | terminal (`idle`, `completed`, `aborted`, `error`, `exited`) | Calls `WorkerManager.removeWorker` (which closes any leftover live handle for `idle`/`waiting_followup` entries), unsubscribes RPC listeners, drops the registry entry. | (entry removed) |
+| `/team-stop` (cancel path) | non-terminal (`starting`, `running`) | Aborts the active stream and SIGTERMs the worker process. | `exited` (or `aborted` if the abort raced) |
+| `/team-stop` (close path) | reusable (`idle`, `waiting_followup`) | Disposes the live RPC handle, sets the `closing` flag so `worker_exit` lands as `exited` not `aborted`. | `exited` |
+| overlay `[p]` prune | terminal (`idle`, `completed`, `aborted`, `error`, `exited`) | Calls `WorkerManager.removeWorker` (which closes any leftover live handle for `idle`/`waiting_followup` entries), unsubscribes RPC listeners, drops the registry entry. | (entry removed) |
 
 `closing` is a per-record flag on `WorkerRuntimeRecord`. `closeWorker` sets it before disposing the handle so the natural `worker_exit` event fired by the dispose can map to `exited` instead of the default `signal === "SIGTERM" ? "aborted" : "exited"` branch. Without the flag, an explicit close would arrive as a fake abort.
 
@@ -205,7 +205,7 @@ The initial mode is derived once per `session_start` from the loaded config:
 | `enabled: true`, no persisted `routingMode` | `team` |
 | `enabled: true`, persisted `routingMode` | that value |
 
-`/team-on` and `/team-off` flip the in-memory mode and persist `routingMode` to disk so the choice survives restart. The persistence target is resolved in this order: `--persist global|local` if passed; otherwise `LoadedTeamProjectConfig.sourcePath` (mapped back to its scope via `deriveScopeFromSourcePath`) when a config layer is loaded; otherwise a fresh local stub at `<cwd>/.pi/agent/agents-team.json`. Writes go through `atomicWriteFileSync` and shallow-merge into the existing JSON, so roles, `enabled`, and `workerAccess` survive the patch. The loader pulls the persisted value into `LoadedTeamProjectConfig.persistedRoutingMode` on the next `session_start`.
+`/team-enable on|off` flips the in-memory mode and persists `routingMode` to disk so the choice survives restart. The persistence target is resolved in this order: `--persist global|local` if passed; otherwise `LoadedTeamProjectConfig.sourcePath` (mapped back to its scope via `deriveScopeFromSourcePath`) when a config layer is loaded; otherwise a fresh local stub at `<cwd>/.pi/agent/agents-team.json`. Writes go through `atomicWriteFileSync` and shallow-merge into the existing JSON, so roles, `enabled`, and `workerAccess` survive the patch. The loader pulls the persisted value into `LoadedTeamProjectConfig.persistedRoutingMode` on the next `session_start`.
 
 Routing toggles run through `ensureNotReloading()` like the orchestrator tools, so a toggle fired during the `session_start` config swap fails fast instead of mutating a soon-to-be-disposed `TeamManager`.
 
@@ -216,9 +216,11 @@ Routing only narrows behavior. It does not stop live workers; `agent_status`, `a
 Slash commands are supervision controls, not alternate chat channels:
 
 - `/team` and `/team <worker-id>`
-- `/team-on`, `/team-off` (and `--persist global|local`)
-- `/team-copy <worker-id>`
-- `/agent-result`, `/agent-steer`, `/agent-followup`, `/agent-cancel`, `/agent-close`
+- `/team-enable on|off` (and `--persist global|local`)
+- `/team-steer <id|all> <message> [--queue]`
+- `/team-stop <id|all>`
+- `/team-copy <id>`, `/team-result <id>`
+- `/team-init [global|local] [--force]`
 
 The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 

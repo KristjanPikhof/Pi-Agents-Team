@@ -96,17 +96,20 @@ export class TeamManager {
 	private workerCounter = 0;
 	private taskCounter = 0;
 	private _routingMode: RoutingMode;
+	readonly displayCost: boolean;
 
 	constructor(options?: {
 		config?: TeamConfig;
 		registry?: TaskRegistry;
 		workerManager?: WorkerManager;
 		routingMode?: RoutingMode;
+		displayCost?: boolean;
 	}) {
 		this.config = options?.config ?? DEFAULT_TEAM_CONFIG;
 		this.registry = options?.registry ?? new TaskRegistry();
 		this.workerManager = options?.workerManager ?? new WorkerManager();
 		this._routingMode = options?.routingMode ?? "team";
+		this.displayCost = options?.displayCost !== false;
 		this.workerManager.onEvent((worker) => {
 			this.registry.upsertWorker(worker.state);
 			this.events.emit("state_change", this.snapshot());
@@ -289,7 +292,7 @@ export class TeamManager {
 		const worker = this.requireWorker(workerId);
 		if (UNREACHABLE_STATUSES.has(worker.status)) {
 			throw new Error(
-				`Worker ${workerId} is ${worker.status} — its RPC session is already disposed. Re-delegate the task with delegate_task (and /team-prune to clear terminal entries from the dashboard).`,
+				`Worker ${workerId} is ${worker.status} — its RPC session is already disposed. Re-delegate the task with delegate_task (and overlay [p] to clear terminal entries from the dashboard).`,
 			);
 		}
 		const nextDelivery = resolveWorkerMessageDelivery(worker.status, delivery);
@@ -463,7 +466,7 @@ export class TeamManager {
 		const worker = this.requireWorker(workerId);
 		if (!REUSABLE_STATUSES.has(worker.status)) {
 			throw new Error(
-				`Cannot close worker ${workerId}: status is ${worker.status}. Only idle/waiting_followup workers can be closed; running workers need /agent-cancel.`,
+				`Cannot close worker ${workerId}: status is ${worker.status}. Only idle/waiting_followup workers can be closed; running workers need /team-stop.`,
 			);
 		}
 		await this.workerManager.closeWorker(workerId, reason);

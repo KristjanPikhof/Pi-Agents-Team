@@ -192,12 +192,17 @@ export interface TeamProjectWorkerAccessConfig {
 	allowPathsOutsideProject?: boolean;
 }
 
+export interface TeamProjectDisplayConfig {
+	cost?: boolean;
+}
+
 export interface TeamProjectConfigFile {
 	schemaVersion: typeof TEAM_PROJECT_SCHEMA_VERSION;
 	scaffoldVersion?: number;
 	enabled?: boolean;
 	routingMode?: "team" | "solo";
 	workerAccess?: TeamProjectWorkerAccessConfig;
+	display?: TeamProjectDisplayConfig;
 	roles?: PartialRawProjectRoleConfigMap;
 }
 
@@ -231,6 +236,8 @@ export interface LoadedTeamProjectConfig {
 	diagnostics: ProjectConfigDiagnostic[];
 	delegationEnabled: boolean;
 	persistedRoutingMode?: "team" | "solo";
+	/** Whether to show cost in the UI. Defaults to true when absent. Read via `config.display?.cost ?? true`. */
+	displayCost: boolean;
 }
 
 export interface DelegatedTaskInput {

@@ -511,8 +511,8 @@ export function getGlobalProjectConfigPath(): string {
  * the env explicitly disables global (`""`/`"null"`/`"none"`), an explicit
  * path when the env is set, and the default `~/.pi/agent/agents-team.json`
  * otherwise. Tests and scripted fixtures rely on this to redirect global
- * reads/writes to a tmpdir; `/team-init global` and `/team-toggle global`
- * must go through the same helper so they don't clobber the user's real
+ * reads/writes to a tmpdir; `/team-init global` and `/team-enable on|off --persist global`
+ * writes must go through the same helper so they don't clobber the user's real
  * home config while the env is pointed elsewhere.
  */
 export function resolveGlobalConfigPath(): string | undefined {
@@ -741,6 +741,9 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			? winningLayer.parsed.routingMode
 			: undefined;
 
+	// Read display.cost from the winning layer; default true when absent.
+	const displayCost: boolean = winningLayer?.parsed.display?.cost ?? true;
+
 	// A fatal parse error on the WINNING layer disables delegation (the user's
 	// intended config is broken and they need a diagnostic). A fatal parse on a
 	// non-winning layer is surfaced as a diagnostic but doesn't block the
@@ -763,6 +766,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			diagnostics,
 			delegationEnabled: false,
 			persistedRoutingMode,
+			displayCost,
 		};
 	}
 
@@ -809,6 +813,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			diagnostics,
 			delegationEnabled: false,
 			persistedRoutingMode,
+			displayCost,
 		};
 	}
 
@@ -840,6 +845,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			diagnostics,
 			delegationEnabled: true,
 			persistedRoutingMode,
+			displayCost,
 		};
 	}
 
@@ -873,6 +879,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		diagnostics,
 		delegationEnabled: true,
 		persistedRoutingMode,
+		displayCost,
 	};
 }
 

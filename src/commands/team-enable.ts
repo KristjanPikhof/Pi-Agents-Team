@@ -4,12 +4,12 @@ import { dirname } from "node:path";
 import { Value } from "typebox/value";
 import { TeamProjectConfigSchema } from "../config";
 import { getProjectConfigPathForScope } from "../project-config/loader";
-import type { LoadedTeamProjectConfig, TeamProjectConfigFile } from "../types";
+import type { LoadedTeamProjectConfig } from "../types";
 import { TEAM_PROJECT_SCHEMA_VERSION } from "../types";
 import { atomicWriteFileSync } from "../util/backup";
 import type { RoutingMode, TeamManager } from "../control-plane/team-manager";
 
-interface RoutingCommandDependencies {
+export interface TeamEnableCommandDependencies {
 	getTeamManager: () => TeamManager;
 	getProjectConfig: () => LoadedTeamProjectConfig;
 	emitText: (ctx: ExtensionContext, text: string) => void;
@@ -17,16 +17,27 @@ interface RoutingCommandDependencies {
 }
 
 interface ParsedArgs {
+	mode?: RoutingMode;
 	persist?: "global" | "local";
 	error?: string;
 }
 
-function parseRoutingArgs(args: string): ParsedArgs {
+function parseTeamEnableArgs(args: string): ParsedArgs {
 	const tokens = args.trim().split(/\s+/).filter(Boolean);
-	if (tokens.length === 0) return {};
+	if (tokens.length === 0) {
+		return { error: "Usage: /team-enable on|off [--persist global|local]" };
+	}
+	let mode: RoutingMode | undefined;
 	let persist: "global" | "local" | undefined;
 	for (let i = 0; i < tokens.length; i += 1) {
 		const token = tokens[i]!;
+		if (token === "on" || token === "off") {
+			if (mode) {
+				return { error: `Specify on|off only once.` };
+			}
+			mode = token === "on" ? "team" : "solo";
+			continue;
+		}
 		if (token === "--persist") {
 			const scope = tokens[i + 1];
 			if (scope !== "global" && scope !== "local") {
@@ -38,10 +49,13 @@ function parseRoutingArgs(args: string): ParsedArgs {
 		}
 		return { error: `Unknown argument: ${token}.` };
 	}
-	return { persist };
+	if (!mode) {
+		return { error: "Usage: /team-enable on|off [--persist global|local]" };
+	}
+	return { mode, persist };
 }
 
-function deriveScopeFromSourcePath(sourcePath: string, cwd: string): "global" | "local" | undefined {
+export function deriveScopeFromSourcePath(sourcePath: string, cwd: string): "global" | "local" | undefined {
 	const localPath = getProjectConfigPathForScope("project", cwd);
 	if (localPath && sourcePath === localPath) return "local";
 	const globalPath = getProjectConfigPathForScope("global", cwd);
@@ -49,7 +63,11 @@ function deriveScopeFromSourcePath(sourcePath: string, cwd: string): "global" | 
 	return undefined;
 }
 
-function persistRoutingMode(scope: "global" | "local", routingMode: RoutingMode, cwd: string): { path: string; warning?: string } | { error: string } {
+export function persistRoutingMode(
+	scope: "global" | "local",
+	routingMode: RoutingMode,
+	cwd: string,
+): { path: string; warning?: string } | { error: string } {
 	const internalScope = scope === "local" ? "project" : "global";
 	const path = getProjectConfigPathForScope(internalScope, cwd);
 	if (!path) {
@@ -85,11 +103,11 @@ function persistRoutingMode(scope: "global" | "local", routingMode: RoutingMode,
 	return schemaWarning ? { path, warning: schemaWarning } : { path };
 }
 
-function runSetRoutingMode(
+export function runSetRoutingMode(
 	mode: RoutingMode,
-	args: string,
+	persist: "global" | "local" | undefined,
 	ctx: ExtensionContext,
-	deps: RoutingCommandDependencies,
+	deps: TeamEnableCommandDependencies,
 ): void {
 	try {
 		deps.ensureNotReloading();
@@ -97,16 +115,11 @@ function runSetRoutingMode(
 		ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
 		return;
 	}
-	const parsed = parseRoutingArgs(args);
-	if (parsed.error) {
-		ctx.ui.notify(parsed.error, "warning");
-		return;
-	}
 
 	const projectConfig = deps.getProjectConfig();
 	if (mode === "team" && !projectConfig.enabled) {
 		ctx.ui.notify(
-			"Pi Agents Team is disabled — enable first with /team-enable global or /team-enable local, then /reload, then /team-on.",
+			"Pi Agents Team is disabled — enable it by editing agents-team.json (set enabled: true), then /reload.",
 			"warning",
 		);
 		return;
@@ -130,7 +143,7 @@ function runSetRoutingMode(
 		`Routing mode: ${previousMode} → ${mode}.`,
 	];
 
-	const explicitScope = parsed.persist;
+	const explicitScope = persist;
 	const autoScope: "global" | "local" | undefined = explicitScope
 		? undefined
 		: (projectConfig.sourcePath ? deriveScopeFromSourcePath(projectConfig.sourcePath, ctx.cwd) : undefined) ?? "local";
@@ -152,24 +165,33 @@ function runSetRoutingMode(
 	deps.emitText(ctx, lines.join("\n"));
 }
 
-export function registerTeamRoutingCommands(pi: ExtensionAPI, dependencies: RoutingCommandDependencies): void {
-	pi.registerCommand("team-on", {
-		description: "Turn team routing on and persist routingMode to the active agents-team.json (override scope with --persist global|local)",
+export function registerTeamEnableCommand(pi: ExtensionAPI, dependencies: TeamEnableCommandDependencies): void {
+	pi.registerCommand("team-enable", {
+		description: "Turn team routing on or off and persist routingMode to the active agents-team.json: /team-enable on|off [--persist global|local]",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
-			return ["--persist"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value, description: "persist routingMode to agents-team.json" }));
+			return ["on", "off", "--persist"]
+				.filter((value) => value.startsWith(prefix))
+				.map((value) => ({
+					value,
+					label: value,
+					description:
+						value === "on"
+							? "team routing on (delegate_task gated open)"
+							: value === "off"
+								? "team routing off (Pi answers directly)"
+								: "persist routingMode to agents-team.json",
+				}));
 		},
-		handler: async (args, ctx) => runSetRoutingMode("team", args, ctx, dependencies),
-	});
-
-	pi.registerCommand("team-off", {
-		description: "Turn team routing off (Pi answers directly) and persist routingMode to the active agents-team.json (override scope with --persist global|local)",
-		getArgumentCompletions: (prefix) => {
-			if (/\s/.test(prefix)) return [];
-			return ["--persist"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value, description: "persist routingMode to agents-team.json" }));
+		handler: async (args, ctx) => {
+			const parsed = parseTeamEnableArgs(args);
+			if (parsed.error || !parsed.mode) {
+				ctx.ui.notify(parsed.error ?? "Usage: /team-enable on|off [--persist global|local]", "warning");
+				return;
+			}
+			runSetRoutingMode(parsed.mode, parsed.persist, ctx, dependencies);
 		},
-		handler: async (args, ctx) => runSetRoutingMode("solo", args, ctx, dependencies),
 	});
 }
 
-export const _testing = { parseRoutingArgs, persistRoutingMode, deriveScopeFromSourcePath };
+export const _testing = { parseTeamEnableArgs, persistRoutingMode, deriveScopeFromSourcePath };
