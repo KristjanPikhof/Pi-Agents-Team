@@ -192,9 +192,8 @@ function isTeamActive(config: LoadedTeamProjectConfig): boolean {
 function getDisabledMessage(config: LoadedTeamProjectConfig): string {
 	const sourceLayer = config.layers.find((layer) => layer.scope === config.enabledSource);
 	const path = sourceLayer?.path;
-	const enableScope = config.enabledSource === "project" ? "local" : "global";
 	const pathSuffix = path ? ` (source: ${path})` : "";
-	return `Pi Agents Team is disabled${pathSuffix}. Use /team-enable ${enableScope} then /reload to turn it on.`;
+	return `Pi Agents Team is disabled${pathSuffix}. Enable it by editing agents-team.json (set enabled: true), then /reload.`;
 }
 
 function getProjectConfigNotice(result: LoadedTeamProjectConfig): { level: "info" | "warning"; message: string } | undefined {
@@ -418,7 +417,7 @@ export default function (pi: ExtensionAPI): void {
 				throw new Error(getDelegationDisabledMessage(activeProjectConfig));
 			}
 			if (teamManager.routingMode === "solo") {
-				throw new Error("Team routing off. Run /team on to delegate.");
+				throw new Error("Team routing off. Run /team-enable on to delegate.");
 			}
 			const pathScope = params.pathScopeRoots?.length
 				? {
@@ -604,7 +603,7 @@ export default function (pi: ExtensionAPI): void {
 			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
 			teamManager.restore(teamState);
-			applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+			applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
 
 			if (!ctx.hasUI) return;
@@ -648,7 +647,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		activeContext = ctx;
 		teamState = teamManager.snapshot();
-		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode);
+		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 		if (!activeProjectConfig.enabled) {
 			return { systemPrompt: event.systemPrompt };
 		}
