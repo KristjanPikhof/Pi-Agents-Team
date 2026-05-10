@@ -85,7 +85,7 @@ scripts/smoke/                       # runtime-worker and team-flow smokes
 - Don't persist transcripts or raw events. `WorkerManager` buffers them in memory on purpose.
 - Don't bypass `TeamManager` from commands. Commands are thin wrappers; the control plane is the only place that touches the registry and the runtime.
 - Don't emit toasts as if they were conversation. Terminal-status toasts and relay-question toasts are UI-only.
-- Don't auto-prune terminal workers. Pruning is operator-initiated (`/team-prune`).
+- Don't auto-prune terminal workers. Pruning is operator-initiated from the `/team` overlay with `p`.
 - Don't add orchestrator token usage to the widget's `Σ` row. Pi's footer already shows it.
 
 ## Reporting issues
