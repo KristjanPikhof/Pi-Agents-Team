@@ -72,7 +72,6 @@ function makeWorkerState() {
 			cwd: process.cwd(),
 			contextHints: [],
 			createdAt: 1,
-			status: "completed",
 		},
 		pendingRelayQuestions: [],
 		usage: { turns: 1, inputTokens: 1200, outputTokens: 400, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.1234 },
@@ -249,10 +248,9 @@ test("disabled project config blocks delegate_task with current enable guidance"
 			goal: "Try to launch a worker",
 			profileName: "reviewer",
 		}, undefined, undefined, ctx),
-		/error: Pi Agents Team is disabled.*set enabled: true.*\/reload/i,
+		/Pi Agents Team is disabled.*set enabled: true.*\/reload/i,
 	);
-}
-);
+});
 
 test("solo routing blocks delegate_task with /team-enable guidance", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-solo-"));
