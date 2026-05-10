@@ -80,7 +80,7 @@ function scopeToInternal(scope: InitScope): TeamConfigScope {
 
 export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitCommandDependencies): void {
 	pi.registerCommand("team-init", {
-		description: "Scaffold a full agents-team.json with default roles: /team-init global|local [--force]",
+		description: "Scaffold a full agents-team.json with default roles: /team-init [global|local] [--force]",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			return ["global", "local"]
@@ -93,12 +93,9 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 				ctx.ui.notify(parsed.error, "warning");
 				return;
 			}
-			if (!parsed.scope) {
-				ctx.ui.notify("Usage: /team-init global|local [--force]", "warning");
-				return;
-			}
+			const scope = parsed.scope ?? "local";
 
-			const internalScope = scopeToInternal(parsed.scope);
+			const internalScope = scopeToInternal(scope);
 			const targetPath = getProjectConfigPathForScope(internalScope, ctx.cwd);
 			if (!targetPath) {
 				// Global scope with PI_AGENT_TEAM_GLOBAL_CONFIG_PATH set to
@@ -114,7 +111,7 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 			if (exists && !parsed.force) {
 				dependencies.emitText(
 					ctx,
-					`${targetPath} already exists. Re-run with \`/team-init ${parsed.scope} --force\` to overwrite (the current file will be backed up first).`,
+					`${targetPath} already exists. Re-run with \`/team-init ${scope} --force\` to overwrite (the current file will be backed up first).`,
 				);
 				return;
 			}
@@ -136,7 +133,7 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 				lines.push(`Backed up previous config to ${backupPath}.`);
 			}
 			lines.push(
-				`Wrote ${parsed.scope} agents-team.json scaffold (schemaVersion ${TEAM_PROJECT_SCHEMA_VERSION}, scaffoldVersion ${CURRENT_SCAFFOLD_VERSION}) to ${targetPath}.`,
+				`Wrote ${scope} agents-team.json scaffold (schemaVersion ${TEAM_PROJECT_SCHEMA_VERSION}, scaffoldVersion ${CURRENT_SCAFFOLD_VERSION}) to ${targetPath}.`,
 				"Global worker access policy lives under `workerAccess`. Set `allowPathsOutsideProject: false` to restrict delegated worker path scopes to the project root/current cwd.",
 				`Per-role knobs: whenToUse (a trigger sentence — "Use when..." — shown to the orchestrator so it picks the right role), model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel, access (tools, write, pathScope, extensionMode), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md, or the prompt text inline).`,
 				"Rename, remove, or add roles freely — the orchestrator sees exactly what you declare. Delete a role block to fall back to the built-in defaults for that name.",
