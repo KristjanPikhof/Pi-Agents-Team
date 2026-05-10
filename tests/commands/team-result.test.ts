@@ -103,5 +103,27 @@ test("formatWorkerDetail without transcript renders the placeholder line (parity
 	};
 	const text = resultTesting.formatWorkerDetail(worker, undefined);
 	assert.match(text, /Worker: w7/);
-	assert.match(text, /No assistant text captured yet/);
+	assert.match(text, /No <final_answer> block extracted yet/);
+	assert.doesNotMatch(text, /Latest assistant text/);
+});
+
+test("formatWorkerDetail prints the final answer before latest assistant text", () => {
+	const worker: WorkerRuntimeState = {
+		workerId: "w8",
+		profileName: "reviewer",
+		sessionMode: "worker",
+		status: "idle",
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		finalAnswer: "Authoritative worker deliverable.",
+		pendingRelayQuestions: [],
+		usage: { turns: 1, inputTokens: 10, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01 },
+	};
+	const text = resultTesting.formatWorkerDetail(worker, "intermediate assistant tail");
+	const finalIndex = text.indexOf("--- Final answer");
+	const transcriptIndex = text.indexOf("--- Latest assistant text");
+	assert.ok(finalIndex >= 0, "expected final answer section");
+	assert.ok(transcriptIndex > finalIndex, "expected transcript after final answer");
+	assert.match(text, /Authoritative worker deliverable/);
+	assert.match(text, /intermediate assistant tail/);
 });
