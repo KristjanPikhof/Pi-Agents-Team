@@ -511,7 +511,7 @@ export function getGlobalProjectConfigPath(): string {
  * the env explicitly disables global (`""`/`"null"`/`"none"`), an explicit
  * path when the env is set, and the default `~/.pi/agent/agents-team.json`
  * otherwise. Tests and scripted fixtures rely on this to redirect global
- * reads/writes to a tmpdir; `/team-init global` and `/team-enable --persist global`
+ * reads/writes to a tmpdir; `/team-init global` and `/team-enable on|off --persist global`
  * writes must go through the same helper so they don't clobber the user's real
  * home config while the env is pointed elsewhere.
  */
