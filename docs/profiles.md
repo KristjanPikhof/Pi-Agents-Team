@@ -152,7 +152,7 @@ All optional. Omit to get the default.
 |---|---|
 | 1 | Explicit role `thinkingLevel` in `agents-team.json`. |
 | 2 | Built-in role default when the role falls back to a packaged profile. |
-| 3 | The orchestrator's live Pi thinking level from `ctx.getThinkingLevel`. |
+| 3 | The orchestrator's live Pi thinking level from `pi.getThinkingLevel()`. |
 | 4 | `medium`, used only when none of the above exists. |
 
 Invalid role values are handled per field. The loader drops only that role's bad `thinkingLevel`, keeps the rest of the config, and emits a warning toast on session start. Fix the typo and reload.
