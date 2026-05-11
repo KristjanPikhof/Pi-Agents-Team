@@ -157,7 +157,7 @@ All optional. Omit to get the default.
 
 Invalid role values are handled per field. The loader drops only that role's bad `thinkingLevel`, keeps the rest of the config, and emits a warning toast on session start. Fix the typo and reload.
 
-Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-coding-agent/docs/models.md:208` for `thinkingLevelMap`, `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:161` and `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:280` for `get_state.thinkingLevel` plus `set_thinking_level`, and `node_modules/@earendil-works/pi-coding-agent/docs/settings.md:20` for `defaultThinkingLevel`. `xhigh` is model-family dependent, and Pi may silently clamp unsupported levels to the closest supported effective level.
+Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-coding-agent/docs/models.md:208` for `thinkingLevelMap`, `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:177` and `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:280` for `get_state.thinkingLevel` plus `set_thinking_level`, and `node_modules/@earendil-works/pi-coding-agent/docs/settings.md:20` for `defaultThinkingLevel`. `xhigh` is model-family dependent, and Pi may silently clamp unsupported levels to the closest supported effective level.
 
 ### Per-role access fields
 
