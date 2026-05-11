@@ -140,9 +140,24 @@ All optional. Omit to get the default.
 |---|---|---|---|
 | `whenToUse` | string | `""` | The trigger sentence shown to the orchestrator LLM. Write it as `"Use for / when / to ..."` so the model can match it against user requests. |
 | `model` | string | `"default"` | `"default"` inherits the orchestrator's current model. Otherwise a canonical Pi model ID in `<provider>/<model-id>` form (check `pi --help` or your Pi install's model list for exact names — available models are install-specific). |
-| `thinkingLevel` | string | `"medium"` | One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. |
+| `thinkingLevel` | string | cascade | One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. See "Thinking level cascade" below. |
 | `access` | object | default read tools | Worker capabilities for this role. See "Per-role access fields" below. |
 | `prompt` | string | `"default"` | See "Prompt resolution" below. |
+
+### Thinking level cascade
+
+`thinkingLevel` is optional. At launch time, `src/safety/launch-policy.ts` resolves the worker's requested level in this order:
+
+| Tier | Source |
+|---|---|
+| 1 | Explicit role `thinkingLevel` in `agents-team.json`. |
+| 2 | Built-in role default when the role falls back to a packaged profile. |
+| 3 | The orchestrator's live Pi thinking level from `ctx.getThinkingLevel`. |
+| 4 | `medium`, used only when none of the above exists. |
+
+Invalid role values are handled per field. The loader drops only that role's bad `thinkingLevel`, keeps the rest of the config, and emits a warning toast on session start. Fix the typo and reload.
+
+Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-coding-agent/docs/models.md:208` for `thinkingLevelMap`, `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:161` and `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:280` for `get_state.thinkingLevel` plus `set_thinking_level`, and `node_modules/@earendil-works/pi-coding-agent/docs/settings.md:20` for `defaultThinkingLevel`. `xhigh` is model-family dependent, and Pi may silently clamp unsupported levels to the closest supported effective level.
 
 ### Per-role access fields
 
