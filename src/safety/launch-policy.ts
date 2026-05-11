@@ -163,7 +163,7 @@ export function applyLaunchPolicy(
 		profile: request.profile,
 		pathScope,
 		model: request.model ?? request.profile.model ?? request.orchestratorModel,
-		thinkingLevel: request.thinkingLevel ?? request.profile.thinkingLevel,
+		thinkingLevel: request.thinkingLevel ?? request.profile.thinkingLevel ?? request.orchestratorThinkingLevel ?? "medium",
 		tools,
 		extensionMode,
 		systemPromptPath: resolveSystemPromptPath(request, config),
