@@ -426,8 +426,9 @@ export default function (pi: ExtensionAPI): void {
 					allowWrite: params.pathScopeAllowWrite === true,
 				}
 				: undefined;
-			const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-			const result = await teamManager.delegateTask({
+				const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+				const orchestratorThinkingLevel = ctx.getThinkingLevel?.();
+				const result = await teamManager.delegateTask({
 				title: params.title,
 				goal: params.goal,
 				profileName: params.profileName,
@@ -436,10 +437,11 @@ export default function (pi: ExtensionAPI): void {
 				expectedOutput: params.expectedOutput,
 				pathScope,
 				skills: params.skills,
-				model: params.model,
-				orchestratorModel,
-				reuseWorkerId: params.reuseWorkerId,
-			});
+					model: params.model,
+					orchestratorModel,
+					orchestratorThinkingLevel,
+					reuseWorkerId: params.reuseWorkerId,
+				});
 			teamState = teamManager.snapshot();
 			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			return {
