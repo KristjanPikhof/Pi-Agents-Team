@@ -17,7 +17,7 @@ import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
-import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, WorkerRuntimeState } from "../../src/types";
+import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, ThinkingLevel, WorkerRuntimeState } from "../../src/types";
 
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
@@ -62,6 +62,10 @@ const WaitForAgentsSchema = Type.Object({
 	timeoutMs: Type.Optional(Type.Number({ description: "Maximum wait in milliseconds. Defaults to 300000 (5 min)." })),
 	wakeOnRelay: Type.Optional(Type.Boolean({ description: "Return early with reason=relay_raised when any target raises a new relay question. Defaults to true so the orchestrator can answer mid-flight without waiting for every worker to finish." })),
 });
+
+type ExtensionContextWithThinkingLevel = ExtensionContext & {
+	getThinkingLevel?: () => ThinkingLevel;
+};
 
 function restoreLatestState(
 	ctx: ExtensionContext,
