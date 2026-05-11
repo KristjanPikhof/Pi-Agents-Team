@@ -92,7 +92,7 @@ The scaffold contains all seven built-in roles in the current shape. `/team-init
 | `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-enable on\|off` rewrites it on every toggle (auto-persisting to the active config), and you can hand-edit it. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
 | `workerAccess` | no | Global access policy for delegated workers. Omit to keep the defaults. |
 | `display` | no | UI display options. Omit to keep the defaults. See "Display options" below. |
-| `roles.<name>` | no | Free-form map. Name whatever you want. No role entry means built-in fallback (or nothing, if you want no roles at all). |
+| `roles.<name>` | no | Free-form map. Name whatever you want. If `roles` is missing or empty, all built-in roles load. If `roles` contains entries, only those declared roles load. |
 
 ### Top-level worker access fields
 
@@ -166,6 +166,15 @@ All optional. Omit to get the default.
 | 4 | `medium`, used only when none of the above exists. |
 
 Invalid role values are handled per field. The loader drops only that role's bad `thinkingLevel`, keeps the rest of the config, and emits a warning toast on session start. Fix the typo and reload.
+
+Use omission for inheritance:
+
+| JSON | Result |
+|---|---|
+| `"thinkingLevel": "high"` | Requests `high` for that role. |
+| No `thinkingLevel` field | Inherits from the cascade above. |
+| `"thinkingLevel": "default"` | Invalid. The field is dropped and a warning toast is shown. |
+| `"thinkingLevel": ""` | Invalid. The field is dropped and a warning toast is shown. |
 
 Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-coding-agent/docs/models.md:208` for `thinkingLevelMap`, `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:177` and `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:280` for `get_state.thinkingLevel` plus `set_thinking_level`, and `node_modules/@earendil-works/pi-coding-agent/docs/settings.md:20` for `defaultThinkingLevel`. `xhigh` is model-family dependent, and Pi may silently clamp unsupported levels to the closest supported effective level.
 
