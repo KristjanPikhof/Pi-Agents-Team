@@ -161,6 +161,7 @@ export const DelegatedTaskInputSchema = Type.Object({
 	contextHints: Type.Array(Type.String()),
 	expectedOutput: Type.Optional(Type.String()),
 	pathScope: Type.Optional(TeamPathScopeSchema),
+	orchestratorThinkingLevel: Type.Optional(enumSchema(THINKING_LEVELS)),
 	createdAt: Type.Number(),
 });
 
@@ -169,6 +170,8 @@ export const WorkerRuntimeStateSchema = Type.Object({
 	profileName: Type.String(),
 	sessionMode: enumSchema(TEAM_SESSION_MODES),
 	status: enumSchema(WORKER_STATUSES),
+	requestedThinkingLevel: enumSchema(THINKING_LEVELS),
+	effectiveThinkingLevel: enumSchema(THINKING_LEVELS),
 	processId: Type.Optional(Type.Number()),
 	startedAt: Type.Number(),
 	lastEventAt: Type.Number(),
