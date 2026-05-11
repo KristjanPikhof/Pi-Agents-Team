@@ -225,6 +225,12 @@ export interface ProjectConfigDiagnostic {
 	fieldPath?: string;
 }
 
+export interface ThinkingLevelConfigWarning {
+	scope: TeamConfigScope;
+	profileName: string;
+	badValue: unknown;
+}
+
 export interface LoadedTeamProjectConfig {
 	status: ProjectConfigStatus;
 	config: TeamConfig;
@@ -234,6 +240,7 @@ export interface LoadedTeamProjectConfig {
 	enabled: boolean;
 	enabledSource: TeamEnabledSource;
 	diagnostics: ProjectConfigDiagnostic[];
+	thinkingLevelWarnings?: ThinkingLevelConfigWarning[];
 	delegationEnabled: boolean;
 	persistedRoutingMode?: "team" | "solo";
 	/** Whether to show cost in the UI. Defaults to true when absent. Read via `config.display?.cost ?? true`. */
