@@ -237,6 +237,45 @@ function getDelegationDisabledMessage(result: LoadedTeamProjectConfig): string {
 	return `Delegation is disabled because agents-team.json is invalid${result.sourcePath ? ` at ${result.sourcePath}` : ""}${firstError ? `: ${firstError.message}` : "."}`;
 }
 
+function formatScopeLabel(scope: string): string {
+	return scope === "project" ? "local" : scope;
+}
+
+function formatConfigValue(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (value === undefined) return "undefined";
+	try {
+		return JSON.stringify(value) ?? String(value);
+	} catch {
+		return String(value);
+	}
+}
+
+function thinkingLevelWarningToastKey(warning: ThinkingLevelConfigWarning): string {
+	return `${warning.scope}\0${warning.profileName}\0${formatConfigValue(warning.badValue)}`;
+}
+
+function buildThinkingLevelWarningToast(warning: ThinkingLevelConfigWarning): string {
+	const scopeLabel = formatScopeLabel(warning.scope);
+	return `Pi Agents Team: ${scopeLabel} agents-team.json role "${warning.profileName}" has invalid thinkingLevel "${formatConfigValue(warning.badValue)}"; field dropped and default thinkingLevel will be used. Valid values: ${THINKING_LEVELS.join(", ")}.`;
+}
+
+function thinkingClampToastKey(event: Extract<NormalizedWorkerEvent, { type: "thinking_clamped" }>): string {
+	return `${event.workerId}\0${event.requested}\0${event.effective}`;
+}
+
+function buildThinkingClampToast(event: Extract<NormalizedWorkerEvent, { type: "thinking_clamped" }>): string {
+	const modelPart = event.modelLabel ? ` for model ${event.modelLabel}` : "";
+	return `Pi Agents Team: worker ${event.workerId} (${event.profileName}) requested thinkingLevel ${event.requested}; Pi clamped to ${event.effective}${modelPart} because the model lacks support. Edit agents-team.json or change model.`;
+}
+
+export const _testing = {
+	buildThinkingClampToast,
+	buildThinkingLevelWarningToast,
+	thinkingClampToastKey,
+	thinkingLevelWarningToastKey,
+};
+
 export default function (pi: ExtensionAPI): void {
 	let activeProjectConfig = loadActiveTeamConfig({ cwd: process.cwd(), baseConfig: DEFAULT_TEAM_CONFIG });
 
