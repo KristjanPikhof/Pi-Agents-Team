@@ -33,6 +33,8 @@ function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string;
 		profileName: overrides.profileName ?? "reviewer",
 		sessionMode: "worker",
 		status: overrides.status,
+		requestedThinkingLevel: overrides.requestedThinkingLevel ?? "medium",
+		effectiveThinkingLevel: overrides.effectiveThinkingLevel ?? "medium",
 		startedAt: Date.now(),
 		lastEventAt: Date.now(),
 		pendingRelayQuestions: [],
@@ -257,6 +259,62 @@ test("workers tab renders roster sections, reuse tag for idle workers, and suppo
 	lines = renderPlain(component, 100);
 	const selectedRow = lines.find((line) => line.includes("▶"));
 	assert.ok(selectedRow, "expected selection arrow on a row");
+});
+
+test("inspect tab renders a single thinking value when not clamped", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.requestedThinkingLevel = "medium";
+	state.activeWorkers.w1!.effectiveThinkingLevel = "medium";
+	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1" });
+
+	const lines = renderPlain(component, 100);
+	const thinkingLine = lines.find((line) => line.includes("Thinking:"));
+	assert.ok(thinkingLine, "expected Thinking line in Inspect tab");
+	assert.ok(thinkingLine.includes("Thinking: medium"), thinkingLine);
+	assert.ok(!thinkingLine.includes("->"), thinkingLine);
+	assert.ok(!thinkingLine.includes("(clamped)"), thinkingLine);
+});
+
+test("inspect tab renders requested -> effective thinking with warning color when clamped", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.requestedThinkingLevel = "high";
+	state.activeWorkers.w1!.effectiveThinkingLevel = "medium";
+	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1" });
+
+	const rawLines = component.render(100);
+	const lines = plainLines(rawLines);
+	const thinkingLine = lines.find((line) => line.includes("Thinking:"));
+	assert.ok(thinkingLine, "expected Thinking line in Inspect tab");
+	assert.ok(thinkingLine.includes("Thinking: high -> medium (clamped)"), thinkingLine);
+	assert.ok(
+		rawLines.some((line) => line.includes("\x1b[38;5;179mhigh -> medium (clamped)\x1b[0m")),
+		"expected clamped thinking value to use warning color",
+	);
+});
+
+test("workers tab shows clamped suffix without exceeding width or row budget", () => {
+	const state = makeState(6);
+	for (const worker of Object.values(state.activeWorkers)) {
+		worker.requestedThinkingLevel = "high";
+		worker.effectiveThinkingLevel = "low";
+		worker.profileName = `reviewer-with-long-name-${worker.workerId}`;
+	}
+
+	const wide = makeComponent({ state, rows: 30, cols: 100 }).component;
+	wide.handleInput("1");
+	assert.ok(renderPlain(wide, 100).some((line) => line.includes("(clamped)")), "expected compact clamped suffix on worker rows");
+
+	for (const termRows of [14, 30]) {
+		for (const cols of [44, 60]) {
+			const { component } = makeComponent({ state, rows: termRows, cols });
+			component.handleInput("1");
+			const lines = renderPlain(component, cols);
+			assert.equal(lines.length, Math.floor(termRows * 0.9), `termRows=${termRows} cols=${cols}`);
+			for (const line of lines) {
+				assert.ok(visibleWidth(line) <= cols, `cols=${cols} got width ${visibleWidth(line)} for line: ${line}`);
+			}
+		}
+	}
 });
 
 test("action bar dispatches steer/message/close/cancel/prune/refresh/copy through the manager", async () => {
