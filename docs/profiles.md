@@ -44,7 +44,17 @@ Only `fixer` can write by default. Every write-capable role (that is, `access.wr
 /team-init --force   → replace existing file (backs up the previous one first)
 ```
 
-The scaffold contains all seven built-in roles in the current shape. Edit whatever you want.
+The scaffold contains all seven built-in roles in the current shape. `/team-init local` writes the local file and stamps each role's packaged `thinkingLevel` default into JSON; it does not copy the orchestrator's current live Pi thinking level. Edit whatever you want.
+
+| Role | Scaffolded `thinkingLevel` |
+|---|---|
+| `explorer` | `low` |
+| `librarian` | `medium` |
+| `oracle` | `high` |
+| `designer` | `medium` |
+| `fixer` | `medium` |
+| `reviewer` | `medium` |
+| `observer` | `low` |
 
 ### The shape, field by field
 
@@ -146,7 +156,7 @@ All optional. Omit to get the default.
 
 ### Thinking level cascade
 
-`thinkingLevel` is optional. At launch time, `src/safety/launch-policy.ts` resolves the worker's requested level in this order:
+`thinkingLevel` is optional. The `/team-init` scaffold includes explicit role defaults so the generated file is immediately stable and editable. If you delete a role's `thinkingLevel`, then at launch time `src/safety/launch-policy.ts` resolves the worker's requested level in this order:
 
 | Tier | Source |
 |---|---|
