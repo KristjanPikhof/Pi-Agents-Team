@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import {
+	createThinkingClampedEvent,
 	createWorkerExitEvent,
 	createWorkerStateEvent,
 	normalizeRpcEvent,
@@ -16,6 +17,7 @@ import { buildWorkerSummaryFromText, extractRelayQuestions } from "../comms/summ
 import type {
 	DelegatedTaskInput,
 	ThinkingLevel,
+	THINKING_LEVELS,
 	WorkerExtensionMode,
 	WorkerRuntimeState,
 	WorkerStatus,
@@ -96,6 +98,8 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	unsubscribers: Array<() => void>;
 	closing: boolean;
 	launchSnapshot: WorkerLaunchSnapshot;
+	requestedThinkingLevel: ThinkingLevel;
+	thinkingClamped: boolean;
 	assistantChunks: AssistantChunk[];
 	assistantChunkBytes: number;
 	assistantNextIndex: number;
@@ -190,6 +194,10 @@ function createInitialState(options: LaunchWorkerOptions): WorkerRuntimeState {
 	};
 }
 
+function isThinkingLevel(value: unknown): value is ThinkingLevel {
+	return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+}
+
 function deriveStatusFromSessionState(state: RpcSessionState): WorkerStatus {
 	return state.isStreaming ? "running" : "idle";
 }
@@ -228,6 +236,7 @@ export class WorkerManager {
 
 		const handle = this.spawnProcess(createWorkerProcessOptions(options));
 		const client = new RpcClient(handle.transport);
+		const requestedThinkingLevel = options.thinkingLevel ?? "medium";
 		const record: WorkerRuntimeRecord = {
 			workerId: options.workerId,
 			client,
@@ -239,6 +248,8 @@ export class WorkerManager {
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
 			closing: false,
+			requestedThinkingLevel,
+			thinkingClamped: false,
 			assistantChunks: [],
 			assistantChunkBytes: 0,
 			assistantNextIndex: 0,
@@ -277,7 +288,8 @@ export class WorkerManager {
 			this.applyNormalizedEvent(record, event);
 		});
 
-		await this.refreshState(options.workerId);
+		const state = await this.refreshState(options.workerId);
+		this.detectThinkingClamp(record, state);
 		return this.snapshot(options.workerId)!;
 	}
 
@@ -324,6 +336,8 @@ export class WorkerManager {
 		record.assistantChunks = [];
 		record.assistantChunkBytes = 0;
 		record.assistantNextIndex = 0;
+		// Reuse keeps the same RPC session and launch-time model/thinking flags,
+		// so the post-launch clamp comparison remains valid for the reused task.
 		await this.promptWorker(workerId, message);
 	}
 
@@ -575,12 +589,16 @@ export class WorkerManager {
 				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
 				break;
 			case "worker_state":
-				record.state.effectiveThinkingLevel = event.state.thinkingLevel as ThinkingLevel;
+				if (isThinkingLevel(event.state.thinkingLevel)) {
+					record.state.effectiveThinkingLevel = event.state.thinkingLevel;
+				}
 				if (record.state.status === "starting" && !event.state.isStreaming) {
 					break;
 				}
 				record.state.status = deriveStatusFromSessionState(event.state);
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				break;
+			case "thinking_clamped":
 				break;
 			case "worker_exit":
 				if (record.closing) {
@@ -604,6 +622,24 @@ export class WorkerManager {
 		}
 
 		this.emitter.emit("event", this.snapshot(record.workerId), event);
+	}
+
+	private detectThinkingClamp(record: WorkerRuntimeRecord, state: RpcSessionState): void {
+		if (!isThinkingLevel(state.thinkingLevel)) return;
+		record.state.effectiveThinkingLevel = state.thinkingLevel;
+		if (record.requestedThinkingLevel === record.state.effectiveThinkingLevel) return;
+
+		record.thinkingClamped = true;
+		this.applyNormalizedEvent(
+			record,
+			createThinkingClampedEvent({
+				workerId: record.workerId,
+				profileName: record.state.profileName,
+				modelLabel: record.launchSnapshot.model ?? "default",
+				requested: record.requestedThinkingLevel,
+				effective: record.state.effectiveThinkingLevel,
+			}),
+		);
 	}
 
 	private updateUsage(current: WorkerUsageStats, stats: RpcSessionStats): WorkerUsageStats {
