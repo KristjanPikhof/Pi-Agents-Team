@@ -14,10 +14,10 @@ import {
 	type WorkerProcessOptions,
 } from "./worker-process";
 import { buildWorkerSummaryFromText, extractRelayQuestions } from "../comms/summary";
+import { THINKING_LEVELS } from "../types";
 import type {
 	DelegatedTaskInput,
 	ThinkingLevel,
-	THINKING_LEVELS,
 	WorkerExtensionMode,
 	WorkerRuntimeState,
 	WorkerStatus,
