@@ -313,6 +313,8 @@ export default function (pi: ExtensionAPI): void {
 	// reload. We emit once per (scope, scaffoldVersion) combination per
 	// process and again when the scaffold version changes.
 	const toastedScaffoldStale = new Map<string, number | "ok">();
+	const toastedThinkingLevelWarnings = new Map<string, true>();
+	const toastedThinkingClamps = new Map<string, true>();
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 	const lastRelayCount = new Map<string, number>();
 	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
