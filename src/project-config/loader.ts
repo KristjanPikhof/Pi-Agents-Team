@@ -13,6 +13,7 @@ import {
 	TEAM_PROJECT_CONFIG_RELATIVE_PATH,
 	TEAM_PROJECT_SCHEMA_VERSION,
 	TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED,
+	THINKING_LEVELS,
 	isPackagedProfileName,
 	type LoadedTeamProjectConfig,
 	type PartialRawProjectRoleConfigMap,
@@ -31,7 +32,6 @@ import {
 	type ThinkingLevelConfigWarning,
 	type WorkerWritePolicy,
 } from "../types";
-import { THINKING_LEVELS } from "../types";
 
 function clonePathScope(pathScope: TeamPathScope | undefined): TeamPathScope | undefined {
 	if (!pathScope) return undefined;
