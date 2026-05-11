@@ -114,12 +114,26 @@ function formatUsage(worker: WorkerRuntimeState): string {
 	return `turns=${worker.usage.turns}  in=${worker.usage.inputTokens}  out=${worker.usage.outputTokens}  cost=$${worker.usage.costUsd.toFixed(4)}`;
 }
 
+function hasClampedThinking(worker: WorkerRuntimeState): boolean {
+	return worker.requestedThinkingLevel !== worker.effectiveThinkingLevel;
+}
+
+function formatThinking(worker: WorkerRuntimeState): string {
+	if (!hasClampedThinking(worker)) return worker.effectiveThinkingLevel;
+	return warning(`${worker.requestedThinkingLevel} -> ${worker.effectiveThinkingLevel} (clamped)`);
+}
+
+function formatRosterProfileName(worker: WorkerRuntimeState): string {
+	return `${worker.profileName}${hasClampedThinking(worker) ? " (clamped)" : ""}`;
+}
+
 function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined): string {
 	const lines = [
 		`${worker.workerId} · ${worker.profileName} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : ""}`,
 		"",
 		"Status",
 		`  ${formatUsage(worker)}`,
+		`  Thinking: ${formatThinking(worker)}`,
 	];
 	if (worker.lastToolName) lines.push(`  last tool: ${worker.lastToolName}`);
 	if (worker.error) lines.push(`  error: ${worker.error}`);
@@ -223,7 +237,7 @@ function getAttentionOrderedWorkerIds(state: PersistedTeamState): string[] {
 function buildRosterRow(worker: WorkerRuntimeState, selected: boolean, width: number): string {
 	const prefix = selected ? "▶ " : "  ";
 	const reuse = REUSABLE_STATUSES.has(worker.status) ? " [reuse]" : "";
-	const head = `${prefix}${worker.workerId} · ${worker.profileName} · ${worker.status}${reuse}`;
+	const head = `${prefix}${worker.workerId} · ${formatRosterProfileName(worker)} · ${worker.status}${reuse}`;
 	const tail = ` · ${buildWorkerPrioritySnippet(worker)}`;
 	const truncated = truncateToWidth(`${head}${tail}`, width, "…");
 	const color = colorForWorker(worker);
