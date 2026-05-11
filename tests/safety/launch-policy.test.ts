@@ -70,5 +70,4 @@ test("applyLaunchPolicy keeps model cascade independent from thinkingLevel casca
 
 	assert.equal(plan.model, "orchestrator/fallback-model");
 	assert.equal(plan.thinkingLevel, "minimal");
-}
-);
+});
