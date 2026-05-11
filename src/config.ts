@@ -42,7 +42,7 @@ export const TeamProfileSpecSchema = Type.Object({
 	name: Type.String(),
 	description: Type.String(),
 	model: Type.Optional(Type.String()),
-	thinkingLevel: enumSchema(THINKING_LEVELS),
+	thinkingLevel: Type.Optional(enumSchema(THINKING_LEVELS)),
 	tools: Type.Array(Type.String()),
 	promptPath: Type.String(),
 	promptInline: Type.Optional(Type.String()),

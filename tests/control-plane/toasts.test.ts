@@ -94,3 +94,17 @@ test("thinking clamp toast includes worker, requested/effective values, model, a
 		"w7\0high\0low",
 	);
 });
+
+test("orchestrator thinking level is read from the Pi API before legacy context fallback", () => {
+	assert.equal(
+		_testing.getOrchestratorThinkingLevel(
+			{ getThinkingLevel: () => "high" } as any,
+			{ getThinkingLevel: () => "low" } as any,
+		),
+		"high",
+	);
+	assert.equal(
+		_testing.getOrchestratorThinkingLevel({} as any, { getThinkingLevel: () => "low" } as any),
+		"low",
+	);
+});

@@ -114,7 +114,7 @@ export interface TeamProfileSpec {
 	name: TeamProfileName | string;
 	description: string;
 	model?: string;
-	thinkingLevel: ThinkingLevel;
+	thinkingLevel?: ThinkingLevel;
 	tools: string[];
 	/**
 	 * Path to the worker prompt markdown. May be the literal string

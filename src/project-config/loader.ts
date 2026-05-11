@@ -495,7 +495,7 @@ function materializeRoleProfile(
 		name: roleName,
 		description: normalized.description ?? "",
 		model: normalized.model ?? undefined,
-		thinkingLevel: normalized.thinkingLevel as TeamProfileSpec["thinkingLevel"],
+		thinkingLevel: normalized.thinkingLevel,
 		tools: permissions.tools ? [...permissions.tools] : [...DEFAULT_READ_ONLY_TOOLS],
 		promptPath: prompt.promptPath,
 		promptInline: prompt.promptInline,

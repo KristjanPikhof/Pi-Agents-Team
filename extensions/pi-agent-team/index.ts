@@ -64,9 +64,18 @@ const WaitForAgentsSchema = Type.Object({
 	wakeOnRelay: Type.Optional(Type.Boolean({ description: "Return early with reason=relay_raised when any target raises a new relay question. Defaults to true so the orchestrator can answer mid-flight without waiting for every worker to finish." })),
 });
 
+type ExtensionAPIWithThinkingLevel = ExtensionAPI & {
+	getThinkingLevel?: () => ThinkingLevel;
+};
+
 type ExtensionContextWithThinkingLevel = ExtensionContext & {
 	getThinkingLevel?: () => ThinkingLevel;
 };
+
+function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
+	return (pi as ExtensionAPIWithThinkingLevel).getThinkingLevel?.()
+		?? (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
+}
 
 function restoreLatestState(
 	ctx: ExtensionContext,
@@ -272,6 +281,7 @@ function buildThinkingClampToast(event: Extract<NormalizedWorkerEvent, { type: "
 export const _testing = {
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
+	getOrchestratorThinkingLevel,
 	thinkingClampToastKey,
 	thinkingLevelWarningToastKey,
 };
@@ -505,7 +515,7 @@ export default function (pi: ExtensionAPI): void {
 				}
 				: undefined;
 				const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-				const orchestratorThinkingLevel = (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
+				const orchestratorThinkingLevel = getOrchestratorThinkingLevel(pi, ctx);
 				const result = await teamManager.delegateTask({
 				title: params.title,
 				goal: params.goal,
