@@ -17,7 +17,8 @@ import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
-import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, ThinkingLevel, WorkerRuntimeState } from "../../src/types";
+import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer";
+import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types";
 
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
