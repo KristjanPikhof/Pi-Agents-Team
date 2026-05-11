@@ -28,8 +28,10 @@ import {
 	type TeamProfileSpec,
 	type TeamProjectConfigFile,
 	type TeamProjectConfigLayer,
+	type ThinkingLevelConfigWarning,
 	type WorkerWritePolicy,
 } from "../types";
+import { THINKING_LEVELS } from "../types";
 
 function clonePathScope(pathScope: TeamPathScope | undefined): TeamPathScope | undefined {
 	if (!pathScope) return undefined;
@@ -74,6 +76,30 @@ function makeDiagnostic(
 	fieldPath?: string,
 ): ProjectConfigDiagnostic {
 	return { severity, code, message, fieldPath };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sanitizeThinkingLevelsForSchema(
+	scope: TeamConfigScope,
+	value: unknown,
+): { parsedJson: unknown; warnings: ThinkingLevelConfigWarning[] } {
+	if (!isRecord(value) || !isRecord(value.roles)) {
+		return { parsedJson: value, warnings: [] };
+	}
+
+	const warnings: ThinkingLevelConfigWarning[] = [];
+	for (const [profileName, rawRole] of Object.entries(value.roles)) {
+		if (!isRecord(rawRole) || !("thinkingLevel" in rawRole)) continue;
+		const badValue = rawRole.thinkingLevel;
+		if ((THINKING_LEVELS as readonly unknown[]).includes(badValue)) continue;
+		delete rawRole.thinkingLevel;
+		warnings.push({ scope, profileName, badValue });
+	}
+
+	return { parsedJson: value, warnings };
 }
 
 function extensionModeRank(mode: TeamProfileSpec["extensionMode"]): number {
@@ -469,7 +495,7 @@ function materializeRoleProfile(
 		name: roleName,
 		description: normalized.description ?? "",
 		model: normalized.model ?? undefined,
-		thinkingLevel: normalized.thinkingLevel ?? "medium",
+		thinkingLevel: normalized.thinkingLevel as TeamProfileSpec["thinkingLevel"],
 		tools: permissions.tools ? [...permissions.tools] : [...DEFAULT_READ_ONLY_TOOLS],
 		promptPath: prompt.promptPath,
 		promptInline: prompt.promptInline,
@@ -540,6 +566,7 @@ interface ParsedLayer {
 	requireInsideLayerRoot: boolean;
 	parsed: TeamProjectConfigFile;
 	diagnostics: ProjectConfigDiagnostic[];
+	thinkingLevelWarnings: ThinkingLevelConfigWarning[];
 }
 
 function computeLayerRoot(scope: TeamConfigScope, path: string): string {
@@ -571,7 +598,8 @@ function parseLayer(scope: TeamConfigScope, path: string): ParsedLayer | { fatal
 		};
 	}
 
-	const schemaErrors = Array.from(Value.Errors(TeamProjectConfigSchema, parsedJson), (error) => {
+	const { parsedJson: sanitizedJson, warnings: thinkingLevelWarnings } = sanitizeThinkingLevelsForSchema(scope, parsedJson);
+	const schemaErrors = Array.from(Value.Errors(TeamProjectConfigSchema, sanitizedJson), (error) => {
 		const code = typeof error === "object" && error !== null && "keyword" in error && typeof error.keyword === "string"
 			? error.keyword
 			: "validation";
@@ -589,8 +617,9 @@ function parseLayer(scope: TeamConfigScope, path: string): ParsedLayer | { fatal
 		path,
 		layerRoot,
 		requireInsideLayerRoot,
-		parsed: parsedJson as TeamProjectConfigFile,
+		parsed: sanitizedJson as TeamProjectConfigFile,
 		diagnostics: [],
+		thinkingLevelWarnings,
 	};
 }
 
@@ -625,6 +654,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 
 	const layers: TeamProjectConfigLayer[] = [];
 	const diagnostics: ProjectConfigDiagnostic[] = [];
+	const thinkingLevelWarnings: ThinkingLevelConfigWarning[] = [];
 	const parsedLayers: ParsedLayer[] = [];
 	const fatalScopes = new Set<TeamConfigScope>();
 	// Hold per-scope fatal-parse diagnostics until we know which scope wins.
@@ -642,6 +672,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			fatalScopes.add(result.scope);
 			continue;
 		}
+		thinkingLevelWarnings.push(...result.thinkingLevelWarnings);
 		// Accept the current field names; also read legacy field names so old files
 		// can be detected and warned about rather than parse-failing silently.
 		const parsedAny = result.parsed as unknown as {
@@ -767,6 +798,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			delegationEnabled: false,
 			persistedRoutingMode,
 			displayCost,
+			thinkingLevelWarnings,
 		};
 	}
 
@@ -814,6 +846,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			delegationEnabled: false,
 			persistedRoutingMode,
 			displayCost,
+			thinkingLevelWarnings,
 		};
 	}
 
@@ -846,6 +879,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			delegationEnabled: true,
 			persistedRoutingMode,
 			displayCost,
+			thinkingLevelWarnings,
 		};
 	}
 
@@ -880,6 +914,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		delegationEnabled: true,
 		persistedRoutingMode,
 		displayCost,
+		thinkingLevelWarnings,
 	};
 }
 
