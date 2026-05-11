@@ -369,10 +369,28 @@ export default function (pi: ExtensionAPI): void {
 		activeContext.ui.notify(message, "info");
 	}
 
+	function notifyThinkingLevelWarnings(ctx: ExtensionContext, warnings: ThinkingLevelConfigWarning[] | undefined): void {
+		if (!ctx.hasUI || !warnings?.length) return;
+		for (const warning of warnings) {
+			const dedupKey = thinkingLevelWarningToastKey(warning);
+			if (toastedThinkingLevelWarnings.has(dedupKey)) continue;
+			toastedThinkingLevelWarnings.set(dedupKey, true);
+			ctx.ui.notify(buildThinkingLevelWarningToast(warning), "warning");
+		}
+	}
+
+	function notifyThinkingClamp(event: Extract<NormalizedWorkerEvent, { type: "thinking_clamped" }>): void {
+		if (!activeContext?.hasUI) return;
+		const dedupKey = thinkingClampToastKey(event);
+		if (toastedThinkingClamps.has(dedupKey)) return;
+		toastedThinkingClamps.set(dedupKey, true);
+		activeContext.ui.notify(buildThinkingClampToast(event), "warning");
+	}
+
 	function attachTeamManagerListener(manager: TeamManager): void {
 		detachTeamManagerListener();
 		resetUiTracking();
-		detachTeamManagerListener = manager.onStateChange((state) => {
+		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
 			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
@@ -411,6 +429,20 @@ export default function (pi: ExtensionAPI): void {
 				lastRelayCount.set(worker.workerId, currRelays);
 			}
 		});
+		const workerEvents = (manager as unknown as {
+			workerManager?: {
+				onEvent(listener: (_worker: unknown, event: NormalizedWorkerEvent) => void): () => void;
+			};
+		}).workerManager;
+		const detachWorkerEventListener = workerEvents?.onEvent((_worker, event) => {
+			if (event.type === "thinking_clamped") {
+				notifyThinkingClamp(event);
+			}
+		}) ?? (() => {});
+		detachTeamManagerListener = () => {
+			detachStateListener();
+			detachWorkerEventListener();
+		};
 	}
 
 	async function replaceTeamManager(config: TeamConfig): Promise<void> {
