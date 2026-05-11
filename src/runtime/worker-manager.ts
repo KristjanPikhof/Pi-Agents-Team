@@ -174,11 +174,14 @@ function buildSummary(state: WorkerRuntimeState, text: string): WorkerSummary {
 }
 
 function createInitialState(options: LaunchWorkerOptions): WorkerRuntimeState {
+	const requestedThinkingLevel = options.thinkingLevel ?? "medium";
 	return {
 		workerId: options.workerId,
 		profileName: options.profileName,
 		sessionMode: "worker",
 		status: "starting",
+		requestedThinkingLevel,
+		effectiveThinkingLevel: requestedThinkingLevel,
 		startedAt: Date.now(),
 		lastEventAt: Date.now(),
 		currentTask: options.task,
@@ -572,6 +575,7 @@ export class WorkerManager {
 				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
 				break;
 			case "worker_state":
+				record.state.effectiveThinkingLevel = event.state.thinkingLevel as ThinkingLevel;
 				if (record.state.status === "starting" && !event.state.isStreaming) {
 					break;
 				}

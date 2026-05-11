@@ -19,6 +19,7 @@ export interface LaunchPolicyRequest {
 	pathScope?: TeamPathScope;
 	model?: string;
 	orchestratorModel?: string;
+	orchestratorThinkingLevel?: ThinkingLevel;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
 	extensionMode?: WorkerExtensionMode;

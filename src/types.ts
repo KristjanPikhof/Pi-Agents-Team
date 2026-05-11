@@ -251,6 +251,7 @@ export interface DelegatedTaskInput {
 	expectedOutput?: string;
 	pathScope?: TeamPathScope;
 	skills?: string[];
+	orchestratorThinkingLevel?: ThinkingLevel;
 	createdAt: number;
 }
 
@@ -296,6 +297,8 @@ export interface WorkerRuntimeState {
 	profileName: string;
 	sessionMode: TeamSessionMode;
 	status: WorkerStatus;
+	requestedThinkingLevel: ThinkingLevel;
+	effectiveThinkingLevel: ThinkingLevel;
 	processId?: number;
 	startedAt: number;
 	lastEventAt: number;
