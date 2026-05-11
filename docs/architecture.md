@@ -170,11 +170,14 @@ Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) i
 - identity: `workerId`, `profileName`, `sessionMode`
 - lifecycle: `status`, `startedAt`, `lastEventAt`, `error`
 - work: `currentTask`, `lastToolName`
+- thinking: `requestedThinkingLevel`, `effectiveThinkingLevel`
 - output: `lastSummary` (headline + readFiles + changedFiles + risks + nextRecommendation), `finalAnswer`
 - supervision: `pendingRelayQuestions`
 - accounting: `usage` (turns, input/output tokens, cache, costUsd, contextTokens)
 
 `WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager`: `record.textBuffer` (raw concatenated assistant text), a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard, and a separate per-worker assistant-chunk ring buffer (`ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks — *not* rendered lines, since one delta may contain `\n`s — `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`, monotonic per-task indexes, exposed via `getAssistantTail(workerId, fromIndex?)` and `onAssistantChunk(listener)`) that powers the overlay's Console live-tail. Memory is bounded by the byte cap; the chunk cap defends against many tiny deltas. Reuse resets the chunk buffer and rewinds `nextIndex` to 0. Nothing here is persisted.
+
+`requestedThinkingLevel` is the launch-policy output sent to Pi. `effectiveThinkingLevel` is read back from RPC `get_state.thinkingLevel` and can differ when Pi clamps unsupported model-family levels. `WorkerManager` emits a `thinking_clamped` normalized event for that mismatch so the extension can notify once per worker/requested/effective tuple.
 
 ## What gets persisted
 
