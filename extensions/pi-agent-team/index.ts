@@ -431,7 +431,7 @@ export default function (pi: ExtensionAPI): void {
 				}
 				: undefined;
 				const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-				const orchestratorThinkingLevel = ctx.getThinkingLevel?.();
+				const orchestratorThinkingLevel = (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
 				const result = await teamManager.delegateTask({
 				title: params.title,
 				goal: params.goal,
