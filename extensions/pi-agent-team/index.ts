@@ -711,6 +711,7 @@ export default function (pi: ExtensionAPI): void {
 					"warning",
 				);
 			}
+			notifyThinkingLevelWarnings(ctx, activeProjectConfig.thinkingLevelWarnings);
 
 			if (event.reason !== "startup" && markedCount > 0 && isTeamActive(activeProjectConfig)) {
 				const noun = markedCount === 1 ? "worker" : "workers";
