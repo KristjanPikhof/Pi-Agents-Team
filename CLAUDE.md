@@ -45,7 +45,7 @@ Package surface: `package.json` exports `./extensions/index.ts`; Pi discovers th
 - Placeholder relay filtering has 3 layers: parser (`PLACEHOLDER_RELAY_VALUES`), relay toast listener, worker prompt wording. Keep all to avoid `needs guidance: none` noise.
 - Summary aliases are intentional: `buildWorkerSummaryFromText` accepts `read_files`/`changed_files` and `files_read`/`files_changed`.
 - Assistant chunks are bounded in memory only; never persist transcripts. Reuse resets chunks/final answer/summary/relay state. Eviction must keep at least one chunk so a single oversized delta does not blank Console.
-- Close/cancel/prune differ: cancel non-terminal streams/processes; close only idle/waiting RPC handles and uses `closing` so exit maps to `exited`; prune removes terminal registry entries and disposes leftover live handles. No auto-prune.
+- Close/cancel/prune differ: cancel non-terminal streams/processes; close only idle/waiting RPC handles and uses `closing` so exit maps to `exited`; prune removes terminal registry entries and disposes leftover live handles, folding each removed worker's usage into `prunedWorkerUsageTotals` exactly once via `TaskRegistry.removeWorker` before delete. No auto-prune.
 - Reuse is launch-strict: only idle/waiting, same profile and launch-affecting settings (`model`, tools, cwd, prompt path, extension mode, thinking level, skills). Cross-profile or changed launch fields reject.
 - `closing` flag is only for operator close/dispose; cancel does not set it.
 - Widget spinner timer starts only while animated workers exist, stops on terminal/session shutdown, and `.unref()`s.
