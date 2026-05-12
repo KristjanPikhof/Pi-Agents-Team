@@ -560,6 +560,125 @@ test("TeamManager applies thinking level precedence: tool param, role level, orc
 	assert.equal(captures[3]?.thinkingLevel, "medium");
 });
 
+async function createIdleReusableTeam(sessionStats?: Record<string, unknown> | (() => Record<string, unknown>), rejectSessionStats?: string) {
+	const transports: MockWorkerTransport[] = [];
+	const workerManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport({ sessionStats, rejectSessionStats });
+		transports.push(transport);
+		return new MockWorkerHandle(transport);
+	});
+	const teamManager = new TeamManager({ workerManager });
+	const first = await teamManager.delegateTask({
+		title: "First",
+		goal: "first reusable task",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	assert.equal(teamManager.getWorkerStatus(first.worker.workerId)?.status, "idle");
+	return { teamManager, transports, workerId: first.worker.workerId };
+}
+
+test("delegateTask with reuseWorkerId refreshes context and allows reuse below saturation thresholds", async () => {
+	const { teamManager, transports, workerId } = await createIdleReusableTeam({
+		sessionId: "mock-session",
+		totalMessages: 1,
+		tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15 },
+		cost: 0.01,
+		contextUsage: { tokens: 99000, contextWindow: 200000, percent: 49.5 },
+	});
+
+	const reused = await teamManager.delegateTask({
+		title: "Second",
+		goal: "below threshold reuse",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		reuseWorkerId: workerId,
+	});
+
+	assert.equal(reused.worker.workerId, workerId);
+	assert.equal(reused.worker.usage.contextPercent, 49.5);
+	assert.equal(reused.worker.usage.contextRemainingTokens, 101000);
+	assert.deepEqual(transports[0]?.commands.map((command) => command.type).slice(-2), ["get_session_stats", "prompt"]);
+});
+
+test("delegateTask with reuseWorkerId rejects saturated context percent before prompting", async () => {
+	const { teamManager, transports, workerId } = await createIdleReusableTeam({
+		sessionId: "mock-session",
+		totalMessages: 1,
+		contextUsage: { tokens: 160000, contextWindow: 200000, percent: 80 },
+	});
+
+	await assert.rejects(
+		() => teamManager.delegateTask({
+			title: "Second",
+			goal: "saturated percent reuse",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			reuseWorkerId: workerId,
+		}),
+		/Cannot reuse worker .*contextPercent=80%.*contextRemainingTokens=40000.*Delegate fresh/,
+	);
+	assert.equal(transports[0]?.commands.filter((command) => command.type === "prompt").length, 1);
+});
+
+test("delegateTask with reuseWorkerId rejects low remaining context before prompting", async () => {
+	const { teamManager, transports, workerId } = await createIdleReusableTeam({
+		sessionId: "mock-session",
+		totalMessages: 1,
+		contextUsage: { tokens: 167232, contextWindow: 200000, percent: 70 },
+	});
+
+	await assert.rejects(
+		() => teamManager.delegateTask({
+			title: "Second",
+			goal: "low remaining reuse",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			reuseWorkerId: workerId,
+		}),
+		/Cannot reuse worker .*contextPercent=70%.*contextRemainingTokens=32768.*Delegate fresh/,
+	);
+	assert.equal(transports[0]?.commands.filter((command) => command.type === "prompt").length, 1);
+});
+
+test("delegateTask with reuseWorkerId allows unknown or nullable context after refresh", async () => {
+	const { teamManager, workerId } = await createIdleReusableTeam({
+		sessionId: "mock-session",
+		totalMessages: 1,
+		contextUsage: { tokens: null, contextWindow: 200000, percent: null },
+	});
+
+	const reused = await teamManager.delegateTask({
+		title: "Second",
+		goal: "unknown context reuse",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		reuseWorkerId: workerId,
+	});
+
+	assert.equal(reused.worker.workerId, workerId);
+	assert.equal(reused.worker.usage.contextPercent, undefined);
+	assert.equal(reused.worker.usage.contextRemainingTokens, undefined);
+});
+
+test("delegateTask with reuseWorkerId propagates stats refresh errors before reuse prompt", async () => {
+	const { teamManager, transports, workerId } = await createIdleReusableTeam(undefined, "stats unavailable");
+
+	await assert.rejects(
+		() => teamManager.delegateTask({
+			title: "Second",
+			goal: "refresh fails",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			reuseWorkerId: workerId,
+		}),
+		/stats unavailable/,
+	);
+	assert.equal(transports[0]?.commands.filter((command) => command.type === "prompt").length, 1);
+});
+
 test("delegateTask with reuseWorkerId routes to reuse path on idle worker, allocates a fresh taskId, and reuses the same handle", async () => {
 	const transports: MockWorkerTransport[] = [];
 	const handles: MockWorkerHandle[] = [];
