@@ -15,6 +15,7 @@ export interface MockTransportOptions {
 	rejectPrompt?: string;
 	autoCompletePrompt?: boolean;
 	sessionStats?: Record<string, unknown> | (() => Record<string, unknown>);
+	rejectSessionStats?: string;
 }
 
 export class MockWorkerTransport extends EventEmitter implements WorkerTransport {
@@ -107,6 +108,10 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 				this.respond(command, this.state);
 				break;
 			case "get_session_stats": {
+				if (this.options.rejectSessionStats) {
+					this.respond(command, undefined, this.options.rejectSessionStats);
+					break;
+				}
 				const sessionStats = typeof this.options.sessionStats === "function"
 					? this.options.sessionStats()
 					: this.options.sessionStats;
