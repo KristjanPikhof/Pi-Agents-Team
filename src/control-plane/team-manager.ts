@@ -6,6 +6,7 @@ import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
 import { WorkerManager, type AssistantChunk, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
+import { aggregateWorkerUsage } from "../usage";
 import type {
 	DelegatedTaskInput,
 	PersistedTeamState,
@@ -15,6 +16,7 @@ import type {
 	WorkerExtensionMode,
 	WorkerRuntimeState,
 	WorkerStatus,
+	WorkerUsageAggregate,
 } from "../types";
 
 const TERMINAL_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
@@ -536,20 +538,8 @@ export class TeamManager {
 		return removed;
 	}
 
-	aggregateUsage(): { workers: number; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; costUsd: number } {
-		const workers = this.registry.listWorkers();
-		return workers.reduce(
-			(acc, worker) => ({
-				workers: acc.workers + 1,
-				turns: acc.turns + worker.usage.turns,
-				inputTokens: acc.inputTokens + worker.usage.inputTokens,
-				outputTokens: acc.outputTokens + worker.usage.outputTokens,
-				cacheReadTokens: acc.cacheReadTokens + worker.usage.cacheReadTokens,
-				cacheWriteTokens: acc.cacheWriteTokens + worker.usage.cacheWriteTokens,
-				costUsd: acc.costUsd + worker.usage.costUsd,
-			}),
-			{ workers: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
-		);
+	aggregateUsage(): WorkerUsageAggregate {
+		return aggregateWorkerUsage(this.registry.listWorkers(), this.registry.snapshot().prunedWorkerUsageTotals);
 	}
 
 	async waitForTerminal(
