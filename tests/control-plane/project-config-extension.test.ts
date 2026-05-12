@@ -51,10 +51,9 @@ function withGlobalConfigPath<T>(path: string, run: () => T): T {
 	}
 }
 
-function createExtensionHarness() {
+function createExtensionHarness(notifications: Array<{ message: string; level?: string }> = []) {
 	const tools: RegisteredTool[] = [];
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
-	const notifications: Array<{ message: string; level?: string }> = [];
 
 	extension({
 		registerTool(tool: RegisteredTool) {
@@ -105,6 +104,7 @@ function buildConfig(
 	) as TeamProjectConfigFile["roles"];
 	return {
 		schemaVersion: 4,
+		scaffoldVersion: TEAM_SCAFFOLD_VERSION,
 		...configOverrides,
 		roles: {
 			...roles,
@@ -376,17 +376,22 @@ test("fresh active local scaffold produces no scaffold freshness toast", async (
 	assert.ok(!notifications.some(({ message }) => /scaffoldVersion|scaffold freshness|has no scaffoldVersion/i.test(message)));
 });
 
-test("stale active local scaffold warning toasts once across reloads", async () => {
+test("stale active local scaffold warning toasts once across factory reloads", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-stale-local-"));
 	const cwd = join(root, "app");
 	mkdirSync(cwd, { recursive: true });
 	writeProjectConfig(root, buildConfig({}, { scaffoldVersion: 0 }));
 
-	const { handlers, notifications } = createExtensionHarness();
-	const ctx = createSessionContext(cwd, notifications);
+	const notifications: Array<{ message: string; level?: string }> = [];
+	const firstHarness = createExtensionHarness(notifications);
+	const firstCtx = createSessionContext(cwd, notifications);
 
-	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
-	await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+	await firstHarness.handlers.get("session_start")?.({ reason: "startup" }, firstCtx);
+
+	const secondHarness = createExtensionHarness(notifications);
+	const secondCtx = createSessionContext(cwd, notifications);
+
+	await secondHarness.handlers.get("session_start")?.({ reason: "reload" }, secondCtx);
 
 	const freshnessToasts = notifications.filter(({ message }) => /active local agents-team\.json is scaffoldVersion 0/i.test(message));
 	assert.equal(freshnessToasts.length, 1);
@@ -438,17 +443,22 @@ test("no config produces no scaffold freshness toast", async () => {
 	assert.ok(!notifications.some(({ message }) => /scaffoldVersion|scaffold freshness|no scaffoldVersion/i.test(message)));
 });
 
-test("missing active scaffoldVersion produces one unknown-version warning", async () => {
+test("missing active scaffoldVersion produces one unknown-version warning across factory reloads", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-missing-scaffold-"));
 	const cwd = join(root, "app");
 	mkdirSync(cwd, { recursive: true });
-	writeProjectConfig(root, buildConfig());
+	writeProjectConfig(root, buildConfig({}, { scaffoldVersion: undefined }));
 
-	const { handlers, notifications } = createExtensionHarness();
-	const ctx = createSessionContext(cwd, notifications);
+	const notifications: Array<{ message: string; level?: string }> = [];
+	const firstHarness = createExtensionHarness(notifications);
+	const firstCtx = createSessionContext(cwd, notifications);
 
-	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
-	await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+	await firstHarness.handlers.get("session_start")?.({ reason: "startup" }, firstCtx);
+
+	const secondHarness = createExtensionHarness(notifications);
+	const secondCtx = createSessionContext(cwd, notifications);
+
+	await secondHarness.handlers.get("session_start")?.({ reason: "reload" }, secondCtx);
 
 	const freshnessToasts = notifications.filter(({ message }) => /active local agents-team\.json has no scaffoldVersion/i.test(message));
 	assert.equal(freshnessToasts.length, 1);

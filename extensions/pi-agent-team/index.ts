@@ -72,6 +72,13 @@ type ExtensionContextWithThinkingLevel = ExtensionContext & {
 	getThinkingLevel?: () => ThinkingLevel;
 };
 
+const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshnessToasts");
+
+function getProcessStableScaffoldFreshnessToasts(): Set<string> {
+	const store = globalThis as typeof globalThis & Record<symbol, Set<string> | undefined>;
+	return store[SCAFFOLD_FRESHNESS_TOASTS_KEY] ??= new Set<string>();
+}
+
 function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
 	return (pi as ExtensionAPIWithThinkingLevel).getThinkingLevel?.()
 		?? (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
@@ -322,7 +329,7 @@ export default function (pi: ExtensionAPI): void {
 	// without de-dup, operators iterating with /reload see the same warning
 	// every time. We emit once per active (scope, scaffoldVersion) or unknown
 	// scaffold state per process.
-	const toastedScaffoldStale = new Set<string>();
+	const toastedScaffoldStale = getProcessStableScaffoldFreshnessToasts();
 	const toastedThinkingLevelWarnings = new Map<string, true>();
 	const toastedThinkingClamps = new Map<string, true>();
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
