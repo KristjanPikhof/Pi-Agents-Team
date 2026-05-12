@@ -292,6 +292,10 @@ export interface WorkerUsageStats {
 	contextTokens?: number;
 }
 
+export interface WorkerUsageAggregate extends Required<WorkerUsageStats> {
+	workers: number;
+}
+
 export interface RelayQuestion {
 	relayId: string;
 	workerId: string;
@@ -407,6 +411,7 @@ export interface PersistedTeamState {
 	version: typeof TEAM_STATE_VERSION;
 	sessionMode: TeamSessionMode;
 	activeWorkers: Record<string, WorkerRuntimeState>;
+	prunedWorkerUsageTotals: WorkerUsageAggregate;
 	taskRegistry: Record<string, DelegatedTaskInput>;
 	relayQueue: RelayQuestion[];
 	ui: TeamUiState;
