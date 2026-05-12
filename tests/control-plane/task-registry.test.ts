@@ -52,3 +52,55 @@ test("TaskRegistry stores tasks and worker snapshots without transcripts", () =>
 	assert.equal(snapshot.ui.dashboardEntries.length, 1);
 	assert.equal(snapshot.activeWorkers["worker-1"]?.lastSummary?.headline, "Runtime looks good.");
 });
+
+test("TaskRegistry retains aggregate usage when removing worker snapshots", () => {
+	const registry = new TaskRegistry(createDefaultTeamState());
+	registry.registerTask({
+		taskId: "task-1",
+		title: "Review runtime",
+		goal: "Inspect the runtime layer",
+		requestedBy: "orchestrator",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		contextHints: [],
+		createdAt: Date.now(),
+	});
+	registry.upsertWorker({
+		workerId: "worker-1",
+		profileName: "reviewer",
+		sessionMode: "worker",
+		status: "idle",
+		requestedThinkingLevel: "medium",
+		effectiveThinkingLevel: "medium",
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		currentTask: registry.getTask("task-1"),
+		pendingRelayQuestions: [],
+		usage: {
+			turns: 2,
+			inputTokens: 100,
+			outputTokens: 50,
+			cacheReadTokens: 10,
+			cacheWriteTokens: 4,
+			costUsd: 0.25,
+			contextTokens: 150,
+		},
+	});
+
+	const removed = registry.removeWorker("worker-1");
+	const snapshot = registry.snapshot();
+
+	assert.equal(removed?.workerId, "worker-1");
+	assert.equal(snapshot.activeWorkers["worker-1"], undefined);
+	assert.equal(snapshot.taskRegistry["task-1"], undefined);
+	assert.deepEqual(snapshot.prunedWorkerUsageTotals, {
+		workers: 1,
+		turns: 2,
+		inputTokens: 100,
+		outputTokens: 50,
+		cacheReadTokens: 10,
+		cacheWriteTokens: 4,
+		costUsd: 0.25,
+		contextTokens: 150,
+	});
+});
