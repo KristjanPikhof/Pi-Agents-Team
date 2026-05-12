@@ -155,11 +155,11 @@ Three verbs with different intents. Don't conflate them.
 |---|---|---|---|
 | `/team-stop` (cancel path) | non-terminal (`starting`, `running`) | Aborts the active stream and SIGTERMs the worker process. | `exited` (or `aborted` if the abort raced) |
 | `/team-stop` (close path) | reusable (`idle`, `waiting_followup`) | Disposes the live RPC handle, sets the `closing` flag so `worker_exit` lands as `exited` not `aborted`. | `exited` |
-| overlay `[p]` prune | terminal (`idle`, `completed`, `aborted`, `error`, `exited`) | Calls `WorkerManager.removeWorker` (which closes any leftover live handle for `idle`/`waiting_followup` entries), unsubscribes RPC listeners, drops the registry entry. | (entry removed) |
+| overlay `[p]` prune | terminal (`idle`, `completed`, `aborted`, `error`, `exited`) | Calls `WorkerManager.removeWorker` (which closes any leftover live handle for `idle`/`waiting_followup` entries), unsubscribes RPC listeners, folds the worker's usage into `prunedWorkerUsageTotals`, then drops the registry entry. | (entry removed) |
 
 `closing` is a per-record flag on `WorkerRuntimeRecord`. `closeWorker` sets it before disposing the handle so the natural `worker_exit` event fired by the dispose can map to `exited` instead of the default `signal === "SIGTERM" ? "aborted" : "exited"` branch. Without the flag, an explicit close would arrive as a fake abort.
 
-`pruneTerminalWorkers` is async because `WorkerManager.removeWorker` awaits handle disposal for any reusable worker still holding a live session. Operators get a single-shot prune; the runtime guarantees no leaked processes after the await resolves.
+`pruneTerminalWorkers` is async because `WorkerManager.removeWorker` awaits handle disposal for any reusable worker still holding a live session. Operators get a single-shot prune; the runtime guarantees no leaked processes after the await resolves. Usage retention happens in the registry removal path, so each removed worker is counted once and a later no-op prune cannot double-count it.
 
 ### Placeholder relays are filtered at parse time
 
@@ -190,12 +190,14 @@ Persisted session state includes:
 - compact summaries
 - pending relay questions
 - dashboard snapshot entries
+- `prunedWorkerUsageTotals`, an aggregate-only retained usage bucket for terminal workers removed by prune
 
 Persisted session state does **not** include:
 
 - full worker transcripts
 - raw streaming deltas
 - tool output dumps
+- per-pruned-worker history after prune; only the aggregate `prunedWorkerUsageTotals` bucket remains
 - the `<final_answer>` block on disk (it lives on `WorkerRuntimeState` but storage honors the compact-state rule; `config.persistence.storeTranscripts` is `false` by default)
 
 ## Routing mode
@@ -233,7 +235,7 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 
 `buildTeamWidgetLines` (`src/ui/status-widget.ts`):
 
-- **Hidden when empty.** Returns `[]` if no workers are tracked; the extension then clears the widget via `setWidget(key, undefined)`. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
+- **Hidden when empty.** Returns `[]` if no workers are tracked and no retained-pruned usage exists; the extension then clears the widget via `setWidget(key, undefined)`. Retained usage can still render the compact `Σ` line after worker rows are pruned. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
 - **Single column** when ≤ 6 workers (cap at 8 visible rows). Per-worker row is one glyph + id + profile + 38-col truncated detail.
 - **Two columns** when > 6 workers: left column padded to 38 cols with visible-width-aware spaces, then `  ` + right cell. Cap at 16 visible workers (2 × 8); the rest show as `  +N more · /team to view`.
 - **Width enforcement.** Every returned line passes through `truncateToWidth(line, HEADER_WIDTH=78)`. Both widget and overlay use pi-tui's `visibleWidth` / `truncateToWidth`, not raw `.length` / `.slice`, because braille spinner glyphs, emoji, and combining chars miscount under code-unit length and previously crashed pi-tui's render validator.
