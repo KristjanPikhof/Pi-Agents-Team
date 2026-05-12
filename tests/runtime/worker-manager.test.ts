@@ -66,6 +66,10 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	const withStats = manager.getWorker("worker-1");
 	assert.equal(withStats?.state.usage.inputTokens, 10);
 	assert.equal(withStats?.state.usage.costUsd, 0.01);
+	assert.equal(withStats?.state.usage.contextTokens, 15);
+	assert.equal(withStats?.state.usage.contextWindow, 200000);
+	assert.equal(withStats?.state.usage.contextPercent, 0.01);
+	assert.equal(withStats?.state.usage.contextRemainingTokens, 199985);
 
 	await manager.abortWorker("worker-1");
 	const abortedWorker = manager.getWorker("worker-1");
