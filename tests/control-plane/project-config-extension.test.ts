@@ -362,6 +362,20 @@ test("solo routing blocks delegate_task with /team-enable guidance", async () =>
 	);
 });
 
+test("fresh active local scaffold produces no scaffold freshness toast", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-fresh-local-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	writeProjectConfig(root, buildConfig({}, { scaffoldVersion: TEAM_SCAFFOLD_VERSION }));
+
+	const { handlers, notifications } = createExtensionHarness();
+	const ctx = createSessionContext(cwd, notifications);
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+	assert.ok(!notifications.some(({ message }) => /scaffoldVersion|scaffold freshness|has no scaffoldVersion/i.test(message)));
+});
+
 test("stale active local scaffold warning toasts once across reloads", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-stale-local-"));
 	const cwd = join(root, "app");
@@ -454,6 +468,22 @@ test("schema-mismatched active config does not use scaffold freshness toast", as
 	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
 
 	assert.ok(!notifications.some(({ message }) => /active local agents-team\.json is scaffoldVersion 0/i.test(message)));
+});
+
+test("fatal-parse active config produces invalid-config warning but no scaffold freshness toast", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-fatal-active-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	mkdirSync(resolve(projectConfigPath(root), ".."), { recursive: true });
+	writeFileSync(projectConfigPath(root), "{not json — project file broken");
+
+	const { handlers, notifications } = createExtensionHarness();
+	const ctx = createSessionContext(cwd, notifications);
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+	assert.ok(notifications.some(({ message }) => /invalid agents-team\.json — delegation disabled/i.test(message)));
+	assert.ok(!notifications.some(({ message }) => /scaffoldVersion|scaffold freshness|has no scaffoldVersion/i.test(message)));
 });
 
 test("session lifecycle UI honors display.cost false", async () => {

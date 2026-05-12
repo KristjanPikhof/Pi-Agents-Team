@@ -741,8 +741,9 @@ test("loadActiveTeamConfig: fatal-parse on non-winning layer does NOT disable th
 	// diagnostic and the winning layer still loads.
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-fatal-nonwinner-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
-	writeProjectConfig(projectRoot, {
+	const projectPath = writeProjectConfig(projectRoot, {
 		schemaVersion: 4,
+		scaffoldVersion: TEAM_SCAFFOLD_VERSION,
 		roles: { "custom-scout": { access: { tools: ["read"], write: false } } as any },
 	});
 
@@ -755,6 +756,16 @@ test("loadActiveTeamConfig: fatal-parse on non-winning layer does NOT disable th
 	assert.equal(result.status, "project", "project wins by presence even when global is fatal");
 	assert.equal(result.delegationEnabled, true, "delegation stays enabled when the winning layer is valid");
 	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "project_config_parse_failed"));
+	assert.deepEqual(result.activeConfigFreshness, {
+		kind: "layer",
+		scope: "project",
+		path: projectPath,
+		parseStatus: "valid",
+		scaffoldVersion: TEAM_SCAFFOLD_VERSION,
+		scaffoldVersionMissing: false,
+		scaffoldStale: false,
+		rawSchemaVersion: 4,
+	});
 	assert.ok(result.config.profiles.find((profile) => profile.name === "custom-scout"));
 });
 
@@ -771,6 +782,16 @@ test("loadActiveTeamConfig: fatal-parse on the winning layer still disables dele
 	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: null });
 	assert.equal(result.status, "invalid");
 	assert.equal(result.delegationEnabled, false);
+	assert.deepEqual(result.activeConfigFreshness, {
+		kind: "layer",
+		scope: "project",
+		path: projectPath,
+		parseStatus: "fatal",
+		scaffoldVersion: undefined,
+		scaffoldVersionMissing: true,
+		scaffoldStale: false,
+		rawSchemaVersion: undefined,
+	});
 	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "project_config_parse_failed"));
 });
 
