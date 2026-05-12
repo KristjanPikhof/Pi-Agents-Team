@@ -47,6 +47,7 @@ Package surface: `package.json` exports `./extensions/index.ts`; Pi discovers th
 - Assistant chunks are bounded in memory only; never persist transcripts. Reuse resets chunks/final answer/summary/relay state. Eviction must keep at least one chunk so a single oversized delta does not blank Console.
 - Close/cancel/prune differ: cancel non-terminal streams/processes; close only idle/waiting RPC handles and uses `closing` so exit maps to `exited`; prune removes terminal registry entries and disposes leftover live handles, folding each removed worker's usage into `prunedWorkerUsageTotals` exactly once via `TaskRegistry.removeWorker` before delete. No auto-prune.
 - Reuse is launch-strict: only idle/waiting, same profile and launch-affecting settings (`model`, tools, cwd, prompt path, extension mode, thinking level, skills). Cross-profile or changed launch fields reject.
+- Reuse is context-aware after launch checks: refresh stats before registering/prompting reuse; reject `contextPercent >= 80` or `contextRemainingTokens <= 32768`; unknown/null context is allowed but prompt guidance should prefer fresh workers for long or multi-lane work. Do not add auto-compact as the fix.
 - `closing` flag is only for operator close/dispose; cancel does not set it.
 - Widget spinner timer starts only while animated workers exist, stops on terminal/session shutdown, and `.unref()`s.
 - TUI width is ANSI-aware. Use pi-tui `visibleWidth`/`truncateToWidth`, not raw `.length`/`.slice`. `sanitizeText` must preserve `\x1b` for colors and normalize tabs.
