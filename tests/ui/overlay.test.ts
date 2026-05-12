@@ -541,6 +541,47 @@ test("cost tab shows aggregate Σ and per-worker rows with compact tokens", () =
 	assert.ok(lines.some((line) => line.includes("w1") && line.includes("reviewer") && line.includes("in=123.5k") && line.includes("out=50k")));
 });
 
+test("cost tab includes retained pruned usage in aggregate and note", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.usage = { ...state.activeWorkers.w1!.usage, turns: 3, inputTokens: 100_000, outputTokens: 50_000, costUsd: 0.25 };
+	state.prunedWorkerUsageTotals = {
+		workers: 2,
+		turns: 4,
+		inputTokens: 20_000,
+		outputTokens: 1_250_000,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		costUsd: 0.05,
+		contextTokens: 0,
+	};
+	const { component } = makeComponent({ state, rows: 28, cols: 100 });
+	component.handleInput("4");
+	const lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("Σ workers=3") && line.includes("in=120k") && line.includes("out=1.3m")), "expected active plus retained aggregate totals");
+	assert.ok(lines.some((line) => line.includes("retained/pruned: workers=2") && line.includes("in=20k")), "expected retained/pruned note");
+	assert.ok(lines.some((line) => line.includes("w1") && line.includes("in=100k")), "expected active per-worker row to remain visible");
+});
+
+test("cost tab shows retained-only aggregate after all workers are pruned", () => {
+	const state = makeState(0);
+	state.prunedWorkerUsageTotals = {
+		workers: 2,
+		turns: 4,
+		inputTokens: 20_000,
+		outputTokens: 1_250_000,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		costUsd: 0.05,
+		contextTokens: 0,
+	};
+	const { component } = makeComponent({ state, rows: 28, cols: 100 });
+	component.handleInput("4");
+	const lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("Σ workers=2") && line.includes("out=1.3m")), "expected retained-only aggregate totals");
+	assert.ok(lines.some((line) => line.includes("retained/pruned: workers=2")), "expected retained/pruned note");
+	assert.ok(!lines.some((line) => /\bw\d+\b/.test(line)), "expected no per-worker rows");
+});
+
 test("inspect tab usage line uses compact tokens", () => {
 	const state = makeState(1);
 	state.activeWorkers.w1!.usage = { ...state.activeWorkers.w1!.usage, turns: 7, inputTokens: 1_250_000, outputTokens: 12_345, costUsd: 1.2345 };
