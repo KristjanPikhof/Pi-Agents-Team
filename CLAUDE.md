@@ -84,7 +84,7 @@ Session restore is honest. `markRestoredWorkersExited` flips every restored work
 
 Reload gates tool execution. `session_start` sets `reloading = true` before `replaceTeamManager`, `false` in `finally`. Every tool `execute` calls `ensureNotReloading()` first. `/team-enable` also calls it. Read-only operator commands (`/team-result`, `/team-copy`, …) skip the guard.
 
-Scaffold-stale toasts are per-process de-duped. `Map<scope, scaffoldVersion>` ensures one warning per `(scope, scaffoldVersion)` per process lifetime. Pi fires `session_start` on startup/reload/new/resume/fork; without dedup, `/reload` spams.
+Config freshness toasts inspect only the active layer. Boot freshness warnings use `LoadedTeamProjectConfig.activeConfigFreshness`: project-local wins by file presence, otherwise global, otherwise none. Stale non-winning layers do not toast by default. Missing `scaffoldVersion` on a current-schema active file is a soft `unknown` freshness warning; schema mismatch/fatal parse handling stays separate. Dedup is per process by active scope + `scaffoldVersion` value, or `unknown` when missing. Pi fires `session_start` on startup/reload/new/resume/fork; without dedup, `/reload` spams.
 
 Broadcasts swallow per-worker errors. `messageAllWorkers` / `cancelAllWorkers` collect failures into result array. One bad worker must never abort the whole broadcast.
 
@@ -94,7 +94,7 @@ Config precedence is by file presence, not validity. `agents-team.json` lives at
 
 Thinking level cascade is launch-time only. `src/safety/launch-policy.ts` resolves explicit role `thinkingLevel` → built-in role default → orchestrator live `pi.getThinkingLevel()` from `extensions/pi-agent-team/index.ts` → `medium` floor. `src/runtime/worker-manager.ts` stores `requestedThinkingLevel`, reads back `effectiveThinkingLevel`, and emits `thinking_clamped` when Pi silently clamps an unsupported level.
 
-`schemaVersion` vs `scaffoldVersion`. Both in `src/project-config/versions.ts`: schema=`4`, scaffold=`2`. Schema = parsing contract, breaking-change bump. Scaffold = content-freshness marker, soft "stale" toast only. When to bump: [`docs/profiles.md`](docs/profiles.md) "Version bumps".
+`schemaVersion` vs `scaffoldVersion`. Both in `src/project-config/versions.ts`: schema=`4`, scaffold=`2`. Schema = parsing contract, breaking-change bump. Scaffold = active config content-freshness marker, soft stale/unknown toast only. When to bump: [`docs/profiles.md`](docs/profiles.md) "Version bumps".
 
 Path scope is prompt convention, NOT OS sandbox. Tells worker where to focus; blocks "read-only profile with `write: true`" at delegate time. Does NOT contain `bash`, network, subprocess spawn, or a worker that ignores its prompt. If profile has `bash`, you trust the prompt.
 
