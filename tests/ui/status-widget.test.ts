@@ -218,6 +218,72 @@ test("widget usage line uses compact token formatter and stays within header wid
 	assert.ok(visibleWidth(usageLine) <= 78, `usage line exceeds 78 cols (${visibleWidth(usageLine)}): ${usageLine}`);
 });
 
+test("widget usage line includes retained pruned totals", () => {
+	const state = createDefaultTeamState();
+	state.prunedWorkerUsageTotals = {
+		workers: 1,
+		turns: 2,
+		inputTokens: 1_000,
+		outputTokens: 2_000,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		costUsd: 0.1,
+		contextTokens: 0,
+	};
+	state.activeWorkers.w1 = makeWorker({
+		workerId: "w1",
+		status: "running",
+		usage: {
+			turns: 3,
+			inputTokens: 999,
+			outputTokens: 1_000,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0.2,
+		},
+	});
+
+	const lines = buildTeamWidgetLines(state, { frame: 0, displayCost: true });
+	const usageLine = lines.find((line) => line.includes("Σ turns=5"));
+	assert.ok(usageLine, `expected retained aggregate usage line; got:\n${lines.join("\n")}`);
+	assert.match(usageLine, /in=2k/);
+	assert.match(usageLine, /out=3k/);
+	assert.match(usageLine, /\$0\.3000/);
+});
+
+test("widget can show retained-only usage after workers are pruned", () => {
+	const state = createDefaultTeamState();
+	state.prunedWorkerUsageTotals = {
+		workers: 2,
+		turns: 7,
+		inputTokens: 123_456,
+		outputTokens: 50_000,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		costUsd: 0.45,
+		contextTokens: 0,
+	};
+
+	const lines = buildTeamWidgetLines(state, { frame: 0, displayCost: true });
+	assert.ok(lines.some((line) => line.includes("no workers tracked")), `expected no-workers count line; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("Σ") && line.includes("in=123.5k")), `expected retained-only usage line; got:\n${lines.join("\n")}`);
+});
+
+test("widget hides retained-only Σ cost line when displayCost is false", () => {
+	const state = createDefaultTeamState();
+	state.prunedWorkerUsageTotals = {
+		workers: 1,
+		turns: 1,
+		inputTokens: 500,
+		outputTokens: 100,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		costUsd: 0.0123,
+		contextTokens: 0,
+	};
+	assert.deepEqual(buildTeamWidgetLines(state, { frame: 0, displayCost: false }), []);
+});
+
 test("widget hides Σ cost line when displayCost is false", () => {
 	const state = createDefaultTeamState();
 	state.activeWorkers.w1 = makeWorker({

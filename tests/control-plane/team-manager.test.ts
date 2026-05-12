@@ -1,11 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { DEFAULT_TEAM_CONFIG } from "../../src/config";
+import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import { resolveProfile } from "../../src/profiles/loader";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "../runtime/test-helpers";
+import type { WorkerRuntimeState } from "../../src/types";
+
+function workerSnapshot(workerId: string, status: WorkerRuntimeState["status"], usage: WorkerRuntimeState["usage"]): WorkerRuntimeState {
+	return {
+		workerId,
+		profileName: "reviewer",
+		sessionMode: "worker",
+		status,
+		requestedThinkingLevel: "medium",
+		effectiveThinkingLevel: "medium",
+		startedAt: 1,
+		lastEventAt: 1,
+		pendingRelayQuestions: [],
+		usage,
+	};
+}
 
 test("TeamManager delegates, tracks, pings, and cancels workers", async () => {
 	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
@@ -270,6 +286,53 @@ test("pruneTerminalWorkers removes only terminal workers and leaves live ones al
 	const remaining = teamManager.listWorkers();
 	assert.equal(remaining.length, 1);
 	assert.equal(remaining[0]?.workerId, live.worker.workerId);
+});
+
+test("pruneTerminalWorkers retains terminal worker usage exactly once", async () => {
+	const teamManager = new TeamManager();
+	const state = createDefaultTeamState();
+	state.activeWorkers["w1"] = workerSnapshot("w1", "idle", {
+		turns: 2,
+		inputTokens: 100,
+		outputTokens: 40,
+		cacheReadTokens: 10,
+		cacheWriteTokens: 5,
+		costUsd: 0.25,
+	});
+	state.activeWorkers["w2"] = workerSnapshot("w2", "running", {
+		turns: 3,
+		inputTokens: 200,
+		outputTokens: 80,
+		cacheReadTokens: 20,
+		cacheWriteTokens: 10,
+		costUsd: 0.5,
+	});
+	teamManager.restore(state);
+
+	const removed = await teamManager.pruneTerminalWorkers();
+	const afterFirstPrune = teamManager.snapshot();
+	const afterNoopPrune = await teamManager.pruneTerminalWorkers();
+	const aggregate = teamManager.aggregateUsage();
+
+	assert.equal(removed.length, 1);
+	assert.equal(removed[0]?.workerId, "w1");
+	assert.equal(afterFirstPrune.activeWorkers["w1"], undefined);
+	assert.equal(afterFirstPrune.activeWorkers["w2"]?.status, "running");
+	assert.equal(afterNoopPrune.length, 0);
+	assert.deepEqual(afterFirstPrune.prunedWorkerUsageTotals, {
+		workers: 1,
+		turns: 2,
+		inputTokens: 100,
+		outputTokens: 40,
+		cacheReadTokens: 10,
+		cacheWriteTokens: 5,
+		costUsd: 0.25,
+		contextTokens: 0,
+	});
+	assert.equal(aggregate.workers, 2);
+	assert.equal(aggregate.inputTokens, 300);
+	assert.equal(aggregate.outputTokens, 120);
+	assert.equal(aggregate.costUsd, 0.75);
 });
 
 test("aggregateUsage sums token and cost fields across every tracked worker", async () => {

@@ -1,6 +1,7 @@
 import { buildDashboardEntries, createDefaultTeamState, normalizePersistedTeamState } from "../config";
 import { collectPendingRelayQuestions } from "../comms/relay-queue";
-import { compareWorkerIds, type DelegatedTaskInput, type PersistedTeamState, type WorkerRuntimeState } from "../types";
+import { compareWorkerIds, type DelegatedTaskInput, type PersistedTeamState, type WorkerRuntimeState, type WorkerUsageAggregate } from "../types";
+import { addWorkerUsageToAggregate } from "../usage";
 
 export class TaskRegistry {
 	private state: PersistedTeamState;
@@ -43,6 +44,7 @@ export class TaskRegistry {
 	removeWorker(workerId: string): WorkerRuntimeState | undefined {
 		const worker = this.state.activeWorkers[workerId];
 		if (!worker) return undefined;
+		this.state.prunedWorkerUsageTotals = addWorkerUsageToAggregate(this.state.prunedWorkerUsageTotals, worker.usage);
 		delete this.state.activeWorkers[workerId];
 		if (worker.currentTask?.taskId) {
 			delete this.state.taskRegistry[worker.currentTask.taskId];
@@ -65,6 +67,10 @@ export class TaskRegistry {
 	getTask(taskId: string): DelegatedTaskInput | undefined {
 		const task = this.state.taskRegistry[taskId];
 		return task ? { ...task } : undefined;
+	}
+
+	getPrunedWorkerUsageTotals(): WorkerUsageAggregate {
+		return structuredClone(this.state.prunedWorkerUsageTotals);
 	}
 
 	snapshot(): PersistedTeamState {

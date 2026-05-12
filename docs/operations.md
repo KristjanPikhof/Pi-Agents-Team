@@ -42,7 +42,7 @@ tsx --test tests/runtime/worker-manager.test.ts
 
 Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
 
-The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when usage is non-zero — there is no separate "status" slash command.
+The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command.
 
 ### Dashboard keys
 
@@ -68,7 +68,7 @@ Inside the `/team` overlay:
 
 The header carries a tab bar, the per-tab help row, and the selected worker's priority snippet. When routing is off, the bar shows a `solo` badge; idle workers carry a `[reuse]` tag in the roster row and `[reusable]` in the Inspect header so reusable sessions are obvious. A transient `» …` status line surfaces last action / refresh / error feedback for a few seconds.
 
-Inspect renders status, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, plus the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cost.
+Inspect renders status, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, plus the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cost. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
 
 ## Inspect a worker's result
 
@@ -80,19 +80,19 @@ Prints the compact summary (headline, files read/changed, risks, next recommenda
 
 ## Clean up finished workers
 
-Press `p` inside the `/team` overlay to prune every terminal worker (`idle`, `completed`, `aborted`, `error`, `exited`) from the dashboard. Useful after a cancelled batch when you want to start fresh without old rows cluttering the widget. Non-terminal workers are left alone, so pruning is safe while new workers are still active.
+Press `p` inside the `/team` overlay to prune every terminal worker (`idle`, `completed`, `aborted`, `error`, `exited`) from the dashboard. Prune removes the worker rows/details and task registry entries, but folds each removed worker's token/cost usage into retained aggregate totals first. Useful after a cancelled batch when you want to start fresh without old rows cluttering the widget while preserving team statistics. Non-terminal workers are left alone, so pruning is safe while new workers are still active.
 
-For a hard reset: `/team-stop all` first to stop every live worker, then `p` in the overlay to clear the terminal rows.
+To clear every worker row: `/team-stop all` to stop every live worker, then `p` in the overlay to remove the terminal rows. Team token/cost totals survive on purpose. Each pruned worker's usage is folded into a retained aggregate so the Cost tab and footer `Σ` keep matching what the team actually spent; the Cost tab also prints a `retained/pruned` note so the aggregate is not confused with the visible per-worker rows. No command zeroes the retained totals; restart the Pi session for a fresh ledger.
 
 ## See aggregate token usage and cost
 
-Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per tracked worker (turns, input/output tokens, cost) plus a `Σ` aggregate row. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
+Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per currently tracked worker (turns, input/output tokens, cost) plus a `Σ` aggregate row. The `Σ` row includes active workers and retained usage from workers that were later pruned; when retained usage exists, the Cost tab adds a concise `retained/pruned` note so the aggregate is not confused with the visible per-worker rows. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
 
 Large token counts are abbreviated to keep the overlay and footer readable: `k` means thousands (1,000), and `m` means millions (1,000,000). For example, `in=143.5k` is about 143,500 input tokens and `out=1.3m` is about 1,300,000 output tokens.
 
-The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any worker has non-zero usage, so you don't have to open the overlay for the running total.
+The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any active or retained-pruned worker usage is non-zero, so you don't have to open the overlay for the running total. If all workers have been pruned but retained usage exists, the widget can still show the aggregate `Σ` line without per-worker rows.
 
-To hide the `Σ` row and Cost tab, set `display.cost: false` in your `agents-team.json`:
+To hide the `Σ` row, retained-pruned usage note, and Cost tab, set `display.cost: false` in your `agents-team.json`:
 
 ```json
 {

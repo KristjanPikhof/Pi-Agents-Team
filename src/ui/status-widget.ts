@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
+import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -62,19 +63,10 @@ function padToWidth(text: string, width: number): string {
 }
 
 function buildUsageLine(state: PersistedTeamState): string | undefined {
-	let turns = 0;
-	let inputTokens = 0;
-	let outputTokens = 0;
-	let costUsd = 0;
-	for (const worker of Object.values(state.activeWorkers)) {
-		turns += worker.usage.turns;
-		inputTokens += worker.usage.inputTokens;
-		outputTokens += worker.usage.outputTokens;
-		costUsd += worker.usage.costUsd;
-	}
-	if (turns === 0 && inputTokens === 0 && outputTokens === 0 && costUsd === 0) return undefined;
+	const usage = aggregateWorkerUsage(Object.values(state.activeWorkers), state.prunedWorkerUsageTotals);
+	if (!hasWorkerUsage(usage)) return undefined;
 	return truncateToWidth(
-		`Σ turns=${turns} · in=${formatCompactTokenCount(inputTokens)} · out=${formatCompactTokenCount(outputTokens)} · $${costUsd.toFixed(4)}`,
+		`Σ turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · $${usage.costUsd.toFixed(4)}`,
 		HEADER_WIDTH,
 	);
 }
@@ -174,7 +166,7 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 		if (workers.length === 0) return [];
 		return [truncateToWidth("Pi Agents Team — solo", HEADER_WIDTH)];
 	}
-	if (workers.length === 0) return [];
+	if (workers.length === 0 && (!displayCost || !buildUsageLine(state))) return [];
 
 	const status = displayCost ? buildStatusRow(state) : { row: buildCountsLine(state), includesUsage: false };
 	const lines = ["Pi Agents Team", status.row];

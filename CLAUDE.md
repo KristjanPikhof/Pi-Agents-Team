@@ -45,7 +45,7 @@ Package surface: `package.json` exports `./extensions/index.ts`; Pi discovers th
 - Placeholder relay filtering has 3 layers: parser (`PLACEHOLDER_RELAY_VALUES`), relay toast listener, worker prompt wording. Keep all to avoid `needs guidance: none` noise.
 - Summary aliases are intentional: `buildWorkerSummaryFromText` accepts `read_files`/`changed_files` and `files_read`/`files_changed`.
 - Assistant chunks are bounded in memory only; never persist transcripts. Reuse resets chunks/final answer/summary/relay state. Eviction must keep at least one chunk so a single oversized delta does not blank Console.
-- Close/cancel/prune differ: cancel non-terminal streams/processes; close only idle/waiting RPC handles and uses `closing` so exit maps to `exited`; prune removes terminal registry entries and disposes leftover live handles. No auto-prune.
+- Close/cancel/prune differ: cancel non-terminal streams/processes; close only idle/waiting RPC handles and uses `closing` so exit maps to `exited`; prune removes terminal registry entries and disposes leftover live handles, folding each removed worker's usage into `prunedWorkerUsageTotals` exactly once via `TaskRegistry.removeWorker` before delete. No auto-prune.
 - Reuse is launch-strict: only idle/waiting, same profile and launch-affecting settings (`model`, tools, cwd, prompt path, extension mode, thinking level, skills). Cross-profile or changed launch fields reject.
 - `closing` flag is only for operator close/dispose; cancel does not set it.
 - Widget spinner timer starts only while animated workers exist, stops on terminal/session shutdown, and `.unref()`s.
@@ -69,7 +69,7 @@ Package surface: `package.json` exports `./extensions/index.ts`; Pi discovers th
 - User-controlled prompt strings are length-capped, sanitized, fenced, and wrapped in `<!-- BEGIN available-profiles -->` sentinels.
 - Config writes are atomic via `src/util/backup.ts#atomicWriteFileSync`; `/team-enable` shallow-merges so roles/`enabled`/`workerAccess`/`display` survive.
 - Team profile names come from active config; Pi skills are separate `delegate_task.skills`. Never bake installed skill names into prompts/examples/default roles.
-- Cost totals are agents only: `aggregateUsage()` and widget `Σ` exclude orchestrator cost. `display.cost` gates widget row and Cost tab, default true.
+- Cost totals are agents only: `aggregateUsage()` and widget `Σ` exclude orchestrator cost but include `prunedWorkerUsageTotals` retained from pruned terminal workers, so totals survive across prune. Cost tab shows a `retained/pruned` note when retained usage is non-zero; widget can render Σ-only after all rows are pruned. `display.cost` gates widget row, Cost tab, and the retained/pruned note, default true.
 - Routing mode is control-plane state, not persisted worker state. `TeamManager.routingMode` gates `delegate_task`; `/team-enable on|off` persists `routingMode` to active or requested scope. Do not put routing mode in `PersistedTeamState`.
 
 ## Tests and validation

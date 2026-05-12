@@ -4,6 +4,7 @@ import type { TUI, OverlayOptions } from "@earendil-works/pi-tui";
 import type { TeamManager } from "../control-plane/team-manager";
 import type { AssistantChunk, WorkerConsoleEvent } from "../runtime/worker-manager";
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
+import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
 import { buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
@@ -209,25 +210,24 @@ function buildConsoleLines(
 
 function buildCostLines(state: PersistedTeamState): string[] {
 	const workers = Object.values(state.activeWorkers);
-	if (workers.length === 0) return ["(no tracked workers)"];
-	let totalTurns = 0;
-	let totalIn = 0;
-	let totalOut = 0;
-	let totalCost = 0;
+	const total = aggregateWorkerUsage(workers, state.prunedWorkerUsageTotals);
+	const retained = state.prunedWorkerUsageTotals;
+	if (workers.length === 0 && !hasWorkerUsage(retained)) return ["(no tracked workers)"];
 	const rows: string[] = [];
+	if (hasWorkerUsage(retained)) {
+		rows.push(
+			`retained/pruned: workers=${retained.workers}  turns=${retained.turns}  in=${formatCompactTokenCount(retained.inputTokens)}  out=${formatCompactTokenCount(retained.outputTokens)}  cost=$${retained.costUsd.toFixed(4)}`,
+		);
+	}
 	for (const worker of workers) {
-		totalTurns += worker.usage.turns;
-		totalIn += worker.usage.inputTokens;
-		totalOut += worker.usage.outputTokens;
-		totalCost += worker.usage.costUsd;
 		rows.push(
 			`  ${worker.workerId.padEnd(6)} ${worker.profileName.padEnd(12)} turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}  cost=$${worker.usage.costUsd.toFixed(4)}`,
 		);
 	}
 	return [
-		`Σ workers=${workers.length}  turns=${totalTurns}  in=${formatCompactTokenCount(totalIn)}  out=${formatCompactTokenCount(totalOut)}  cost=$${totalCost.toFixed(4)}`,
+		`Σ workers=${total.workers}  turns=${total.turns}  in=${formatCompactTokenCount(total.inputTokens)}  out=${formatCompactTokenCount(total.outputTokens)}  cost=$${total.costUsd.toFixed(4)}`,
 		"",
-		...rows,
+		...(rows.length > 0 ? rows : ["(no tracked workers)"]),
 	];
 }
 
