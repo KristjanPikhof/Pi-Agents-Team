@@ -90,6 +90,14 @@ Every `delegate_task` call should be self-sufficient:
   profile, model, tools, cwd, skills, extension mode, prompt path). Cross-role
   or differing launch fields force a fresh spawn; `delegate_task` rejects with
   a "launch settings differ" hint when they don't match.
+- Check `agent_status` or `ping_agents mode=active` before non-trivial reuse.
+  Reuse similar work normally below 50% context, cautiously from 50-70%, and
+  prefer fresh above 70%.
+- Spawn fresh at or above 80% context or at/below 32768 remaining tokens; the
+  runtime rejects these saturated workers. If context is unknown, prefer fresh
+  for long, exploratory, or multi-file work.
+- Do not add more lanes to a saturated worker. Fan out independent lanes as
+  fresh workers rather than stacking them onto one warm session.
 - Idle worker cleanup (releasing RPC sessions before pruning) is an
   operator action via `/team-stop`; the orchestrator does not invoke it.
 

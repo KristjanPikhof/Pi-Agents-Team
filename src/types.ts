@@ -290,10 +290,20 @@ export interface WorkerUsageStats {
 	cacheWriteTokens: number;
 	costUsd: number;
 	contextTokens?: number;
+	contextWindow?: number;
+	contextPercent?: number;
+	contextRemainingTokens?: number;
 }
 
-export interface WorkerUsageAggregate extends Required<WorkerUsageStats> {
+export interface WorkerUsageAggregate {
 	workers: number;
+	turns: number;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+	costUsd: number;
+	contextTokens: number;
 }
 
 export interface RelayQuestion {

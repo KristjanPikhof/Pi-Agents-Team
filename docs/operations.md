@@ -76,7 +76,7 @@ Inspect renders status, task, operator-needs, summary, the worker's `<final_answ
 /team-result <worker-id>
 ```
 
-Prints the compact summary (headline, files read/changed, risks, next recommendation, pending relays, usage) plus the verbatim contents of the worker's `<final_answer>` block. This is the authoritative deliverable. If the block is empty, the worker did not follow the contract: re-delegate, steer it with a corrective message, or stop it.
+Prints the compact summary (headline, files read/changed, risks, next recommendation, pending relays, usage) plus the verbatim contents of the worker's `<final_answer>` block. When Pi reports context budget, usage includes a compact marker such as `ctx=64%/200k rem=72k`. This is the authoritative deliverable. If the block is empty, the worker did not follow the contract: re-delegate, steer it with a corrective message, or stop it.
 
 ## Clean up finished workers
 
@@ -155,7 +155,9 @@ Stops one worker or every non-terminal worker. The command automatically picks t
 
 When the next task is the same role, same scope, and same launch settings as an idle worker, the orchestrator can pass that worker's id as `delegate_task.reuseWorkerId` instead of spawning a fresh process. Reuse re-prompts the existing RPC session, allocates a fresh `taskId`, and resets per-task state (summary, `<final_answer>`, last tool, relay questions). The result: warm role context survives, spawn cost is skipped.
 
-`agent_status` reports `reusable: true` on workers in `idle` or `waiting_followup`. Anything else has either no live session (`completed`/`aborted`/`error`/`exited`) or work in flight (`running`/`starting`); reuse fails fast with a per-status hint.
+`agent_status` reports `reusable: true` on workers in `idle` or `waiting_followup`. Anything else has either no live session (`completed`/`aborted`/`error`/`exited`) or work in flight (`running`/`starting`); reuse fails fast with a per-status hint. Active pings and status/result views include `ctx=<percent>/<window> rem=<tokens>` when Pi reports context budget.
+
+Context policy: reuse same-scope work normally below 50% context, cautiously from 50-70%, and prefer a fresh worker above 70%. Reuse is rejected at or above 80% context or when remaining context is at most 32768 tokens. Unknown context does not hard-reject reuse, but the orchestrator prompt tells agents to prefer fresh workers for long, exploratory, or multi-lane work. Do not stack more lanes onto a saturated worker; fan out independent lanes as fresh workers.
 
 What blocks reuse:
 

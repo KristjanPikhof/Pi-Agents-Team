@@ -68,6 +68,8 @@ export interface DelegateTaskRequest {
 }
 
 const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
+const REUSE_CONTEXT_HARD_PERCENT = 80;
+const REUSE_CONTEXT_MIN_REMAINING_TOKENS = 32768;
 
 function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean {
 	if (a === b) return true;
@@ -76,6 +78,22 @@ function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean
 	const sortedA = [...a].sort();
 	const sortedB = [...b].sort();
 	return sortedA.every((value, index) => value === sortedB[index]);
+}
+
+function rejectSaturatedReuse(worker: WorkerRuntimeState): void {
+	const percent = worker.usage.contextPercent;
+	const remaining = worker.usage.contextRemainingTokens;
+	const saturatedByPercent = percent !== undefined && percent >= REUSE_CONTEXT_HARD_PERCENT;
+	const saturatedByRemaining = remaining !== undefined && remaining <= REUSE_CONTEXT_MIN_REMAINING_TOKENS;
+	if (!saturatedByPercent && !saturatedByRemaining) return;
+
+	const details = [
+		percent !== undefined ? `contextPercent=${percent}%` : undefined,
+		remaining !== undefined ? `contextRemainingTokens=${remaining}` : undefined,
+	].filter((value): value is string => value !== undefined);
+	throw new Error(
+		`Cannot reuse worker ${worker.workerId}: context budget is saturated${details.length > 0 ? ` (${details.join(", ")})` : ""}. Delegate fresh (omit reuseWorkerId).`,
+	);
 }
 
 export interface AgentResult {
@@ -364,6 +382,8 @@ export class TeamManager {
 				workerIds.map(async (workerId) => {
 					await this.workerManager.refreshState(workerId);
 					await this.workerManager.refreshStats(workerId);
+					const refreshed = this.workerManager.getWorker(workerId);
+					if (refreshed) this.registry.upsertWorker(refreshed.state);
 				}),
 			);
 		}
@@ -441,6 +461,15 @@ export class TeamManager {
 			throw new Error(
 				`Cannot reuse worker ${resolvedId}: launch settings differ on ${mismatches.join(", ")}. These are baked into the worker process at spawn and cannot change between tasks. Delegate fresh (omit reuseWorkerId) or align the request.`,
 			);
+		}
+
+		await this.workerManager.refreshStats(resolvedId);
+		const refreshedWorker = this.workerManager.getWorker(resolvedId);
+		if (refreshedWorker) {
+			this.registry.upsertWorker(refreshedWorker.state);
+			rejectSaturatedReuse(refreshedWorker.state);
+		} else {
+			throw new Error(`Cannot reuse worker ${resolvedId}: runtime record missing after stats refresh. Delegate fresh.`);
 		}
 
 		const taskId = this.nextTaskId();

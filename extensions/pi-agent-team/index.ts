@@ -17,6 +17,7 @@ import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
+import { formatContextBudget } from "../../src/ui/usage-format";
 import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer";
 import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types";
 
@@ -136,6 +137,8 @@ function persistSnapshot(pi: ExtensionAPI, state: PersistedTeamState, config: Te
 
 function formatWorker(worker: WorkerRuntimeState): string {
 	const parts = [`${worker.workerId} (${worker.profileName})`, `status=${worker.status}`];
+	const contextBudget = formatContextBudget(worker.usage);
+	if (contextBudget) parts.push(contextBudget);
 	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
 	if (worker.lastToolName && worker.status === "running") parts.push(`tool=${worker.lastToolName}`);
 	if (worker.lastSummary?.headline) {
@@ -180,6 +183,8 @@ function formatWorkerCompact(worker: WorkerRuntimeState): string {
 	}
 
 	lines.push(`Usage: turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens} cost=$${worker.usage.costUsd.toFixed(4)}`);
+	const contextBudget = formatContextBudget(worker.usage);
+	if (contextBudget) lines.push(`Context: ${contextBudget}`);
 
 	if (worker.finalAnswer && worker.finalAnswer.trim()) {
 		lines.push("", "--- Final answer (from worker's <final_answer> block) ---", worker.finalAnswer.trim());

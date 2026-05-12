@@ -29,6 +29,10 @@ test("buildPassivePing keeps cached worker status compact", () => {
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
 			costUsd: 0.02,
+			contextTokens: 128000,
+			contextWindow: 200000,
+			contextPercent: 64,
+			contextRemainingTokens: 72000,
 		},
 		lastSummary: {
 			workerId: "worker-1",
@@ -45,6 +49,8 @@ test("buildPassivePing keeps cached worker status compact", () => {
 
 	const snapshot = buildPassivePing(worker);
 	assert.equal(snapshot.lastSummary, "Worker is ready for follow-up.");
+	assert.equal(snapshot.usage.contextWindow, 200000);
 	assert.match(formatPingSnapshot(snapshot), /status=idle/);
+	assert.match(formatPingSnapshot(snapshot), /ctx=64%\/200k rem=72k/);
 	assert.match(formatPingSnapshot(snapshot), /summary=Worker is ready for follow-up/);
 });

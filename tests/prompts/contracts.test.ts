@@ -25,6 +25,10 @@ test("buildOrchestratorPromptBundle combines file contract with runtime state", 
 	const bundle = buildOrchestratorPromptBundle(state);
 	assert.match(bundle, /Pi Agents Team Orchestrator Contract/);
 	assert.match(bundle, /Active worker count/);
+	assert.match(bundle, /below 50% context/);
+	assert.match(bundle, /at or above 80% context/);
+	assert.match(bundle, /32768 remaining tokens/);
+	assert.doesNotMatch(bundle, /auto-compact option|auto compact option/i);
 });
 
 test("buildWorkerTaskPrompt includes relay guidance and scope", () => {

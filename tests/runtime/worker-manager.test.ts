@@ -55,6 +55,10 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	assert.equal(updatedWorker.state.status, "idle");
 	assert.match(updatedWorker.state.lastSummary?.headline ?? "", /Completed build the runtime layer/);
 	assert.equal(updatedWorker.state.usage.turns, 1);
+	assert.equal(updatedWorker.state.usage.contextTokens, 15);
+	assert.equal(updatedWorker.state.usage.contextWindow, undefined);
+	assert.equal(updatedWorker.state.usage.contextPercent, undefined);
+	assert.equal(updatedWorker.state.usage.contextRemainingTokens, undefined);
 
 	await manager.steerWorker("worker-1", "focus on transport");
 	assert.equal(transports[0]?.commands.at(-1)?.type, "steer");
@@ -66,10 +70,51 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	const withStats = manager.getWorker("worker-1");
 	assert.equal(withStats?.state.usage.inputTokens, 10);
 	assert.equal(withStats?.state.usage.costUsd, 0.01);
+	assert.equal(withStats?.state.usage.contextTokens, 15);
+	assert.equal(withStats?.state.usage.contextWindow, 200000);
+	assert.equal(withStats?.state.usage.contextPercent, 0.01);
+	assert.equal(withStats?.state.usage.contextRemainingTokens, 199985);
 
 	await manager.abortWorker("worker-1");
 	const abortedWorker = manager.getWorker("worker-1");
 	assert.equal(abortedWorker?.state.status, "aborted");
+});
+
+test("refreshStats clears nullable context percent and remaining after compaction", async () => {
+	let compacted = false;
+	const transport = new MockWorkerTransport({
+		sessionStats: () => ({
+			sessionId: "mock-session",
+			totalMessages: 1,
+			tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15 },
+			cost: 0.01,
+			contextUsage: compacted
+				? { tokens: null, contextWindow: 200000, percent: null }
+				: { tokens: 150000, contextWindow: 200000, percent: 75 },
+		}),
+	});
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-context-null",
+		profileName: "reviewer",
+		task: taskInput("task-context-null", "Context null"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.refreshStats("worker-context-null");
+	assert.equal(manager.getWorker("worker-context-null")?.state.usage.contextTokens, 150000);
+	assert.equal(manager.getWorker("worker-context-null")?.state.usage.contextPercent, 75);
+	assert.equal(manager.getWorker("worker-context-null")?.state.usage.contextRemainingTokens, 50000);
+
+	compacted = true;
+	await manager.refreshStats("worker-context-null");
+	const usage = manager.getWorker("worker-context-null")?.state.usage;
+	assert.equal(usage?.contextTokens, undefined);
+	assert.equal(usage?.contextWindow, 200000);
+	assert.equal(usage?.contextPercent, undefined);
+	assert.equal(usage?.contextRemainingTokens, undefined);
 });
 
 test("extractFinalAnswer pulls content from <final_answer> tag", async () => {
