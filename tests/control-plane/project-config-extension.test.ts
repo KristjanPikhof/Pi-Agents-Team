@@ -1,10 +1,21 @@
-import test from "node:test";
+import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = "none";
+
+const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshnessToasts");
+
+function resetProcessStableScaffoldFreshnessToasts(): void {
+	const store = globalThis as typeof globalThis & Record<symbol, Set<string> | undefined>;
+	store[SCAFFOLD_FRESHNESS_TOASTS_KEY]?.clear();
+}
+
+beforeEach(() => {
+	resetProcessStableScaffoldFreshnessToasts();
+});
 
 import extension from "../../extensions/pi-agent-team/index";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
@@ -398,16 +409,21 @@ test("stale active local scaffold warning toasts once across factory reloads", a
 	assert.equal(freshnessToasts[0].level, "warning");
 });
 
-test("stale active global scaffold warning toasts once across reloads", async () => {
+test("stale active global scaffold warning toasts once across factory reloads", async () => {
 	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-stale-global-cwd-"));
 	const globalPath = writeGlobalConfig(buildConfig({}, { scaffoldVersion: 0 }));
 
 	await withGlobalConfigPath(globalPath, async () => {
-		const { handlers, notifications } = createExtensionHarness();
-		const ctx = createSessionContext(cwd, notifications);
+		const notifications: Array<{ message: string; level?: string }> = [];
+		const firstHarness = createExtensionHarness(notifications);
+		const firstCtx = createSessionContext(cwd, notifications);
 
-		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
-		await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+		await firstHarness.handlers.get("session_start")?.({ reason: "startup" }, firstCtx);
+
+		const secondHarness = createExtensionHarness(notifications);
+		const secondCtx = createSessionContext(cwd, notifications);
+
+		await secondHarness.handlers.get("session_start")?.({ reason: "reload" }, secondCtx);
 
 		const freshnessToasts = notifications.filter(({ message }) => /active global agents-team\.json is scaffoldVersion 0/i.test(message));
 		assert.equal(freshnessToasts.length, 1);
