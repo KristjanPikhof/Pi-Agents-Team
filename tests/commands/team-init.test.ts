@@ -53,6 +53,7 @@ test("buildFullScaffold pre-populates every builtin profile in the schema v4 sha
 	assert.equal(scaffold.enabled, true);
 	assert.equal(scaffold.routingMode, "team");
 	assert.equal(scaffold.workerAccess?.allowPathsOutsideProject, true);
+	assert.equal(scaffold.display?.cost, true);
 	const roles = scaffold.roles ?? {};
 	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
 		const role = (roles as Record<string, unknown>)[profile.name] as any;
@@ -100,6 +101,7 @@ test("/team-init local writes a full scaffold inside the project", async () => {
 	assert.equal(parsed.enabled, true);
 	assert.equal(parsed.routingMode, "team");
 	assert.equal(parsed.workerAccess.allowPathsOutsideProject, true);
+	assert.equal(parsed.display.cost, true);
 	const roleNames = Object.keys(parsed.roles ?? {}).sort();
 	assert.deepEqual(roleNames, DEFAULT_TEAM_CONFIG.profiles.map((profile) => profile.name).sort());
 	assert.ok(emitted[0]?.includes(expectedPath));
