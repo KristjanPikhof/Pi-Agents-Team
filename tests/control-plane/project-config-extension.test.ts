@@ -12,6 +12,7 @@ import {
 	TEAM_PROFILE_NAMES,
 	TEAM_PROJECT_CONFIG_DIR,
 	TEAM_PROJECT_CONFIG_FILE,
+	TEAM_SCAFFOLD_VERSION,
 	type TeamProjectConfigFile,
 	type WorkerRuntimeState,
 } from "../../src/types";
@@ -29,6 +30,65 @@ function writeProjectConfig(root: string, config: TeamProjectConfigFile): void {
 	const path = projectConfigPath(root);
 	mkdirSync(resolve(path, ".."), { recursive: true });
 	writeFileSync(path, JSON.stringify(config, null, 2));
+}
+
+function writeGlobalConfig(config: TeamProjectConfigFile): string {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-global-"));
+	const path = projectConfigPath(root);
+	mkdirSync(resolve(path, ".."), { recursive: true });
+	writeFileSync(path, JSON.stringify(config, null, 2));
+	return path;
+}
+
+function withGlobalConfigPath<T>(path: string, run: () => T): T {
+	const previous = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+	process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = path;
+	try {
+		return run();
+	} finally {
+		if (previous === undefined) delete process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+		else process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = previous;
+	}
+}
+
+function createExtensionHarness() {
+	const tools: RegisteredTool[] = [];
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const notifications: Array<{ message: string; level?: string }> = [];
+
+	extension({
+		registerTool(tool: RegisteredTool) {
+			tools.push(tool);
+		},
+		registerCommand() {},
+		on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) {
+			handlers.set(event, handler);
+		},
+		appendEntry() {},
+		sendMessage() {},
+	} as any);
+
+	return { tools, handlers, notifications };
+}
+
+function createSessionContext(cwd: string, notifications: Array<{ message: string; level?: string }>) {
+	return {
+		cwd,
+		hasUI: true,
+		ui: {
+			notify(message: string, level?: string) {
+				notifications.push({ message, level });
+			},
+			setStatus() {},
+			setWidget() {},
+			setTitle() {},
+		},
+		sessionManager: {
+			getEntries() {
+				return [];
+			},
+		},
+	} as any;
 }
 
 function buildConfig(
@@ -300,6 +360,100 @@ test("solo routing blocks delegate_task with /team-enable guidance", async () =>
 		}, undefined, undefined, ctx),
 		/Team routing off\. Run \/team-enable on to delegate\./,
 	);
+});
+
+test("stale active local scaffold warning toasts once across reloads", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-stale-local-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	writeProjectConfig(root, buildConfig({}, { scaffoldVersion: 0 }));
+
+	const { handlers, notifications } = createExtensionHarness();
+	const ctx = createSessionContext(cwd, notifications);
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+
+	const freshnessToasts = notifications.filter(({ message }) => /active local agents-team\.json is scaffoldVersion 0/i.test(message));
+	assert.equal(freshnessToasts.length, 1);
+	assert.equal(freshnessToasts[0].level, "warning");
+});
+
+test("stale active global scaffold warning toasts once across reloads", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-stale-global-cwd-"));
+	const globalPath = writeGlobalConfig(buildConfig({}, { scaffoldVersion: 0 }));
+
+	await withGlobalConfigPath(globalPath, async () => {
+		const { handlers, notifications } = createExtensionHarness();
+		const ctx = createSessionContext(cwd, notifications);
+
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+
+		const freshnessToasts = notifications.filter(({ message }) => /active global agents-team\.json is scaffoldVersion 0/i.test(message));
+		assert.equal(freshnessToasts.length, 1);
+		assert.equal(freshnessToasts[0].level, "warning");
+	});
+});
+
+test("stale non-winning global scaffold does not toast when local config wins", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-local-wins-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	writeProjectConfig(root, buildConfig({}, { scaffoldVersion: TEAM_SCAFFOLD_VERSION }));
+	const globalPath = writeGlobalConfig(buildConfig({}, { scaffoldVersion: 0 }));
+
+	await withGlobalConfigPath(globalPath, async () => {
+		const { handlers, notifications } = createExtensionHarness();
+		const ctx = createSessionContext(cwd, notifications);
+
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+		assert.ok(!notifications.some(({ message }) => /active global agents-team\.json/i.test(message)));
+		assert.ok(!notifications.some(({ message }) => /scaffoldVersion 0/i.test(message)));
+	});
+});
+
+test("no config produces no scaffold freshness toast", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-no-config-"));
+	const { handlers, notifications } = createExtensionHarness();
+	const ctx = createSessionContext(cwd, notifications);
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+	assert.ok(!notifications.some(({ message }) => /scaffoldVersion|scaffold freshness|no scaffoldVersion/i.test(message)));
+});
+
+test("missing active scaffoldVersion produces one unknown-version warning", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-missing-scaffold-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	writeProjectConfig(root, buildConfig());
+
+	const { handlers, notifications } = createExtensionHarness();
+	const ctx = createSessionContext(cwd, notifications);
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+
+	const freshnessToasts = notifications.filter(({ message }) => /active local agents-team\.json has no scaffoldVersion/i.test(message));
+	assert.equal(freshnessToasts.length, 1);
+	assert.equal(freshnessToasts[0].level, "warning");
+});
+
+test("schema-mismatched active config does not use scaffold freshness toast", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-schema-mismatch-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	mkdirSync(resolve(projectConfigPath(root), ".."), { recursive: true });
+	writeFileSync(projectConfigPath(root), JSON.stringify({ schemaVersion: 3, scaffoldVersion: 0, roles: {} }, null, 2));
+
+	const { handlers, notifications } = createExtensionHarness();
+	const ctx = createSessionContext(cwd, notifications);
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+	assert.ok(!notifications.some(({ message }) => /active local agents-team\.json is scaffoldVersion 0/i.test(message)));
 });
 
 test("session lifecycle UI honors display.cost false", async () => {
