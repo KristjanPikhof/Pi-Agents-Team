@@ -68,6 +68,8 @@ export interface DelegateTaskRequest {
 }
 
 const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
+const REUSE_CONTEXT_HARD_PERCENT = 80;
+const REUSE_CONTEXT_MIN_REMAINING_TOKENS = 32768;
 
 function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean {
 	if (a === b) return true;
@@ -76,6 +78,22 @@ function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean
 	const sortedA = [...a].sort();
 	const sortedB = [...b].sort();
 	return sortedA.every((value, index) => value === sortedB[index]);
+}
+
+function rejectSaturatedReuse(worker: WorkerRuntimeState): void {
+	const percent = worker.usage.contextPercent;
+	const remaining = worker.usage.contextRemainingTokens;
+	const saturatedByPercent = percent !== undefined && percent >= REUSE_CONTEXT_HARD_PERCENT;
+	const saturatedByRemaining = remaining !== undefined && remaining <= REUSE_CONTEXT_MIN_REMAINING_TOKENS;
+	if (!saturatedByPercent && !saturatedByRemaining) return;
+
+	const details = [
+		percent !== undefined ? `contextPercent=${percent}%` : undefined,
+		remaining !== undefined ? `contextRemainingTokens=${remaining}` : undefined,
+	].filter((value): value is string => value !== undefined);
+	throw new Error(
+		`Cannot reuse worker ${worker.workerId}: context budget is saturated${details.length > 0 ? ` (${details.join(", ")})` : ""}. Delegate fresh (omit reuseWorkerId).`,
+	);
 }
 
 export interface AgentResult {
