@@ -61,3 +61,13 @@ export function aggregateWorkerUsage(
 	}
 	return aggregate;
 }
+
+export function hasWorkerUsage(usage: WorkerUsageAggregate): boolean {
+	return usage.turns !== 0
+		|| usage.inputTokens !== 0
+		|| usage.outputTokens !== 0
+		|| usage.cacheReadTokens !== 0
+		|| usage.cacheWriteTokens !== 0
+		|| usage.costUsd !== 0
+		|| usage.contextTokens !== 0;
+}
