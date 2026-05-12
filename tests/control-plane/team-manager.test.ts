@@ -48,6 +48,8 @@ test("TeamManager delegates, tracks, pings, and cancels workers", async () => {
 	const activePing = await teamManager.pingWorkers({ mode: "active" });
 	assert.equal(activePing.length, 1);
 	assert.equal(activePing[0]?.worker.usage.inputTokens, 10);
+	assert.equal(activePing[0]?.worker.usage.contextWindow, 200000);
+	assert.equal(activePing[0]?.worker.usage.contextRemainingTokens, 199985);
 
 	const messaged = await teamManager.messageWorker(worker.workerId, "Focus only on abort handling", "steer");
 	assert.equal(messaged.worker.workerId, worker.workerId);
