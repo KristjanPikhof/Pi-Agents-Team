@@ -461,7 +461,7 @@ export class TeamManager {
 			);
 		}
 
-		const refreshedStats = await this.workerManager.refreshStats(resolvedId);
+		await this.workerManager.refreshStats(resolvedId);
 		const refreshedWorker = this.workerManager.getWorker(resolvedId);
 		if (refreshedWorker) {
 			this.registry.upsertWorker(refreshedWorker.state);
@@ -469,7 +469,6 @@ export class TeamManager {
 		} else {
 			throw new Error(`Cannot reuse worker ${resolvedId}: runtime record missing after stats refresh. Delegate fresh.`);
 		}
-		void refreshedStats;
 
 		const taskId = this.nextTaskId();
 		const task: DelegatedTaskInput = {
