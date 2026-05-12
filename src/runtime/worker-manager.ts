@@ -650,13 +650,13 @@ export class WorkerManager {
 		const tokens = stats.tokens;
 		const contextUsage = stats.contextUsage;
 		const contextTokens = contextUsage ? finiteNumber(contextUsage.tokens) : current.contextTokens;
-		const contextWindow = contextUsage ? finiteNumber(contextUsage.contextWindow) : current.contextWindow;
-		const contextPercent = contextUsage ? finiteNumber(contextUsage.percent) : current.contextPercent;
+		const contextWindow = contextUsage ? finiteNumber(contextUsage.contextWindow) : undefined;
+		const contextPercent = contextUsage ? finiteNumber(contextUsage.percent) : undefined;
 		const contextRemainingTokens = contextUsage
 			? contextTokens !== undefined && contextWindow !== undefined
 				? Math.max(0, contextWindow - contextTokens)
 				: undefined
-			: current.contextRemainingTokens;
+			: undefined;
 
 		return {
 			turns: current.turns,
