@@ -70,6 +70,9 @@ function buildFullScaffold(): TeamProjectConfigFile {
 		workerAccess: {
 			allowPathsOutsideProject: true,
 		},
+		display: {
+			cost: true,
+		},
 		roles,
 	};
 }
