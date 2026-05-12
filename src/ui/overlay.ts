@@ -61,11 +61,11 @@ interface OverlayLikeTui {
 }
 
 // Pi-tui has no "push main pane" primitive: overlays float on top of the
-// main chat. We compromise by anchoring to the top-right at 45% width and
+// main chat. We compromise by anchoring to the top-right at 50% width and
 // 90% height — bottom ~3 rows (chat input + footer) stay visible full-width.
 export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 	anchor: "top-right",
-	width: "45%",
+	width: "50%",
 	minWidth: 44,
 	maxHeight: "90%",
 	margin: 0,
