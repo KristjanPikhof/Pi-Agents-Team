@@ -33,7 +33,7 @@ test("buildTeamDashboardText groups workers by operator attention and surfaces p
 		}],
 		usage: {
 			turns: 2,
-			inputTokens: 20,
+			inputTokens: 1200,
 			outputTokens: 10,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
@@ -62,7 +62,7 @@ test("buildTeamDashboardText groups workers by operator attention and surfaces p
 		usage: {
 			turns: 1,
 			inputTokens: 5,
-			outputTokens: 3,
+			outputTokens: 3400,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
 			costUsd: 0.01,
@@ -106,8 +106,10 @@ test("buildTeamDashboardText groups workers by operator attention and surfaces p
 	assert.match(text, /Use \/team-result <id> for the final deliverable block/);
 	assert.match(text, /Needs reply \(1\)/);
 	assert.match(text, /worker-1 \(reviewer\) — reply: Need operator confirmation/);
+	assert.match(text, /usage: turns=2 input=1\.2k output=10/);
 	assert.match(text, /Needs recovery \(1\)/);
 	assert.match(text, /worker-2 \(fixer\) — recovery: RPC crashed/);
+	assert.match(text, /usage: turns=1 input=5 output=3\.4k/);
 	assert.match(text, /Completed or idle \(1\)/);
 	assert.match(text, /worker-3 \(reviewer\) — headline: Ship list is ready/);
 });

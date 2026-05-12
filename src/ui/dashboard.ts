@@ -1,4 +1,5 @@
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types";
+import { formatCompactTokenCount } from "./usage-format";
 
 export type WorkerAttentionGroup = "needs_reply" | "needs_recovery" | "in_progress" | "completed_or_idle";
 
@@ -87,7 +88,9 @@ export function buildTeamDashboardLines(state: PersistedTeamState): string[] {
 			lines.push(`- ${worker.workerId} (${worker.profileName}) — ${buildWorkerPrioritySnippet(worker)}`);
 			lines.push(`  status: ${worker.status}`);
 			if (worker.currentTask?.title) lines.push(`  task: ${worker.currentTask.title}`);
-			lines.push(`  usage: turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens}`);
+			lines.push(
+				`  usage: turns=${worker.usage.turns} input=${formatCompactTokenCount(worker.usage.inputTokens)} output=${formatCompactTokenCount(worker.usage.outputTokens)}`,
+			);
 		}
 		lines.push("");
 	}
