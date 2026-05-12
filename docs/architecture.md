@@ -79,6 +79,8 @@ delegate_task (tool, with reuseWorkerId)
           → applyLaunchPolicy      (compute would-be plan)
           → launch-snapshot diff   (model, tools, cwd, systemPromptPath,
                                     extensionMode, thinkingLevel, allowSkills)
+          → refreshStats           (pull current context budget)
+          → context budget guard   (reject >=80% or <=32768 remaining tokens)
           → registerTask           (fresh taskId)
           → WorkerManager.reuseWorker
               → reset per-task state (textBuffer, finalAnswer, lastTool,
@@ -88,6 +90,8 @@ delegate_task (tool, with reuseWorkerId)
 ```
 
 Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, skill discovery) are baked at spawn and can't change between tasks. `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error, so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason: different role means different prompt path.
+
+After launch-setting checks, reuse refreshes worker stats and rejects saturated context before registering the new task or sending the prompt. The hard guard rejects `contextPercent >= 80` or `contextRemainingTokens <= 32768`, with an error that includes known budget values and says to delegate fresh. Unknown/null context does not hard-reject; the orchestrator prompt instead biases long, exploratory, or multi-lane work toward fresh workers. There is intentionally no auto-compact fallback.
 
 While the worker runs, RPC events flow through the event normalizer into `applyNormalizedEvent`, which mutates the worker's `WorkerRuntimeState` (status, textBuffer, lastToolName, usage, requested/effective thinking levels, lastSummary, pendingRelayQuestions, finalAnswer) and emits a snapshot. `TeamManager` upserts the snapshot into the registry and re-emits `state_change`, which drives both persistence and UI listeners.
 
@@ -175,7 +179,7 @@ Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) i
 - thinking: `requestedThinkingLevel`, `effectiveThinkingLevel`
 - output: `lastSummary` (headline + readFiles + changedFiles + risks + nextRecommendation), `finalAnswer`
 - supervision: `pendingRelayQuestions`
-- accounting: `usage` (turns, input/output tokens, cache, costUsd, contextTokens)
+- accounting: `usage` (turns, input/output tokens, cache, costUsd, contextTokens, contextWindow, contextPercent, contextRemainingTokens)
 
 `WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager`: `record.textBuffer` (raw concatenated assistant text), a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard, and a separate per-worker assistant-chunk ring buffer (`ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks — *not* rendered lines, since one delta may contain `\n`s — `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`, monotonic per-task indexes, exposed via `getAssistantTail(workerId, fromIndex?)` and `onAssistantChunk(listener)`) that powers the overlay's Console live-tail. Memory is bounded by the byte cap; the chunk cap defends against many tiny deltas. Reuse resets the chunk buffer and rewinds `nextIndex` to 0. Nothing here is persisted.
 
