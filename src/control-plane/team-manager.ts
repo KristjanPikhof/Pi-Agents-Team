@@ -382,6 +382,8 @@ export class TeamManager {
 				workerIds.map(async (workerId) => {
 					await this.workerManager.refreshState(workerId);
 					await this.workerManager.refreshStats(workerId);
+					const refreshed = this.workerManager.getWorker(workerId);
+					if (refreshed) this.registry.upsertWorker(refreshed.state);
 				}),
 			);
 		}
