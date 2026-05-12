@@ -40,8 +40,8 @@ function makeWorker(): WorkerRuntimeState {
 			turns: 3,
 			inputTokens: 1200,
 			outputTokens: 430,
-			cacheReadTokens: 0,
-			cacheWriteTokens: 0,
+			cacheReadTokens: 5_600,
+			cacheWriteTokens: 78,
 			costUsd: 0.021,
 		},
 	};
@@ -60,7 +60,7 @@ test("buildCopyPayload includes task, summary, final answer, transcript, and con
 	assert.match(payload, /focus on newline handling/);
 	assert.match(payload, /headline: JSONL framing is strict/);
 	assert.match(payload, /parser buffers unbounded on malformed stream/);
-	assert.match(payload, /turns=3\s+input=1200/);
+	assert.match(payload, /turns=3\s+input=1200\s+output=430\s+cache_read=5600\s+cache_write=78\s+cost_usd=0\.0210/);
 	assert.match(payload, /## Final answer/);
 	assert.match(payload, /headline: all good/);
 	assert.match(payload, /## Latest assistant text[\s\S]*Here is the complete report/);

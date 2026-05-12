@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
+import { formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -60,12 +61,6 @@ function padToWidth(text: string, width: number): string {
 	return `${text}${" ".repeat(gap)}`;
 }
 
-function formatTokens(value: number): string {
-	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-	return `${value}`;
-}
-
 function buildUsageLine(state: PersistedTeamState): string | undefined {
 	let turns = 0;
 	let inputTokens = 0;
@@ -79,7 +74,7 @@ function buildUsageLine(state: PersistedTeamState): string | undefined {
 	}
 	if (turns === 0 && inputTokens === 0 && outputTokens === 0 && costUsd === 0) return undefined;
 	return truncateToWidth(
-		`Σ turns=${turns} · in=${formatTokens(inputTokens)} · out=${formatTokens(outputTokens)} · $${costUsd.toFixed(4)}`,
+		`Σ turns=${turns} · in=${formatCompactTokenCount(inputTokens)} · out=${formatCompactTokenCount(outputTokens)} · $${costUsd.toFixed(4)}`,
 		HEADER_WIDTH,
 	);
 }

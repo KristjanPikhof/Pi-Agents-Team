@@ -7,6 +7,7 @@ import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } f
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
 import { buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
+import { formatCompactTokenCount } from "./usage-format";
 import {
 	accent,
 	accentBold,
@@ -60,11 +61,11 @@ interface OverlayLikeTui {
 }
 
 // Pi-tui has no "push main pane" primitive: overlays float on top of the
-// main chat. We compromise by anchoring to the top-right at 40% width and
+// main chat. We compromise by anchoring to the top-right at 50% width and
 // 90% height — bottom ~3 rows (chat input + footer) stay visible full-width.
 export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 	anchor: "top-right",
-	width: "40%",
+	width: "50%",
 	minWidth: 44,
 	maxHeight: "90%",
 	margin: 0,
@@ -111,7 +112,7 @@ function appendList(lines: string[], label: string, values: string[]): void {
 }
 
 function formatUsage(worker: WorkerRuntimeState): string {
-	return `turns=${worker.usage.turns}  in=${worker.usage.inputTokens}  out=${worker.usage.outputTokens}  cost=$${worker.usage.costUsd.toFixed(4)}`;
+	return `turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}  cost=$${worker.usage.costUsd.toFixed(4)}`;
 }
 
 function hasClampedThinking(worker: WorkerRuntimeState): boolean {
@@ -220,11 +221,11 @@ function buildCostLines(state: PersistedTeamState): string[] {
 		totalOut += worker.usage.outputTokens;
 		totalCost += worker.usage.costUsd;
 		rows.push(
-			`  ${worker.workerId.padEnd(6)} ${worker.profileName.padEnd(12)} turns=${worker.usage.turns}  in=${worker.usage.inputTokens}  out=${worker.usage.outputTokens}  cost=$${worker.usage.costUsd.toFixed(4)}`,
+			`  ${worker.workerId.padEnd(6)} ${worker.profileName.padEnd(12)} turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}  cost=$${worker.usage.costUsd.toFixed(4)}`,
 		);
 	}
 	return [
-		`Σ workers=${workers.length}  turns=${totalTurns}  in=${totalIn}  out=${totalOut}  cost=$${totalCost.toFixed(4)}`,
+		`Σ workers=${workers.length}  turns=${totalTurns}  in=${formatCompactTokenCount(totalIn)}  out=${formatCompactTokenCount(totalOut)}  cost=$${totalCost.toFixed(4)}`,
 		"",
 		...rows,
 	];

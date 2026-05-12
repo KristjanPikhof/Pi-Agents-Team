@@ -183,6 +183,41 @@ test("widget shows Σ cost line when displayCost is true", () => {
 	assert.ok(lines.some((line) => line.includes("Σ")), `expected Σ line; got:\n${lines.join("\n")}`);
 });
 
+test("widget usage line uses compact token formatter and stays within header width", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = makeWorker({
+		workerId: "w1",
+		status: "running",
+		usage: {
+			turns: 3,
+			inputTokens: 999,
+			outputTokens: 1_000,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0.0123,
+		},
+	});
+	state.activeWorkers.w2 = makeWorker({
+		workerId: "w2",
+		status: "running",
+		usage: {
+			turns: 4,
+			inputTokens: 123_456,
+			outputTokens: 1_250_000,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0.0456,
+		},
+	});
+
+	const lines = buildTeamWidgetLines(state, { frame: 0, displayCost: true });
+	const usageLine = lines.find((line) => line.includes("Σ turns=7"));
+	assert.ok(usageLine, `expected usage line; got:\n${lines.join("\n")}`);
+	assert.match(usageLine, /in=124\.5k/);
+	assert.match(usageLine, /out=1\.3m/);
+	assert.ok(visibleWidth(usageLine) <= 78, `usage line exceeds 78 cols (${visibleWidth(usageLine)}): ${usageLine}`);
+});
+
 test("widget hides Σ cost line when displayCost is false", () => {
 	const state = createDefaultTeamState();
 	state.activeWorkers.w1 = makeWorker({

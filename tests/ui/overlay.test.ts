@@ -197,7 +197,7 @@ test("openTeamDashboardOverlay uses the widened responsive overlay options", asy
 
 	await openTeamDashboardOverlay(ctx, manager);
 	assert.deepEqual((capturedOptions as { overlayOptions: unknown }).overlayOptions, TEAM_DASHBOARD_OVERLAY_OPTIONS);
-	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.width, "40%");
+	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.width, "50%");
 	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight, "90%");
 	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.anchor, "top-right");
 });
@@ -528,16 +528,48 @@ test("solo routing mode shows badge in tab bar", () => {
 	assert.ok(lines.some((line) => line.includes("solo")));
 });
 
-test("cost tab shows aggregate Σ and per-worker rows", () => {
+test("cost tab shows aggregate Σ and per-worker rows with compact tokens", () => {
 	const state = makeState(2);
-	state.activeWorkers.w1!.usage = { ...state.activeWorkers.w1!.usage, turns: 3, inputTokens: 100, outputTokens: 50, costUsd: 0.25 };
-	state.activeWorkers.w2!.usage = { ...state.activeWorkers.w2!.usage, turns: 1, inputTokens: 20, outputTokens: 5, costUsd: 0.05 };
+	state.activeWorkers.w1!.usage = { ...state.activeWorkers.w1!.usage, turns: 3, inputTokens: 123_456, outputTokens: 50_000, costUsd: 0.25 };
+	state.activeWorkers.w2!.usage = { ...state.activeWorkers.w2!.usage, turns: 1, inputTokens: 20_000, outputTokens: 1_250_000, costUsd: 0.05 };
 	const { component } = makeComponent({ state, rows: 28, cols: 100 });
 	component.handleInput("4");
 	const lines = renderPlain(component, 100);
 	assert.ok(lines.some((line) => line.includes("Σ")));
-	assert.ok(lines.some((line) => line.includes("$0.3000")));
-	assert.ok(lines.some((line) => line.includes("w1") && line.includes("reviewer")));
+	assert.ok(lines.some((line) => line.includes("in=143.5k") && line.includes("out=1.3m")), "expected compact aggregate token counts");
+	assert.ok(lines.some((line) => line.includes("$0.3000")), "cost precision should remain monetary");
+	assert.ok(lines.some((line) => line.includes("w1") && line.includes("reviewer") && line.includes("in=123.5k") && line.includes("out=50k")));
+});
+
+test("inspect tab usage line uses compact tokens", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.usage = { ...state.activeWorkers.w1!.usage, turns: 7, inputTokens: 1_250_000, outputTokens: 12_345, costUsd: 1.2345 };
+	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1" });
+	const lines = renderPlain(component, 100);
+	const usageLine = lines.find((line) => line.includes("turns=7"));
+	assert.ok(usageLine, "expected usage line in Inspect tab");
+	assert.ok(usageLine.includes("in=1.3m"), usageLine);
+	assert.ok(usageLine.includes("out=12.3k"), usageLine);
+	assert.ok(usageLine.includes("cost=$1.2345"), usageLine);
+});
+
+test("cost tab compact large token counts do not exceed terminal width", () => {
+	const state = makeState(3);
+	state.activeWorkers.w1!.usage = { ...state.activeWorkers.w1!.usage, turns: 99_999, inputTokens: 987_654_321, outputTokens: 123_456_789, costUsd: 1234.5678 };
+	state.activeWorkers.w2!.usage = { ...state.activeWorkers.w2!.usage, turns: 88_888, inputTokens: 876_543_210, outputTokens: 9_876_543, costUsd: 987.6543 };
+	state.activeWorkers.w3!.usage = { ...state.activeWorkers.w3!.usage, turns: 77_777, inputTokens: 765_432_109, outputTokens: 8_765_432, costUsd: 876.5432 };
+	const wide = makeComponent({ state, rows: 32, cols: 120 });
+	wide.component.handleInput("4");
+	assert.ok(renderPlain(wide.component, 120).some((line) => line.includes("in=987.7m")), "expected compact million-scale Cost tab tokens");
+
+	for (const cols of [44, 52, 60]) {
+		const { component } = makeComponent({ state, rows: 32, cols });
+		component.handleInput("4");
+		const lines = renderPlain(component, cols);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= cols, `cols=${cols} got width ${visibleWidth(line)} for line: ${line}`);
+		}
+	}
 });
 
 test("tabs and control chars in worker content do not bust panel width", () => {
