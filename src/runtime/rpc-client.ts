@@ -51,7 +51,7 @@ export interface RpcSessionStats {
 	cost?: number;
 	contextUsage?: {
 		tokens: number | null;
-		contextWindow: number;
+		contextWindow: number | null;
 		percent: number | null;
 	};
 }
