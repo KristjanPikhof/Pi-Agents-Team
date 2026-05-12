@@ -17,7 +17,8 @@ import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
-import type { LoadedTeamProjectConfig, PersistedTeamState, TeamConfig, WorkerRuntimeState } from "../../src/types";
+import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer";
+import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types";
 
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
@@ -62,6 +63,19 @@ const WaitForAgentsSchema = Type.Object({
 	timeoutMs: Type.Optional(Type.Number({ description: "Maximum wait in milliseconds. Defaults to 300000 (5 min)." })),
 	wakeOnRelay: Type.Optional(Type.Boolean({ description: "Return early with reason=relay_raised when any target raises a new relay question. Defaults to true so the orchestrator can answer mid-flight without waiting for every worker to finish." })),
 });
+
+type ExtensionAPIWithThinkingLevel = ExtensionAPI & {
+	getThinkingLevel?: () => ThinkingLevel;
+};
+
+type ExtensionContextWithThinkingLevel = ExtensionContext & {
+	getThinkingLevel?: () => ThinkingLevel;
+};
+
+function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
+	return (pi as ExtensionAPIWithThinkingLevel).getThinkingLevel?.()
+		?? (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
+}
 
 function restoreLatestState(
 	ctx: ExtensionContext,
@@ -232,6 +246,46 @@ function getDelegationDisabledMessage(result: LoadedTeamProjectConfig): string {
 	return `Delegation is disabled because agents-team.json is invalid${result.sourcePath ? ` at ${result.sourcePath}` : ""}${firstError ? `: ${firstError.message}` : "."}`;
 }
 
+function formatScopeLabel(scope: string): string {
+	return scope === "project" ? "local" : scope;
+}
+
+function formatConfigValue(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (value === undefined) return "undefined";
+	try {
+		return JSON.stringify(value) ?? String(value);
+	} catch {
+		return String(value);
+	}
+}
+
+function thinkingLevelWarningToastKey(warning: ThinkingLevelConfigWarning): string {
+	return `${warning.scope}\0${warning.profileName}\0${formatConfigValue(warning.badValue)}`;
+}
+
+function buildThinkingLevelWarningToast(warning: ThinkingLevelConfigWarning): string {
+	const scopeLabel = formatScopeLabel(warning.scope);
+	return `Pi Agents Team: ${scopeLabel} agents-team.json role "${warning.profileName}" has invalid thinkingLevel "${formatConfigValue(warning.badValue)}"; field dropped and default thinkingLevel will be used. Valid values: ${THINKING_LEVELS.join(", ")}.`;
+}
+
+function thinkingClampToastKey(event: Extract<NormalizedWorkerEvent, { type: "thinking_clamped" }>): string {
+	return `${event.workerId}\0${event.requested}\0${event.effective}`;
+}
+
+function buildThinkingClampToast(event: Extract<NormalizedWorkerEvent, { type: "thinking_clamped" }>): string {
+	const modelPart = event.modelLabel ? ` for model ${event.modelLabel}` : "";
+	return `Pi Agents Team: worker ${event.workerId} (${event.profileName}) requested thinkingLevel ${event.requested}; Pi clamped to ${event.effective}${modelPart} because the model lacks support. Edit agents-team.json or change model.`;
+}
+
+export const _testing = {
+	buildThinkingClampToast,
+	buildThinkingLevelWarningToast,
+	getOrchestratorThinkingLevel,
+	thinkingClampToastKey,
+	thinkingLevelWarningToastKey,
+};
+
 export default function (pi: ExtensionAPI): void {
 	let activeProjectConfig = loadActiveTeamConfig({ cwd: process.cwd(), baseConfig: DEFAULT_TEAM_CONFIG });
 
@@ -269,6 +323,8 @@ export default function (pi: ExtensionAPI): void {
 	// reload. We emit once per (scope, scaffoldVersion) combination per
 	// process and again when the scaffold version changes.
 	const toastedScaffoldStale = new Map<string, number | "ok">();
+	const toastedThinkingLevelWarnings = new Map<string, true>();
+	const toastedThinkingClamps = new Map<string, true>();
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 	const lastRelayCount = new Map<string, number>();
 	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
@@ -323,10 +379,28 @@ export default function (pi: ExtensionAPI): void {
 		activeContext.ui.notify(message, "info");
 	}
 
+	function notifyThinkingLevelWarnings(ctx: ExtensionContext, warnings: ThinkingLevelConfigWarning[] | undefined): void {
+		if (!ctx.hasUI || !warnings?.length) return;
+		for (const warning of warnings) {
+			const dedupKey = thinkingLevelWarningToastKey(warning);
+			if (toastedThinkingLevelWarnings.has(dedupKey)) continue;
+			toastedThinkingLevelWarnings.set(dedupKey, true);
+			ctx.ui.notify(buildThinkingLevelWarningToast(warning), "warning");
+		}
+	}
+
+	function notifyThinkingClamp(event: Extract<NormalizedWorkerEvent, { type: "thinking_clamped" }>): void {
+		if (!activeContext?.hasUI) return;
+		const dedupKey = thinkingClampToastKey(event);
+		if (toastedThinkingClamps.has(dedupKey)) return;
+		toastedThinkingClamps.set(dedupKey, true);
+		activeContext.ui.notify(buildThinkingClampToast(event), "warning");
+	}
+
 	function attachTeamManagerListener(manager: TeamManager): void {
 		detachTeamManagerListener();
 		resetUiTracking();
-		detachTeamManagerListener = manager.onStateChange((state) => {
+		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
 			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
@@ -365,6 +439,20 @@ export default function (pi: ExtensionAPI): void {
 				lastRelayCount.set(worker.workerId, currRelays);
 			}
 		});
+		const workerEvents = (manager as unknown as {
+			workerManager?: {
+				onEvent(listener: (_worker: unknown, event: NormalizedWorkerEvent) => void): () => void;
+			};
+		}).workerManager;
+		const detachWorkerEventListener = workerEvents?.onEvent((_worker, event) => {
+			if (event.type === "thinking_clamped") {
+				notifyThinkingClamp(event);
+			}
+		}) ?? (() => {});
+		detachTeamManagerListener = () => {
+			detachStateListener();
+			detachWorkerEventListener();
+		};
 	}
 
 	async function replaceTeamManager(config: TeamConfig): Promise<void> {
@@ -426,8 +514,9 @@ export default function (pi: ExtensionAPI): void {
 					allowWrite: params.pathScopeAllowWrite === true,
 				}
 				: undefined;
-			const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-			const result = await teamManager.delegateTask({
+				const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+				const orchestratorThinkingLevel = getOrchestratorThinkingLevel(pi, ctx);
+				const result = await teamManager.delegateTask({
 				title: params.title,
 				goal: params.goal,
 				profileName: params.profileName,
@@ -436,10 +525,11 @@ export default function (pi: ExtensionAPI): void {
 				expectedOutput: params.expectedOutput,
 				pathScope,
 				skills: params.skills,
-				model: params.model,
-				orchestratorModel,
-				reuseWorkerId: params.reuseWorkerId,
-			});
+					model: params.model,
+					orchestratorModel,
+					orchestratorThinkingLevel,
+					reuseWorkerId: params.reuseWorkerId,
+				});
 			teamState = teamManager.snapshot();
 			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			return {
@@ -631,6 +721,7 @@ export default function (pi: ExtensionAPI): void {
 					"warning",
 				);
 			}
+			notifyThinkingLevelWarnings(ctx, activeProjectConfig.thinkingLevelWarnings);
 
 			if (event.reason !== "startup" && markedCount > 0 && isTeamActive(activeProjectConfig)) {
 				const noun = markedCount === 1 ? "worker" : "workers";

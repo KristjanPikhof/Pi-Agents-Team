@@ -3,6 +3,19 @@ import assert from "node:assert/strict";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "./test-helpers";
 
+function taskInput(taskId: string, title: string, profileName = "reviewer") {
+	return {
+		taskId,
+		title,
+		goal: title,
+		requestedBy: "orchestrator" as const,
+		profileName,
+		cwd: process.cwd(),
+		contextHints: [],
+		createdAt: Date.now(),
+	};
+}
+
 test("WorkerManager launches a worker, prompts it, and tracks compact state", async () => {
 	const transports: MockWorkerTransport[] = [];
 	const manager = new WorkerManager((options) => {
@@ -102,6 +115,123 @@ test("worker_state keeps a starting worker as starting when isStreaming is false
 	await manager.refreshState("worker-guard-1");
 	const after = manager.getWorker("worker-guard-1");
 	assert.equal(after?.state.status, "starting");
+});
+
+test("launchWorker keeps matching RPC thinking level without clamp event", async () => {
+	const transport = new MockWorkerTransport({ initialState: { thinkingLevel: "high" } });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+	const events: string[] = [];
+	const off = manager.onEvent((_worker, event) => {
+		events.push(event.type);
+	});
+
+	const worker = await manager.launchWorker({
+		workerId: "worker-thinking-match",
+		profileName: "reviewer",
+		task: taskInput("task-thinking-match", "Thinking match"),
+		cwd: process.cwd(),
+		thinkingLevel: "high",
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	off();
+
+	assert.equal(worker.state.requestedThinkingLevel, "high");
+	assert.equal(worker.state.effectiveThinkingLevel, "high");
+	assert.ok(!events.includes("thinking_clamped"));
+});
+
+test("launchWorker emits thinking_clamped when RPC effective thinking level differs", async () => {
+	const transport = new MockWorkerTransport({ initialState: { thinkingLevel: "low" } });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+	const clampEvents: unknown[] = [];
+	const off = manager.onEvent((_worker, event) => {
+		if (event.type === "thinking_clamped") clampEvents.push(event);
+	});
+
+	const worker = await manager.launchWorker({
+		workerId: "worker-thinking-clamped",
+		profileName: "fixer",
+		task: taskInput("task-thinking-clamped", "Thinking clamp", "fixer"),
+		cwd: process.cwd(),
+		model: "gpt-test",
+		thinkingLevel: "high",
+		tools: ["read", "bash"],
+		extensionMode: "worker-minimal",
+	});
+	off();
+
+	assert.equal(worker.state.requestedThinkingLevel, "high");
+	assert.equal(worker.state.effectiveThinkingLevel, "low");
+	assert.equal(clampEvents.length, 1);
+	assert.deepEqual(clampEvents[0], {
+		type: "thinking_clamped",
+		workerId: "worker-thinking-clamped",
+		profileName: "fixer",
+		modelLabel: "gpt-test",
+		requested: "high",
+		effective: "low",
+		timestamp: (clampEvents[0] as { timestamp: number }).timestamp,
+	});
+	assert.equal(typeof (clampEvents[0] as { timestamp: unknown }).timestamp, "number");
+});
+
+test("launchWorker ignores unrecognized RPC thinking level and keeps requested value", async () => {
+	const transport = new MockWorkerTransport({ initialState: { thinkingLevel: "surprise" } });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+	const events: string[] = [];
+	const off = manager.onEvent((_worker, event) => {
+		events.push(event.type);
+	});
+
+	const worker = await manager.launchWorker({
+		workerId: "worker-thinking-unknown",
+		profileName: "reviewer",
+		task: taskInput("task-thinking-unknown", "Unknown thinking"),
+		cwd: process.cwd(),
+		thinkingLevel: "medium",
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	off();
+
+	assert.equal(worker.state.requestedThinkingLevel, "medium");
+	assert.equal(worker.state.effectiveThinkingLevel, "medium");
+	assert.ok(!events.includes("thinking_clamped"));
+});
+
+test("reuseWorker does not re-check thinking clamp state", async () => {
+	const transport = new MockWorkerTransport({
+		initialState: { thinkingLevel: "high" },
+		promptText: "<final_answer>headline: done</final_answer>",
+	});
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+	const events: string[] = [];
+	const off = manager.onEvent((_worker, event) => {
+		events.push(event.type);
+	});
+
+	await manager.launchWorker({
+		workerId: "worker-thinking-reuse",
+		profileName: "reviewer",
+		task: taskInput("task-thinking-reuse-1", "First thinking task"),
+		cwd: process.cwd(),
+		thinkingLevel: "high",
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-thinking-reuse", "first");
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	transport.setState({ thinkingLevel: "low" });
+	await manager.reuseWorker("worker-thinking-reuse", "second", taskInput("task-thinking-reuse-2", "Second thinking task"));
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	off();
+
+	assert.equal(events.filter((type) => type === "thinking_clamped").length, 0);
+	assert.equal(manager.getWorker("worker-thinking-reuse")?.state.effectiveThinkingLevel, "high");
 });
 
 test("promptWorker marks rejected prompt acceptance as error", async () => {

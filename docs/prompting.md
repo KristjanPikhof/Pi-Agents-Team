@@ -35,6 +35,8 @@ When the user asks for N workers or parallel analysis, the orchestrator spawns t
 
 Pi skills are host-level capabilities from the Pi startup banner, not profiles. Which skills exist is install-specific, so the plugin never assumes a fixed skill set. To request one, pass installed skill names through the optional `delegate_task.skills` array. When `skills` is non-empty, `TeamManager` enables Pi skill discovery for that worker; otherwise `worker-minimal` launches keep skills disabled. The worker prompt tells the worker to load and apply each requested skill by name from the available skill context before emitting `<final_answer>`. Omit `skills` when no installed skill clearly fits. Never pass a skill name as `profileName`.
 
+`thinkingLevel` is config-only. It is resolved from the role/orchestrator cascade at launch time and is not a `delegate_task` tool parameter.
+
 ### Wait, don't poll
 
 The loop after `delegate_task`:

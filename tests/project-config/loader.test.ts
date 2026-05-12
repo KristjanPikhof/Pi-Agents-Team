@@ -386,6 +386,80 @@ test("loadActiveTeamConfig accepts the schema v4 role shape", () => {
 	assert.deepEqual(fixer?.tools, ["read", "bash", "edit", "write"]);
 });
 
+test("loadActiveTeamConfig strips invalid role thinkingLevel and records a warning", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-thinking-typo-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			oracle: { thinkingLevel: "xhigh" } as any,
+			reviewer: { thinkingLevel: "hihg", prompt: "default" } as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.equal(result.delegationEnabled, true);
+	assert.deepEqual(result.thinkingLevelWarnings, [
+		{ scope: "project", profileName: "reviewer", badValue: "hihg" },
+	]);
+
+	const oracle = result.config.profiles.find((profile) => profile.name === "oracle");
+	assert.equal(oracle?.thinkingLevel, "xhigh", "valid roles in the same config must keep their thinking level");
+	const reviewer = result.config.profiles.find((profile) => profile.name === "reviewer");
+	assert.equal(reviewer?.thinkingLevel, undefined, "invalid thinkingLevel is stripped from only that role");
+});
+
+test("loadActiveTeamConfig retains valid role thinkingLevel", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-thinking-valid-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			reviewer: { thinkingLevel: "high", prompt: "default" } as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.deepEqual(result.thinkingLevelWarnings, []);
+	const reviewer = result.config.profiles.find((profile) => profile.name === "reviewer");
+	assert.equal(reviewer?.thinkingLevel, "high");
+});
+
+test("loadActiveTeamConfig leaves omitted role thinkingLevel undefined", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-thinking-absent-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			reviewer: { prompt: "default" } as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	const reviewer = result.config.profiles.find((profile) => profile.name === "reviewer");
+	assert.equal(reviewer?.thinkingLevel, undefined);
+});
+
+test("loadActiveTeamConfig accepts xhigh thinkingLevel", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-thinking-xhigh-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			oracle: { thinkingLevel: "xhigh", prompt: "default" } as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.deepEqual(result.thinkingLevelWarnings, []);
+	const oracle = result.config.profiles.find((profile) => profile.name === "oracle");
+	assert.equal(oracle?.thinkingLevel, "xhigh");
+});
+
 test("loadActiveTeamConfig v4: a string prompt that doesn't resolve to a file is stored as inline text", () => {
 	// User writes `"prompt": "You are a specialized agent..."` directly in JSON.
 	// Since no file matches that string, the loader treats it as inline prompt

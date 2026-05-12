@@ -114,7 +114,7 @@ export interface TeamProfileSpec {
 	name: TeamProfileName | string;
 	description: string;
 	model?: string;
-	thinkingLevel: ThinkingLevel;
+	thinkingLevel?: ThinkingLevel;
 	tools: string[];
 	/**
 	 * Path to the worker prompt markdown. May be the literal string
@@ -225,6 +225,12 @@ export interface ProjectConfigDiagnostic {
 	fieldPath?: string;
 }
 
+export interface ThinkingLevelConfigWarning {
+	scope: TeamConfigScope;
+	profileName: string;
+	badValue: unknown;
+}
+
 export interface LoadedTeamProjectConfig {
 	status: ProjectConfigStatus;
 	config: TeamConfig;
@@ -234,6 +240,7 @@ export interface LoadedTeamProjectConfig {
 	enabled: boolean;
 	enabledSource: TeamEnabledSource;
 	diagnostics: ProjectConfigDiagnostic[];
+	thinkingLevelWarnings?: ThinkingLevelConfigWarning[];
 	delegationEnabled: boolean;
 	persistedRoutingMode?: "team" | "solo";
 	/** Whether to show cost in the UI. Defaults to true when absent. Read via `config.display?.cost ?? true`. */
@@ -251,6 +258,7 @@ export interface DelegatedTaskInput {
 	expectedOutput?: string;
 	pathScope?: TeamPathScope;
 	skills?: string[];
+	orchestratorThinkingLevel?: ThinkingLevel;
 	createdAt: number;
 }
 
@@ -296,6 +304,8 @@ export interface WorkerRuntimeState {
 	profileName: string;
 	sessionMode: TeamSessionMode;
 	status: WorkerStatus;
+	requestedThinkingLevel: ThinkingLevel;
+	effectiveThinkingLevel: ThinkingLevel;
 	processId?: number;
 	startedAt: number;
 	lastEventAt: number;

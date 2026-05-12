@@ -57,6 +57,7 @@ export interface DelegateTaskRequest {
 	skills?: string[];
 	model?: string;
 	orchestratorModel?: string;
+	orchestratorThinkingLevel?: ThinkingLevel;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
 	systemPromptPath?: string;
@@ -201,6 +202,7 @@ export class TeamManager {
 				pathScope: request.pathScope,
 				model: request.model,
 				orchestratorModel: request.orchestratorModel,
+				orchestratorThinkingLevel: request.orchestratorThinkingLevel,
 				thinkingLevel: request.thinkingLevel,
 				tools: request.tools,
 				extensionMode: request.extensionMode,
@@ -222,6 +224,7 @@ export class TeamManager {
 			expectedOutput: request.expectedOutput,
 			pathScope: launchPlan.pathScope,
 			skills: skills && skills.length > 0 ? skills : undefined,
+			orchestratorThinkingLevel: request.orchestratorThinkingLevel,
 			createdAt: Date.now(),
 		};
 
@@ -407,6 +410,7 @@ export class TeamManager {
 				pathScope: request.pathScope,
 				model: request.model,
 				orchestratorModel: request.orchestratorModel,
+				orchestratorThinkingLevel: request.orchestratorThinkingLevel,
 				thinkingLevel: request.thinkingLevel,
 				tools: request.tools,
 				extensionMode: request.extensionMode,
@@ -449,6 +453,7 @@ export class TeamManager {
 			expectedOutput: request.expectedOutput,
 			pathScope: launchPlan.pathScope,
 			skills: skills && skills.length > 0 ? skills : undefined,
+			orchestratorThinkingLevel: request.orchestratorThinkingLevel,
 			createdAt: Date.now(),
 		};
 

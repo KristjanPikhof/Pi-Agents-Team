@@ -1,4 +1,5 @@
 import type { RpcEvent, RpcSessionState } from "./rpc-client";
+import type { ThinkingLevel } from "../types";
 
 export interface WorkerStartedEvent {
 	type: "worker_started";
@@ -64,6 +65,16 @@ export interface WorkerStateEvent {
 	timestamp: number;
 }
 
+export interface WorkerThinkingClampedEvent {
+	type: "thinking_clamped";
+	workerId: string;
+	profileName: string;
+	modelLabel: string;
+	requested: ThinkingLevel;
+	effective: ThinkingLevel;
+	timestamp: number;
+}
+
 export interface WorkerExitEvent {
 	type: "worker_exit";
 	code: number | null;
@@ -83,6 +94,7 @@ export type NormalizedWorkerEvent =
 	| WorkerIdleEvent
 	| WorkerErrorEvent
 	| WorkerStateEvent
+	| WorkerThinkingClampedEvent
 	| WorkerExitEvent;
 
 function now(): number {
@@ -164,6 +176,24 @@ export function createWorkerStateEvent(state: RpcSessionState): WorkerStateEvent
 	return {
 		type: "worker_state",
 		state,
+		timestamp: now(),
+	};
+}
+
+export function createThinkingClampedEvent(options: {
+	workerId: string;
+	profileName: string;
+	modelLabel: string;
+	requested: ThinkingLevel;
+	effective: ThinkingLevel;
+}): WorkerThinkingClampedEvent {
+	return {
+		type: "thinking_clamped",
+		workerId: options.workerId,
+		profileName: options.profileName,
+		modelLabel: options.modelLabel,
+		requested: options.requested,
+		effective: options.effective,
 		timestamp: now(),
 	};
 }

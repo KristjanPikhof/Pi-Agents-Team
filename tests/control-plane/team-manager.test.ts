@@ -444,6 +444,59 @@ test("TeamManager applies model precedence: tool param, role model, orchestrator
 	assert.equal(captures[3]?.model, undefined);
 });
 
+test("TeamManager applies thinking level precedence: tool param, role level, orchestrator level, then medium", async () => {
+	const captures: Array<{ thinkingLevel?: string }> = [];
+	const workerManager = new WorkerManager((options) => {
+		captures.push({ thinkingLevel: options.thinkingLevel });
+		return new MockWorkerHandle(new MockWorkerTransport());
+	});
+	const teamManager = new TeamManager({
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) => {
+				if (profile.name === "oracle") return { ...profile, thinkingLevel: "high" };
+				if (profile.name === "reviewer") return { ...profile, thinkingLevel: undefined as never };
+				return profile;
+			}),
+		},
+		workerManager,
+	});
+
+	await teamManager.delegateTask({
+		title: "Explicit thinking",
+		goal: "tool param wins",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		thinkingLevel: "low",
+		orchestratorThinkingLevel: "xhigh",
+	});
+	await teamManager.delegateTask({
+		title: "Role thinking",
+		goal: "role thinking wins over orchestrator thinking",
+		profileName: "oracle",
+		cwd: process.cwd(),
+		orchestratorThinkingLevel: "xhigh",
+	});
+	await teamManager.delegateTask({
+		title: "Orchestrator thinking",
+		goal: "orchestrator thinking wins when role has none",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		orchestratorThinkingLevel: "xhigh",
+	});
+	await teamManager.delegateTask({
+		title: "Default thinking",
+		goal: "undefined falls back to medium",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+
+	assert.equal(captures[0]?.thinkingLevel, "low");
+	assert.equal(captures[1]?.thinkingLevel, "high");
+	assert.equal(captures[2]?.thinkingLevel, "xhigh");
+	assert.equal(captures[3]?.thinkingLevel, "medium");
+});
+
 test("delegateTask with reuseWorkerId routes to reuse path on idle worker, allocates a fresh taskId, and reuses the same handle", async () => {
 	const transports: MockWorkerTransport[] = [];
 	const handles: MockWorkerHandle[] = [];
@@ -477,6 +530,52 @@ test("delegateTask with reuseWorkerId routes to reuse path on idle worker, alloc
 	assert.equal(second.worker.workerId, first.worker.workerId);
 	assert.notEqual(second.task?.taskId, first.task?.taskId);
 	assert.equal(transports[0]?.commands.filter((c) => c.type === "prompt").length, 2);
+});
+
+test("delegateTask with reuseWorkerId rejects when inherited orchestrator thinking level differs", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const teamManager = new TeamManager({
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) =>
+				profile.name === "reviewer"
+					? { ...profile, thinkingLevel: undefined as never }
+					: profile),
+		},
+		workerManager,
+	});
+
+	const first = await teamManager.delegateTask({
+		title: "First",
+		goal: "first task with inherited thinking level",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		orchestratorThinkingLevel: "low",
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	await teamManager.delegateTask({
+		title: "Reuse same inherited level",
+		goal: "should reuse because launch thinking level is unchanged",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		orchestratorThinkingLevel: "low",
+		reuseWorkerId: first.worker.workerId,
+	});
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Reuse changed inherited level",
+				goal: "should reject because launch thinking level changes",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				orchestratorThinkingLevel: "xhigh",
+				reuseWorkerId: first.worker.workerId,
+			}),
+		/launch settings differ.*thinkingLevel/,
+	);
 });
 
 test("delegateTask with reuseWorkerId rejects unknown / running / exited targets", async () => {

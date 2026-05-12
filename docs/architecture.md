@@ -89,7 +89,7 @@ delegate_task (tool, with reuseWorkerId)
 
 Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, skill discovery) are baked at spawn and can't change between tasks. `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error, so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason: different role means different prompt path.
 
-While the worker runs, RPC events flow through the event normalizer into `applyNormalizedEvent`, which mutates the worker's `WorkerRuntimeState` (status, textBuffer, lastToolName, usage, lastSummary, pendingRelayQuestions, finalAnswer) and emits a snapshot. `TeamManager` upserts the snapshot into the registry and re-emits `state_change`, which drives both persistence and UI listeners.
+While the worker runs, RPC events flow through the event normalizer into `applyNormalizedEvent`, which mutates the worker's `WorkerRuntimeState` (status, textBuffer, lastToolName, usage, requested/effective thinking levels, lastSummary, pendingRelayQuestions, finalAnswer) and emits a snapshot. `TeamManager` upserts the snapshot into the registry and re-emits `state_change`, which drives both persistence and UI listeners.
 
 ## Key decisions
 
@@ -170,11 +170,14 @@ Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) i
 - identity: `workerId`, `profileName`, `sessionMode`
 - lifecycle: `status`, `startedAt`, `lastEventAt`, `error`
 - work: `currentTask`, `lastToolName`
+- thinking: `requestedThinkingLevel`, `effectiveThinkingLevel`
 - output: `lastSummary` (headline + readFiles + changedFiles + risks + nextRecommendation), `finalAnswer`
 - supervision: `pendingRelayQuestions`
 - accounting: `usage` (turns, input/output tokens, cache, costUsd, contextTokens)
 
 `WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager`: `record.textBuffer` (raw concatenated assistant text), a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard, and a separate per-worker assistant-chunk ring buffer (`ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks — *not* rendered lines, since one delta may contain `\n`s — `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`, monotonic per-task indexes, exposed via `getAssistantTail(workerId, fromIndex?)` and `onAssistantChunk(listener)`) that powers the overlay's Console live-tail. Memory is bounded by the byte cap; the chunk cap defends against many tiny deltas. Reuse resets the chunk buffer and rewinds `nextIndex` to 0. Nothing here is persisted.
+
+`requestedThinkingLevel` is the launch-policy output sent to Pi. `effectiveThinkingLevel` is read back from RPC `get_state.thinkingLevel` and can differ when Pi clamps unsupported model-family levels. `WorkerManager` emits a `thinking_clamped` normalized event for that mismatch so the extension can notify once per worker/requested/effective tuple.
 
 ## What gets persisted
 
@@ -248,12 +251,13 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 
 ## Notifications
 
-Two kinds of toasts fire from the extension's `onStateChange` listener:
+Three kinds of toasts fire from extension listeners:
 
 - **Terminal transitions.** When one or more workers flip to a terminal status, the listener batches them through a 400 ms debounce and emits one toast (`✓ N workers finished: w1, w2…`). The batch is filtered against current status at flush time to avoid spurious "finished" messages from transient state.
 - **New relay questions.** When a worker's `pendingRelayQuestions` count goes up **and** the newest relay has a non-empty question string, the listener emits a warning toast with a truncated preview. Placeholder and whitespace-only questions are suppressed.
+- **Thinking clamp.** When `WorkerManager` emits `thinking_clamped`, the event listener emits one warning toast for the worker/requested/effective tuple. This surfaces Pi's silent model-family clamp without changing worker liveness.
 
-Both are UI-only. The orchestrator prompt explicitly instructs the model to ignore them, because `wait_for_agents` already surfaces terminal transitions and relay wakes as a tool result.
+All are UI-only. The orchestrator prompt explicitly instructs the model to ignore them, because `wait_for_agents` already surfaces terminal transitions and relay wakes as a tool result.
 
 ### Spinner animation
 

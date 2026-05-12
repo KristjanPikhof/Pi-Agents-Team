@@ -90,6 +90,10 @@ Broadcasts swallow per-worker errors. `messageAllWorkers` / `cancelAllWorkers` c
 
 Config precedence is by file presence, not validity. `agents-team.json` lives at `~/.pi/agent/` or `<cwd-ancestor>/.pi/agent/` (ancestor walk stops at `homedir()`). Project file present (valid, schema-mismatched, fatal-parse) → project wins outright. Invalid winning layer → built-in fallback for that scope; never downshifts. Fatal parse on non-winning layer is diagnostic-only. Full rules: [`docs/profiles.md`](docs/profiles.md).
 
+`thinkingLevel` per-field tolerance is the carve-out from config precedence. A bad `roles.<name>.thinkingLevel` does not invalidate the winning layer. `src/project-config/loader.ts` drops only that field, records a warning toast, and the role continues through the launch cascade.
+
+Thinking level cascade is launch-time only. `src/safety/launch-policy.ts` resolves explicit role `thinkingLevel` → built-in role default → orchestrator live `pi.getThinkingLevel()` from `extensions/pi-agent-team/index.ts` → `medium` floor. `src/runtime/worker-manager.ts` stores `requestedThinkingLevel`, reads back `effectiveThinkingLevel`, and emits `thinking_clamped` when Pi silently clamps an unsupported level.
+
 `schemaVersion` vs `scaffoldVersion`. Both in `src/project-config/versions.ts`: schema=`4`, scaffold=`2`. Schema = parsing contract, breaking-change bump. Scaffold = content-freshness marker, soft "stale" toast only. When to bump: [`docs/profiles.md`](docs/profiles.md) "Version bumps".
 
 Path scope is prompt convention, NOT OS sandbox. Tells worker where to focus; blocks "read-only profile with `write: true`" at delegate time. Does NOT contain `bash`, network, subprocess spawn, or a worker that ignores its prompt. If profile has `bash`, you trust the prompt.

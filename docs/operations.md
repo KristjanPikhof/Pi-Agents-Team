@@ -262,8 +262,15 @@ Soft warnings don't disable delegation (the config keeps working):
 
 - `schemaVersion` doesn't match the current schema. The layer falls back to built-ins and you get a toast pointing at `/team-init --force`. See [`profiles.md`](profiles.md) "Version bumps."
 - A prompt string that doesn't resolve to a file. It gets treated as inline prompt text, which is usually what you want. If you actually meant a path, fix the typo.
+- A role has an invalid `thinkingLevel`. The extension drops only that field, keeps the rest of the role, and emits a toast such as `invalid thinkingLevel ... field dropped`. Fix the value to one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, then reload.
 
 See [`profiles.md`](profiles.md) for the full role shape and prompt-resolution rules.
+
+### A worker says thinking was clamped
+
+Expected when a role requests a thinking level that the selected model does not support. Pi starts the worker anyway and reports the effective level through RPC; the extension shows a toast such as `requested thinkingLevel high; Pi clamped to low`.
+
+To fix it, either set that role's `thinkingLevel` to a supported value or pick a model family that supports the requested level. `xhigh` is especially model-dependent.
 
 ### A worker fails immediately with an API-key error
 
