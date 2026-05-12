@@ -122,6 +122,10 @@ function trimSummary(text: string, maxLength = 160): string {
 	return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
+function finiteNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function snippet(value: unknown, maxLength = 200): string {
 	if (value === undefined || value === null) return "";
 	let text: string;
@@ -644,6 +648,16 @@ export class WorkerManager {
 
 	private updateUsage(current: WorkerUsageStats, stats: RpcSessionStats): WorkerUsageStats {
 		const tokens = stats.tokens;
+		const contextUsage = stats.contextUsage;
+		const contextTokens = contextUsage ? finiteNumber(contextUsage.tokens) : current.contextTokens;
+		const contextWindow = contextUsage ? finiteNumber(contextUsage.contextWindow) : current.contextWindow;
+		const contextPercent = contextUsage ? finiteNumber(contextUsage.percent) : current.contextPercent;
+		const contextRemainingTokens = contextUsage
+			? contextTokens !== undefined && contextWindow !== undefined
+				? Math.max(0, contextWindow - contextTokens)
+				: undefined
+			: current.contextRemainingTokens;
+
 		return {
 			turns: current.turns,
 			inputTokens: tokens?.input ?? current.inputTokens,
@@ -651,7 +665,10 @@ export class WorkerManager {
 			cacheReadTokens: tokens?.cacheRead ?? current.cacheReadTokens,
 			cacheWriteTokens: tokens?.cacheWrite ?? current.cacheWriteTokens,
 			costUsd: stats.cost ?? current.costUsd,
-			contextTokens: stats.contextUsage?.tokens ?? current.contextTokens,
+			contextTokens,
+			contextWindow,
+			contextPercent,
+			contextRemainingTokens,
 		};
 	}
 
