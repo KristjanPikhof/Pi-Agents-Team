@@ -539,7 +539,7 @@ export class TeamManager {
 	}
 
 	aggregateUsage(): WorkerUsageAggregate {
-		return aggregateWorkerUsage(this.registry.listWorkers(), this.registry.snapshot().prunedWorkerUsageTotals);
+		return aggregateWorkerUsage(this.registry.listWorkers(), this.registry.getPrunedWorkerUsageTotals());
 	}
 
 	async waitForTerminal(
