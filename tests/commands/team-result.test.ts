@@ -90,6 +90,21 @@ test("/team-result without an id notifies usage", async () => {
 	assert.match(harness.notifications[0]!.message, /Usage: \/team-result/);
 });
 
+test("formatWorkerDetail uses compact token counts for scanned terminal display", () => {
+	const worker: WorkerRuntimeState = {
+		workerId: "w6",
+		profileName: "reviewer",
+		sessionMode: "worker",
+		status: "idle",
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		pendingRelayQuestions: [],
+		usage: { turns: 4, inputTokens: 1200, outputTokens: 2_500_000, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.42 },
+	};
+	const text = resultTesting.formatWorkerDetail(worker, undefined);
+	assert.match(text, /Usage: turns=4 input=1\.2k output=2\.5m cost=\$0\.4200/);
+});
+
 test("formatWorkerDetail without transcript renders the placeholder line (parity with inline agent-result)", () => {
 	const worker: WorkerRuntimeState = {
 		workerId: "w7",
