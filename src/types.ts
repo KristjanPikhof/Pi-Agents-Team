@@ -218,6 +218,24 @@ export interface TeamProjectConfigLayer {
 	rawSchemaVersion?: number;
 }
 
+export type ActiveTeamConfigFreshness =
+	| {
+			kind: "layer";
+			scope: TeamConfigScope;
+			path: string;
+			parseStatus: "valid" | "schema-mismatch" | "fatal";
+			scaffoldVersion?: number;
+			scaffoldVersionMissing: boolean;
+			scaffoldStale: boolean;
+			rawSchemaVersion?: number;
+	  }
+	| {
+			kind: "none";
+			parseStatus: "none";
+			scaffoldVersionMissing: false;
+			scaffoldStale: false;
+	  };
+
 export interface ProjectConfigDiagnostic {
 	severity: ProjectConfigDiagnosticSeverity;
 	code: string;
@@ -237,6 +255,8 @@ export interface LoadedTeamProjectConfig {
 	sourcePath?: string;
 	projectRoot?: string;
 	layers: TeamProjectConfigLayer[];
+	/** The layer whose scaffold freshness should be evaluated for boot warnings. */
+	activeConfigFreshness: ActiveTeamConfigFreshness;
 	enabled: boolean;
 	enabledSource: TeamEnabledSource;
 	diagnostics: ProjectConfigDiagnostic[];

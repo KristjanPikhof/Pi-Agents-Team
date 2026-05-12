@@ -72,6 +72,18 @@ type ExtensionContextWithThinkingLevel = ExtensionContext & {
 	getThinkingLevel?: () => ThinkingLevel;
 };
 
+const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshnessToasts");
+
+function getProcessStableScaffoldFreshnessToasts(): Set<string> {
+	const store = globalThis as typeof globalThis & Record<symbol, unknown>;
+	const existing = store[SCAFFOLD_FRESHNESS_TOASTS_KEY];
+	if (existing instanceof Set) return existing as Set<string>;
+
+	const freshnessToasts = new Set<string>();
+	store[SCAFFOLD_FRESHNESS_TOASTS_KEY] = freshnessToasts;
+	return freshnessToasts;
+}
+
 function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
 	return (pi as ExtensionAPIWithThinkingLevel).getThinkingLevel?.()
 		?? (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
@@ -317,12 +329,12 @@ export default function (pi: ExtensionAPI): void {
 	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
 	// resolve against a disposed TeamManager.
 	let reloading = false;
-	// De-dup scaffold-stale toasts across session_start events. Pi fires
-	// session_start on startup, reload, new, resume, fork; without de-dup,
-	// operators iterating with /reload see the same warnings per scope per
-	// reload. We emit once per (scope, scaffoldVersion) combination per
-	// process and again when the scaffold version changes.
-	const toastedScaffoldStale = new Map<string, number | "ok">();
+	// De-dup active config scaffold freshness toasts across session_start
+	// events. Pi fires session_start on startup, reload, new, resume, fork;
+	// without de-dup, operators iterating with /reload see the same warning
+	// every time. We emit once per active (scope, scaffoldVersion) or unknown
+	// scaffold state per process.
+	const toastedScaffoldStale = getProcessStableScaffoldFreshnessToasts();
 	const toastedThinkingLevelWarnings = new Map<string, true>();
 	const toastedThinkingClamps = new Map<string, true>();
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
@@ -387,6 +399,32 @@ export default function (pi: ExtensionAPI): void {
 			toastedThinkingLevelWarnings.set(dedupKey, true);
 			ctx.ui.notify(buildThinkingLevelWarningToast(warning), "warning");
 		}
+	}
+
+	function notifyActiveConfigFreshness(ctx: ExtensionContext, loaded: LoadedTeamProjectConfig): void {
+		if (!ctx.hasUI) return;
+		const freshness = loaded.activeConfigFreshness;
+		if (freshness.kind === "none" || freshness.parseStatus !== "valid") return;
+		const scopeLabel = freshness.scope === "project" ? "local" : "global";
+		const initScope = scopeLabel;
+		if (freshness.scaffoldVersionMissing) {
+			const dedupKey = `${freshness.scope}\0unknown`;
+			if (toastedScaffoldStale.has(dedupKey)) return;
+			toastedScaffoldStale.add(dedupKey);
+			ctx.ui.notify(
+				`Pi Agents Team: active ${scopeLabel} agents-team.json has no scaffoldVersion; plugin is ${CURRENT_SCAFFOLD_VERSION} and cannot verify scaffold freshness. Run /team-init ${initScope} --force to refresh if this file predates scaffoldVersion tracking (old file is backed up first).`,
+				"warning",
+			);
+			return;
+		}
+		if (!freshness.scaffoldStale || freshness.scaffoldVersion === undefined) return;
+		const dedupKey = `${freshness.scope}\0${freshness.scaffoldVersion}`;
+		if (toastedScaffoldStale.has(dedupKey)) return;
+		toastedScaffoldStale.add(dedupKey);
+		ctx.ui.notify(
+			`Pi Agents Team: active ${scopeLabel} agents-team.json is scaffoldVersion ${freshness.scaffoldVersion}, plugin is ${CURRENT_SCAFFOLD_VERSION}. Run /team-init ${initScope} --force to refresh (old file is backed up first).`,
+			"warning",
+		);
 	}
 
 	function notifyThinkingClamp(event: Extract<NormalizedWorkerEvent, { type: "thinking_clamped" }>): void {
@@ -706,21 +744,7 @@ export default function (pi: ExtensionAPI): void {
 				ctx.ui.notify(configNotice.message, configNotice.level);
 			}
 
-			for (const layer of activeProjectConfig.layers) {
-				if (!layer.scaffoldStale || layer.scaffoldVersion === undefined) continue;
-				// Only toast once per (scope, scaffoldVersion) combination per
-				// process lifetime. Reloads keep firing session_start; without
-				// de-dup the operator sees the same warning every time.
-				const dedupKey = layer.scope;
-				const previouslyToastedVersion = toastedScaffoldStale.get(dedupKey);
-				if (previouslyToastedVersion === layer.scaffoldVersion) continue;
-				toastedScaffoldStale.set(dedupKey, layer.scaffoldVersion);
-				const scopeLabel = layer.scope === "project" ? "local" : "global";
-				ctx.ui.notify(
-					`Pi Agents Team: ${scopeLabel} agents-team.json is scaffoldVersion ${layer.scaffoldVersion}, plugin is ${CURRENT_SCAFFOLD_VERSION}. Run /team-init ${scopeLabel} --force to refresh (old file is backed up first).`,
-					"warning",
-				);
-			}
+			notifyActiveConfigFreshness(ctx, activeProjectConfig);
 			notifyThinkingLevelWarnings(ctx, activeProjectConfig.thinkingLevelWarnings);
 
 			if (event.reason !== "startup" && markedCount > 0 && isTeamActive(activeProjectConfig)) {

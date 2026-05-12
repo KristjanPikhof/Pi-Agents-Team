@@ -87,7 +87,7 @@ The scaffold contains all seven built-in roles in the current shape. `/team-init
 | Field | Required | Meaning |
 |---|---|---|
 | `schemaVersion` | yes | Tells the loader which shape this file is. Currently `4`. A mismatch triggers a warning and falls back to built-ins for that layer. |
-| `scaffoldVersion` | no | Freshness marker. Currently `2`. Mismatched values just nudge you to re-run `/team-init --force` to pick up newer defaults. |
+| `scaffoldVersion` | no | Freshness marker. Currently `2`. Mismatched or missing values on the active config layer just nudge you to re-run `/team-init <scope> --force` to pick up newer defaults. |
 | `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
 | `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-enable on\|off` rewrites it on every toggle (auto-persisting to the active config), and you can hand-edit it. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
 | `workerAccess` | no | Global access policy for delegated workers. Omit to keep the defaults. |
@@ -316,8 +316,24 @@ Two counters, two purposes.
 
 | Counter | Semantics | What happens on mismatch |
 |---|---|---|
-| `schemaVersion` | The shape contract. Bumped on breaking schema changes (renamed fields, re-layouts). | Hard warning toast on session start. Layer falls back to built-in roles. Run `/team-init <scope> --force` to regenerate. |
-| `scaffoldVersion` | Freshness marker for scaffold content. Bumped when `/team-init` would write different defaults. | Soft warning toast suggesting re-init. File keeps loading as-is. |
+| `schemaVersion` | The shape contract. Bumped on breaking schema changes (renamed fields, re-layouts). | Hard warning toast on session start. The active layer falls back to built-in roles. Run `/team-init <scope> --force` to regenerate. |
+| `scaffoldVersion` | Freshness marker for scaffold content. Bumped when `/team-init` would write different defaults. | Soft warning toast suggesting re-init. The active file keeps loading as-is. |
+
+Freshness is checked for the **active config layer only**. Active means project-local if a project file exists, otherwise global if a global file exists, otherwise no config. Non-winning layers can still produce parse diagnostics, but stale or missing `scaffoldVersion` in a non-winning layer does not toast by default.
+
+| Config state at boot | Active layer | Freshness behavior |
+|---|---|---|
+| Project file exists and has current `scaffoldVersion` | Project/local | No freshness toast. |
+| Project file exists and has stale `scaffoldVersion` | Project/local | Soft stale-scaffold toast for the project scope; config still loads. |
+| Project file exists, uses the current schema, and omits `scaffoldVersion` | Project/local | Soft unknown-freshness toast for the project scope; config still loads. |
+| Project file exists with schema mismatch or fatal parse | Project/local | Schema/parse warning path applies separately; project still wins by presence and does not fall back to global. |
+| No project file; global file has stale or missing `scaffoldVersion` | Global | Soft stale or unknown-freshness toast for the global scope; config still loads when otherwise valid. |
+| No project or global file | None | No freshness toast; built-in roles are used. |
+| Both project and global files exist; only global is stale | Project/local | No default stale toast for global because it is not the active layer. |
+
+Freshness warnings are de-duped per process by active scope plus the active file's `scaffoldVersion` value, or `unknown` when the field is missing. Reloading in the same process should not spam repeated toasts for the same active freshness state.
+
+Refresh explicitly with `/team-init <local|global> --force`. The command backs up the previous file first, writes the current `schemaVersion` and `scaffoldVersion`, and stamps the current packaged defaults.
 
 Both constants live in `src/project-config/versions.ts` (currently `schemaVersion=4`, `scaffoldVersion=2`). Bump there, nothing else needs to change. See [CLAUDE.md](../CLAUDE.md) "Schema versioning" for the rules on which counter to move.
 

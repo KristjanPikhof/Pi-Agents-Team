@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { TEAM_PROFILE_NAMES, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE, type TeamProjectConfigFile } from "../../src/types";
+import { TEAM_PROFILE_NAMES, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE, TEAM_SCAFFOLD_VERSION, type TeamProjectConfigFile } from "../../src/types";
 import { loadActiveTeamConfig } from "../../src/project-config/loader";
 
 function projectConfigPath(root: string): string {
@@ -13,6 +13,14 @@ function projectConfigPath(root: string): string {
 function writeProjectConfig(root: string, config: TeamProjectConfigFile): string {
 	const path = projectConfigPath(root);
 	mkdirSync(resolve(path, ".."), { recursive: true });
+	writeFileSync(path, JSON.stringify(config, null, 2));
+	return path;
+}
+
+function writeGlobalConfig(config: Partial<TeamProjectConfigFile> | Record<string, unknown>): string {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-global-"));
+	mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
+	const path = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
 	writeFileSync(path, JSON.stringify(config, null, 2));
 	return path;
 }
@@ -34,6 +42,128 @@ function buildConfig(overrides: Partial<TeamProjectConfigFile["roles"]> = {}): T
 		},
 	};
 }
+
+test("loadActiveTeamConfig exposes project active freshness metadata", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-active-local-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	const configPath = writeProjectConfig(root, { schemaVersion: 4, scaffoldVersion: TEAM_SCAFFOLD_VERSION, roles: { fixer: { prompt: "default" } } });
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.sourcePath, configPath);
+	assert.deepEqual(result.activeConfigFreshness, {
+		kind: "layer",
+		scope: "project",
+		path: configPath,
+		parseStatus: "valid",
+		scaffoldVersion: TEAM_SCAFFOLD_VERSION,
+		scaffoldVersionMissing: false,
+		scaffoldStale: false,
+		rawSchemaVersion: 4,
+	});
+});
+
+test("loadActiveTeamConfig exposes global-only active freshness metadata", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-active-global-cwd-"));
+	const globalPath = writeGlobalConfig({ schemaVersion: 4, scaffoldVersion: TEAM_SCAFFOLD_VERSION, roles: { reviewer: { prompt: "default" } } });
+
+	const result = loadActiveTeamConfig({ cwd, globalConfigPath: globalPath });
+	assert.equal(result.sourcePath, globalPath);
+	assert.deepEqual(result.activeConfigFreshness, {
+		kind: "layer",
+		scope: "global",
+		path: globalPath,
+		parseStatus: "valid",
+		scaffoldVersion: TEAM_SCAFFOLD_VERSION,
+		scaffoldVersionMissing: false,
+		scaffoldStale: false,
+		rawSchemaVersion: 4,
+	});
+});
+
+test("loadActiveTeamConfig exposes no active freshness target when no config exists", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-active-none-"));
+
+	const result = loadActiveTeamConfig({ cwd, globalConfigPath: null });
+	assert.equal(result.sourcePath, undefined);
+	assert.deepEqual(result.activeConfigFreshness, {
+		kind: "none",
+		parseStatus: "none",
+		scaffoldVersionMissing: false,
+		scaffoldStale: false,
+	});
+});
+
+test("loadActiveTeamConfig active freshness follows project precedence over global", () => {
+	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-active-project-wins-"));
+	mkdirSync(join(projectRoot, "app"), { recursive: true });
+	const projectPath = writeProjectConfig(projectRoot, { schemaVersion: 4, scaffoldVersion: TEAM_SCAFFOLD_VERSION, roles: { fixer: { prompt: "default" } } });
+	const globalPath = writeGlobalConfig({ schemaVersion: 4, scaffoldVersion: 0, roles: { reviewer: { prompt: "default" } } });
+
+	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: globalPath });
+	assert.equal(result.sourcePath, projectPath);
+	assert.equal(result.activeConfigFreshness.kind, "layer");
+	if (result.activeConfigFreshness.kind === "layer") {
+		assert.equal(result.activeConfigFreshness.scope, "project");
+		assert.equal(result.activeConfigFreshness.path, projectPath);
+		assert.equal(result.activeConfigFreshness.scaffoldStale, false);
+	}
+});
+
+test("loadActiveTeamConfig active freshness reports schema-mismatched project with stale scaffold while preserving sourcePath", () => {
+	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-active-mismatch-"));
+	mkdirSync(join(projectRoot, "app"), { recursive: true });
+	const projectPath = projectConfigPath(projectRoot);
+	mkdirSync(resolve(projectPath, ".."), { recursive: true });
+	writeFileSync(projectPath, JSON.stringify({ schemaVersion: 3, scaffoldVersion: 0, roles: {} }, null, 2));
+	const globalPath = writeGlobalConfig({ schemaVersion: 4, scaffoldVersion: TEAM_SCAFFOLD_VERSION, roles: { reviewer: { prompt: "default" } } });
+
+	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: globalPath });
+	assert.equal(result.status, "builtin");
+	assert.equal(result.sourcePath, undefined, "builtin fallback sourcePath semantics are preserved for mismatched project");
+	assert.deepEqual(result.activeConfigFreshness, {
+		kind: "layer",
+		scope: "project",
+		path: projectPath,
+		parseStatus: "schema-mismatch",
+		scaffoldVersion: 0,
+		scaffoldVersionMissing: false,
+		scaffoldStale: true,
+		rawSchemaVersion: 3,
+	});
+});
+
+test("loadActiveTeamConfig active freshness distinguishes missing scaffoldVersion from stale numeric scaffoldVersion", () => {
+	const missingRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-active-missing-scaffold-"));
+	mkdirSync(join(missingRoot, "app"), { recursive: true });
+	const missingPath = writeProjectConfig(missingRoot, { schemaVersion: 4, roles: { fixer: { prompt: "default" } } });
+	const staleRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-active-stale-scaffold-"));
+	mkdirSync(join(staleRoot, "app"), { recursive: true });
+	const stalePath = writeProjectConfig(staleRoot, { schemaVersion: 4, scaffoldVersion: 0, roles: { fixer: { prompt: "default" } } });
+
+	const missing = loadActiveTeamConfig({ cwd: join(missingRoot, "app"), globalConfigPath: null });
+	const stale = loadActiveTeamConfig({ cwd: join(staleRoot, "app"), globalConfigPath: null });
+
+	assert.deepEqual(missing.activeConfigFreshness, {
+		kind: "layer",
+		scope: "project",
+		path: missingPath,
+		parseStatus: "valid",
+		scaffoldVersion: undefined,
+		scaffoldVersionMissing: true,
+		scaffoldStale: false,
+		rawSchemaVersion: 4,
+	});
+	assert.deepEqual(stale.activeConfigFreshness, {
+		kind: "layer",
+		scope: "project",
+		path: stalePath,
+		parseStatus: "valid",
+		scaffoldVersion: 0,
+		scaffoldVersionMissing: false,
+		scaffoldStale: true,
+		rawSchemaVersion: 4,
+	});
+});
 
 test("loadActiveTeamConfig discovers nearest ancestor config and normalizes project paths", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-config-"));
@@ -611,8 +741,9 @@ test("loadActiveTeamConfig: fatal-parse on non-winning layer does NOT disable th
 	// diagnostic and the winning layer still loads.
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-fatal-nonwinner-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
-	writeProjectConfig(projectRoot, {
+	const projectPath = writeProjectConfig(projectRoot, {
 		schemaVersion: 4,
+		scaffoldVersion: TEAM_SCAFFOLD_VERSION,
 		roles: { "custom-scout": { access: { tools: ["read"], write: false } } as any },
 	});
 
@@ -625,6 +756,16 @@ test("loadActiveTeamConfig: fatal-parse on non-winning layer does NOT disable th
 	assert.equal(result.status, "project", "project wins by presence even when global is fatal");
 	assert.equal(result.delegationEnabled, true, "delegation stays enabled when the winning layer is valid");
 	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "project_config_parse_failed"));
+	assert.deepEqual(result.activeConfigFreshness, {
+		kind: "layer",
+		scope: "project",
+		path: projectPath,
+		parseStatus: "valid",
+		scaffoldVersion: TEAM_SCAFFOLD_VERSION,
+		scaffoldVersionMissing: false,
+		scaffoldStale: false,
+		rawSchemaVersion: 4,
+	});
 	assert.ok(result.config.profiles.find((profile) => profile.name === "custom-scout"));
 });
 
@@ -641,6 +782,16 @@ test("loadActiveTeamConfig: fatal-parse on the winning layer still disables dele
 	const result = loadActiveTeamConfig({ cwd: join(projectRoot, "app"), globalConfigPath: null });
 	assert.equal(result.status, "invalid");
 	assert.equal(result.delegationEnabled, false);
+	assert.deepEqual(result.activeConfigFreshness, {
+		kind: "layer",
+		scope: "project",
+		path: projectPath,
+		parseStatus: "fatal",
+		scaffoldVersion: undefined,
+		scaffoldVersionMissing: true,
+		scaffoldStale: false,
+		rawSchemaVersion: undefined,
+	});
 	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "project_config_parse_failed"));
 });
 

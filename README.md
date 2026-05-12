@@ -71,6 +71,8 @@ The orchestrator may answer trivial, already-known, or tiny bounded asks directl
 
 Tip: `/team-init local` writes the packaged role defaults (`explorer: low`, `oracle: high`, most other roles `medium`) rather than your current live Pi thinking level. Delete a role's `thinkingLevel` when you want that role to inherit through the launch cascade instead. Do not write `"thinkingLevel": "default"` or `""`; both are invalid and get dropped with a warning.
 
+Config freshness warnings are based on the active config layer only: project-local wins by file presence, otherwise global, otherwise no file. A stale or missing active `scaffoldVersion` produces a soft boot warning and the file keeps loading; refresh explicitly with `/team-init <local|global> --force` (backs up first).
+
 ## Documentation
 
 | File | Covers |
