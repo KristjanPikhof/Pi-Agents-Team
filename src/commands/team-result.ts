@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { WorkerRuntimeState } from "../types";
-import { formatCompactTokenCount } from "../ui/usage-format";
+import { formatCompactTokenCount, formatContextBudget } from "../ui/usage-format";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
 
@@ -36,6 +36,8 @@ function formatWorkerDetail(worker: WorkerRuntimeState, transcript?: string): st
 		"",
 		`Usage: turns=${worker.usage.turns} input=${formatCompactTokenCount(worker.usage.inputTokens)} output=${formatCompactTokenCount(worker.usage.outputTokens)} cost=$${worker.usage.costUsd.toFixed(4)}`,
 	);
+	const contextBudget = formatContextBudget(worker.usage);
+	if (contextBudget) lines.push(`Context: ${contextBudget}`);
 
 	if (worker.finalAnswer && worker.finalAnswer.trim()) {
 		lines.push("", "--- Final answer (from worker's <final_answer> block) ---", worker.finalAnswer.trim());
