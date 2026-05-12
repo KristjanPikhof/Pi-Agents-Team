@@ -82,7 +82,7 @@ Prints the compact summary (headline, files read/changed, risks, next recommenda
 
 Press `p` inside the `/team` overlay to prune every terminal worker (`idle`, `completed`, `aborted`, `error`, `exited`) from the dashboard. Prune removes the worker rows/details and task registry entries, but folds each removed worker's token/cost usage into retained aggregate totals first. Useful after a cancelled batch when you want to start fresh without old rows cluttering the widget while preserving team statistics. Non-terminal workers are left alone, so pruning is safe while new workers are still active.
 
-For a hard reset: `/team-stop all` first to stop every live worker, then `p` in the overlay to clear the terminal rows.
+To clear every worker row: `/team-stop all` to stop every live worker, then `p` in the overlay to remove the terminal rows. Team token/cost totals survive on purpose. Each pruned worker's usage is folded into a retained aggregate so the Cost tab and footer `Σ` keep matching what the team actually spent; the Cost tab also prints a `retained/pruned` note so the aggregate is not confused with the visible per-worker rows. No command zeroes the retained totals; restart the Pi session for a fresh ledger.
 
 ## See aggregate token usage and cost
 
