@@ -123,6 +123,9 @@ export const WorkerUsageStatsSchema = Type.Object({
 	cacheWriteTokens: Type.Number({ default: 0 }),
 	costUsd: Type.Number({ default: 0 }),
 	contextTokens: Type.Optional(Type.Number()),
+	contextWindow: Type.Optional(Type.Number()),
+	contextPercent: Type.Optional(Type.Number()),
+	contextRemainingTokens: Type.Optional(Type.Number()),
 });
 
 export const WorkerUsageAggregateSchema = Type.Object({
