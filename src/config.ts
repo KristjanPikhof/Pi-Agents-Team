@@ -19,6 +19,7 @@ import {
 	type TeamDashboardEntry,
 	type WorkerRuntimeState,
 } from "./types";
+import { createZeroWorkerUsageAggregate, normalizeWorkerUsageAggregate } from "./usage";
 
 // Re-export so consumers (/team-init, loader) can import from config.ts alongside DEFAULT_TEAM_CONFIG.
 export { TEAM_SCAFFOLD_VERSION };
@@ -122,6 +123,17 @@ export const WorkerUsageStatsSchema = Type.Object({
 	cacheWriteTokens: Type.Number({ default: 0 }),
 	costUsd: Type.Number({ default: 0 }),
 	contextTokens: Type.Optional(Type.Number()),
+});
+
+export const WorkerUsageAggregateSchema = Type.Object({
+	workers: Type.Number({ default: 0 }),
+	turns: Type.Number({ default: 0 }),
+	inputTokens: Type.Number({ default: 0 }),
+	outputTokens: Type.Number({ default: 0 }),
+	cacheReadTokens: Type.Number({ default: 0 }),
+	cacheWriteTokens: Type.Number({ default: 0 }),
+	costUsd: Type.Number({ default: 0 }),
+	contextTokens: Type.Number({ default: 0 }),
 });
 
 export const RelayQuestionSchema = Type.Object({
@@ -253,6 +265,7 @@ export const PersistedTeamStateSchema = Type.Object({
 	version: Type.Literal(TEAM_STATE_VERSION),
 	sessionMode: enumSchema(TEAM_SESSION_MODES),
 	activeWorkers: Type.Record(Type.String(), WorkerRuntimeStateSchema),
+	prunedWorkerUsageTotals: WorkerUsageAggregateSchema,
 	taskRegistry: Type.Record(Type.String(), DelegatedTaskInputSchema),
 	relayQueue: Type.Array(RelayQuestionSchema),
 	ui: TeamUiStateSchema,
@@ -395,6 +408,7 @@ export function createDefaultTeamState(config: TeamConfig = DEFAULT_TEAM_CONFIG,
 		version: TEAM_STATE_VERSION,
 		sessionMode: config.sessionMode,
 		activeWorkers: {},
+		prunedWorkerUsageTotals: createZeroWorkerUsageAggregate(),
 		taskRegistry: {},
 		relayQueue: [],
 		ui: {
@@ -421,11 +435,13 @@ export function normalizePersistedTeamState(
 	const taskRegistry = isRecord(raw.taskRegistry) ? (raw.taskRegistry as PersistedTeamState["taskRegistry"]) : base.taskRegistry;
 	const relayQueue = Array.isArray(raw.relayQueue) ? (raw.relayQueue as PersistedTeamState["relayQueue"]) : base.relayQueue;
 	const rawUi = isRecord(raw.ui) ? raw.ui : {};
+	const prunedWorkerUsageTotals = normalizeWorkerUsageAggregate(raw.prunedWorkerUsageTotals);
 
 	return {
 		...base,
 		sessionMode: raw.sessionMode === "worker" ? "worker" : base.sessionMode,
 		activeWorkers,
+		prunedWorkerUsageTotals,
 		taskRegistry,
 		relayQueue,
 		ui: {
