@@ -15,6 +15,7 @@ import {
 	TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED,
 	THINKING_LEVELS,
 	isPackagedProfileName,
+	type ActiveTeamConfigFreshness,
 	type LoadedTeamProjectConfig,
 	type PartialRawProjectRoleConfigMap,
 	type ProjectConfigDiagnostic,
@@ -627,6 +628,33 @@ function isFatalLayerParse(value: ParsedLayer | { fatalDiagnostics: ProjectConfi
 	return "fatalDiagnostics" in value;
 }
 
+function makeActiveConfigFreshness(
+	winningScope: TeamConfigScope,
+	layers: TeamProjectConfigLayer[],
+	fatalScopes: Set<TeamConfigScope>,
+): ActiveTeamConfigFreshness {
+	const activeLayer = layers.find((layer) => layer.scope === winningScope);
+	if (!activeLayer) {
+		return {
+			kind: "none",
+			parseStatus: "none",
+			scaffoldVersionMissing: false,
+			scaffoldStale: false,
+		};
+	}
+
+	return {
+		kind: "layer",
+		scope: activeLayer.scope,
+		path: activeLayer.path,
+		parseStatus: activeLayer.schemaMismatch ? "schema-mismatch" : fatalScopes.has(activeLayer.scope) ? "fatal" : "valid",
+		scaffoldVersion: activeLayer.scaffoldVersion,
+		scaffoldVersionMissing: activeLayer.scaffoldVersion === undefined,
+		scaffoldStale: activeLayer.scaffoldStale === true,
+		rawSchemaVersion: activeLayer.rawSchemaVersion,
+	};
+}
+
 export interface LoadActiveTeamConfigOptions {
 	cwd: string;
 	baseConfig?: TeamConfig;
@@ -752,6 +780,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	const globalLayer = parsedLayers.find((layer) => layer.scope === "global");
 	const projectFilePresent = projectPath !== undefined;
 	const winningScope: TeamConfigScope = projectFilePresent ? "project" : "global";
+	const activeConfigFreshness = makeActiveConfigFreshness(winningScope, layers, fatalScopes);
 
 	let winningLayer: ParsedLayer | undefined;
 	if (projectFilePresent) {
@@ -792,6 +821,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			sourcePath: projectPath ?? globalPath,
 			projectRoot: projectPath ? computeLayerRoot("project", projectPath) : options.cwd,
 			layers,
+			activeConfigFreshness,
 			enabled,
 			enabledSource,
 			diagnostics,
@@ -840,6 +870,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 			sourcePath: projectPath ?? globalPath,
 			projectRoot: projectPath ? computeLayerRoot("project", projectPath) : options.cwd,
 			layers,
+			activeConfigFreshness,
 			enabled,
 			enabledSource,
 			diagnostics,
@@ -873,6 +904,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 				},
 			},
 			layers,
+			activeConfigFreshness,
 			enabled,
 			enabledSource,
 			diagnostics,
@@ -908,6 +940,7 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 		sourcePath: projectPath ?? globalPath,
 		projectRoot,
 		layers,
+		activeConfigFreshness,
 		enabled,
 		enabledSource,
 		diagnostics,
