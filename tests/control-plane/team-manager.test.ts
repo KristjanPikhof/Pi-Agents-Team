@@ -665,6 +665,39 @@ test("delegateTask with reuseWorkerId allows unknown or nullable context after r
 	assert.equal(reused.worker.usage.contextRemainingTokens, undefined);
 });
 
+test("delegateTask with reuseWorkerId clears stale context budget when refresh omits contextUsage", async () => {
+	let refreshCount = 0;
+	const { teamManager, workerId } = await createIdleReusableTeam(() => {
+		refreshCount += 1;
+		if (refreshCount === 1) {
+			return {
+				sessionId: "mock-session",
+				totalMessages: 1,
+				contextUsage: { tokens: 190000, contextWindow: 200000, percent: 95 },
+			};
+		}
+		return {
+			sessionId: "mock-session",
+			totalMessages: 1,
+		};
+	});
+
+	await teamManager.pingWorkers({ workerIds: [workerId], mode: "active" });
+	assert.equal(teamManager.getWorkerStatus(workerId)?.usage.contextPercent, 95);
+
+	const reused = await teamManager.delegateTask({
+		title: "Second",
+		goal: "absent context is unknown, not saturated",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		reuseWorkerId: workerId,
+	});
+
+	assert.equal(reused.worker.workerId, workerId);
+	assert.equal(reused.worker.usage.contextPercent, undefined);
+	assert.equal(reused.worker.usage.contextRemainingTokens, undefined);
+});
+
 test("delegateTask with reuseWorkerId propagates stats refresh errors before reuse prompt", async () => {
 	const { teamManager, transports, workerId } = await createIdleReusableTeam(undefined, "stats unavailable");
 
