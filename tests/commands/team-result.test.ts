@@ -90,7 +90,7 @@ test("/team-result without an id notifies usage", async () => {
 	assert.match(harness.notifications[0]!.message, /Usage: \/team-result/);
 });
 
-test("formatWorkerDetail uses compact token counts for scanned terminal display", () => {
+test("formatWorkerDetail uses compact token counts and context budget for scanned terminal display", () => {
 	const worker: WorkerRuntimeState = {
 		workerId: "w6",
 		profileName: "reviewer",
@@ -99,10 +99,22 @@ test("formatWorkerDetail uses compact token counts for scanned terminal display"
 		startedAt: Date.now(),
 		lastEventAt: Date.now(),
 		pendingRelayQuestions: [],
-		usage: { turns: 4, inputTokens: 1200, outputTokens: 2_500_000, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.42 },
+		usage: {
+			turns: 4,
+			inputTokens: 1200,
+			outputTokens: 2_500_000,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0.42,
+			contextTokens: 128000,
+			contextWindow: 200000,
+			contextPercent: 64,
+			contextRemainingTokens: 72000,
+		},
 	};
 	const text = resultTesting.formatWorkerDetail(worker, undefined);
 	assert.match(text, /Usage: turns=4 input=1\.2k output=2\.5m cost=\$0\.4200/);
+	assert.match(text, /Context: ctx=64%\/200k rem=72k/);
 });
 
 test("formatWorkerDetail without transcript renders the placeholder line (parity with inline agent-result)", () => {
