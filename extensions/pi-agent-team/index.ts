@@ -75,8 +75,13 @@ type ExtensionContextWithThinkingLevel = ExtensionContext & {
 const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshnessToasts");
 
 function getProcessStableScaffoldFreshnessToasts(): Set<string> {
-	const store = globalThis as typeof globalThis & Record<symbol, Set<string> | undefined>;
-	return store[SCAFFOLD_FRESHNESS_TOASTS_KEY] ??= new Set<string>();
+	const store = globalThis as typeof globalThis & Record<symbol, unknown>;
+	const existing = store[SCAFFOLD_FRESHNESS_TOASTS_KEY];
+	if (existing instanceof Set) return existing as Set<string>;
+
+	const freshnessToasts = new Set<string>();
+	store[SCAFFOLD_FRESHNESS_TOASTS_KEY] = freshnessToasts;
+	return freshnessToasts;
 }
 
 function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
