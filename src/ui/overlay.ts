@@ -8,7 +8,7 @@ import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
 import { buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
-import { formatCompactTokenCount } from "./usage-format";
+import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import {
 	accent,
 	accentBold,
@@ -113,7 +113,9 @@ function appendList(lines: string[], label: string, values: string[]): void {
 }
 
 function formatUsage(worker: WorkerRuntimeState): string {
-	return `turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}  cost=$${worker.usage.costUsd.toFixed(4)}`;
+	const base = `turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}  cost=$${worker.usage.costUsd.toFixed(4)}`;
+	const contextBudget = formatContextBudget(worker.usage);
+	return contextBudget ? `${base}  ${contextBudget}` : base;
 }
 
 function hasClampedThinking(worker: WorkerRuntimeState): boolean {
