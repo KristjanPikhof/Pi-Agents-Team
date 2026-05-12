@@ -37,6 +37,12 @@ Pi skills are host-level capabilities from the Pi startup banner, not profiles. 
 
 `thinkingLevel` is config-only. It is resolved from the role/orchestrator cascade at launch time and is not a `delegate_task` tool parameter.
 
+### Context-aware reuse
+
+Before non-trivial reuse, the orchestrator should inspect fresh status/usage (`agent_status` or active `ping_agents`). Same-scope reuse is normal below 50% context, cautious from 50-70%, and discouraged above 70%. At or above 80% context, or at/below 32768 remaining tokens, `delegate_task.reuseWorkerId` rejects and tells the orchestrator to delegate fresh. Unknown context is allowed by the runtime but should bias toward fresh workers for long, exploratory, or multi-lane work.
+
+The prompt also tells the orchestrator not to add more lanes to a saturated worker: independent lanes should fan out as fresh workers rather than being stacked onto one warm session. This preserves context quality without introducing any auto-compact behavior.
+
 ### Wait, don't poll
 
 The loop after `delegate_task`:
