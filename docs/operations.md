@@ -68,7 +68,7 @@ Inside the `/team` overlay:
 
 The header carries a tab bar, the per-tab help row, and the selected worker's priority snippet. When routing is off, the bar shows a `solo` badge; idle workers carry a `[reuse]` tag in the roster row and `[reusable]` in the Inspect header so reusable sessions are obvious. A transient `» …` status line surfaces last action / refresh / error feedback for a few seconds.
 
-Inspect renders status, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, plus the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. Cost shows a `Σ` aggregate row plus per-worker turns / in / out / cost.
+Inspect renders status, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, plus the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cost.
 
 ## Inspect a worker's result
 
@@ -86,7 +86,9 @@ For a hard reset: `/team-stop all` first to stop every live worker, then `p` in 
 
 ## See aggregate token usage and cost
 
-Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per tracked worker (turns, input/output tokens, cache reads/writes, cost) plus a `Σ` aggregate row. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
+Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per tracked worker (turns, input/output tokens, cost) plus a `Σ` aggregate row. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
+
+Large token counts are abbreviated to keep the overlay and footer readable: `k` means thousands (1,000), and `m` means millions (1,000,000). For example, `in=143.5k` is about 143,500 input tokens and `out=1.3m` is about 1,300,000 output tokens.
 
 The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any worker has non-zero usage, so you don't have to open the overlay for the running total.
 
