@@ -788,6 +788,12 @@ export function createTeamDashboardOverlayComponent(
 		return true;
 	};
 
+	const isPageUpKey = (data: string): boolean => data === "b" || matchesKey(data, "pageUp") || matchesKey(data, "ctrl+u");
+	const isPageDownKey = (data: string): boolean => data === " " || matchesKey(data, "pageDown") || matchesKey(data, "ctrl+d");
+	const isTopKey = (data: string): boolean => data === "g" || matchesKey(data, "home") || matchesKey(data, "alt+up");
+	const isBottomKey = (data: string): boolean => data === "G" || matchesKey(data, "end") || matchesKey(data, "alt+down");
+	const isFollowToggleKey = (data: string): boolean => data === "f" || matchesKey(data, "alt+f");
+
 	return {
 		render(width: number): string[] {
 			refreshSnapshot();
