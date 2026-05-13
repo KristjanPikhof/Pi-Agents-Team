@@ -266,7 +266,7 @@ Key invariants:
 - **Content/event split.** Inspect builds a structured text document from worker state (`buildInspectText`) with explicit section dividers for Status, Task, Needs operator, Summary, Final answer, and Latest assistant text. Console builds assistant text and console events separately (`buildConsoleLines`), rendering assistant chunks before the `— events —` timeline when both exist.
 - **Readable report shapes.** The formatter preserves recognizable Markdown-like headings, tables, table separators, list markers, horizontal rules, indented/code-like lines, and stack-trace-like lines. Continuation lines use a small prefix (or preserved indentation for code) rather than collapsing the body into single-line ellipses.
 - **ANSI-width safety.** All wrapping and frame padding use terminal visible width, not JavaScript string length. Control characters and tabs are normalized before measurement, while this package's own ANSI styling is preserved for `pi-tui` to measure correctly.
-- **Row-budget safety.** The overlay returns exactly `floor(terminal.rows * 0.9)` rows to match `TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight`. Body content is sliced within the frame, so the bottom border and action bar do not get clipped.
+- **Row-budget safety.** The overlay returns exactly `floor(terminal.rows * 0.9)` rows to match `TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight`. Body content is sliced within the frame; on tiny terminals where fixed chrome alone exceeds the budget, the final framed output is clamped while preserving the top/bottom border rows.
 - **Compact chrome.** The tab/help/action rows and follow header must fit laptop-width panels without ellipsizing the navigation hints that operators need (`space`/`b`, `g`/`G`, and `f`).
 
 ## Notifications

@@ -907,7 +907,7 @@ test("visibleWidth is enforced across all tabs and worst-case content", () => {
 
 test("render row count matches overlay maxHeight so the bottom frame is never clipped", () => {
 	const state = makeState(1);
-	for (const termRows of [14, 15, 30, 40, 60, 80]) {
+	for (const termRows of [5, 14, 15, 30, 40, 60, 80]) {
 		const { component } = makeComponent({ state, rows: termRows, cols: 100, initialWorkerId: "w1" });
 		const lines = renderPlain(component, 100);
 		const expected = Math.floor(termRows * 0.9);
@@ -994,7 +994,7 @@ test("tab cycle wraps through only 3 tabs when displayCost is false", () => {
 
 test("render row count matches overlay maxHeight when displayCost is false", () => {
 	const state = makeState(1);
-	for (const termRows of [14, 15, 30, 40]) {
+	for (const termRows of [5, 14, 15, 30, 40]) {
 		const { component } = makeComponent({ state, rows: termRows, cols: 100, displayCost: false });
 		const lines = renderPlain(component, 100);
 		const expected = Math.floor(termRows * 0.9);

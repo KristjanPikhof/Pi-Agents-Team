@@ -391,6 +391,15 @@ function frameBottom(totalWidth: number): string {
 	return bottom;
 }
 
+function clampFramedRows(rows: string[], maxRows: number): string[] {
+	if (rows.length <= maxRows) return rows;
+	if (maxRows <= 0) return [];
+	if (maxRows === 1) return [rows[0] ?? ""];
+	const top = rows[0] ?? "";
+	const bottom = rows[rows.length - 1] ?? "";
+	return [top, ...rows.slice(1, maxRows - 1), bottom];
+}
+
 export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo", displayCost = true): string {
 	const visibleTabs = displayCost ? TAB_ORDER : TAB_ORDER.filter((tab) => tab !== "cost");
 	const cells = visibleTabs.map((tab) => {
@@ -936,7 +945,7 @@ export function createTeamDashboardOverlayComponent(
 			const framedRows = innerLines.map((line) => frameRow(line, innerWidth));
 			const top = frameTopWithTitle(titleStyled, cap);
 			const bottom = frameBottom(cap);
-			return [top, ...framedRows, bottom];
+			return clampFramedRows([top, ...framedRows, bottom], totalRows);
 		},
 		invalidate() {},
 		dispose() {
