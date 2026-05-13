@@ -1008,18 +1008,19 @@ test("render row count matches overlay maxHeight when displayCost is false", () 
 
 test("inspect wraps non-breakable long tokens on narrow panels without dropping content", () => {
 	const state = makeState(1);
-	const longToken = "x".repeat(200);
+	const longToken = "x".repeat(400);
 	state.activeWorkers.w1!.finalAnswer = `prefix ${longToken} suffix`;
-	const { component } = makeComponent({ state, rows: 40, cols: 24, initialWorkerId: "w1" });
+	const { component } = makeComponent({ state, rows: 80, cols: 48, initialWorkerId: "w1" });
 
-	const lines = renderPlain(component, 24);
+	const lines = renderPlain(component, 48);
 	const xRuns = lines.filter((line) => /x{4,}/.test(line));
-	assert.ok(xRuns.length >= 2, `expected unbreakable token to wrap onto multiple rows, got runs:\n${xRuns.join("\n")}`);
+	assert.ok(xRuns.length >= 3, `expected unbreakable token to wrap onto multiple rows, got runs:\n${xRuns.join("\n")}`);
 	for (const line of lines) {
-		assert.ok(visibleWidth(line) <= 24, `line exceeds width: ${visibleWidth(line)} ${line}`);
+		assert.ok(visibleWidth(line) <= 48, `line exceeds width: ${visibleWidth(line)} ${line}`);
 	}
+	assert.ok(!xRuns.some((line) => line.includes("…")), "wrapping should not ellipsize the long token");
 	const totalXVisible = xRuns.reduce((sum, line) => sum + (line.match(/x/g)?.length ?? 0), 0);
-	assert.ok(totalXVisible >= 150, `expected most of the long token to remain visible across wrap chunks, saw ${totalXVisible}`);
+	assert.ok(totalXVisible >= 200, `expected most of the long token to remain visible across wrap chunks, saw ${totalXVisible}`);
 });
 
 test("classifier matches structural patterns even when worker text is ANSI-styled", () => {
