@@ -962,7 +962,9 @@ export function createTeamDashboardOverlayComponent(
 			const framedRows = innerLines.map((line) => frameRow(line, innerWidth));
 			const top = frameTopWithTitle(titleStyled, cap);
 			const bottom = frameBottom(cap);
-			return clampFramedRows([top, ...framedRows, bottom], totalRows);
+			const totalFrameRows = framedRows.length + 2;
+			const tinyHint = totalFrameRows > totalRows ? frameRow(dim("(terminal too small)"), innerWidth) : undefined;
+			return clampFramedRows([top, ...framedRows, bottom], totalRows, tinyHint);
 		},
 		invalidate() {},
 		dispose() {
