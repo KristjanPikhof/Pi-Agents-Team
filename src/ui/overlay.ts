@@ -303,7 +303,7 @@ function computeOverlayRows(termRows: number): number {
 function frameRow(content: string, innerWidth: number): string {
 	const padded = padToWidth(content, innerWidth);
 	const sides = accent(FRAME.vertical);
-	return `${PANEL_BG_OPEN}${sides} ${padded} ${sides}${PANEL_BG_CLOSE}`;
+	return `${sides}${PANEL_BG_OPEN} ${padded} ${PANEL_BG_CLOSE}${sides}`;
 }
 
 function frameTopWithTitle(titleStyled: string, totalWidth: number): string {
@@ -315,13 +315,13 @@ function frameTopWithTitle(titleStyled: string, totalWidth: number): string {
 	const leftPad = Math.min(2, remaining);
 	const rightFill = Math.max(0, remaining - leftPad);
 	const top = `${accent(FRAME.topLeft)}${accent(FRAME.horizontal.repeat(leftPad))}${titleFragment}${accent(FRAME.horizontal.repeat(rightFill))}${accent(FRAME.topRight)}`;
-	return `${PANEL_BG_OPEN}${top}${PANEL_BG_CLOSE}`;
+	return top;
 }
 
 function frameBottom(totalWidth: number): string {
 	const inner = Math.max(0, totalWidth - 2);
 	const bottom = `${accent(FRAME.bottomLeft)}${accent(FRAME.horizontal.repeat(inner))}${accent(FRAME.bottomRight)}`;
-	return `${PANEL_BG_OPEN}${bottom}${PANEL_BG_CLOSE}`;
+	return bottom;
 }
 
 export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo", displayCost = true): string {
@@ -731,7 +731,7 @@ export function createTeamDashboardOverlayComponent(
 		const lines: string[] = [];
 		for (const section of buildRosterSections(snapshot)) {
 			if (section.workers.length === 0) continue;
-			const label = `${FRAME.sectionMark} ${section.label} (${section.workers.length})`;
+			const label = `${section.label} (${section.workers.length})`;
 			lines.push(colorForGroupBold(section.key)(label));
 			for (const worker of section.workers) {
 				lines.push(buildRosterRow(worker, worker.workerId === state.selectedWorkerId, width));
