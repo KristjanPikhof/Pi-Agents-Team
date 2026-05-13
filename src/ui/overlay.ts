@@ -395,8 +395,8 @@ function firstFitting(width: number, candidates: string[]): string {
 function formatFollowHeader(following: boolean, top: number, visible: number, total: number): string {
 	const start = total === 0 ? 0 : top + 1;
 	const end = Math.min(total, top + visible);
-	const status = following ? "follow" : "paused f/G";
-	return `${status} ${start}-${end}/${total}`;
+	const status = following ? "[follow]" : "[paused f/G]";
+	return `${status}  scroll ${start}-${end} / ${total}`;
 }
 
 function colorForGroup(group: WorkerAttentionGroup): (text: string) => string {
