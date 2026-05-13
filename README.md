@@ -1,9 +1,13 @@
 # Pi Agents Team
 
-One Pi session orchestrates. Background RPC workers do the work. The orchestrator never sees worker transcripts, only compact summaries and a single `<final_answer>` block per worker.
+Pi main session acts as the coordinator, while background RPC workers execute the tasks. The orchestrator does not view the complete transcripts from the workers, receiving only concise summaries and one `<final_answer>` block per worker. Meanwhile, the user is able to monitor the cost, tokens used, active workers and their full transcripts.
 
-**Repo:** `git@github.com:KristjanPikhof/pi-agents-team.git`
-**Requires:** `pi` CLI ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.74.0`, Node `>=20`, Git.
+<p align="center">
+  <img width="auto" height="900" alt="pi-agents-team" src="https://github.com/user-attachments/assets/39fedc42-4097-4b79-932e-2eba0e06c07e" />
+</p>
+
+- **Repo:** [`git@github.com:KristjanPikhof/pi-agents-team.git`](https://github.com/KristjanPikhof/Pi-Agents-Team)
+- **Requires:** pi ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.74.0`, Node `>=20`, Git.
 
 ## Install
 
@@ -65,13 +69,21 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 | `/team-enable on\|off [--persist global\|local]` | Flip routing between **team** and **solo** and write `routingMode` to the active `agents-team.json` so the choice survives restart. In solo mode the orchestrator answers directly; `delegate_task` rejects with a routing-off error. Other `agent_*` tools stay live so workers spawned earlier remain reachable. The widget collapses to a single `Pi Agents Team — solo` line while workers are tracked, and disappears entirely when none are. Pass `--persist global\|local` to force a specific scope; default resolves the winning config layer, falling back to a fresh local stub at `./.pi/agent/agents-team.json`. `/team-enable on` errors with an "enable first" hint when `enabled: false`. |
 | `/team-init [global\|local] [--force]` | Scaffold `agents-team.json` with every built-in role stamped in place, including each role's default `thinkingLevel`, plus the current `schemaVersion` + `scaffoldVersion` markers, the default `routingMode: "team"`, and top-level worker access defaults like `allowPathsOutsideProject: true`. Refuses existing files without `--force`; on `--force` the previous file is backed up first. |
 
-## How it works (in one paragraph)
+## How it works (in a nutshell)
 
-The orchestrator may answer trivial, already-known, or tiny bounded asks directly; substantial investigation, review, mapping, tests, and multi-file work goes to background workers. For delegated work, the orchestrator picks a role from the loaded config (seven built-ins by default: explorer, fixer, reviewer, librarian, observer, oracle, designer) and calls `delegate_task`. The runtime spawns `pi --mode rpc --no-session` and feeds the worker its role prompt plus a task prompt that requires the final reply to wrap the deliverable in a `<final_answer>…</final_answer>` block. If `delegate_task.skills` names installed Pi skills, worker skill discovery is enabled and the worker is told to load and apply those requested skill names from its available skill context. Worker RPC events get normalized into compact state: status, last tool, last summary, pending relay questions, token usage, and known context budget. Reuse is context-aware: same-scope idle workers are cheap below 50% context, fresh workers are preferred above 70%, and reuse is rejected at or above 80% context or at/below 32768 remaining tokens. The orchestrator waits with `wait_for_agents` (zero-token wait, wakes early on relay questions), reads each worker's `agent_result`, and synthesizes one user-facing answer. Optional config lives at `~/.pi/agent/agents-team.json` (global) and/or `<project>/.pi/agent/agents-team.json` (nearest ancestor of cwd). The project file, if present, fully replaces global; nothing merges across layers. Role names are free-form, so you can rename the seven defaults, drop the ones you don't need, or add your own. Top-level controls include `enabled: false` (dormant mode) and `workerAccess.allowPathsOutsideProject: false` (restrict delegated worker path scopes to the project root/current cwd; prompt-file containment remains unchanged). Use `/team-init` to scaffold a config file and `/team-enable on|off` to toggle routing without editing JSON.
+The orchestrator may answer trivial, already-known or tiny bounded asks directly; substantial investigation, review, mapping, tests, and multi-file work goes to background workers. 
+
+For delegated work, the orchestrator **picks a role** from the loaded config (seven [built-ins](https://github.com/KristjanPikhof/Pi-Agents-Team/tree/main/prompts/agents) by default: explorer, fixer, reviewer, librarian, observer, oracle, designer) and calls `delegate_task`. The runtime spawns `pi --mode rpc --no-session` and feeds the worker its role prompt plus a task prompt that requires the final reply to wrap the deliverable in a `<final_answer>…</final_answer>` block. If `delegate_task.skills` names installed Pi skills, worker skill discovery is enabled and the worker is told to load and apply those requested skill names from its available skill context. 
+
+Worker RPC events get normalized into compact state: status, last tool, last summary, pending relay questions, token usage, and known context budget. 
+
+Subagent reuse is a context-aware: same-scope idle workers are cheap below 50% context window, fresh workers are preferred above 70%, and reuse is rejected at or above 80% context or at/below 32768 remaining tokens. The orchestrator waits with `wait_for_agents` (zero-token wait, wakes early on relay questions by subagents), reads each worker's `agent_result`, and synthesizes one user-facing answer. 
+
+Optional config lives at `~/.pi/agent/agents-team.json` (global) and/or `<project>/.pi/agent/agents-team.json` (nearest ancestor of cwd). The project file, if present, fully replaces global; nothing merges across layers. Role names are free-form, so you can **rename the seven defaults**, **drop the ones you don't need** or **add your own**. Top-level controls include `enabled: false` (dormant mode) and `workerAccess.allowPathsOutsideProject: false` (restrict delegated worker path scopes to the project root/current cwd; prompt-file containment remains unchanged). Use `/team-init` to scaffold a config file and `/team-enable on|off` to toggle routing without editing JSON.
 
 Tip: `/team-init local` writes the packaged role defaults (`explorer: low`, `oracle: high`, most other roles `medium`) rather than your current live Pi thinking level. Delete a role's `thinkingLevel` when you want that role to inherit through the launch cascade instead. Do not write `"thinkingLevel": "default"` or `""`; both are invalid and get dropped with a warning.
 
-Config freshness warnings are based on the active config layer only: project-local wins by file presence, otherwise global, otherwise no file. A stale or missing active `scaffoldVersion` produces a soft boot warning and the file keeps loading; refresh explicitly with `/team-init <local|global> --force` (backs up first).
+Config freshness warnings are based on the active config layer only: project-local wins by file presence, otherwise global. A stale or missing active `scaffoldVersion` produces a soft boot warning and the file keeps loading; refresh explicitly with `/team-init <local|global> --force` (backs up first).
 
 ## Documentation
 
