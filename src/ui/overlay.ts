@@ -39,6 +39,7 @@ interface DashboardState {
 	tab: OverlayTab;
 	selectedWorkerId?: string;
 	inspectScroll: number;
+	inspectFollow: boolean;
 	consoleScroll: number;
 	consoleFollow: boolean;
 	costScroll: number;
@@ -448,8 +449,9 @@ export function createTeamDashboardOverlayComponent(
 		tab: initialWorker ? "inspect" : "workers",
 		selectedWorkerId: initialWorker,
 		inspectScroll: 0,
+		inspectFollow: false,
 		consoleScroll: 0,
-		consoleFollow: true,
+		consoleFollow: true;
 		costScroll: 0,
 	};
 	let statusMessage: string | undefined;
@@ -474,7 +476,8 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	const offChunk = teamManager.onAssistantChunk?.((workerId) => {
-		if (state.tab === "console" && state.selectedWorkerId === workerId && state.consoleFollow) {
+		if (state.selectedWorkerId !== workerId) return;
+		if ((state.tab === "console" && state.consoleFollow) || (state.tab === "inspect" && state.inspectFollow)) {
 			requestRender();
 		}
 	});
