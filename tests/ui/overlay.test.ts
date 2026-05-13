@@ -292,6 +292,57 @@ test("inspect tab renders requested -> effective thinking with warning color whe
 	);
 });
 
+test("inspect tab renders structured readable sections with styled headers", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.pendingRelayQuestions = [{
+		id: "rq1",
+		question: "Can I proceed with migration?",
+		assumption: "Use the existing default.",
+		urgency: "normal",
+		createdAt: Date.now(),
+	}];
+	state.activeWorkers.w1!.finalAnswer = "headline: fixed\nchanged_files:\n- src/ui/overlay.ts";
+	const { component } = makeComponent({
+		state,
+		rows: 48,
+		cols: 100,
+		initialWorkerId: "w1",
+		transcripts: { w1: "latest assistant detail" },
+	});
+
+	const rawLines = component.render(100);
+	const lines = plainLines(rawLines);
+	const body = lines.join("\n");
+	for (const section of ["Status", "Task", "Needs operator", "Summary", "Final answer", "Latest assistant text"]) {
+		assert.ok(body.includes(section), `expected Inspect section ${section}`);
+	}
+	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;75mStatus\x1b[0m")), "expected styled Status header");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[2mThinking:\x1b[0m")), "expected dimmed metadata label");
+});
+
+test("inspect tab visually separates final answer from latest assistant text and remains width-safe", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.finalAnswer = `Final answer ${"alpha beta ".repeat(18)}`;
+	const { component } = makeComponent({
+		state,
+		rows: 52,
+		cols: 58,
+		initialWorkerId: "w1",
+		transcripts: { w1: `Latest assistant ${"gamma delta ".repeat(18)}` },
+	});
+
+	const lines = renderPlain(component, 58);
+	const finalIndex = lines.findIndex((line) => line.includes("Final answer"));
+	const latestIndex = lines.findIndex((line) => line.includes("Latest assistant text"));
+	assert.ok(finalIndex >= 0, "expected Final answer header");
+	assert.ok(latestIndex > finalIndex, "expected Latest assistant text after Final answer");
+	assert.ok(lines.slice(finalIndex + 1, latestIndex).some((line) => line.includes("Final answer alpha")), "expected final answer content under its header");
+	assert.ok(lines.slice(latestIndex + 1).some((line) => line.includes("Latest assistant gamma")), "expected latest assistant text content under its header");
+	assert.ok(lines[finalIndex]!.includes("── Final answer ──"), lines[finalIndex]);
+	assert.ok(lines[latestIndex]!.includes("── Latest assistant text ──"), lines[latestIndex]);
+	for (const line of lines) assert.ok(visibleWidth(line) <= 58, `line exceeds width: ${visibleWidth(line)} ${line}`);
+});
+
 test("workers tab shows clamped suffix without exceeding width or row budget", () => {
 	const state = makeState(6);
 	for (const worker of Object.values(state.activeWorkers)) {

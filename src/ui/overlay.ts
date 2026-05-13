@@ -107,8 +107,20 @@ function formatTimestamp(ts: number): string {
 
 function appendList(lines: string[], label: string, values: string[]): void {
 	if (values.length === 0) return;
-	lines.push(label);
+	lines.push(dim(label));
 	for (const value of values) lines.push(`  ${value}`);
+}
+
+function inspectSection(label: string): string {
+	return accentBold(label);
+}
+
+function inspectDivider(label: string): string {
+	return accent(FRAME.horizontal.repeat(2)) + " " + inspectSection(label) + " " + accent(FRAME.horizontal.repeat(2));
+}
+
+function inspectField(label: string, value: string): string {
+	return `  ${dim(label)} ${value}`;
 }
 
 function formatUsage(worker: WorkerRuntimeState): string {
@@ -134,55 +146,68 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 	const lines = [
 		`${worker.workerId} · ${worker.profileName} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : ""}`,
 		"",
-		"Status",
-		`  ${formatUsage(worker)}`,
-		`  Thinking: ${formatThinking(worker)}`,
+		inspectSection("Status"),
+		inspectField("Usage:", formatUsage(worker)),
+		inspectField("Thinking:", formatThinking(worker)),
 	];
-	if (worker.lastToolName) lines.push(`  last tool: ${worker.lastToolName}`);
-	if (worker.error) lines.push(`  error: ${worker.error}`);
+	if (worker.lastToolName) lines.push(inspectField("Last tool:", worker.lastToolName));
+	if (worker.error) lines.push(inspectField("Error:", danger(worker.error)));
 
-	lines.push("", "Task");
+	lines.push("", inspectSection("Task"));
 	if (worker.currentTask) {
 		lines.push(`  ${worker.currentTask.title}`);
-		if (worker.currentTask.goal) lines.push(`  goal: ${worker.currentTask.goal}`);
-		if (worker.currentTask.expectedOutput) lines.push(`  expected: ${worker.currentTask.expectedOutput}`);
-		appendList(lines, "  context:", worker.currentTask.contextHints);
-		if (worker.currentTask.pathScope) appendList(lines, "  path scope:", worker.currentTask.pathScope.roots);
+		if (worker.currentTask.goal) lines.push(inspectField("Goal:", worker.currentTask.goal));
+		if (worker.currentTask.expectedOutput) lines.push(inspectField("Expected:", worker.currentTask.expectedOutput));
+		appendList(lines, "  Context:", worker.currentTask.contextHints);
+		if (worker.currentTask.pathScope) appendList(lines, "  Path scope:", worker.currentTask.pathScope.roots);
 	} else {
 		lines.push("  (none)");
 	}
 
-	lines.push("", "Needs operator");
+	lines.push("", inspectSection("Needs operator"));
 	if (worker.pendingRelayQuestions.length === 0) {
 		lines.push("  (none)");
 	} else {
 		for (const relay of worker.pendingRelayQuestions) {
-			lines.push(`  [${relay.urgency}] ${relay.question}`);
-			lines.push(`    assumption: ${relay.assumption}`);
+			lines.push(`  ${warningBold(`[${relay.urgency}]`)} ${relay.question}`);
+			lines.push(inspectField("Assumption:", relay.assumption));
 		}
 	}
 
-	lines.push("", "Summary");
+	lines.push("", inspectSection("Summary"));
 	if (worker.lastSummary) {
-		lines.push(`  ${worker.lastSummary.headline}`);
-		appendList(lines, "  read files:", worker.lastSummary.readFiles);
-		appendList(lines, "  changed files:", worker.lastSummary.changedFiles);
-		appendList(lines, "  risks:", worker.lastSummary.risks);
-		if (worker.lastSummary.nextRecommendation) lines.push(`  next: ${worker.lastSummary.nextRecommendation}`);
+		lines.push(inspectField("Headline:", worker.lastSummary.headline));
+		appendList(lines, "  Read files:", worker.lastSummary.readFiles);
+		appendList(lines, "  Changed files:", worker.lastSummary.changedFiles);
+		appendList(lines, "  Risks:", worker.lastSummary.risks);
+		if (worker.lastSummary.nextRecommendation) lines.push(inspectField("Next:", worker.lastSummary.nextRecommendation));
 	} else {
 		lines.push("  (no summary captured yet)");
 	}
 
-	lines.push("", "Final answer");
+	lines.push("", inspectDivider("Final answer"));
 	lines.push(worker.finalAnswer?.trim() || "  (no <final_answer> block produced)");
 
-	lines.push("", "Latest assistant text");
+	lines.push("", inspectDivider("Latest assistant text"));
 	lines.push(transcript?.trim() || "  (no assistant text captured)");
 	return lines.join("\n");
 }
 
+function styleConsoleEventKind(event: WorkerConsoleEvent): string {
+	const label = `[${event.kind}]`;
+	if (event.kind === "error") return dangerBold(label);
+	if (event.kind === "exit" || /\brecover(?:y|ed|ing)?\b/i.test(event.text)) return warningBold(label);
+	return dim(label);
+}
+
+function styleConsoleEventText(event: WorkerConsoleEvent): string {
+	if (event.kind === "error") return danger(event.text);
+	if (event.kind === "exit" || /\brecover(?:y|ed|ing)?\b/i.test(event.text)) return warning(event.text);
+	return event.text;
+}
+
 function formatConsoleEvent(event: WorkerConsoleEvent): string {
-	return `[${formatTimestamp(event.ts)}] [${event.kind}] ${event.text}`;
+	return `${dim(`[${formatTimestamp(event.ts)}]`)} ${styleConsoleEventKind(event)} ${styleConsoleEventText(event)}`;
 }
 
 function buildConsoleLines(
@@ -194,16 +219,21 @@ function buildConsoleLines(
 		return [`${worker.workerId} · ${worker.profileName} · ${worker.status}`, "", "(no console activity yet)"];
 	}
 	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  chunks=${chunks.length}  events=${consoleEvents.length}`, ""];
-	for (const chunk of chunks) {
-		const text = chunk.text.replace(/\r/g, "");
-		const parts = text.split("\n");
-		for (let i = 0; i < parts.length; i += 1) {
-			const prefix = i === 0 ? `[${formatTimestamp(chunk.ts)}] ` : "    ";
-			lines.push(`${prefix}${parts[i]}`);
+	lines.push(accentBold("— assistant —"));
+	if (chunks.length === 0) {
+		lines.push(dim("(no assistant text captured)"));
+	} else {
+		for (const chunk of chunks) {
+			lines.push(dim(`[${formatTimestamp(chunk.ts)}]`));
+			const text = chunk.text.replace(/\r/g, "");
+			const parts = text.split("\n");
+			for (const part of parts) lines.push(part);
 		}
 	}
-	if (consoleEvents.length > 0) {
-		lines.push("", "— events —");
+	lines.push("", accentBold("— events —"));
+	if (consoleEvents.length === 0) {
+		lines.push(dim("(no events captured)"));
+	} else {
 		for (const event of consoleEvents) lines.push(formatConsoleEvent(event));
 	}
 	return lines;
