@@ -402,13 +402,19 @@ function frameBottom(totalWidth: number): string {
 	return bottom;
 }
 
-function clampFramedRows(rows: string[], maxRows: number): string[] {
+// When `rows` doesn't fit `maxRows`, keep the top/bottom borders and drop
+// middle content. If a `hint` row is provided, surface it as the last visible
+// middle row so operators see why the panel looks empty instead of just blank chrome.
+function clampFramedRows(rows: string[], maxRows: number, hint?: string): string[] {
 	if (rows.length <= maxRows) return rows;
 	if (maxRows <= 0) return [];
 	if (maxRows === 1) return [rows[0] ?? ""];
 	const top = rows[0] ?? "";
 	const bottom = rows[rows.length - 1] ?? "";
-	return [top, ...rows.slice(1, maxRows - 1), bottom];
+	if (maxRows === 2) return [top, bottom];
+	const middle = rows.slice(1, maxRows - 1);
+	if (hint !== undefined && middle.length > 0) middle[middle.length - 1] = hint;
+	return [top, ...middle, bottom];
 }
 
 export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo", displayCost = true): string {
