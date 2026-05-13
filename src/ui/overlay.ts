@@ -675,11 +675,16 @@ export function createTeamDashboardOverlayComponent(
 			return enforceWidth(["No worker selected. Switch to Workers (1) to pick one."], width).slice(0, rows);
 		}
 		const body = wrapLines(buildInspectText(worker, teamManager.getWorkerTranscript(worker.workerId)), width);
-		const maxTop = Math.max(0, body.length - rows);
-		const top = Math.min(state.inspectScroll, maxTop);
+		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
+		const visible = Math.max(1, rows - 1);
+		const maxTop = Math.max(0, body.length - visible);
+		if (state.inspectFollow) state.inspectScroll = maxTop;
+		const top = clamp(state.inspectScroll, 0, maxTop);
 		state.inspectScroll = top;
-		lastRenderMetrics.bodyPageSize = rows;
-		return enforceWidth(body.slice(top, top + rows), width);
+		lastRenderMetrics.bodyPageSize = visible;
+		const followTag = state.inspectFollow ? "[follow]" : "[paused — f/G to follow]";
+		const header = `${followTag}  scroll ${body.length === 0 ? 0 : top + 1}-${Math.min(body.length, top + visible)} / ${body.length}`;
+		return enforceWidth([header, ...body.slice(top, top + visible)], width);
 	};
 
 	const renderConsoleBody = (width: number, rows: number): string[] => {
@@ -697,7 +702,7 @@ export function createTeamDashboardOverlayComponent(
 		const top = clamp(state.consoleScroll, 0, maxTop);
 		state.consoleScroll = top;
 		lastRenderMetrics.bodyPageSize = visible;
-		const followTag = state.consoleFollow ? "[follow]" : "[paused — End to follow]";
+		const followTag = state.consoleFollow ? "[follow]" : "[paused — f/G to follow]";
 		const header = `${followTag}  scroll ${all.length === 0 ? 0 : top + 1}-${Math.min(all.length, top + visible)} / ${all.length}`;
 		return enforceWidth([header, ...all.slice(top, top + visible)], width);
 	};
