@@ -803,12 +803,12 @@ export function createTeamDashboardOverlayComponent(
 			const tabBar = buildTabBar(state.tab, routingMode, displayCost);
 			const tabHint = displayCost ? "1-4 tabs" : "1-3 tabs";
 			const helpRow = state.tab === "workers"
-				? `↑/↓ select · enter inspect · ${tabHint} · tab cycle · q quit`
+				? `↑/↓ select · space/b page · g/G ends · ${tabHint} · q quit`
 				: state.tab === "inspect"
-					? `↑/↓ scroll · PgUp/PgDn page · ${tabHint} · q quit`
+					? `↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${tabHint} · q quit`
 					: state.tab === "console"
-						? `↑/↓ scroll · PgUp pause · End follow · ${tabHint} · q quit`
-						: `↑/↓ scroll · ${tabHint} · q quit`;
+						? `↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${tabHint} · q quit`
+						: `↑/↓ scroll · space/b page · g/G top/bottom · ${tabHint} · q quit`;
 			const sel = state.selectedWorkerId ?? "none";
 			const snippet = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
 			const subHeader = `selected=${sel}  ·  ${snippet}`;
