@@ -350,6 +350,10 @@ function buildActionBar(): string {
 	return ACTION_BAR_KEYS.map(({ key, label }) => `[${accentBold(key)}]${dim(label)}`).join(" ");
 }
 
+function firstFitting(width: number, candidates: string[]): string {
+	return candidates.find((candidate) => visibleWidth(candidate) <= width) ?? candidates[candidates.length - 1] ?? "";
+}
+
 function colorForGroup(group: WorkerAttentionGroup): (text: string) => string {
 	switch (group) {
 		case "needs_reply":
@@ -807,14 +811,31 @@ export function createTeamDashboardOverlayComponent(
 			const titleRaw = "Pi Agents Team · /team";
 			const titleStyled = accentBold(titleRaw);
 			const tabBar = buildTabBar(state.tab, routingMode, displayCost);
-			const tabHint = displayCost ? "1-4 tabs" : "1-3 tabs";
+			const fullTabHint = displayCost ? "1-4 tabs" : "1-3 tabs";
+			const compactTabHint = displayCost ? "1-4" : "1-3";
 			const helpRow = state.tab === "workers"
-				? `↑/↓ select · space/b page · g/G ends · ${tabHint} · q quit`
+				? firstFitting(innerWidth, [
+					`↑/↓ select · space/b page · g/G ends · ${fullTabHint}`,
+					`↑↓ select · space/b page · g/G · ${compactTabHint}`,
+					`↑↓ select · space/b · g/G · ${compactTabHint}`,
+				])
 				: state.tab === "inspect"
-					? `↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${tabHint} · q quit`
+					? firstFitting(innerWidth, [
+						`↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${fullTabHint}`,
+						`↑↓ scroll · f follow · space/b · g/G · ${compactTabHint}`,
+						`↑↓ · f · space/b · g/G · ${compactTabHint}`,
+					])
 					: state.tab === "console"
-						? `↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${tabHint} · q quit`
-						: `↑/↓ scroll · space/b page · g/G top/bottom · ${tabHint} · q quit`;
+						? firstFitting(innerWidth, [
+							`↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${fullTabHint}`,
+							`↑↓ scroll · f follow · space/b · g/G · ${compactTabHint}`,
+							`↑↓ · f · space/b · g/G · ${compactTabHint}`,
+						])
+						: firstFitting(innerWidth, [
+							`↑/↓ scroll · space/b page · g/G top/bottom · ${fullTabHint}`,
+							`↑↓ scroll · space/b · g/G · ${compactTabHint}`,
+							`↑↓ · space/b · g/G · ${compactTabHint}`,
+						]);
 			const sel = state.selectedWorkerId ?? "none";
 			const snippet = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
 			const subHeader = `selected=${sel}  ·  ${snippet}`;

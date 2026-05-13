@@ -528,6 +528,16 @@ test("inspect tab supports follow mode and mac-friendly scroll aliases", () => {
 	assert.ok(lines.some((line) => line.includes("[follow]")), "f should toggle Inspect follow back on");
 });
 
+test("tab help chooses compact labels instead of truncating on laptop-width panels", () => {
+	const { component } = makeComponent({ state: makeState(0), rows: 30, cols: 80, initialWorkerId: "w1" });
+	component.handleInput("2");
+	const lines = renderPlain(component, 80);
+	const helpLine = lines.find((line) => line.includes("space/b") && line.includes("g/G"));
+	assert.ok(helpLine, "expected compact Inspect help row");
+	assert.ok(!helpLine.includes("…"), helpLine);
+	assert.ok(visibleWidth(helpLine) <= 80, helpLine);
+});
+
 test("console isolates assistant text per worker", () => {
 	const state = makeState(2);
 	const { component } = makeComponent({
