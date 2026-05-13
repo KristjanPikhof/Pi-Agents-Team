@@ -34,7 +34,6 @@ export const FRAME = {
 	vertical: "│",
 	teeRight: "├",
 	teeLeft: "┤",
-	sectionMark: "▌",
 } as const;
 
 // Strip our own ANSI styling from a string. Used by mocks/tests that compare

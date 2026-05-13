@@ -18,6 +18,7 @@ import {
 	dim,
 	FRAME,
 	muted,
+	stripAnsi,
 	success,
 	successBold,
 	warning,
@@ -39,6 +40,7 @@ interface DashboardState {
 	tab: OverlayTab;
 	selectedWorkerId?: string;
 	inspectScroll: number;
+	inspectFollow: boolean;
 	consoleScroll: number;
 	consoleFollow: boolean;
 	costScroll: number;
@@ -77,8 +79,6 @@ export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 // than the panel can display, the bottom (frame + footer) gets cut. Compute
 // our row budget from this constant, not from terminal rows directly.
 const OVERLAY_HEIGHT_PCT = 0.9;
-const PANEL_BG_OPEN = "\x1b[48;5;236m";
-const PANEL_BG_CLOSE = "\x1b[0m";
 
 const TAB_ORDER: OverlayTab[] = ["workers", "inspect", "console", "cost"];
 const TAB_LABELS: Record<OverlayTab, string> = {
@@ -108,8 +108,20 @@ function formatTimestamp(ts: number): string {
 
 function appendList(lines: string[], label: string, values: string[]): void {
 	if (values.length === 0) return;
-	lines.push(label);
+	lines.push(dim(label));
 	for (const value of values) lines.push(`  ${value}`);
+}
+
+function inspectSection(label: string): string {
+	return accentBold(label);
+}
+
+function inspectDivider(label: string): string {
+	return accent(FRAME.horizontal.repeat(2)) + " " + inspectSection(label) + " " + accent(FRAME.horizontal.repeat(2));
+}
+
+function inspectField(label: string, value: string): string {
+	return `  ${dim(label)} ${value}`;
 }
 
 function formatUsage(worker: WorkerRuntimeState): string {
@@ -135,55 +147,68 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 	const lines = [
 		`${worker.workerId} · ${worker.profileName} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : ""}`,
 		"",
-		"Status",
-		`  ${formatUsage(worker)}`,
-		`  Thinking: ${formatThinking(worker)}`,
+		inspectSection("Status"),
+		inspectField("Usage:", formatUsage(worker)),
+		inspectField("Thinking:", formatThinking(worker)),
 	];
-	if (worker.lastToolName) lines.push(`  last tool: ${worker.lastToolName}`);
-	if (worker.error) lines.push(`  error: ${worker.error}`);
+	if (worker.lastToolName) lines.push(inspectField("Last tool:", worker.lastToolName));
+	if (worker.error) lines.push(inspectField("Error:", danger(worker.error)));
 
-	lines.push("", "Task");
+	lines.push("", inspectSection("Task"));
 	if (worker.currentTask) {
 		lines.push(`  ${worker.currentTask.title}`);
-		if (worker.currentTask.goal) lines.push(`  goal: ${worker.currentTask.goal}`);
-		if (worker.currentTask.expectedOutput) lines.push(`  expected: ${worker.currentTask.expectedOutput}`);
-		appendList(lines, "  context:", worker.currentTask.contextHints);
-		if (worker.currentTask.pathScope) appendList(lines, "  path scope:", worker.currentTask.pathScope.roots);
+		if (worker.currentTask.goal) lines.push(inspectField("Goal:", worker.currentTask.goal));
+		if (worker.currentTask.expectedOutput) lines.push(inspectField("Expected:", worker.currentTask.expectedOutput));
+		appendList(lines, "  Context:", worker.currentTask.contextHints);
+		if (worker.currentTask.pathScope) appendList(lines, "  Path scope:", worker.currentTask.pathScope.roots);
 	} else {
 		lines.push("  (none)");
 	}
 
-	lines.push("", "Needs operator");
+	lines.push("", inspectSection("Needs operator"));
 	if (worker.pendingRelayQuestions.length === 0) {
 		lines.push("  (none)");
 	} else {
 		for (const relay of worker.pendingRelayQuestions) {
-			lines.push(`  [${relay.urgency}] ${relay.question}`);
-			lines.push(`    assumption: ${relay.assumption}`);
+			lines.push(`  ${warningBold(`[${relay.urgency}]`)} ${relay.question}`);
+			lines.push(inspectField("Assumption:", relay.assumption));
 		}
 	}
 
-	lines.push("", "Summary");
+	lines.push("", inspectSection("Summary"));
 	if (worker.lastSummary) {
-		lines.push(`  ${worker.lastSummary.headline}`);
-		appendList(lines, "  read files:", worker.lastSummary.readFiles);
-		appendList(lines, "  changed files:", worker.lastSummary.changedFiles);
-		appendList(lines, "  risks:", worker.lastSummary.risks);
-		if (worker.lastSummary.nextRecommendation) lines.push(`  next: ${worker.lastSummary.nextRecommendation}`);
+		lines.push(inspectField("Headline:", worker.lastSummary.headline));
+		appendList(lines, "  Read files:", worker.lastSummary.readFiles);
+		appendList(lines, "  Changed files:", worker.lastSummary.changedFiles);
+		appendList(lines, "  Risks:", worker.lastSummary.risks);
+		if (worker.lastSummary.nextRecommendation) lines.push(inspectField("Next:", worker.lastSummary.nextRecommendation));
 	} else {
 		lines.push("  (no summary captured yet)");
 	}
 
-	lines.push("", "Final answer");
+	lines.push("", inspectDivider("Final answer"));
 	lines.push(worker.finalAnswer?.trim() || "  (no <final_answer> block produced)");
 
-	lines.push("", "Latest assistant text");
+	lines.push("", inspectDivider("Latest assistant text"));
 	lines.push(transcript?.trim() || "  (no assistant text captured)");
 	return lines.join("\n");
 }
 
+function styleConsoleEventKind(event: WorkerConsoleEvent): string {
+	const label = `[${event.kind}]`;
+	if (event.kind === "error") return dangerBold(label);
+	if (event.kind === "exit" || /\brecover(?:y|ed|ing)?\b/i.test(event.text)) return warningBold(label);
+	return dim(label);
+}
+
+function styleConsoleEventText(event: WorkerConsoleEvent): string {
+	if (event.kind === "error") return danger(event.text);
+	if (event.kind === "exit" || /\brecover(?:y|ed|ing)?\b/i.test(event.text)) return warning(event.text);
+	return event.text;
+}
+
 function formatConsoleEvent(event: WorkerConsoleEvent): string {
-	return `[${formatTimestamp(event.ts)}] [${event.kind}] ${event.text}`;
+	return `${dim(`[${formatTimestamp(event.ts)}]`)} ${styleConsoleEventKind(event)} ${styleConsoleEventText(event)}`;
 }
 
 function buildConsoleLines(
@@ -195,16 +220,21 @@ function buildConsoleLines(
 		return [`${worker.workerId} · ${worker.profileName} · ${worker.status}`, "", "(no console activity yet)"];
 	}
 	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  chunks=${chunks.length}  events=${consoleEvents.length}`, ""];
-	for (const chunk of chunks) {
-		const text = chunk.text.replace(/\r/g, "");
-		const parts = text.split("\n");
-		for (let i = 0; i < parts.length; i += 1) {
-			const prefix = i === 0 ? `[${formatTimestamp(chunk.ts)}] ` : "    ";
-			lines.push(`${prefix}${parts[i]}`);
+	lines.push(accentBold("— assistant —"));
+	if (chunks.length === 0) {
+		lines.push(dim("(no assistant text captured)"));
+	} else {
+		for (const chunk of chunks) {
+			lines.push(dim(`[${formatTimestamp(chunk.ts)}]`));
+			const text = chunk.text.replace(/\r/g, "");
+			const parts = text.split("\n");
+			for (const part of parts) lines.push(part);
 		}
 	}
-	if (consoleEvents.length > 0) {
-		lines.push("", "— events —");
+	lines.push("", accentBold("— events —"));
+	if (consoleEvents.length === 0) {
+		lines.push(dim("(no events captured)"));
+	} else {
 		for (const event of consoleEvents) lines.push(formatConsoleEvent(event));
 	}
 	return lines;
@@ -258,25 +288,73 @@ function sanitizeText(text: string): string {
 		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, "");
 }
 
+type TextLineKind = "heading" | "list" | "table" | "separator" | "code" | "stack" | "plain";
+
+interface TextLineShape {
+	kind: TextLineKind;
+	continuation: string;
+}
+
+// Strip our own styling before classifying so worker text wrapped in ANSI
+// (e.g. a colored `# heading` from a tool) still matches the structural regexes.
+function classifyTextLine(line: string): TextLineShape {
+	const plain = stripAnsi(line);
+	if (/^\s{4,}\S/.test(plain)) return { kind: "code", continuation: plain.match(/^\s*/)?.[0] ?? "" };
+	if (/^\s*(?:at\s+\S|Caused by:|\.{3}\s+\d+\s+more|[A-Za-z_.$][\w.$<>]*Error:)/.test(plain)) return { kind: "stack", continuation: "    " };
+	if (/^\s*#{1,6}\s+\S/.test(plain)) return { kind: "heading", continuation: dim("↳ ") };
+	if (/^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(plain)) {
+		const marker = plain.match(/^(\s*)(?:[-*+]\s+|\d+[.)]\s+)/)?.[0] ?? "";
+		return { kind: "list", continuation: " ".repeat(visibleWidth(marker)) };
+	}
+	if (/^\s*\|.*\|\s*$/.test(plain)) return { kind: "table", continuation: dim("↳ ") };
+	if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(plain) || /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(plain)) {
+		return { kind: "separator", continuation: dim("↳ ") };
+	}
+	return { kind: "plain", continuation: dim("↳ ") };
+}
+
+function formatStructuredLine(line: string, kind: TextLineKind): string {
+	switch (kind) {
+		case "heading":
+			return accentBold(line);
+		case "separator":
+			return dim(line);
+		default:
+			return line;
+	}
+}
+
+function wrapTextLine(raw: string, width: number): string[] {
+	const shape = classifyTextLine(raw);
+	const first = formatStructuredLine(raw, shape.kind);
+	if (visibleWidth(first) <= width) return [first];
+	const out: string[] = [];
+	let remaining = raw;
+	let prefix = "";
+	let guard = 0;
+	while (visibleWidth(prefix + remaining) > width && guard < 1000) {
+		const available = Math.max(1, width - visibleWidth(prefix));
+		let head = truncateToWidth(remaining, available, "");
+		// truncateToWidth can return "" when the next visible glyph is wider than
+		// `available` (e.g. wide CJK char at width=1, or an ANSI escape boundary).
+		// Force-consume one code unit so the loop always makes progress instead of
+		// breaking and leaving an oversized `remaining` for enforceWidth to ellipsize.
+		if (head.length === 0) head = remaining.slice(0, 1);
+		out.push(prefix + (out.length === 0 ? formatStructuredLine(head, shape.kind) : head));
+		const rest = remaining.slice(head.length);
+		// Code-like lines keep their internal indentation across wrap chunks so
+		// hand-aligned ASCII (stack frames, indented logs) does not collapse.
+		remaining = shape.kind === "code" ? rest : rest.trimStart();
+		prefix = visibleWidth(shape.continuation) < width ? shape.continuation : "";
+		guard += 1;
+	}
+	if (remaining.length > 0) out.push(prefix + remaining);
+	return out;
+}
+
 function wrapLines(text: string, width: number): string[] {
 	if (width <= 0) return [];
-	const out: string[] = [];
-	for (const raw of sanitizeText(text).split("\n")) {
-		if (visibleWidth(raw) <= width) {
-			out.push(raw);
-			continue;
-		}
-		let remaining = raw;
-		let guard = 0;
-		while (visibleWidth(remaining) > width && guard < 1000) {
-			const head = truncateToWidth(remaining, width, "");
-			out.push(head);
-			remaining = remaining.slice(head.length);
-			guard += 1;
-		}
-		if (remaining.length > 0) out.push(remaining);
-	}
-	return out;
+	return sanitizeText(text).split("\n").flatMap((raw) => wrapTextLine(raw, width));
 }
 
 function enforceWidth(lines: string[], width: number): string[] {
@@ -303,7 +381,7 @@ function computeOverlayRows(termRows: number): number {
 function frameRow(content: string, innerWidth: number): string {
 	const padded = padToWidth(content, innerWidth);
 	const sides = accent(FRAME.vertical);
-	return `${PANEL_BG_OPEN}${sides} ${padded} ${sides}${PANEL_BG_CLOSE}`;
+	return `${sides} ${padded} ${sides}`;
 }
 
 function frameTopWithTitle(titleStyled: string, totalWidth: number): string {
@@ -315,13 +393,28 @@ function frameTopWithTitle(titleStyled: string, totalWidth: number): string {
 	const leftPad = Math.min(2, remaining);
 	const rightFill = Math.max(0, remaining - leftPad);
 	const top = `${accent(FRAME.topLeft)}${accent(FRAME.horizontal.repeat(leftPad))}${titleFragment}${accent(FRAME.horizontal.repeat(rightFill))}${accent(FRAME.topRight)}`;
-	return `${PANEL_BG_OPEN}${top}${PANEL_BG_CLOSE}`;
+	return top;
 }
 
 function frameBottom(totalWidth: number): string {
 	const inner = Math.max(0, totalWidth - 2);
 	const bottom = `${accent(FRAME.bottomLeft)}${accent(FRAME.horizontal.repeat(inner))}${accent(FRAME.bottomRight)}`;
-	return `${PANEL_BG_OPEN}${bottom}${PANEL_BG_CLOSE}`;
+	return bottom;
+}
+
+// When `rows` doesn't fit `maxRows`, keep the top/bottom borders and drop
+// middle content. If a `hint` row is provided, surface it as the last visible
+// middle row so operators see why the panel looks empty instead of just blank chrome.
+function clampFramedRows(rows: string[], maxRows: number, hint?: string): string[] {
+	if (rows.length <= maxRows) return rows;
+	if (maxRows <= 0) return [];
+	if (maxRows === 1) return [rows[0] ?? ""];
+	const top = rows[0] ?? "";
+	const bottom = rows[rows.length - 1] ?? "";
+	if (maxRows === 2) return [top, bottom];
+	const middle = rows.slice(1, maxRows - 1);
+	if (hint !== undefined && middle.length > 0) middle[middle.length - 1] = hint;
+	return [top, ...middle, bottom];
 }
 
 export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo", displayCost = true): string {
@@ -349,6 +442,17 @@ const ACTION_BAR_KEYS: Array<{ key: string; label: string }> = [
 
 function buildActionBar(): string {
 	return ACTION_BAR_KEYS.map(({ key, label }) => `[${accentBold(key)}]${dim(label)}`).join(" ");
+}
+
+function firstFitting(width: number, candidates: string[]): string {
+	return candidates.find((candidate) => visibleWidth(candidate) <= width) ?? candidates[candidates.length - 1] ?? "";
+}
+
+function formatFollowHeader(following: boolean, top: number, visible: number, total: number): string {
+	const start = total === 0 ? 0 : top + 1;
+	const end = Math.min(total, top + visible);
+	const status = following ? "[follow]" : "[paused f/G]";
+	return `${status}  scroll ${start}-${end} / ${total}`;
 }
 
 function colorForGroup(group: WorkerAttentionGroup): (text: string) => string {
@@ -450,6 +554,7 @@ export function createTeamDashboardOverlayComponent(
 		tab: initialWorker ? "inspect" : "workers",
 		selectedWorkerId: initialWorker,
 		inspectScroll: 0,
+		inspectFollow: false,
 		consoleScroll: 0,
 		consoleFollow: true,
 		costScroll: 0,
@@ -476,7 +581,8 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	const offChunk = teamManager.onAssistantChunk?.((workerId) => {
-		if (state.tab === "console" && state.selectedWorkerId === workerId && state.consoleFollow) {
+		if (state.selectedWorkerId !== workerId) return;
+		if ((state.tab === "console" && state.consoleFollow) || (state.tab === "inspect" && state.inspectFollow)) {
 			requestRender();
 		}
 	});
@@ -500,6 +606,7 @@ export function createTeamDashboardOverlayComponent(
 		if (state.selectedWorkerId && snapshot.activeWorkers[state.selectedWorkerId]) return;
 		state.selectedWorkerId = ids[0];
 		state.inspectScroll = 0;
+		state.inspectFollow = false;
 		state.consoleScroll = 0;
 		state.consoleFollow = true;
 	};
@@ -519,6 +626,7 @@ export function createTeamDashboardOverlayComponent(
 		const next = clamp(safe + delta, 0, ids.length - 1);
 		state.selectedWorkerId = ids[next];
 		state.inspectScroll = 0;
+		state.inspectFollow = false;
 		state.consoleScroll = 0;
 		state.consoleFollow = true;
 	};
@@ -672,11 +780,15 @@ export function createTeamDashboardOverlayComponent(
 			return enforceWidth(["No worker selected. Switch to Workers (1) to pick one."], width).slice(0, rows);
 		}
 		const body = wrapLines(buildInspectText(worker, teamManager.getWorkerTranscript(worker.workerId)), width);
-		const maxTop = Math.max(0, body.length - rows);
-		const top = Math.min(state.inspectScroll, maxTop);
+		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
+		const visible = Math.max(1, rows - 1);
+		const maxTop = Math.max(0, body.length - visible);
+		if (state.inspectFollow) state.inspectScroll = maxTop;
+		const top = clamp(state.inspectScroll, 0, maxTop);
 		state.inspectScroll = top;
-		lastRenderMetrics.bodyPageSize = rows;
-		return enforceWidth(body.slice(top, top + rows), width);
+		lastRenderMetrics.bodyPageSize = visible;
+		const header = formatFollowHeader(state.inspectFollow, top, visible, body.length);
+		return enforceWidth([header, ...body.slice(top, top + visible)], width);
 	};
 
 	const renderConsoleBody = (width: number, rows: number): string[] => {
@@ -694,8 +806,7 @@ export function createTeamDashboardOverlayComponent(
 		const top = clamp(state.consoleScroll, 0, maxTop);
 		state.consoleScroll = top;
 		lastRenderMetrics.bodyPageSize = visible;
-		const followTag = state.consoleFollow ? "[follow]" : "[paused — End to follow]";
-		const header = `${followTag}  scroll ${all.length === 0 ? 0 : top + 1}-${Math.min(all.length, top + visible)} / ${all.length}`;
+		const header = formatFollowHeader(state.consoleFollow, top, visible, all.length);
 		return enforceWidth([header, ...all.slice(top, top + visible)], width);
 	};
 
@@ -731,7 +842,7 @@ export function createTeamDashboardOverlayComponent(
 		const lines: string[] = [];
 		for (const section of buildRosterSections(snapshot)) {
 			if (section.workers.length === 0) continue;
-			const label = `${FRAME.sectionMark} ${section.label} (${section.workers.length})`;
+			const label = `${section.label} (${section.workers.length})`;
 			lines.push(colorForGroupBold(section.key)(label));
 			for (const worker of section.workers) {
 				lines.push(buildRosterRow(worker, worker.workerId === state.selectedWorkerId, width));
@@ -780,6 +891,12 @@ export function createTeamDashboardOverlayComponent(
 		return true;
 	};
 
+	const isPageUpKey = (data: string): boolean => data === "b" || matchesKey(data, "pageUp") || matchesKey(data, "ctrl+u");
+	const isPageDownKey = (data: string): boolean => data === " " || matchesKey(data, "pageDown") || matchesKey(data, "ctrl+d");
+	const isTopKey = (data: string): boolean => data === "g" || matchesKey(data, "home") || matchesKey(data, "alt+up");
+	const isBottomKey = (data: string): boolean => data === "G" || matchesKey(data, "end") || matchesKey(data, "alt+down");
+	const isFollowToggleKey = (data: string): boolean => data === "f" || matchesKey(data, "alt+f");
+
 	return {
 		render(width: number): string[] {
 			refreshSnapshot();
@@ -793,14 +910,31 @@ export function createTeamDashboardOverlayComponent(
 			const titleRaw = "Pi Agents Team · /team";
 			const titleStyled = accentBold(titleRaw);
 			const tabBar = buildTabBar(state.tab, routingMode, displayCost);
-			const tabHint = displayCost ? "1-4 tabs" : "1-3 tabs";
+			const fullTabHint = displayCost ? "1-4 tabs" : "1-3 tabs";
+			const compactTabHint = displayCost ? "1-4" : "1-3";
 			const helpRow = state.tab === "workers"
-				? `↑/↓ select · enter inspect · ${tabHint} · tab cycle · q quit`
+				? firstFitting(innerWidth, [
+					`↑/↓ select · space/b page · g/G ends · ${fullTabHint}`,
+					`↑↓ select · space/b page · g/G · ${compactTabHint}`,
+					`↑↓ select · space/b · g/G · ${compactTabHint}`,
+				])
 				: state.tab === "inspect"
-					? `↑/↓ scroll · PgUp/PgDn page · ${tabHint} · q quit`
+					? firstFitting(innerWidth, [
+						`↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${fullTabHint}`,
+						`↑↓ scroll · f follow · space/b · g/G · ${compactTabHint}`,
+						`↑↓ · f · space/b · g/G · ${compactTabHint}`,
+					])
 					: state.tab === "console"
-						? `↑/↓ scroll · PgUp pause · End follow · ${tabHint} · q quit`
-						: `↑/↓ scroll · ${tabHint} · q quit`;
+						? firstFitting(innerWidth, [
+							`↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${fullTabHint}`,
+							`↑↓ scroll · f follow · space/b · g/G · ${compactTabHint}`,
+							`↑↓ · f · space/b · g/G · ${compactTabHint}`,
+						])
+						: firstFitting(innerWidth, [
+							`↑/↓ scroll · space/b page · g/G top/bottom · ${fullTabHint}`,
+							`↑↓ scroll · space/b · g/G · ${compactTabHint}`,
+							`↑↓ · space/b · g/G · ${compactTabHint}`,
+						]);
 			const sel = state.selectedWorkerId ?? "none";
 			const snippet = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
 			const subHeader = `selected=${sel}  ·  ${snippet}`;
@@ -828,7 +962,9 @@ export function createTeamDashboardOverlayComponent(
 			const framedRows = innerLines.map((line) => frameRow(line, innerWidth));
 			const top = frameTopWithTitle(titleStyled, cap);
 			const bottom = frameBottom(cap);
-			return [top, ...framedRows, bottom];
+			const totalFrameRows = framedRows.length + 2;
+			const tinyHint = totalFrameRows > totalRows ? frameRow(dim("(terminal too small)"), innerWidth) : undefined;
+			return clampFramedRows([top, ...framedRows, bottom], totalRows, tinyHint);
 		},
 		invalidate() {},
 		dispose() {
@@ -873,18 +1009,18 @@ export function createTeamDashboardOverlayComponent(
 			if (state.tab === "workers") {
 				if (data === "j" || matchesKey(data, "down")) return moveSelection(1);
 				if (data === "k" || matchesKey(data, "up")) return moveSelection(-1);
-				if (matchesKey(data, "pageDown")) return moveSelection(lastRenderMetrics.listPageSize);
-				if (matchesKey(data, "pageUp")) return moveSelection(-lastRenderMetrics.listPageSize);
+				if (isPageDownKey(data)) return moveSelection(lastRenderMetrics.listPageSize);
+				if (isPageUpKey(data)) return moveSelection(-lastRenderMetrics.listPageSize);
 				if (matchesKey(data, "enter")) {
 					if (state.selectedWorkerId) state.tab = "inspect";
 					return;
 				}
-				if (data === "g" || matchesKey(data, "home")) {
+				if (isTopKey(data)) {
 					const ids = getAttentionOrderedWorkerIds(snapshot);
 					if (ids.length > 0) state.selectedWorkerId = ids[0];
 					return;
 				}
-				if (data === "G" || matchesKey(data, "end")) {
+				if (isBottomKey(data)) {
 					const ids = getAttentionOrderedWorkerIds(snapshot);
 					if (ids.length > 0) state.selectedWorkerId = ids[ids.length - 1];
 					return;
@@ -893,16 +1029,21 @@ export function createTeamDashboardOverlayComponent(
 			}
 
 			if (state.tab === "inspect") {
-				if (data === "j" || matchesKey(data, "down")) { state.inspectScroll += 1; return; }
-				if (data === "k" || matchesKey(data, "up")) { state.inspectScroll = Math.max(0, state.inspectScroll - 1); return; }
-				if (matchesKey(data, "pageDown")) { state.inspectScroll += lastRenderMetrics.bodyPageSize; return; }
-				if (matchesKey(data, "pageUp")) { state.inspectScroll = Math.max(0, state.inspectScroll - lastRenderMetrics.bodyPageSize); return; }
-				if (data === "g" || matchesKey(data, "home")) { state.inspectScroll = 0; return; }
-				if (data === "G" || matchesKey(data, "end")) { state.inspectScroll = Number.MAX_SAFE_INTEGER; return; }
+				if (isFollowToggleKey(data)) { state.inspectFollow = !state.inspectFollow; return; }
+				if (data === "j" || matchesKey(data, "down")) { state.inspectScroll += 1; state.inspectFollow = false; return; }
+				if (data === "k" || matchesKey(data, "up")) { state.inspectScroll = Math.max(0, state.inspectScroll - 1); state.inspectFollow = false; return; }
+				if (isPageDownKey(data)) { state.inspectScroll += lastRenderMetrics.bodyPageSize; state.inspectFollow = false; return; }
+				if (isPageUpKey(data)) { state.inspectScroll = Math.max(0, state.inspectScroll - lastRenderMetrics.bodyPageSize); state.inspectFollow = false; return; }
+				if (isTopKey(data)) { state.inspectScroll = 0; state.inspectFollow = false; return; }
+				if (isBottomKey(data)) { state.inspectFollow = true; return; }
 				return;
 			}
 
 			if (state.tab === "console") {
+				if (isFollowToggleKey(data)) {
+					state.consoleFollow = !state.consoleFollow;
+					return;
+				}
 				if (data === "j" || matchesKey(data, "down")) {
 					state.consoleScroll += 1;
 					state.consoleFollow = false;
@@ -913,20 +1054,21 @@ export function createTeamDashboardOverlayComponent(
 					state.consoleFollow = false;
 					return;
 				}
-				if (matchesKey(data, "pageUp")) {
+				if (isPageUpKey(data)) {
 					state.consoleScroll = Math.max(0, state.consoleScroll - lastRenderMetrics.bodyPageSize);
 					state.consoleFollow = false;
 					return;
 				}
-				if (matchesKey(data, "pageDown")) {
+				if (isPageDownKey(data)) {
 					state.consoleScroll += lastRenderMetrics.bodyPageSize;
+					state.consoleFollow = false;
 					return;
 				}
-				if (matchesKey(data, "end") || data === "G") {
+				if (isBottomKey(data)) {
 					state.consoleFollow = true;
 					return;
 				}
-				if (matchesKey(data, "home") || data === "g") {
+				if (isTopKey(data)) {
 					state.consoleScroll = 0;
 					state.consoleFollow = false;
 					return;
@@ -937,10 +1079,10 @@ export function createTeamDashboardOverlayComponent(
 			if (state.tab === "cost") {
 				if (data === "j" || matchesKey(data, "down")) { state.costScroll += 1; return; }
 				if (data === "k" || matchesKey(data, "up")) { state.costScroll = Math.max(0, state.costScroll - 1); return; }
-				if (matchesKey(data, "pageDown")) { state.costScroll += lastRenderMetrics.bodyPageSize; return; }
-				if (matchesKey(data, "pageUp")) { state.costScroll = Math.max(0, state.costScroll - lastRenderMetrics.bodyPageSize); return; }
-				if (data === "g" || matchesKey(data, "home")) { state.costScroll = 0; return; }
-				if (data === "G" || matchesKey(data, "end")) { state.costScroll = Number.MAX_SAFE_INTEGER; return; }
+				if (isPageDownKey(data)) { state.costScroll += lastRenderMetrics.bodyPageSize; return; }
+				if (isPageUpKey(data)) { state.costScroll = Math.max(0, state.costScroll - lastRenderMetrics.bodyPageSize); return; }
+				if (isTopKey(data)) { state.costScroll = 0; return; }
+				if (isBottomKey(data)) { state.costScroll = Number.MAX_SAFE_INTEGER; return; }
 			}
 		},
 	};

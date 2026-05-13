@@ -52,10 +52,11 @@ Inside the `/team` overlay:
 |---|---|
 | `1` / `2` / `3` / `4` | Jump to Workers / Inspect / Console / Cost |
 | `tab` / `shift+tab` | Cycle tabs |
-| `↑` / `↓` (or `j` / `k`) | Move selection in the roster, or scroll the body of Inspect / Console / Cost |
+| `↑` / `↓` (or `j` / `k`) | Move selection in the roster, or scroll the body of Inspect / Console / Cost. Manual scroll pauses follow in Inspect / Console |
 | `enter` | Open the highlighted worker in Inspect (Workers tab) |
-| `PgUp` / `PgDn` | Page scroll. On Console, `PgUp` pauses follow; `End` (or `G`) resumes follow at the tail |
-| `g` / `G` | Top / bottom |
+| `PgUp` / `PgDn`, `b` / `space`, `ctrl+u` / `ctrl+d` | Page up / page down. The plain-key aliases are Mac-friendly when Page keys are unavailable |
+| `g` / `G` | Top / bottom. In Inspect / Console, `G` also enables follow at the tail |
+| `f` | Toggle follow mode in Inspect / Console |
 | `s` | Steer the selected worker — opens an inline single-line input |
 | `m` | Send a message to the selected worker (auto-routes by status) |
 | `n` | New task — inline input; uses the selected worker's profile (or the first profile). Always delegates a fresh worker; reuse is orchestrator-only via `delegate_task.reuseWorkerId`. Refused in solo mode |
@@ -68,7 +69,11 @@ Inside the `/team` overlay:
 
 The header carries a tab bar, the per-tab help row, and the selected worker's priority snippet. When routing is off, the bar shows a `solo` badge; idle workers carry a `[reuse]` tag in the roster row and `[reusable]` in the Inspect header so reusable sessions are obvious. A transient `» …` status line surfaces last action / refresh / error feedback for a few seconds.
 
-Inspect renders status, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, plus the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cost. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
+Inspect renders status, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. It uses readable section dividers so final answers and latest assistant text do not run together. The text formatter keeps common report shapes recognizable — Markdown-style headings and tables, list markers, separators, indented/code-like lines, and stack-trace-like lines — while wrapping instead of ellipsizing normal body content.
+
+Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, then the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. When both streams are present, the assistant group appears first under `— assistant —`; routine event metadata is dimmed, while errors and recovery/queue events are highlighted. Console content is isolated per selected worker.
+
+Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused f/G]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cost. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
 
 ## Inspect a worker's result
 
