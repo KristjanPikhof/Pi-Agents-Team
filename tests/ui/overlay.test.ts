@@ -397,6 +397,65 @@ test("[n]ew is refused while routingMode is solo", async () => {
 	assert.equal(calls.delegates.length, 0);
 });
 
+test("inspect formatter preserves Markdown-like headings and tables", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.finalAnswer = [
+		"# Findings",
+		"",
+		"| Area | Status |",
+		"| --- | --- |",
+		"| formatter | passing |",
+		"",
+		"- list item with enough text to exercise continuation indentation in the report body",
+	].join("\n");
+	const { component } = makeComponent({ state, rows: 44, cols: 90, initialWorkerId: "w1" });
+
+	const rawLines = component.render(90);
+	const lines = plainLines(rawLines);
+	assert.ok(lines.some((line) => line.includes("# Findings")), "expected heading text to be preserved");
+	assert.ok(lines.some((line) => line.includes("| Area | Status |")), "expected table row to be preserved");
+	assert.ok(lines.some((line) => line.includes("| --- | --- |")), "expected table separator to be preserved");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;75m# Findings\x1b[0m")), "expected heading styling");
+	for (const line of lines) assert.ok(visibleWidth(line) <= 90, `line exceeds width: ${visibleWidth(line)} ${line}`);
+});
+
+test("console formatter wraps long indented lines without ellipsis or overflow", () => {
+	const state = makeState(1);
+	const longIndented = `        const result = ${"veryLongIdentifier".repeat(8)};`;
+	const chunks: AssistantChunk[] = [{ index: 0, ts: Date.now(), text: longIndented }];
+	const { component } = makeComponent({ state, rows: 30, cols: 58, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+
+	const lines = renderPlain(component, 58);
+	const wrapped = lines.filter((line) => line.includes("veryLongIdentifier") || line.includes("const result"));
+	assert.ok(wrapped.length >= 2, `expected long indented line to wrap, got:\n${lines.join("\n")}`);
+	assert.ok(wrapped.some((line) => line.includes("        ")), "expected indentation to be visible on wrapped output");
+	assert.ok(!wrapped.some((line) => line.includes("…")), "wrapping should not use truncation ellipsis");
+	for (const line of lines) assert.ok(visibleWidth(line) <= 58, `line exceeds width: ${visibleWidth(line)} ${line}`);
+});
+
+test("formatter keeps mixed structured inspect output width-safe at narrow sizes", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.finalAnswer = [
+		"## Narrow report",
+		"| Column | Long value |",
+		"| --- | --- |",
+		`| plain | ${"alpha beta ".repeat(12)} |`,
+		"---",
+		"Error: top level failure with a long stack-trace-like message that should continue safely",
+		`    at Object.example (/tmp/${"nested/".repeat(10)}file.ts:12:34)`,
+		`Plain paragraph ${"with many words ".repeat(14)}ending here.`,
+	].join("\n");
+	const { component } = makeComponent({ state, rows: 44, cols: 50, initialWorkerId: "w1" });
+
+	const lines = renderPlain(component, 50);
+	assert.ok(lines.some((line) => line.includes("## Narrow report")), "expected heading in narrow render");
+	assert.ok(lines.some((line) => line.includes("↳") || line.includes("    at")), "expected continuation prefix or preserved stack indentation");
+	for (const line of lines) {
+		assert.ok(visibleWidth(line) <= 50, `line exceeds width: ${visibleWidth(line)} ${line}`);
+	}
+});
+
 test("console auto-follow keeps the newest line visible", () => {
 	const state = makeState(1);
 	const chunks: AssistantChunk[] = Array.from({ length: 30 }, (_, i) => ({ index: i, ts: Date.now() + i, text: `line-${i}` }));
@@ -485,24 +544,24 @@ test("console tab streams ring-buffer chunks with auto-follow toggle", () => {
 	component.handleInput("3");
 	let lines = renderPlain(component, 100);
 	assert.ok(lines.some((line) => line.includes("chunks=8")));
-	assert.ok(lines.some((line) => line.includes("[follow]")));
+	assert.ok(lines.some((line) => line.includes("follow ")));
 	assert.ok(lines.some((line) => line.includes("chunk 7")));
 
 	component.handleInput("\x1b[5~");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("[paused")));
+	assert.ok(lines.some((line) => line.includes("paused f/G")));
 
 	component.handleInput("G");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("[follow]")));
+	assert.ok(lines.some((line) => line.includes("follow ")));
 
 	component.handleInput("f");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("[paused")), "f should toggle console follow off");
+	assert.ok(lines.some((line) => line.includes("paused f/G")), "f should toggle console follow off");
 
 	component.handleInput("f");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("[follow]")), "f should toggle console follow on");
+	assert.ok(lines.some((line) => line.includes("follow ")), "f should toggle console follow on");
 });
 
 test("inspect tab supports follow mode and mac-friendly scroll aliases", () => {
@@ -511,31 +570,53 @@ test("inspect tab supports follow mode and mac-friendly scroll aliases", () => {
 	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1", transcripts: { w1: transcript } });
 
 	let lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("[paused")), "Inspect should start in manual scroll mode");
+	assert.ok(lines.some((line) => line.includes("paused f/G")), "Inspect should start in manual scroll mode");
 	assert.ok(!lines.some((line) => line.includes("assistant line 29")), "tail should not be visible before jumping bottom");
 
 	component.handleInput("G");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("[follow]")), "G should jump bottom and follow");
+	assert.ok(lines.some((line) => line.includes("follow ")), "G should jump bottom and follow");
 	assert.ok(lines.some((line) => line.includes("assistant line 29")), "bottom should show latest assistant text");
 
 	component.handleInput("b");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("[paused")), "b should page up and pause follow");
+	assert.ok(lines.some((line) => line.includes("paused f/G")), "b should page up and pause follow");
 
 	component.handleInput("f");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("[follow]")), "f should toggle Inspect follow back on");
+	assert.ok(lines.some((line) => line.includes("follow ")), "f should toggle Inspect follow back on");
 });
 
-test("tab help chooses compact labels instead of truncating on laptop-width panels", () => {
-	const { component } = makeComponent({ state: makeState(0), rows: 30, cols: 80, initialWorkerId: "w1" });
-	component.handleInput("2");
-	const lines = renderPlain(component, 80);
-	const helpLine = lines.find((line) => line.includes("space/b") && line.includes("g/G"));
-	assert.ok(helpLine, "expected compact Inspect help row");
-	assert.ok(!helpLine.includes("…"), helpLine);
-	assert.ok(visibleWidth(helpLine) <= 80, helpLine);
+test("Inspect and Console chrome stays compact at laptop panel width", () => {
+	const state = makeState(1);
+	const transcript = Array.from({ length: 40 }, (_, i) => `assistant line ${i}`).join("\n");
+	const chunks: AssistantChunk[] = Array.from({ length: 40 }, (_, i) => ({ index: i, ts: Date.now() + i, text: `chunk ${i}` }));
+	const { component } = makeComponent({ state, rows: 30, cols: 80, initialWorkerId: "w1", transcripts: { w1: transcript }, chunks: { w1: chunks } });
+
+	for (const [tabKey, label] of [["2", "Inspect"], ["3", "Console"]] as const) {
+		component.handleInput(tabKey);
+		let lines = renderPlain(component, 80);
+		const helpLine = lines.find((line) => line.includes("space/b") && line.includes("g/G"));
+		assert.ok(helpLine, `expected compact ${label} help row`);
+		assert.ok(!helpLine.includes("…"), helpLine);
+		assert.ok(!helpLine.includes("q quit"), helpLine);
+
+		if (tabKey === "2") {
+			component.handleInput("G");
+			lines = renderPlain(component, 80);
+		}
+		const followLine = lines.find((line) => line.includes("follow "));
+		assert.ok(followLine, `expected compact ${label} follow header`);
+		assert.ok(!followLine.includes("…"), followLine);
+		assert.ok(visibleWidth(followLine) <= 80, followLine);
+
+		component.handleInput("b");
+		lines = renderPlain(component, 80);
+		const pausedLine = lines.find((line) => line.includes("paused f/G"));
+		assert.ok(pausedLine, `expected compact ${label} paused header`);
+		assert.ok(!pausedLine.includes("…"), pausedLine);
+		assert.ok(visibleWidth(pausedLine) <= 80, pausedLine);
+	}
 });
 
 test("console isolates assistant text per worker", () => {

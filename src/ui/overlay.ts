@@ -257,25 +257,63 @@ function sanitizeText(text: string): string {
 		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, "");
 }
 
+type TextLineKind = "heading" | "list" | "table" | "separator" | "code" | "stack" | "plain";
+
+interface TextLineShape {
+	kind: TextLineKind;
+	continuation: string;
+}
+
+function classifyTextLine(line: string): TextLineShape {
+	if (/^\s{4,}\S/.test(line)) return { kind: "code", continuation: line.match(/^\s*/)?.[0] ?? "" };
+	if (/^\s*(?:at\s+\S|Caused by:|\.{3}\s+\d+\s+more|[A-Za-z_.$][\w.$<>]*Error:)/.test(line)) return { kind: "stack", continuation: "    " };
+	if (/^\s*#{1,6}\s+\S/.test(line)) return { kind: "heading", continuation: dim("↳ ") };
+	if (/^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(line)) {
+		const marker = line.match(/^(\s*)(?:[-*+]\s+|\d+[.)]\s+)/)?.[0] ?? "";
+		return { kind: "list", continuation: " ".repeat(visibleWidth(marker)) };
+	}
+	if (/^\s*\|.*\|\s*$/.test(line)) return { kind: "table", continuation: dim("↳ ") };
+	if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line) || /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)) {
+		return { kind: "separator", continuation: dim("↳ ") };
+	}
+	return { kind: "plain", continuation: dim("↳ ") };
+}
+
+function formatStructuredLine(line: string, kind: TextLineKind): string {
+	switch (kind) {
+		case "heading":
+			return accentBold(line);
+		case "separator":
+			return dim(line);
+		default:
+			return line;
+	}
+}
+
+function wrapTextLine(raw: string, width: number): string[] {
+	const shape = classifyTextLine(raw);
+	const first = formatStructuredLine(raw, shape.kind);
+	if (visibleWidth(first) <= width) return [first];
+	const out: string[] = [];
+	let remaining = raw;
+	let prefix = "";
+	let guard = 0;
+	while (visibleWidth(prefix + remaining) > width && guard < 1000) {
+		const available = Math.max(1, width - visibleWidth(prefix));
+		const head = truncateToWidth(remaining, available, "");
+		if (head.length === 0) break;
+		out.push(prefix + (out.length === 0 ? formatStructuredLine(head, shape.kind) : head));
+		remaining = remaining.slice(head.length).trimStart();
+		prefix = visibleWidth(shape.continuation) < width ? shape.continuation : "";
+		guard += 1;
+	}
+	if (remaining.length > 0) out.push(prefix + remaining);
+	return out;
+}
+
 function wrapLines(text: string, width: number): string[] {
 	if (width <= 0) return [];
-	const out: string[] = [];
-	for (const raw of sanitizeText(text).split("\n")) {
-		if (visibleWidth(raw) <= width) {
-			out.push(raw);
-			continue;
-		}
-		let remaining = raw;
-		let guard = 0;
-		while (visibleWidth(remaining) > width && guard < 1000) {
-			const head = truncateToWidth(remaining, width, "");
-			out.push(head);
-			remaining = remaining.slice(head.length);
-			guard += 1;
-		}
-		if (remaining.length > 0) out.push(remaining);
-	}
-	return out;
+	return sanitizeText(text).split("\n").flatMap((raw) => wrapTextLine(raw, width));
 }
 
 function enforceWidth(lines: string[], width: number): string[] {
@@ -352,6 +390,13 @@ function buildActionBar(): string {
 
 function firstFitting(width: number, candidates: string[]): string {
 	return candidates.find((candidate) => visibleWidth(candidate) <= width) ?? candidates[candidates.length - 1] ?? "";
+}
+
+function formatFollowHeader(following: boolean, top: number, visible: number, total: number): string {
+	const start = total === 0 ? 0 : top + 1;
+	const end = Math.min(total, top + visible);
+	const status = following ? "follow" : "paused f/G";
+	return `${status} ${start}-${end}/${total}`;
 }
 
 function colorForGroup(group: WorkerAttentionGroup): (text: string) => string {
@@ -686,8 +731,7 @@ export function createTeamDashboardOverlayComponent(
 		const top = clamp(state.inspectScroll, 0, maxTop);
 		state.inspectScroll = top;
 		lastRenderMetrics.bodyPageSize = visible;
-		const followTag = state.inspectFollow ? "[follow]" : "[paused — f/G to follow]";
-		const header = `${followTag}  scroll ${body.length === 0 ? 0 : top + 1}-${Math.min(body.length, top + visible)} / ${body.length}`;
+		const header = formatFollowHeader(state.inspectFollow, top, visible, body.length);
 		return enforceWidth([header, ...body.slice(top, top + visible)], width);
 	};
 
@@ -706,8 +750,7 @@ export function createTeamDashboardOverlayComponent(
 		const top = clamp(state.consoleScroll, 0, maxTop);
 		state.consoleScroll = top;
 		lastRenderMetrics.bodyPageSize = visible;
-		const followTag = state.consoleFollow ? "[follow]" : "[paused — f/G to follow]";
-		const header = `${followTag}  scroll ${all.length === 0 ? 0 : top + 1}-${Math.min(all.length, top + visible)} / ${all.length}`;
+		const header = formatFollowHeader(state.consoleFollow, top, visible, all.length);
 		return enforceWidth([header, ...all.slice(top, top + visible)], width);
 	};
 
