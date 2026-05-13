@@ -77,8 +77,6 @@ export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 // than the panel can display, the bottom (frame + footer) gets cut. Compute
 // our row budget from this constant, not from terminal rows directly.
 const OVERLAY_HEIGHT_PCT = 0.9;
-const PANEL_BG_OPEN = "\x1b[48;5;236m";
-const PANEL_BG_CLOSE = "\x1b[0m";
 
 const TAB_ORDER: OverlayTab[] = ["workers", "inspect", "console", "cost"];
 const TAB_LABELS: Record<OverlayTab, string> = {
@@ -303,7 +301,7 @@ function computeOverlayRows(termRows: number): number {
 function frameRow(content: string, innerWidth: number): string {
 	const padded = padToWidth(content, innerWidth);
 	const sides = accent(FRAME.vertical);
-	return `${sides}${PANEL_BG_OPEN} ${padded} ${PANEL_BG_CLOSE}${sides}`;
+	return `${sides} ${padded} ${sides}`;
 }
 
 function frameTopWithTitle(titleStyled: string, totalWidth: number): string {
