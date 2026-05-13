@@ -18,6 +18,7 @@ import {
 	dim,
 	FRAME,
 	muted,
+	stripAnsi,
 	success,
 	successBold,
 	warning,
