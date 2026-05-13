@@ -887,18 +887,18 @@ export function createTeamDashboardOverlayComponent(
 			if (state.tab === "workers") {
 				if (data === "j" || matchesKey(data, "down")) return moveSelection(1);
 				if (data === "k" || matchesKey(data, "up")) return moveSelection(-1);
-				if (matchesKey(data, "pageDown")) return moveSelection(lastRenderMetrics.listPageSize);
-				if (matchesKey(data, "pageUp")) return moveSelection(-lastRenderMetrics.listPageSize);
+				if (isPageDownKey(data)) return moveSelection(lastRenderMetrics.listPageSize);
+				if (isPageUpKey(data)) return moveSelection(-lastRenderMetrics.listPageSize);
 				if (matchesKey(data, "enter")) {
 					if (state.selectedWorkerId) state.tab = "inspect";
 					return;
 				}
-				if (data === "g" || matchesKey(data, "home")) {
+				if (isTopKey(data)) {
 					const ids = getAttentionOrderedWorkerIds(snapshot);
 					if (ids.length > 0) state.selectedWorkerId = ids[0];
 					return;
 				}
-				if (data === "G" || matchesKey(data, "end")) {
+				if (isBottomKey(data)) {
 					const ids = getAttentionOrderedWorkerIds(snapshot);
 					if (ids.length > 0) state.selectedWorkerId = ids[ids.length - 1];
 					return;
@@ -907,16 +907,21 @@ export function createTeamDashboardOverlayComponent(
 			}
 
 			if (state.tab === "inspect") {
-				if (data === "j" || matchesKey(data, "down")) { state.inspectScroll += 1; return; }
-				if (data === "k" || matchesKey(data, "up")) { state.inspectScroll = Math.max(0, state.inspectScroll - 1); return; }
-				if (matchesKey(data, "pageDown")) { state.inspectScroll += lastRenderMetrics.bodyPageSize; return; }
-				if (matchesKey(data, "pageUp")) { state.inspectScroll = Math.max(0, state.inspectScroll - lastRenderMetrics.bodyPageSize); return; }
-				if (data === "g" || matchesKey(data, "home")) { state.inspectScroll = 0; return; }
-				if (data === "G" || matchesKey(data, "end")) { state.inspectScroll = Number.MAX_SAFE_INTEGER; return; }
+				if (isFollowToggleKey(data)) { state.inspectFollow = !state.inspectFollow; return; }
+				if (data === "j" || matchesKey(data, "down")) { state.inspectScroll += 1; state.inspectFollow = false; return; }
+				if (data === "k" || matchesKey(data, "up")) { state.inspectScroll = Math.max(0, state.inspectScroll - 1); state.inspectFollow = false; return; }
+				if (isPageDownKey(data)) { state.inspectScroll += lastRenderMetrics.bodyPageSize; state.inspectFollow = false; return; }
+				if (isPageUpKey(data)) { state.inspectScroll = Math.max(0, state.inspectScroll - lastRenderMetrics.bodyPageSize); state.inspectFollow = false; return; }
+				if (isTopKey(data)) { state.inspectScroll = 0; state.inspectFollow = false; return; }
+				if (isBottomKey(data)) { state.inspectFollow = true; return; }
 				return;
 			}
 
 			if (state.tab === "console") {
+				if (isFollowToggleKey(data)) {
+					state.consoleFollow = !state.consoleFollow;
+					return;
+				}
 				if (data === "j" || matchesKey(data, "down")) {
 					state.consoleScroll += 1;
 					state.consoleFollow = false;
@@ -927,20 +932,21 @@ export function createTeamDashboardOverlayComponent(
 					state.consoleFollow = false;
 					return;
 				}
-				if (matchesKey(data, "pageUp")) {
+				if (isPageUpKey(data)) {
 					state.consoleScroll = Math.max(0, state.consoleScroll - lastRenderMetrics.bodyPageSize);
 					state.consoleFollow = false;
 					return;
 				}
-				if (matchesKey(data, "pageDown")) {
+				if (isPageDownKey(data)) {
 					state.consoleScroll += lastRenderMetrics.bodyPageSize;
+					state.consoleFollow = false;
 					return;
 				}
-				if (matchesKey(data, "end") || data === "G") {
+				if (isBottomKey(data)) {
 					state.consoleFollow = true;
 					return;
 				}
-				if (matchesKey(data, "home") || data === "g") {
+				if (isTopKey(data)) {
 					state.consoleScroll = 0;
 					state.consoleFollow = false;
 					return;
@@ -951,10 +957,10 @@ export function createTeamDashboardOverlayComponent(
 			if (state.tab === "cost") {
 				if (data === "j" || matchesKey(data, "down")) { state.costScroll += 1; return; }
 				if (data === "k" || matchesKey(data, "up")) { state.costScroll = Math.max(0, state.costScroll - 1); return; }
-				if (matchesKey(data, "pageDown")) { state.costScroll += lastRenderMetrics.bodyPageSize; return; }
-				if (matchesKey(data, "pageUp")) { state.costScroll = Math.max(0, state.costScroll - lastRenderMetrics.bodyPageSize); return; }
-				if (data === "g" || matchesKey(data, "home")) { state.costScroll = 0; return; }
-				if (data === "G" || matchesKey(data, "end")) { state.costScroll = Number.MAX_SAFE_INTEGER; return; }
+				if (isPageDownKey(data)) { state.costScroll += lastRenderMetrics.bodyPageSize; return; }
+				if (isPageUpKey(data)) { state.costScroll = Math.max(0, state.costScroll - lastRenderMetrics.bodyPageSize); return; }
+				if (isTopKey(data)) { state.costScroll = 0; return; }
+				if (isBottomKey(data)) { state.costScroll = Number.MAX_SAFE_INTEGER; return; }
 			}
 		},
 	};
