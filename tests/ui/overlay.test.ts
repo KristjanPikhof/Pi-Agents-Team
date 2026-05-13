@@ -517,8 +517,10 @@ test("console separates assistant text and events with readable assistant format
 
 	const rawLines = component.render(90);
 	const lines = plainLines(rawLines);
-	assert.ok(lines.some((line) => line.includes("— assistant —")), "expected assistant divider");
-	assert.ok(lines.some((line) => line.includes("— events —")), "expected events divider");
+	const assistantDividerIndex = lines.findIndex((line) => line.includes("— assistant —"));
+	const eventsDividerIndex = lines.findIndex((line) => line.includes("— events —"));
+	assert.ok(assistantDividerIndex >= 0, "expected assistant divider");
+	assert.ok(eventsDividerIndex > assistantDividerIndex, "expected events divider after assistant group");
 	assert.ok(lines.some((line) => line.includes("# Console Heading")), "expected assistant heading text");
 	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;75m# Console Heading\x1b[0m")), "expected readable heading styling in assistant content");
 	assert.ok(lines.some((line) => line.includes("[tool_start]") && line.includes("read src/ui/overlay.ts")), "expected event row");
@@ -707,15 +709,17 @@ test("Inspect and Console chrome stays compact at laptop panel width", () => {
 			component.handleInput("G");
 			lines = renderPlain(component, 80);
 		}
-		const followLine = lines.find((line) => line.includes("follow "));
+		const followLine = lines.find((line) => line.includes("[follow]") && line.includes("scroll"));
 		assert.ok(followLine, `expected compact ${label} follow header`);
+		assert.match(followLine, /\[follow\]\s+scroll \d+-\d+ \/ \d+/, followLine);
 		assert.ok(!followLine.includes("…"), followLine);
 		assert.ok(visibleWidth(followLine) <= 80, followLine);
 
 		component.handleInput("b");
 		lines = renderPlain(component, 80);
-		const pausedLine = lines.find((line) => line.includes("paused f/G"));
+		const pausedLine = lines.find((line) => line.includes("[paused f/G]") && line.includes("scroll"));
 		assert.ok(pausedLine, `expected compact ${label} paused header`);
+		assert.match(pausedLine, /\[paused f\/G\]\s+scroll \d+-\d+ \/ \d+/, pausedLine);
 		assert.ok(!pausedLine.includes("…"), pausedLine);
 		assert.ok(visibleWidth(pausedLine) <= 80, pausedLine);
 	}

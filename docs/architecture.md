@@ -253,9 +253,21 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 - **Right-side stack panel.** The overlay is a single right-anchored panel. `Workers`, `Inspect`, `Console`, and `Cost` are selected through the top tab bar; Inspect and Console do not render a separate roster beside the body.
 - **Live ping on open** and on `r`. The overlay issues `teamManager.pingWorkers({ mode: "active" })` so token counts and streaming status are current.
 - **Direct focus.** `/team <worker-id>` opens the overlay already on the Inspect tab for that worker. Tab completion on the `/team` argument pulls live worker ids.
-- **Inspect/Console follow.** Console subscribes to `teamManager.onAssistantChunk` and reads `getAssistantTail(workerId)` on render; Inspect uses the latest worker transcript in the same scroll frame as status/task/summary/final answer. Both tabs expose a follow/paused header. `f` toggles follow, `G` jumps to the tail and follows, `g` jumps top and pauses, and manual scroll/page keys (`↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `b`/`space`, `ctrl+u`/`ctrl+d`) pause follow. Per-worker isolation is enforced by tying visible chunks/transcripts to `state.selectedWorkerId`.
+- **Inspect/Console follow.** Console subscribes to `teamManager.onAssistantChunk` and reads `getAssistantTail(workerId)` on render; Inspect uses the latest worker transcript in the same scroll frame as status/task/summary/final answer. Both tabs expose a compact follow/paused header (`[follow]` or `[paused f/G]` plus `scroll start-end / total`). `f` toggles follow, `G` jumps to the tail and follows, `g` jumps top and pauses, and manual scroll/page keys (`↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `b`/`space`, `ctrl+u`/`ctrl+d`) pause follow. Per-worker isolation is enforced by tying visible chunks/transcripts to `state.selectedWorkerId`.
 - **Reuse hint.** Idle / waiting_followup workers render `[reuse]` in the roster row and `[reusable]` in the Inspect header. The `n` modal always delegates a fresh worker (never silently reuses the selected one); reuse is intentionally exposed only via `delegate_task.reuseWorkerId` from the orchestrator side.
 - **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload (task, summary, relays, usage, final answer, latest assistant text, console timeline) via pbcopy / clip.exe / wl-copy / xclip / xsel.
+
+### Overlay text formatting rules
+
+Inspect and Console share the local text wrapping helpers in `src/ui/overlay.ts` (`sanitizeText`, `classifyTextLine`, `wrapTextLine`, `wrapLines`, and `enforceWidth`). The helpers are intentionally UI-local because they depend on `@earendil-works/pi-tui` ANSI-aware `visibleWidth` / `truncateToWidth` semantics and the overlay's row budget.
+
+Key invariants:
+
+- **Content/event split.** Inspect builds a structured text document from worker state (`buildInspectText`) with explicit section dividers for Status, Task, Needs operator, Summary, Final answer, and Latest assistant text. Console builds assistant text and console events separately (`buildConsoleLines`), rendering assistant chunks before the `— events —` timeline when both exist.
+- **Readable report shapes.** The formatter preserves recognizable Markdown-like headings, tables, table separators, list markers, horizontal rules, indented/code-like lines, and stack-trace-like lines. Continuation lines use a small prefix (or preserved indentation for code) rather than collapsing the body into single-line ellipses.
+- **ANSI-width safety.** All wrapping and frame padding use terminal visible width, not JavaScript string length. Control characters and tabs are normalized before measurement, while this package's own ANSI styling is preserved for `pi-tui` to measure correctly.
+- **Row-budget safety.** The overlay returns exactly `floor(terminal.rows * 0.9)` rows to match `TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight`. Body content is sliced within the frame, so the bottom border and action bar do not get clipped.
+- **Compact chrome.** The tab/help/action rows and follow header must fit laptop-width panels without ellipsizing the navigation hints that operators need (`space`/`b`, `g`/`G`, and `f`).
 
 ## Notifications
 
