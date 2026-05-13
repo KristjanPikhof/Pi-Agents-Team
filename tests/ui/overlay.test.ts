@@ -507,6 +507,57 @@ test("formatter keeps mixed structured inspect output width-safe at narrow sizes
 	}
 });
 
+test("console separates assistant text and events with readable assistant formatting", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const chunks: AssistantChunk[] = [{ index: 0, ts: now, text: "# Console Heading\nassistant paragraph" }];
+	const events: WorkerConsoleEvent[] = [{ ts: now + 1_000, kind: "tool_start", text: "read src/ui/overlay.ts" }];
+	const { component } = makeComponent({ state, rows: 44, cols: 90, initialWorkerId: "w1", chunks: { w1: chunks }, consoles: { w1: events } });
+	component.handleInput("3");
+
+	const rawLines = component.render(90);
+	const lines = plainLines(rawLines);
+	assert.ok(lines.some((line) => line.includes("— assistant —")), "expected assistant divider");
+	assert.ok(lines.some((line) => line.includes("— events —")), "expected events divider");
+	assert.ok(lines.some((line) => line.includes("# Console Heading")), "expected assistant heading text");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;75m# Console Heading\x1b[0m")), "expected readable heading styling in assistant content");
+	assert.ok(lines.some((line) => line.includes("[tool_start]") && line.includes("read src/ui/overlay.ts")), "expected event row");
+});
+
+test("console dims routine event metadata and highlights errors or recovery", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const events: WorkerConsoleEvent[] = [
+		{ ts: now, kind: "status", text: "running" },
+		{ ts: now + 1_000, kind: "error", text: "boom" },
+		{ ts: now + 2_000, kind: "queue", text: "recovery prompt queued" },
+	];
+	const { component } = makeComponent({ state, rows: 44, cols: 90, initialWorkerId: "w1", consoles: { w1: events } });
+	component.handleInput("3");
+
+	const rawLines = component.render(90);
+	const lines = plainLines(rawLines);
+	assert.ok(lines.some((line) => line.includes("[status] running")), "expected routine status row");
+	assert.ok(lines.some((line) => line.includes("[error] boom")), "expected error row");
+	assert.ok(lines.some((line) => line.includes("[queue] recovery prompt queued")), "expected recovery row");
+	assert.ok(rawLines.some((line) => /\x1b\[2m\[\d{2}:\d{2}:\d{2}\]\x1b\[0m/.test(line) && line.includes("\x1b[2m[status]\x1b[0m")), "expected dimmed timestamp and routine kind metadata");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;167m[error]\x1b[0m") && line.includes("\x1b[38;5;167mboom\x1b[0m")), "expected error styling");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;179m[queue]\x1b[0m") && line.includes("\x1b[38;5;179mrecovery prompt queued\x1b[0m")), "expected recovery styling");
+});
+
+test("console keeps assistant and event rows width-safe", () => {
+	const state = makeState(1);
+	const chunks: AssistantChunk[] = [{ index: 0, ts: Date.now(), text: `## ${"long assistant content ".repeat(12)}` }];
+	const events: WorkerConsoleEvent[] = [{ ts: Date.now(), kind: "tool_end", text: "metadata ".repeat(30) }];
+	const { component } = makeComponent({ state, rows: 34, cols: 52, initialWorkerId: "w1", chunks: { w1: chunks }, consoles: { w1: events } });
+	component.handleInput("3");
+
+	const lines = renderPlain(component, 52);
+	assert.ok(lines.some((line) => line.includes("— assistant —")), "expected assistant divider at narrow width");
+	assert.ok(lines.some((line) => line.includes("— events —")), "expected events divider at narrow width");
+	for (const line of lines) assert.ok(visibleWidth(line) <= 52, `line exceeds width: ${visibleWidth(line)} ${line}`);
+});
+
 test("console auto-follow keeps the newest line visible", () => {
 	const state = makeState(1);
 	const chunks: AssistantChunk[] = Array.from({ length: 30 }, (_, i) => ({ index: i, ts: Date.now() + i, text: `line-${i}` }));
@@ -590,7 +641,7 @@ test("dispose unsubscribes the assistant-chunk listener (and is idempotent)", ()
 test("console tab streams ring-buffer chunks with auto-follow toggle", () => {
 	const state = makeState(1);
 	const chunks: AssistantChunk[] = Array.from({ length: 8 }, (_, i) => ({ index: i, ts: Date.now() + i * 10, text: `chunk ${i}` }));
-	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	const { component } = makeComponent({ state, rows: 40, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
 
 	component.handleInput("3");
 	let lines = renderPlain(component, 100);
