@@ -295,16 +295,19 @@ interface TextLineShape {
 	continuation: string;
 }
 
+// Strip our own styling before classifying so worker text wrapped in ANSI
+// (e.g. a colored `# heading` from a tool) still matches the structural regexes.
 function classifyTextLine(line: string): TextLineShape {
-	if (/^\s{4,}\S/.test(line)) return { kind: "code", continuation: line.match(/^\s*/)?.[0] ?? "" };
-	if (/^\s*(?:at\s+\S|Caused by:|\.{3}\s+\d+\s+more|[A-Za-z_.$][\w.$<>]*Error:)/.test(line)) return { kind: "stack", continuation: "    " };
-	if (/^\s*#{1,6}\s+\S/.test(line)) return { kind: "heading", continuation: dim("↳ ") };
-	if (/^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(line)) {
-		const marker = line.match(/^(\s*)(?:[-*+]\s+|\d+[.)]\s+)/)?.[0] ?? "";
+	const plain = stripAnsi(line);
+	if (/^\s{4,}\S/.test(plain)) return { kind: "code", continuation: plain.match(/^\s*/)?.[0] ?? "" };
+	if (/^\s*(?:at\s+\S|Caused by:|\.{3}\s+\d+\s+more|[A-Za-z_.$][\w.$<>]*Error:)/.test(plain)) return { kind: "stack", continuation: "    " };
+	if (/^\s*#{1,6}\s+\S/.test(plain)) return { kind: "heading", continuation: dim("↳ ") };
+	if (/^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(plain)) {
+		const marker = plain.match(/^(\s*)(?:[-*+]\s+|\d+[.)]\s+)/)?.[0] ?? "";
 		return { kind: "list", continuation: " ".repeat(visibleWidth(marker)) };
 	}
-	if (/^\s*\|.*\|\s*$/.test(line)) return { kind: "table", continuation: dim("↳ ") };
-	if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line) || /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)) {
+	if (/^\s*\|.*\|\s*$/.test(plain)) return { kind: "table", continuation: dim("↳ ") };
+	if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(plain) || /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(plain)) {
 		return { kind: "separator", continuation: dim("↳ ") };
 	}
 	return { kind: "plain", continuation: dim("↳ ") };
