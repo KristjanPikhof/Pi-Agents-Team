@@ -495,6 +495,37 @@ test("console tab streams ring-buffer chunks with auto-follow toggle", () => {
 	component.handleInput("G");
 	lines = renderPlain(component, 100);
 	assert.ok(lines.some((line) => line.includes("[follow]")));
+
+	component.handleInput("f");
+	lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[paused")), "f should toggle console follow off");
+
+	component.handleInput("f");
+	lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[follow]")), "f should toggle console follow on");
+});
+
+test("inspect tab supports follow mode and mac-friendly scroll aliases", () => {
+	const state = makeState(1);
+	const transcript = Array.from({ length: 30 }, (_, i) => `assistant line ${i}`).join("\n");
+	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1", transcripts: { w1: transcript } });
+
+	let lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[paused")), "Inspect should start in manual scroll mode");
+	assert.ok(!lines.some((line) => line.includes("assistant line 29")), "tail should not be visible before jumping bottom");
+
+	component.handleInput("G");
+	lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[follow]")), "G should jump bottom and follow");
+	assert.ok(lines.some((line) => line.includes("assistant line 29")), "bottom should show latest assistant text");
+
+	component.handleInput("b");
+	lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[paused")), "b should page up and pause follow");
+
+	component.handleInput("f");
+	lines = renderPlain(component, 100);
+	assert.ok(lines.some((line) => line.includes("[follow]")), "f should toggle Inspect follow back on");
 });
 
 test("console isolates assistant text per worker", () => {
