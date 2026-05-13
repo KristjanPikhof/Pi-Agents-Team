@@ -334,10 +334,17 @@ function wrapTextLine(raw: string, width: number): string[] {
 	let guard = 0;
 	while (visibleWidth(prefix + remaining) > width && guard < 1000) {
 		const available = Math.max(1, width - visibleWidth(prefix));
-		const head = truncateToWidth(remaining, available, "");
-		if (head.length === 0) break;
+		let head = truncateToWidth(remaining, available, "");
+		// truncateToWidth can return "" when the next visible glyph is wider than
+		// `available` (e.g. wide CJK char at width=1, or an ANSI escape boundary).
+		// Force-consume one code unit so the loop always makes progress instead of
+		// breaking and leaving an oversized `remaining` for enforceWidth to ellipsize.
+		if (head.length === 0) head = remaining.slice(0, 1);
 		out.push(prefix + (out.length === 0 ? formatStructuredLine(head, shape.kind) : head));
-		remaining = remaining.slice(head.length).trimStart();
+		const rest = remaining.slice(head.length);
+		// Code-like lines keep their internal indentation across wrap chunks so
+		// hand-aligned ASCII (stack frames, indented logs) does not collapse.
+		remaining = shape.kind === "code" ? rest : rest.trimStart();
 		prefix = visibleWidth(shape.continuation) < width ? shape.continuation : "";
 		guard += 1;
 	}
