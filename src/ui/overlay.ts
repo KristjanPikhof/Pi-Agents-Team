@@ -451,7 +451,7 @@ export function createTeamDashboardOverlayComponent(
 		inspectScroll: 0,
 		inspectFollow: false,
 		consoleScroll: 0,
-		consoleFollow: true;
+		consoleFollow: true,
 		costScroll: 0,
 	};
 	let statusMessage: string | undefined;
@@ -501,6 +501,7 @@ export function createTeamDashboardOverlayComponent(
 		if (state.selectedWorkerId && snapshot.activeWorkers[state.selectedWorkerId]) return;
 		state.selectedWorkerId = ids[0];
 		state.inspectScroll = 0;
+		state.inspectFollow = false;
 		state.consoleScroll = 0;
 		state.consoleFollow = true;
 	};
@@ -520,6 +521,7 @@ export function createTeamDashboardOverlayComponent(
 		const next = clamp(safe + delta, 0, ids.length - 1);
 		state.selectedWorkerId = ids[next];
 		state.inspectScroll = 0;
+		state.inspectFollow = false;
 		state.consoleScroll = 0;
 		state.consoleFollow = true;
 	};
