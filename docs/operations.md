@@ -172,7 +172,7 @@ Clipboard providers are picked by platform: `pbcopy` on macOS, `clip.exe` on Win
 
 Use `all` to broadcast to every deliverable worker at once. The printed mode is per-worker, so you can see whether each target was steered, queued behind a live stream, or re-prompted.
 
-The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "follow_up"` and follows the same rules. Its tool result text ends with the resolved mode, e.g. `Sent message to w1 (prompt).`
+The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "follow_up"` and follows the same rules. Its tool result names the user-visible action: `Steering running agent fixer (w1).`, `Queued follow-up for fixer (w1).`, `Waking idle agent fixer (w1).`, or `Resuming agent fixer (w1).`
 
 Inside the `/team` overlay, `s` steers the selected worker and `m` sends a message — both defer to the same delivery resolver and only block unreachable terminal workers.
 
@@ -273,33 +273,25 @@ Operators normally see these through model narration, logs, or `/team-result`; t
 Fresh delegation returns launch metadata and the next wait call:
 
 ```text
-Worker: w1
+Created fixer (w1)
 Task: Build seam (t1)
-Profile: fixer
-CWD: /repo
-Path scope: read/write /repo/src, /repo/tests
-Status: running (Running)
-Lifecycle: launched fresh worker
-Next: call wait_for_agents with workerIds=["w1"] to wait for completion or relay questions
+Next: wait_for_agents workerIds=["w1"]
 ```
 
-When the orchestrator intentionally reuses an idle same-scope worker, the lifecycle line makes that explicit:
+When the orchestrator intentionally reuses an idle same-scope worker, the first line makes that explicit:
 
 ```text
-Worker: w1
+Reusing fixer (w1)
 Task: Follow-up fix (t2)
-Profile: fixer
-Status: running (Running)
-Lifecycle: reused worker w1 for new task t2
-Next: call wait_for_agents with workerIds=["w1"] to wait for completion or relay questions
+Next: wait_for_agents workerIds=["w1"]
 ```
 
-`wait_for_agents` begins with `Result reason:` and always includes a `Next:` action except for worker detail rows. Common outcomes:
+`wait_for_agents` begins with `Wait:` and uses compact user-facing outcomes. Common outcomes:
 
 ```text
-Result reason: all_terminal
-All 2 worker(s) reached terminal status.
-Next: call agent_result for each completed worker you need to synthesize.
+Wait: all_terminal
+Done: 2 agent(s) finished or stopped.
+Next: read results with agent_result.
 
 Workers:
 - w1 (fixer) · status=completed (Completed) · task=Done task
@@ -307,38 +299,37 @@ Workers:
 ```
 
 ```text
-Result reason: relay_raised
-1 new relay question(s) raised — answer via agent_message, then call wait_for_agents again to resume.
+Wait: relay_raised
+Needs reply: 1 relay question(s).
 
 Pending relay questions:
-1. w1 (fixer) urgency=high
-   question: Need scope?
-   reply: agent_message {"workerId":"w1","message":"<answer>"}
-Next: answer each relay via agent_message, then call wait_for_agents {"workerIds":["w1"]} to resume.
+1. fixer (w1) [high]
+   Need scope?
+Next: answer with agent_message, then wait again for ["w1"].
 
 Workers:
 - w1 (fixer) · status=running (Running) · task=Question task
 ```
 
 ```text
-Result reason: timeout
-Wait timed out; some workers may still be running.
-Next: inspect statuses or call wait_for_agents again with the same workerIds.
+Wait: timeout
+Timed out: some agents are still running.
+Next: wait again or inspect status.
 ```
 
 ```text
-Result reason: aborted
-Wait aborted by the caller before all workers reached terminal status.
-Next: inspect statuses with agent_status or cancel unwanted workers.
+Wait: aborted
+Cancelled: wait stopped before all agents finished.
+Next: inspect status or cancel unwanted agents.
 ```
 
 ```text
-Result reason: no_workers
-No tracked workers to wait on.
-Next: call delegate_task before waiting for agents.
+Wait: no_workers
+No agents to wait for.
+Next: delegate a task first.
 ```
 
-For `relay_raised`, answer each copied `agent_message` prompt, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
+For `relay_raised`, answer each relay with `agent_message`, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
 
 ## Mid-flight relay handling
 
