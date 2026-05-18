@@ -142,7 +142,7 @@ export function formatDelegateTaskResult(result: DelegateTaskFormatInput): strin
 	if (task?.cwd) lines.push(`${TOOL_SECTION_LABELS.cwd}: ${task.cwd}`);
 	if (task?.pathScope?.roots.length) lines.push(`${TOOL_SECTION_LABELS.pathScope}: ${formatPathScope(task.pathScope)}`);
 	lines.push(
-		`${TOOL_SECTION_LABELS.status}: ${result.worker.status}`,
+		`${TOOL_SECTION_LABELS.status}: ${result.worker.status} (${formatWorkerStatusLabel(result.worker)})`,
 		`${TOOL_SECTION_LABELS.lifecycle}: ${lifecycle}`,
 		`${TOOL_SECTION_LABELS.nextAction}: call wait_for_agents with workerIds=["${result.worker.workerId}"] to wait for completion or relay questions`,
 	);

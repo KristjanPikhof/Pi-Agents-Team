@@ -105,13 +105,16 @@ test("buildTeamDashboardText groups workers by operator attention and surfaces p
 	assert.match(text, /Use \/team <worker-id> for direct focus, then inspect Overview \/ Deliverable \/ Console tabs/);
 	assert.match(text, /Use \/team-result <id> for the final deliverable block/);
 	assert.match(text, /Needs reply \(1\)/);
-	assert.match(text, /worker-1 \(reviewer\) — reply: Need operator confirmation/);
+	assert.match(text, /reviewer \(worker-1\) — reply: Need operator confirmation/);
+	assert.match(text, /status: running \(Running\) · action: Answer relay/);
 	assert.match(text, /usage: turns=2 input=1\.2k output=10/);
 	assert.match(text, /Needs recovery \(1\)/);
-	assert.match(text, /worker-2 \(fixer\) — recovery: RPC crashed/);
+	assert.match(text, /fixer \(worker-2\) — recovery: RPC crashed/);
+	assert.match(text, /status: error \(Error\) · action: Recover or delegate fresh/);
 	assert.match(text, /usage: turns=1 input=5 output=3\.4k/);
 	assert.match(text, /Completed or idle \(1\)/);
-	assert.match(text, /worker-3 \(reviewer\) — headline: Ship list is ready/);
+	assert.match(text, /reviewer \(worker-3\) — headline: Ship list is ready/);
+	assert.match(text, /status: idle \(Done \(idle\)\) · action: Review result/);
 });
 
 test("buildTeamDashboardText keeps print fallback useful when no workers are tracked", () => {
