@@ -270,13 +270,12 @@ The orchestrator should pair every `delegate_task` with a `wait_for_agents` call
 
 Operators normally see these through model narration, logs, or `/team-result`; they are included here so runbooks can match the real tool text.
 
-Fresh delegation returns launch metadata and the next wait call:
+Fresh delegation returns compact launch metadata:
 
 ```text
 Created fixer (w1)
 Task: Build seam (t1)
 PWD: /repo
-Next: wait_for_agents workerIds=["w1"]
 ```
 
 When the orchestrator intentionally reuses an idle same-scope worker, the first line makes that explicit:
@@ -285,7 +284,6 @@ When the orchestrator intentionally reuses an idle same-scope worker, the first 
 Reusing fixer (w1)
 Task: Follow-up fix (t2)
 PWD: /repo
-Next: wait_for_agents workerIds=["w1"]
 ```
 
 `wait_for_agents` uses compact user-facing outcomes without exposing internal reason labels. Common outcomes:

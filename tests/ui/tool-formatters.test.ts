@@ -256,7 +256,7 @@ test("delegate formatter makes fresh launch lifecycle scannable", () => {
 	const text = formatDelegateTaskResult({ worker, task });
 
 	const plain = stripAnsi(text);
-	assert.equal(plain, "Created fixer (w1)\nTask: Build seam (t1)\nPWD: /repo\nNext: wait_for_agents workerIds=[\"w1\"]");
+	assert.equal(plain, "Created fixer (w1)\nTask: Build seam (t1)\nPWD: /repo");
 	assert.doesNotMatch(plain, /Path scope:/);
 });
 
@@ -280,7 +280,7 @@ test("delegate formatter shows reuse state with same worker and new task", () =>
 	assert.match(plain, /PWD: \/repo/);
 	assert.doesNotMatch(plain, /Lifecycle:/);
 	assert.doesNotMatch(plain, /Path scope:/);
-	assert.match(plain, /Next: wait_for_agents workerIds=\["w1"\]/);
+	assert.doesNotMatch(plain, /Next: wait_for_agents/);
 });
 
 test("agent message formatter names resolved delivery and wake/resume cases", () => {
