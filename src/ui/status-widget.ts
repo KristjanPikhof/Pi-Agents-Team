@@ -135,15 +135,15 @@ function getActiveElapsedStart(worker: WorkerRuntimeState): number {
 	return worker.currentTask?.createdAt ?? worker.startedAt;
 }
 
-function buildWorkerCell(worker: WorkerRuntimeState, frame: number, now: number): string {
+function buildWorkerCell(worker: WorkerRuntimeState, frame: number, now: number, connector: "├" | "└"): string {
 	const glyph = statusGlyph(worker, frame);
 	const title = buildWorkerTitle(worker);
 	const statusOrElapsed = isActiveSurfaceWorker(worker) ? formatElapsed(now - getActiveElapsedStart(worker)) : formatWorkerStatusLabel(worker);
-	const logical = `${glyph} ${worker.workerId} ${worker.profileName} — ${title} · ${statusOrElapsed}`;
+	const logical = `${connector} ${glyph} ${worker.workerId} ${worker.profileName} — ${title} · ${statusOrElapsed}`;
 	return truncateToWidth(logical, HEADER_WIDTH, "…");
 }
 
-function buildWorkerActivityLine(worker: WorkerRuntimeState): string | undefined {
+function buildWorkerActivityLine(worker: WorkerRuntimeState, hasFollowingRow: boolean): string | undefined {
 	const relay = worker.pendingRelayQuestions[0];
 	const detail = relay?.question
 		?? worker.lastSummary?.headline
@@ -151,16 +151,22 @@ function buildWorkerActivityLine(worker: WorkerRuntimeState): string | undefined
 		?? (worker.error ? `error: ${worker.error}` : undefined);
 	if (!detail) return undefined;
 	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker));
-	return truncateToWidth(`  ↳ ${attention.label}: ${detail}`, HEADER_WIDTH, "…");
+	const gutter = hasFollowingRow ? "│" : " ";
+	return truncateToWidth(`${gutter}  └ ${attention.label}: ${detail}`, HEADER_WIDTH, "…");
 }
 
-function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number): string[] {
+function buildAgentsSummaryLine(summaryParts: string[]): string {
+	return truncateToWidth(`└ + ${summaryParts.join(" · ")} · /team to view`, HEADER_WIDTH, "…");
+}
+
+function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number, hasSummaryRow: boolean): string[] {
 	const lines: string[] = [];
-	for (const worker of workers) {
-		lines.push(buildWorkerCell(worker, frame, now));
-		const activity = buildWorkerActivityLine(worker);
+	workers.forEach((worker, index) => {
+		const hasFollowingRow = index < workers.length - 1 || hasSummaryRow;
+		lines.push(buildWorkerCell(worker, frame, now, hasFollowingRow ? "├" : "└"));
+		const activity = buildWorkerActivityLine(worker, hasFollowingRow);
 		if (activity) lines.push(activity);
-	}
+	});
 	return lines;
 }
 
@@ -187,7 +193,6 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 		if (usageLine) lines.push(usageLine);
 	}
 	const visibleWorkers = workers.slice(0, MAX_WIDGET_WORKERS);
-	lines.push(...buildWorkerLines(visibleWorkers, frame, now));
 	const hiddenByCap = workers.length - visibleWorkers.length;
 	const hiddenByRetention = allWorkers.filter((worker) => TERMINAL_STATUSES.has(worker.status) && !shouldRenderWorker(worker, now)).length;
 	const queued = allWorkers.filter((worker) => worker.status === "waiting_followup" && worker.pendingRelayQuestions.length === 0).length;
@@ -195,8 +200,10 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	if (queued > 0) summaryParts.push(`${queued} queued`);
 	if (hiddenByCap > 0) summaryParts.push(`${hiddenByCap} more`);
 	if (hiddenByRetention > 0) summaryParts.push(`${hiddenByRetention} old hidden`);
-	if (summaryParts.length > 0) {
-		lines.push(truncateToWidth(`  + ${summaryParts.join(" · ")} · /team to view`, HEADER_WIDTH));
+	if (visibleWorkers.length > 0 || summaryParts.length > 0) {
+		lines.push(truncateToWidth(`● Agents · active=${activeCount} · tracked=${allWorkers.length}`, HEADER_WIDTH, "…"));
+		lines.push(...buildWorkerLines(visibleWorkers, frame, now, summaryParts.length > 0));
+		if (summaryParts.length > 0) lines.push(buildAgentsSummaryLine(summaryParts));
 	}
 	lines.push("tip: /team · /team-result <id> · /team-copy <id>");
 	return lines.map((line) => truncateToWidth(line, HEADER_WIDTH));

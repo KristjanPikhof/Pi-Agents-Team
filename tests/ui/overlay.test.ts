@@ -251,8 +251,8 @@ test("workers tab renders roster sections, reuse tag for idle workers, and suppo
 	component.handleInput("1");
 	let lines = renderPlain(component, 100);
 	assert.ok(lines.some((line) => line.includes("[reuse]")), "expected reuse hint for idle worker");
-	assert.ok(lines.some((line) => line.includes("In progress")));
-	assert.ok(lines.some((line) => line.includes("Completed or idle")));
+	assert.ok(lines.some((line) => line.includes("Working")));
+	assert.ok(lines.some((line) => line.includes("Done")));
 
 	component.handleInput("j");
 	component.handleInput("j");
@@ -281,11 +281,11 @@ test("workers tab shows compact summary, selected mini header, and state-specifi
 	component.handleInput("1");
 	const lines = renderPlain(component, 96);
 	const body = lines.join("\n");
-	assert.match(body, /workers 4 .*Needs reply 1 .*Needs recovery 1 .*In progress 1 .*Completed or idle 1/);
+	assert.match(body, /workers 4 .*Needs reply 1 .*Needs recovery 1 .*Working 1 .*Done 1/);
 	assert.match(body, /selected: w1 .*Running .*Needs reply .*action: Answer relay/);
 	assert.match(body, /Needs reply \(1\)/);
 	assert.match(body, /Needs recovery \(1\)/);
-	assert.match(body, /Completed or idle \(1\)/);
+	assert.match(body, /Done \(1\)/);
 	assert.equal(lines.length, Math.floor(34 * 0.9));
 	for (const line of lines) assert.ok(visibleWidth(line) <= 96, `line exceeds width: ${visibleWidth(line)} ${line}`);
 });
