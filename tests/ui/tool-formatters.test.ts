@@ -198,7 +198,7 @@ test("wait formatter makes all_terminal outcome and next action scannable", () =
 			makeWorker({ workerId: "w2", status: "idle", profileName: "reviewer" }),
 		],
 	});
-	assert.match(text, /^Wait: all_terminal\nDone: 2 agent\(s\) finished or stopped\./);
+	assert.match(text, /^Done: 2 agent\(s\) finished or stopped\./);
 	assert.match(text, /Next: read results with agent_result\./);
 	assert.match(text, /Workers:\n- w1 \(fixer\) · status=completed \(Completed\) · task=Done task\n- w2 \(reviewer\) · status=idle \(Idle\)/);
 });
@@ -209,7 +209,7 @@ test("wait formatter makes relay questions copyable with agent_message and follo
 		workers: [makeWorker({ status: "running", currentTask: { taskId: "t1", title: "Question task", goal: "Ask", requestedBy: "orchestrator", profileName: "fixer", cwd: "/repo", contextHints: [], createdAt: 1 } })],
 		newRelays: [{ workerId: "w1", profileName: "fixer", urgency: "high", question: "Need scope?" }],
 	});
-	assert.match(text, /^Wait: relay_raised\nNeeds reply: 1 relay question\(s\)\./);
+	assert.match(text, /^Needs reply: 1 relay question\(s\)\./);
 	assert.match(text, /Pending relay questions:\n1\. fixer \(w1\) \[high\]\n   Need scope\?/);
 	assert.match(text, /Next: answer with agent_message, then wait again for \["w1"\]\./);
 	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\) · task=Question task/);
@@ -220,7 +220,7 @@ test("wait formatter distinguishes timeout with mixed worker statuses", () => {
 		reason: "timeout",
 		workers: [makeWorker({ status: "running" }), makeWorker({ workerId: "w2", profileName: "reviewer", status: "completed" })],
 	});
-	assert.match(text, /^Wait: timeout\nTimed out: some agents are still running\./);
+	assert.match(text, /^Still waiting: some agents are still running\./);
 	assert.match(text, /Next: wait again or inspect status\./);
 	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\)\n- w2 \(reviewer\) · status=completed \(Completed\)/);
 });
@@ -230,14 +230,14 @@ test("wait formatter distinguishes aborted waits", () => {
 		reason: "aborted",
 		workers: [makeWorker({ status: "running" })],
 	});
-	assert.match(text, /^Wait: aborted\nCancelled: wait stopped before all agents finished\./);
+	assert.match(text, /^Wait cancelled: stopped before all agents finished\./);
 	assert.match(text, /Next: inspect status or cancel unwanted agents\./);
 	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\)/);
 });
 
 test("wait formatter explains no_workers wrapper outcome", () => {
 	const text = formatWaitForAgentsResult({ reason: "no_workers", workers: [] });
-	assert.equal(text, "Wait: no_workers\nNo agents to wait for.\nNext: delegate a task first.");
+	assert.equal(text, "No agents to wait for.\nNext: delegate a task first.");
 });
 
 test("delegate formatter makes fresh launch lifecycle scannable", () => {

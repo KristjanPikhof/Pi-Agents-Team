@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TUI, OverlayOptions } from "@earendil-works/pi-tui";
-import type { TeamManager } from "../control-plane/team-manager";
+import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager";
 import type { AssistantChunk, WorkerConsoleEvent } from "../runtime/worker-manager";
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
@@ -9,7 +9,8 @@ import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
 import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
 import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
-import { formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
+import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
+import { formatAgentMessageResult } from "./tool-formatters";
 import {
 	accent,
 	accentBold,
@@ -523,7 +524,7 @@ interface OverlayTeamManager {
 	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined;
 	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[];
 	onAssistantChunk?(listener: (workerId: string, chunk: AssistantChunk) => void): () => void;
-	messageWorker?(workerId: string, message: string, delivery?: "auto" | "steer" | "follow_up"): Promise<unknown>;
+	messageWorker?(workerId: string, message: string, delivery?: "auto" | "steer" | "follow_up"): Promise<AgentMessageResult>;
 	closeWorker?(workerId: string, reason?: string): Promise<unknown>;
 	cancelWorker?(workerId: string): Promise<unknown>;
 	pruneTerminalWorkers?(): Promise<unknown[]>;
@@ -724,11 +725,11 @@ export function createTeamDashboardOverlayComponent(
 		}
 		try {
 			if (modal.kind === "steer" && modal.workerId) {
-				await teamManager.messageWorker?.(modal.workerId, trimmed, "steer");
-				setStatus(`Steered ${modal.workerId}`);
+				const result = await teamManager.messageWorker?.(modal.workerId, trimmed, "steer");
+				setStatus(result ? formatAgentMessageResult(result) : `Steering running agent ${modal.workerId}.`);
 			} else if (modal.kind === "message" && modal.workerId) {
-				await teamManager.messageWorker?.(modal.workerId, trimmed, "auto");
-				setStatus(`Sent message to ${modal.workerId}`);
+				const result = await teamManager.messageWorker?.(modal.workerId, trimmed, "auto");
+				setStatus(result ? formatAgentMessageResult(result) : `Messaged agent ${modal.workerId}.`);
 			} else if (modal.kind === "new_task") {
 				if (teamManager.routingMode === "solo") {
 					setStatus("Team routing off. Run /team-enable on to delegate.");
@@ -748,7 +749,7 @@ export function createTeamDashboardOverlayComponent(
 					profileName: profile,
 					cwd: options.cwd ?? process.cwd(),
 				});
-				setStatus(`Delegated new task to ${profile}`);
+				setStatus(`Created ${profile} agent.`);
 				refreshSnapshot();
 			}
 		} catch (error) {
@@ -764,7 +765,7 @@ export function createTeamDashboardOverlayComponent(
 		}
 		try {
 			await teamManager.closeWorker?.(worker.workerId);
-			setStatus(`Closed ${worker.workerId}`);
+			setStatus(`Closed ${formatWorkerLabel(worker)}`);
 		} catch (error) {
 			setStatus(`Close failed: ${error instanceof Error ? error.message : String(error)}`, 4000);
 		}
@@ -774,7 +775,7 @@ export function createTeamDashboardOverlayComponent(
 		if (!worker) return setStatus("No worker selected");
 		try {
 			await teamManager.cancelWorker?.(worker.workerId);
-			setStatus(`Cancelled ${worker.workerId}`);
+			setStatus(`Cancelled ${formatWorkerLabel(worker)}`);
 		} catch (error) {
 			setStatus(`Cancel failed: ${error instanceof Error ? error.message : String(error)}`, 4000);
 		}

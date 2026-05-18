@@ -142,12 +142,11 @@ function appendWaitRelayGuidance(lines: string[], result: WaitForAgentsFormatInp
 }
 
 export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): string {
-	const lines = [`${TOOL_SECTION_LABELS.wait}: ${result.reason}`];
 	if (result.reason === "no_workers") {
-		lines.push("No agents to wait for.", `${TOOL_SECTION_LABELS.nextAction}: delegate a task first.`);
-		return lines.join("\n");
+		return ["No agents to wait for.", `${TOOL_SECTION_LABELS.nextAction}: delegate a task first.`].join("\n");
 	}
 
+	const lines: string[] = [];
 	if (result.reason === "all_terminal") {
 		lines.push(`Done: ${result.workers.length} agent(s) finished or stopped.`, `${TOOL_SECTION_LABELS.nextAction}: read results with agent_result.`);
 	} else if (result.reason === "relay_raised") {
@@ -155,9 +154,9 @@ export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): str
 		lines.push(`Needs reply: ${count} relay question(s).`);
 		appendWaitRelayGuidance(lines, result);
 	} else if (result.reason === "timeout") {
-		lines.push("Timed out: some agents are still running.", `${TOOL_SECTION_LABELS.nextAction}: wait again or inspect status.`);
+		lines.push("Still waiting: some agents are still running.", `${TOOL_SECTION_LABELS.nextAction}: wait again or inspect status.`);
 	} else {
-		lines.push("Cancelled: wait stopped before all agents finished.", `${TOOL_SECTION_LABELS.nextAction}: inspect status or cancel unwanted agents.`);
+		lines.push("Wait cancelled: stopped before all agents finished.", `${TOOL_SECTION_LABELS.nextAction}: inspect status or cancel unwanted agents.`);
 	}
 	appendWaitWorkers(lines, result.workers);
 	return lines.join("\n");
