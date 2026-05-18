@@ -102,6 +102,7 @@ export function formatDelegateTaskResult(result: DelegateTaskFormatInput): strin
 	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
 	const action = result.reuseWorkerId ? "Reusing" : "Created";
 	const lines = [`${action} ${formatWorkerResultTitle(result.worker)}`, `${TOOL_SECTION_LABELS.task}: ${taskLabel}`];
+	if (task?.cwd) lines.push(`PWD: ${task.cwd}`);
 	lines.push(`${TOOL_SECTION_LABELS.nextAction}: wait_for_agents workerIds=["${result.worker.workerId}"]`);
 	return lines.join("\n");
 }

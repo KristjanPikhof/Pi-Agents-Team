@@ -275,6 +275,7 @@ Fresh delegation returns launch metadata and the next wait call:
 ```text
 Created fixer (w1)
 Task: Build seam (t1)
+PWD: /repo
 Next: wait_for_agents workerIds=["w1"]
 ```
 
@@ -283,6 +284,7 @@ When the orchestrator intentionally reuses an idle same-scope worker, the first 
 ```text
 Reusing fixer (w1)
 Task: Follow-up fix (t2)
+PWD: /repo
 Next: wait_for_agents workerIds=["w1"]
 ```
 
