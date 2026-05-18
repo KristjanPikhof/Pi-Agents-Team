@@ -18,6 +18,7 @@ import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import { formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
+import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers";
 import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer";
 import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types";
 
@@ -476,6 +477,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Delegate Task",
 		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
 		parameters: DelegateTaskSchema,
+		renderCall: renderAgentToolCallTitle("delegate_task"),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			ensureNotReloading();
 			if (!activeProjectConfig.enabled) {
@@ -529,6 +531,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Agent Status",
 		description: "Return compact status for one worker or all tracked workers. Done statuses are idle/completed/aborted/error/exited; starting/running/waiting_followup are not done. Each worker carries `reusable: true` when its RPC session is still alive (idle or waiting_followup) — pass that workerId as delegate_task.reuseWorkerId to skip spawning a fresh process. For the worker's actual output, call agent_result.",
 		parameters: WorkerLookupSchema,
+		renderCall: renderAgentToolCallTitle("agent_status"),
 		async execute(_toolCallId, params) {
 			const resolvedId = params.workerId ? teamManager.resolveWorkerId(params.workerId) ?? params.workerId : undefined;
 			const workers = resolvedId
@@ -550,6 +553,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Agent Result",
 		description: "Get the worker's final deliverable: structured summary header (headline/files/risks/next) plus the verbatim contents of the worker's <final_answer>…</final_answer> block. This is the authoritative answer — synthesize directly from it. If the final_answer block is empty, the worker did not follow the contract; re-delegate with smaller scope instead of reading files yourself.",
 		parameters: WorkerIdSchema,
+		renderCall: renderAgentToolCallTitle("agent_result"),
 		async execute(_toolCallId, params) {
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
 			const result = teamManager.getWorkerResult(workerId);
@@ -569,6 +573,7 @@ export default function (pi: ExtensionAPI): void {
 		description:
 			"Send a message to a tracked worker. Running workers receive it as a mid-stream steer (or a follow_up queued onto the live stream when delivery=follow_up). Idle/waiting_followup workers wake up and start a new turn with the message as the next user prompt; completed/aborted/error/exited workers cannot receive messages.",
 		parameters: WorkerMessageSchema,
+		renderCall: renderAgentToolCallTitle("agent_message"),
 		async execute(_toolCallId, params) {
 			ensureNotReloading();
 			const delivery = params.delivery === "steer" || params.delivery === "follow_up" ? params.delivery : "auto";
@@ -586,6 +591,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Ping Agents",
 		description: "Return passive or active status for tracked workers. Prefer wait_for_agents while waiting. Done statuses are idle/completed/aborted/error/exited; running means not done.",
 		parameters: PingAgentsSchema,
+		renderCall: renderAgentToolCallTitle("ping_agents"),
 		async execute(_toolCallId, params) {
 			const mode = params.mode === "active" ? "active" : "passive";
 			const resolvedIds = params.workerIds?.map((id) => teamManager.resolveWorkerId(id) ?? id);
@@ -602,6 +608,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Wait for Agents",
 		description: "Block until every target worker reaches a terminal status (idle, completed, aborted, error, exited) or until a target raises a new relay question. Also honors a timeout. Returns reason=all_terminal, relay_raised (with newRelays listed), timeout, aborted, or wrapper-only no_workers when no targets are tracked. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting. Use it after delegate_task; when it returns relay_raised, answer via agent_message and call wait_for_agents again to resume.",
 		parameters: WaitForAgentsSchema,
+		renderCall: renderAgentToolCallTitle("wait_for_agents"),
 		async execute(_toolCallId, params, signal) {
 			ensureNotReloading();
 			const targetIds = params.workerIds?.length
@@ -639,6 +646,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Agent Cancel",
 		description: "Abort and shut down a tracked worker.",
 		parameters: WorkerIdSchema,
+		renderCall: renderAgentToolCallTitle("agent_cancel"),
 		async execute(_toolCallId, params) {
 			ensureNotReloading();
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;

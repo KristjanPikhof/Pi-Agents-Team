@@ -100,9 +100,9 @@ test("buildTeamDashboardText groups workers by operator attention and surfaces p
 	};
 	const text = buildTeamDashboardText(state);
 	assert.match(text, /Pi Agents Team Dashboard/);
-	assert.match(text, /Needs reply 1 · Needs recovery 1 · In progress 0 · Completed or idle 1/);
-	assert.match(text, /keyboard-first overlay: queue on the left, inspector on the right when width allows/);
-	assert.match(text, /Use \/team <worker-id> for direct focus, then inspect Overview \/ Deliverable \/ Console tabs/);
+	assert.match(text, /workers 3 · mode orchestrator · relays 0 · Needs reply 1 · Needs recovery 1 · In progress 0 · Completed or idle 1/);
+	assert.match(text, /keyboard-first overlay with the complete worker registry grouped by attention/);
+	assert.match(text, /Use \/team <worker-id> for direct focus, then inspect Workers \/ Inspect \/ Console \/ Cost tabs/);
 	assert.match(text, /Use \/team-result <id> for the final deliverable block/);
 	assert.match(text, /Needs reply \(1\)/);
 	assert.match(text, /reviewer \(worker-1\) — reply: Need operator confirmation/);

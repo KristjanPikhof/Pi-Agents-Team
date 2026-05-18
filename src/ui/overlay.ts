@@ -949,13 +949,24 @@ export function createTeamDashboardOverlayComponent(
 							`↑↓ scroll · space/b · g/G · ${compactTabHint}`,
 							`↑↓ · space/b · g/G · ${compactTabHint}`,
 						]);
-			const sel = state.selectedWorkerId ?? "none";
-			const snippet = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
-			const subHeader = `selected=${sel}  ·  ${snippet}`;
+			const worker = currentWorker();
+			const summaryRow = firstFitting(innerWidth, [
+				buildCompactTeamSummaryLine(snapshot),
+				buildCompactTeamSummaryLine(snapshot).replace(/Needs /g, "").replace("Completed or idle", "Done/idle"),
+				`${Object.keys(snapshot.activeWorkers).length} workers · ${snapshot.relayQueue.length} relays`,
+			]);
+			const selectedHeader = buildSelectedWorkerHeader(worker, innerWidth);
+			const snippet = worker ? buildWorkerPrioritySnippet(worker) : "no worker selected";
+			const selectedSnippet = firstFitting(innerWidth, [
+				`focus: ${snippet}`,
+				snippet,
+			]);
 			const headerLines = [
 				tabBar,
+				accent(summaryRow),
 				dim(helpRow),
-				dim(subHeader),
+				bold(selectedHeader),
+				dim(selectedSnippet),
 			];
 
 			const footerLines: string[] = [];
