@@ -34,13 +34,15 @@ test("status widget hides itself when no workers are tracked", () => {
 	assert.deepEqual(buildTeamWidgetLines(state), []);
 });
 
-test("status line shows orchestrator state with optional rotating tip", () => {
+test("status line shows routing mode, orchestrator state, and optional rotating tip", () => {
 	const state = createDefaultTeamState();
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
+	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Idle");
 	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0)), "Orchestrator · Idle · Tip: Use /team to view workers");
 
 	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running" });
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
+	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Working...");
 	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(1)), "Orchestrator · Working... · Tip: Use /team-result <id> for final output");
 
 	state.activeWorkers.w1.status = "idle";
@@ -227,7 +229,7 @@ test("widget keeps registry order for visible rows while filtering inactive work
 	assert.ok(!plainLines.some((line) => line.includes("└ needs_reply:")), `expected no raw attention key; got:\n${plainLines.join("\n")}`);
 });
 
-test("widget hides old idle and completed rows but keeps queued and hidden summary", () => {
+test("widget treats waiting_followup as live and still summarizes old hidden workers", () => {
 	const state = createDefaultTeamState();
 	const now = 10_000_000;
 	state.activeWorkers.oldDone = makeWorker({ workerId: "oldDone", status: "completed", lastEventAt: now - 10 * 60 * 1_000 });
@@ -235,9 +237,12 @@ test("widget hides old idle and completed rows but keeps queued and hidden summa
 	state.activeWorkers.queued = makeWorker({ workerId: "queued", status: "waiting_followup", lastEventAt: now - 1_000 });
 
 	const lines = buildTeamWidgetLines(state, { now });
-	assert.ok(!lines.some((line) => line.includes("oldDone") || line.includes("oldIdle")), `old terminal rows should be hidden; got:\n${lines.join("\n")}`);
-	assert.ok(lines.some((line) => line.startsWith("● Agents")), `expected Agents tree section; got:\n${lines.join("\n")}`);
-	assert.ok(lines.some((line) => line.includes("1 queued") && line.includes("2 old hidden")), `expected queued/hidden summary; got:\n${lines.join("\n")}`);
+	const plainLines = lines.map(stripAnsi);
+	assert.ok(!plainLines.some((line) => line.includes("oldDone") || line.includes("oldIdle")), `old terminal rows should be hidden; got:\n${plainLines.join("\n")}`);
+	assert.match(plainLines[0]!, /active=1/);
+	assert.ok(plainLines.some((line) => line.includes("▸ 1 queued")), `expected queued count; got:\n${plainLines.join("\n")}`);
+	assert.ok(plainLines.some((line) => line.includes("reviewer (queued)")), `waiting_followup worker should render as a live row; got:\n${plainLines.join("\n")}`);
+	assert.ok(plainLines.some((line) => line.includes("2 old hidden")), `expected hidden summary; got:\n${plainLines.join("\n")}`);
 });
 
 test("widget enforces a hard cap on visible width even with long headlines", () => {
@@ -283,6 +288,9 @@ test("hasAnimatedWorkers flips with non-terminal status", () => {
 	assert.equal(hasAnimatedWorkers(state), false);
 
 	state.activeWorkers.w2 = makeWorker({ workerId: "w2", status: "running" });
+	assert.equal(hasAnimatedWorkers(state), true);
+
+	state.activeWorkers = { w3: makeWorker({ workerId: "w3", status: "waiting_followup" }) };
 	assert.equal(hasAnimatedWorkers(state), true);
 });
 
