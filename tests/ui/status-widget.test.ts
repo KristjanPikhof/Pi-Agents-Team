@@ -128,6 +128,33 @@ test("widget caps active rows and reports hidden workers", () => {
 	}
 });
 
+test("active worker elapsed uses task creation time when a reused worker has a fresh task", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.w1 = makeWorker({
+		workerId: "w1",
+		profileName: "fixer",
+		status: "running",
+		startedAt: now - 60 * 60 * 1_000,
+		currentTask: {
+			taskId: "t2",
+			title: "fresh reused task",
+			goal: "validate elapsed display",
+			requestedBy: "orchestrator",
+			profileName: "fixer",
+			cwd: "/repo",
+			contextHints: [],
+			createdAt: now - 30_000,
+		},
+	});
+
+	const lines = buildTeamWidgetLines(state, { now, frame: 0 });
+	const workerRow = lines.find((line) => line.includes("w1 fixer"));
+	assert.ok(workerRow, `expected worker row; got:\n${lines.join("\n")}`);
+	assert.match(workerRow, /fresh reused task · 30s/);
+	assert.doesNotMatch(workerRow, /1h/);
+});
+
 test("widget prioritizes relay, running, starting, then recent terminal rows", () => {
 	const state = createDefaultTeamState();
 	const now = 10_000_000;

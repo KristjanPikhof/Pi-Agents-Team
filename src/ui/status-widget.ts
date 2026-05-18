@@ -140,10 +140,14 @@ function buildWorkerTitle(worker: WorkerRuntimeState): string {
 	return worker.currentTask?.title?.trim() || worker.lastSummary?.headline?.trim() || formatWorkerStatusLabel(worker);
 }
 
+function getActiveElapsedStart(worker: WorkerRuntimeState): number {
+	return worker.currentTask?.createdAt ?? worker.startedAt;
+}
+
 function buildWorkerCell(worker: WorkerRuntimeState, frame: number, now: number): string {
 	const glyph = statusGlyph(worker, frame);
 	const title = buildWorkerTitle(worker);
-	const statusOrElapsed = isActiveSurfaceWorker(worker) ? formatElapsed(now - worker.startedAt) : formatWorkerStatusLabel(worker);
+	const statusOrElapsed = isActiveSurfaceWorker(worker) ? formatElapsed(now - getActiveElapsedStart(worker)) : formatWorkerStatusLabel(worker);
 	const logical = `${glyph} ${worker.workerId} ${worker.profileName} — ${title} · ${statusOrElapsed}`;
 	return truncateToWidth(logical, HEADER_WIDTH, "…");
 }
