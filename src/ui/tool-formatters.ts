@@ -102,7 +102,7 @@ export function formatDelegateTaskResult(result: DelegateTaskFormatInput): strin
 	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
 	const action = result.reuseWorkerId ? "Reusing" : "Created";
 	const lines = [`${action} ${formatWorkerResultTitle(result.worker)}`, `${TOOL_SECTION_LABELS.task}: ${taskLabel}`];
-	if (task?.cwd) lines.push(`PWD: ${task.cwd}`);
+	if (task?.cwd) lines.push(`Path: ${task.cwd}`);
 	return lines.join("\n");
 }
 
