@@ -516,7 +516,7 @@ export default function (pi: ExtensionAPI): void {
 				content: [
 					{
 						type: "text",
-						text: formatDelegateTaskResult(result.task?.title ?? params.title, result.worker),
+						text: formatDelegateTaskResult({ ...result, reuseWorkerId: params.reuseWorkerId }),
 					},
 				],
 				details: result,

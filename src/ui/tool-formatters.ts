@@ -1,4 +1,4 @@
-import type { WorkerRuntimeState } from "../types";
+import type { DelegatedTaskInput, TeamPathScope, WorkerRuntimeState } from "../types";
 import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
 
 export const TOOL_SECTION_LABELS = {
@@ -101,28 +101,79 @@ export function formatWorkers(workers: readonly WorkerRuntimeState[]): string {
 	return workers.map((worker) => `- ${formatWorkerListItem(worker)}`).join("\n");
 }
 
-export function formatDelegateTaskResult(title: string, worker: Pick<WorkerRuntimeState, "workerId" | "profileName">): string {
-	return `Delegated ${title} to ${worker.profileName} as ${worker.workerId}.`;
+export interface DelegateTaskFormatInput {
+	worker: Pick<WorkerRuntimeState, "workerId" | "profileName" | "status" | "currentTask">;
+	task?: DelegatedTaskInput;
+	reuseWorkerId?: string;
+}
+
+function formatPathScope(pathScope: TeamPathScope): string {
+	const mode = pathScope.allowWrite ? "read/write" : "read-only";
+	return `${mode} ${pathScope.roots.join(", ")}`;
+}
+
+export function formatDelegateTaskResult(result: DelegateTaskFormatInput): string {
+	const task = result.task ?? result.worker.currentTask;
+	const title = task?.title ?? "delegated task";
+	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
+	const lifecycle = result.reuseWorkerId
+		? `reused worker ${result.reuseWorkerId}${task?.taskId ? ` for new task ${task.taskId}` : ""}`
+		: "launched fresh worker";
+	const lines = [
+		`${TOOL_SECTION_LABELS.worker}: ${result.worker.workerId}`,
+		`${TOOL_SECTION_LABELS.task}: ${taskLabel}`,
+		`${TOOL_SECTION_LABELS.profile}: ${result.worker.profileName}`,
+	];
+	if (task?.cwd) lines.push(`${TOOL_SECTION_LABELS.cwd}: ${task.cwd}`);
+	if (task?.pathScope?.roots.length) lines.push(`${TOOL_SECTION_LABELS.pathScope}: ${formatPathScope(task.pathScope)}`);
+	lines.push(
+		`${TOOL_SECTION_LABELS.status}: ${result.worker.status}`,
+		`${TOOL_SECTION_LABELS.lifecycle}: ${lifecycle}`,
+		`${TOOL_SECTION_LABELS.nextAction}: call wait_for_agents with workerIds=["${result.worker.workerId}"] to wait for completion or relay questions`,
+	);
+	return lines.join("\n");
+}
+
+function formatWaitWorkerIds(workers: readonly WorkerRuntimeState[]): string {
+	return `[${workers.map((worker) => JSON.stringify(worker.workerId)).join(",")}]`;
+}
+
+function appendWaitWorkers(lines: string[], workers: readonly WorkerRuntimeState[]): void {
+	lines.push("", "Workers:", formatWorkers(workers));
+}
+
+function appendWaitRelayGuidance(lines: string[], result: WaitForAgentsFormatInput): void {
+	const relays = result.newRelays ?? [];
+	if (relays.length === 0) return;
+	lines.push("", `${TOOL_SECTION_LABELS.relayQuestions}:`);
+	for (const [index, relay] of relays.entries()) {
+		lines.push(`${index + 1}. ${relay.workerId} (${relay.profileName}) urgency=${relay.urgency}`);
+		lines.push(`   question: ${relay.question}`);
+		lines.push(`   reply: agent_message {"workerId":${JSON.stringify(relay.workerId)},"message":"<answer>"}`);
+	}
+	lines.push(`${TOOL_SECTION_LABELS.nextAction}: answer each relay via agent_message, then call wait_for_agents {"workerIds":${formatWaitWorkerIds(result.workers)}} to resume.`);
 }
 
 export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): string {
-	if (result.reason === "no_workers") return "No tracked workers to wait on.";
+	const lines = [`${TOOL_SECTION_LABELS.resultReason}: ${result.reason}`];
+	if (result.reason === "no_workers") {
+		lines.push("No tracked workers to wait on.", `${TOOL_SECTION_LABELS.nextAction}: call delegate_task before waiting for agents.`);
+		return lines.join("\n");
+	}
 
-	let header: string;
 	if (result.reason === "all_terminal") {
-		header = `All ${result.workers.length} worker(s) reached terminal status.`;
+		lines.push(`All ${result.workers.length} worker(s) reached terminal status.`, `${TOOL_SECTION_LABELS.nextAction}: call agent_result for each completed worker you need to synthesize.`);
 	} else if (result.reason === "relay_raised") {
 		const count = result.newRelays?.length ?? 0;
-		header = `${count} new relay question(s) raised — answer via agent_message, then call wait_for_agents again to resume.`;
+		lines.push(`${count} new relay question(s) raised — answer via agent_message, then call wait_for_agents again to resume.`);
+		appendWaitRelayGuidance(lines, result);
 	} else if (result.reason === "timeout") {
-		header = "Wait timed out; some workers may still be running.";
+		lines.push("Wait timed out; some workers may still be running.", `${TOOL_SECTION_LABELS.nextAction}: inspect statuses or call wait_for_agents again with the same workerIds.`);
 	} else {
-		header = "Wait aborted.";
+		lines.push("Wait aborted by the caller before all workers reached terminal status.", `${TOOL_SECTION_LABELS.nextAction}: inspect statuses with agent_status or cancel unwanted workers.`);
 	}
-	const relayLines = (result.newRelays ?? []).map(
-		(relay) => `  ! ${relay.workerId} (${relay.profileName}) [${relay.urgency}] ${relay.question}`,
-	);
-	return [header, ...relayLines, formatWorkers(result.workers)].join("\n");
+	appendWaitWorkers(lines, result.workers);
+	return lines.join("\n");
 }
 
 export function formatWorkerCompact(worker: WorkerRuntimeState): string {

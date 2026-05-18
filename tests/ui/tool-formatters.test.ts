@@ -123,9 +123,45 @@ test("wait formatter preserves reason wording, relay formatting, and worker list
 	assert.match(text, /- w1 \(fixer\) · status=running · task=Question task/);
 });
 
-test("small helpers preserve existing delegate and list contracts", () => {
-	const worker = makeWorker();
-	assert.equal(formatDelegateTaskResult("Build seam", worker), "Delegated Build seam to fixer as w1.");
+test("delegate formatter makes fresh launch lifecycle scannable", () => {
+	const task = {
+		taskId: "t1",
+		title: "Build seam",
+		goal: "Wire shared formatter",
+		requestedBy: "orchestrator" as const,
+		profileName: "fixer",
+		cwd: "/repo",
+		contextHints: [],
+		pathScope: { roots: ["/repo/src", "/repo/tests"], allowReadOutsideRoots: false, allowWrite: true },
+		createdAt: 3,
+	};
+	const worker = makeWorker({ status: "running", currentTask: task });
+	const text = formatDelegateTaskResult({ worker, task });
+
+	assert.match(text, /^Worker: w1\nTask: Build seam \(t1\)\nProfile: fixer\nCWD: \/repo\nPath scope: read\/write \/repo\/src, \/repo\/tests\nStatus: running\nLifecycle: launched fresh worker\nNext: call wait_for_agents with workerIds=\["w1"\]/);
+});
+
+test("delegate formatter shows reuse state with same worker and new task", () => {
+	const task = {
+		taskId: "t2",
+		title: "Follow-up fix",
+		goal: "Reuse the warm worker",
+		requestedBy: "orchestrator" as const,
+		profileName: "fixer",
+		cwd: "/repo",
+		contextHints: [],
+		createdAt: 4,
+	};
+	const worker = makeWorker({ status: "running", currentTask: task });
+	const text = formatDelegateTaskResult({ worker, task, reuseWorkerId: "w1" });
+
+	assert.match(text, /Worker: w1/);
+	assert.match(text, /Task: Follow-up fix \(t2\)/);
+	assert.match(text, /Lifecycle: reused worker w1 for new task t2/);
+	assert.match(text, /Next: call wait_for_agents with workerIds=\["w1"\]/);
+});
+
+test("small helpers preserve list contracts", () => {
 	assert.equal(formatWorkers([]), "No active or persisted workers.");
 	assert.equal(truncateList(["a", "b", "c"], 2), "a, b… (+1 more)");
 });
