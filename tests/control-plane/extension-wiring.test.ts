@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import extension from "../../extensions/pi-agent-team/index";
 
 interface RegisteredTool {
@@ -54,4 +57,76 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(tools.every((tool) => typeof tool.renderCall === "function"));
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("before_agent_start"));
+});
+
+test("extension rotates footer tips with an unref'd timer and clears it on shutdown", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const statusLines: Array<string | undefined> = [];
+	const callbacks: Array<() => void> = [];
+	const timers: unknown[] = [];
+	let intervalMs: number | undefined;
+	let unrefCount = 0;
+	let clearedTimer: unknown;
+	const originalSetInterval = globalThis.setInterval;
+	const originalClearInterval = globalThis.clearInterval;
+
+	try {
+		(globalThis as any).setInterval = (callback: () => void, ms?: number) => {
+			callbacks.push(callback);
+			intervalMs = ms;
+			const timer = {
+				unref() {
+					unrefCount += 1;
+				},
+			};
+			timers.push(timer);
+			return timer;
+		};
+		(globalThis as any).clearInterval = (timer: unknown) => {
+			clearedTimer = timer;
+		};
+
+		extension({
+			registerTool() {},
+			registerCommand() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) {
+				handlers.set(event, handler);
+			},
+			appendEntry() {},
+			sendMessage() {},
+		} as any);
+
+		const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-tip-timer-"));
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: {
+				notify() {},
+				setStatus(_key: string, value: string | undefined) {
+					statusLines.push(value);
+				},
+				setWidget() {},
+				setTitle() {},
+			},
+			sessionManager: {
+				getEntries() {
+					return [];
+				},
+			},
+		} as any;
+
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		assert.equal(intervalMs, 15_000);
+		assert.equal(unrefCount, 1);
+		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle · Tip: Use \/team to view workers/);
+
+		callbacks[0]?.();
+		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle · Tip: Use \/team-result <id> for final output/);
+
+		await handlers.get("session_shutdown")?.({}, ctx);
+		assert.equal(clearedTimer, timers[0]);
+	} finally {
+		globalThis.setInterval = originalSetInterval;
+		globalThis.clearInterval = originalClearInterval;
+	}
 });
