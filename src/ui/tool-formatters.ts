@@ -1,7 +1,6 @@
-import type { DelegatedTaskInput, TeamPathScope, WorkerRuntimeState } from "../types";
+import type { DelegatedTaskInput, WorkerRuntimeState } from "../types";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
 import { bold } from "./theme";
-import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
 
 export const TOOL_SECTION_LABELS = {
 	worker: "Worker",
@@ -46,27 +45,6 @@ export function truncateList(items: readonly string[], max: number): string {
 	return `${items.slice(0, max).join(", ")}… (+${items.length - max} more)`;
 }
 
-function formatUsage(worker: WorkerRuntimeState, compact: boolean): string {
-	const input = compact ? formatCompactTokenCount(worker.usage.inputTokens) : String(worker.usage.inputTokens);
-	const output = compact ? formatCompactTokenCount(worker.usage.outputTokens) : String(worker.usage.outputTokens);
-	return `${TOOL_SECTION_LABELS.usage}: turns=${worker.usage.turns} input=${input} output=${output} cost=$${worker.usage.costUsd.toFixed(4)}`;
-}
-
-function appendListLine(lines: string[], label: string, items: readonly string[], max?: number): void {
-	if (items.length === 0) return;
-	lines.push(`${label}: ${max ? truncateList(items, max) : items.join(", ")}`);
-}
-
-function appendWorkerSummary(lines: string[], worker: WorkerRuntimeState, limits?: { readFiles: number; changedFiles: number; risks: number }): void {
-	const summary = worker.lastSummary;
-	if (!summary) return;
-	if (summary.headline) lines.push(`${TOOL_SECTION_LABELS.summary}: ${summary.headline}`);
-	appendListLine(lines, TOOL_SECTION_LABELS.readFiles, summary.readFiles, limits?.readFiles);
-	appendListLine(lines, TOOL_SECTION_LABELS.changedFiles, summary.changedFiles, limits?.changedFiles);
-	appendListLine(lines, TOOL_SECTION_LABELS.risks, summary.risks, limits?.risks);
-	if (summary.nextRecommendation) lines.push(`${TOOL_SECTION_LABELS.nextAction}: ${summary.nextRecommendation}`);
-}
-
 function formatWorkerResultTitle(worker: Pick<WorkerRuntimeState, "workerId" | "profileName">): string {
 	return `${bold(formatProfileLabel(worker.profileName))} ${formatWorkerDisplayId(worker.workerId)}`;
 }
@@ -89,12 +67,6 @@ function appendRelayQuestions(lines: string[], worker: WorkerRuntimeState): void
 		lines.push(`- [${relay.urgency}] ${relay.question}`);
 		lines.push(`  assumption: ${relay.assumption}`);
 	}
-}
-
-function appendUsageAndContext(lines: string[], worker: WorkerRuntimeState, compactUsage: boolean): void {
-	lines.push(formatUsage(worker, compactUsage));
-	const contextBudget = formatContextBudget(worker.usage);
-	if (contextBudget) lines.push(`${TOOL_SECTION_LABELS.context}: ${contextBudget}`);
 }
 
 function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState): void {
@@ -122,11 +94,6 @@ export interface DelegateTaskFormatInput {
 	worker: Pick<WorkerRuntimeState, "workerId" | "profileName" | "status" | "currentTask">;
 	task?: DelegatedTaskInput;
 	reuseWorkerId?: string;
-}
-
-function formatPathScope(pathScope: TeamPathScope): string {
-	const mode = pathScope.allowWrite ? "read/write" : "read-only";
-	return `${mode} ${pathScope.roots.join(", ")}`;
 }
 
 export function formatDelegateTaskResult(result: DelegateTaskFormatInput): string {
