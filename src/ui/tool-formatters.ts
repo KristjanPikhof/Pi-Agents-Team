@@ -22,15 +22,12 @@ export const TOOL_SECTION_LABELS = {
 	usage: "Usage",
 	context: "Context",
 	error: "Error",
-	finalAnswerNote: "Final answer note",
-	finalAnswer: "--- Final answer (from worker's <final_answer> block) ---",
-	latestAssistantText: "--- Latest assistant text ---",
+	finalAnswerNote: "Result note",
+	finalAnswer: "Result",
+	latestAssistantText: "Latest assistant text",
 } as const;
 
-const FINAL_ANSWER_MISSING_MESSAGE =
-	"No <final_answer> block extracted yet. This agent_result has no authoritative deliverable; steer/re-delegate with: `Please wrap your final deliverable in <final_answer>…</final_answer> tags.`";
-
-const FINAL_ANSWER_THIN_WORD_LIMIT = 3;
+const FINAL_ANSWER_MISSING_MESSAGE = "No <final_answer> block extracted yet.";
 
 export interface WaitForAgentsFormatInput {
 	reason: "all_terminal" | "timeout" | "aborted" | "relay_raised" | "no_workers";
@@ -75,7 +72,7 @@ function formatWorkerResultTitle(worker: Pick<WorkerRuntimeState, "workerId" | "
 }
 
 function shouldShowWorkerResultStatus(worker: WorkerRuntimeState): boolean {
-	return !(worker.status === "completed" || (worker.status === "idle" && Boolean(worker.finalAnswer)));
+	return !(Boolean(worker.finalAnswer) && (worker.status === "completed" || worker.status === "idle"));
 }
 
 function appendWorkerResultHeader(lines: string[], worker: WorkerRuntimeState): void {
@@ -103,26 +100,15 @@ function appendUsageAndContext(lines: string[], worker: WorkerRuntimeState, comp
 function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState): void {
 	const finalAnswer = worker.finalAnswer?.trim();
 	if (!finalAnswer) {
-		lines.push("", TOOL_SECTION_LABELS.finalAnswer, FINAL_ANSWER_MISSING_MESSAGE);
+		lines.push("", `${TOOL_SECTION_LABELS.finalAnswer}:`, FINAL_ANSWER_MISSING_MESSAGE);
 		return;
 	}
-	const wordCount = finalAnswer.split(/\s+/).filter(Boolean).length;
-	if (wordCount <= FINAL_ANSWER_THIN_WORD_LIMIT) {
-		lines.push(`${TOOL_SECTION_LABELS.finalAnswerNote}: very short final_answer (${wordCount} word${wordCount === 1 ? "" : "s"}); verify it is sufficient before synthesizing.`);
-	}
-	lines.push("", TOOL_SECTION_LABELS.finalAnswer, finalAnswer);
+	lines.push("", `${TOOL_SECTION_LABELS.finalAnswer}:`, finalAnswer);
 }
 
 export function formatWorkerListItem(worker: WorkerRuntimeState): string {
 	const parts = [formatWorkerToolLabel(worker), `status=${worker.status} (${formatWorkerStatusLabel(worker)})`];
-	const contextBudget = formatContextBudget(worker.usage);
-	if (contextBudget) parts.push(contextBudget);
 	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
-	if (worker.lastToolName && worker.status === "running") parts.push(`tool=${worker.lastToolName}`);
-	if (worker.lastSummary?.headline) {
-		const tag = worker.status === "running" ? "interim" : "summary";
-		parts.push(`${tag}=${worker.lastSummary.headline}`);
-	}
 	if (worker.pendingRelayQuestions.length > 0) parts.push(`relays=${worker.pendingRelayQuestions.length}`);
 	return parts.join(" · ");
 }
@@ -147,21 +133,8 @@ export function formatDelegateTaskResult(result: DelegateTaskFormatInput): strin
 	const task = result.task ?? result.worker.currentTask;
 	const title = task?.title ?? "delegated task";
 	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
-	const lifecycle = result.reuseWorkerId
-		? `reused worker ${result.reuseWorkerId}${task?.taskId ? ` for new task ${task.taskId}` : ""}`
-		: "launched fresh worker";
-	const lines = [
-		`${TOOL_SECTION_LABELS.worker}: ${result.worker.workerId}`,
-		`${TOOL_SECTION_LABELS.task}: ${taskLabel}`,
-		`${TOOL_SECTION_LABELS.profile}: ${result.worker.profileName}`,
-	];
-	if (task?.cwd) lines.push(`${TOOL_SECTION_LABELS.cwd}: ${task.cwd}`);
-	if (task?.pathScope?.roots.length) lines.push(`${TOOL_SECTION_LABELS.pathScope}: ${formatPathScope(task.pathScope)}`);
-	lines.push(
-		`${TOOL_SECTION_LABELS.status}: ${result.worker.status} (${formatWorkerStatusLabel(result.worker)})`,
-		`${TOOL_SECTION_LABELS.lifecycle}: ${lifecycle}`,
-		`${TOOL_SECTION_LABELS.nextAction}: call wait_for_agents with workerIds=["${result.worker.workerId}"] to wait for completion or relay questions`,
-	);
+	const lines = [formatWorkerResultTitle(result.worker), `${TOOL_SECTION_LABELS.task}: ${taskLabel}`];
+	lines.push(`${TOOL_SECTION_LABELS.nextAction}: wait_for_agents workerIds=["${result.worker.workerId}"]`);
 	return lines.join("\n");
 }
 
@@ -211,9 +184,7 @@ export function formatWorkerCompact(worker: WorkerRuntimeState): string {
 	const lines: string[] = [];
 	appendWorkerResultHeader(lines, worker);
 
-	appendWorkerSummary(lines, worker, { readFiles: 10, changedFiles: 10, risks: 5 });
 	appendRelayQuestions(lines, worker);
-	appendUsageAndContext(lines, worker, false);
 	appendFinalAnswer(lines, worker);
 	return lines.join("\n");
 }
@@ -221,16 +192,11 @@ export function formatWorkerCompact(worker: WorkerRuntimeState): string {
 export function formatWorkerDetail(worker: WorkerRuntimeState, options: FormatWorkerDetailOptions = {}): string {
 	const lines: string[] = [];
 	appendWorkerResultHeader(lines, worker);
-	if (worker.lastToolName) lines.push(`Last tool: ${worker.lastToolName}`);
-
-	appendWorkerSummary(lines, worker);
 	appendRelayQuestions(lines, worker);
-	lines.push("");
-	appendUsageAndContext(lines, worker, options.compactUsage ?? true);
 	appendFinalAnswer(lines, worker);
 
-	if (options.transcript && options.transcript.trim()) {
-		lines.push("", TOOL_SECTION_LABELS.latestAssistantText, options.transcript.trim());
+	if (!worker.finalAnswer?.trim() && options.transcript && options.transcript.trim()) {
+		lines.push("", `${TOOL_SECTION_LABELS.latestAssistantText}:`, options.transcript.trim());
 	}
 
 	return lines.join("\n");

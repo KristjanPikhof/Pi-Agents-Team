@@ -64,7 +64,8 @@ test("/team-result <id> emits the formatted worker detail for a known worker", a
 	const detailSection = plain.split("--- Latest assistant text ---")[0]!;
 	assert.match(detailSection, new RegExp(`^reviewer \\(${delegated.worker.workerId}\\)`));
 	assert.match(detailSection, /Task: Inspect runtime/);
-	assert.match(detailSection, /Usage: turns=/);
+	assert.match(detailSection, /Result:\n/);
+	assert.doesNotMatch(detailSection, /^Usage:/m);
 	assert.doesNotMatch(detailSection, /^Worker:/m);
 	assert.doesNotMatch(detailSection, /^Profile:/m);
 	assert.doesNotMatch(detailSection, /^Goal:/m);
@@ -94,7 +95,7 @@ test("/team-result without an id notifies usage", async () => {
 	assert.match(harness.notifications[0]!.message, /Usage: \/team-result/);
 });
 
-test("formatWorkerDetail uses compact token counts and context budget for scanned terminal display", () => {
+test("formatWorkerDetail suppresses usage and context metadata", () => {
 	const worker: WorkerRuntimeState = {
 		workerId: "w6",
 		profileName: "reviewer",
@@ -117,8 +118,9 @@ test("formatWorkerDetail uses compact token counts and context budget for scanne
 		},
 	};
 	const text = resultTesting.formatWorkerDetail(worker, undefined);
-	assert.match(text, /Usage: turns=4 input=1\.2k output=2\.5m cost=\$0\.4200/);
-	assert.match(text, /Context: ctx=64%\/200k rem=72k/);
+	assert.doesNotMatch(text, /^Usage:/m);
+	assert.doesNotMatch(text, /^Context:/m);
+	assert.match(text, /Result:\nNo <final_answer> block extracted yet\./);
 });
 
 test("formatWorkerDetail without transcript renders the placeholder line (parity with inline agent-result)", () => {
@@ -142,7 +144,7 @@ test("formatWorkerDetail without transcript renders the placeholder line (parity
 	assert.doesNotMatch(plain, /Latest assistant text/);
 });
 
-test("formatWorkerDetail prints the final answer before latest assistant text", () => {
+test("formatWorkerDetail prints final answer and suppresses transcript when final exists", () => {
 	const worker: WorkerRuntimeState = {
 		workerId: "w8",
 		profileName: "reviewer",
@@ -155,12 +157,9 @@ test("formatWorkerDetail prints the final answer before latest assistant text", 
 		usage: { turns: 1, inputTokens: 10, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01 },
 	};
 	const text = resultTesting.formatWorkerDetail(worker, "intermediate assistant tail");
-	const finalIndex = text.indexOf("--- Final answer");
-	const transcriptIndex = text.indexOf("--- Latest assistant text");
-	assert.ok(finalIndex >= 0, "expected final answer section");
-	assert.ok(transcriptIndex > finalIndex, "expected transcript after final answer");
-	assert.match(text, /Authoritative worker deliverable/);
-	assert.match(text, /intermediate assistant tail/);
+	assert.match(text, /Result:\nAuthoritative worker deliverable/);
+	assert.doesNotMatch(text, /Latest assistant text/);
+	assert.doesNotMatch(text, /intermediate assistant tail/);
 });
 
 test("formatWorkerDetail strips raw final_answer blocks from latest assistant text", () => {
@@ -180,8 +179,9 @@ test("formatWorkerDetail strips raw final_answer blocks from latest assistant te
 		"prelude\n<final_answer>\nraw duplicate transcript block\n</final_answer>",
 	);
 
-	assert.match(text, /--- Final answer \(from worker's <final_answer> block\) ---\nAuthoritative section stays formatted\./);
-	assert.match(text, /--- Latest assistant text ---\nprelude$/);
+	assert.match(text, /Result:\nAuthoritative section stays formatted\./);
+	assert.doesNotMatch(text, /Latest assistant text/);
+	assert.doesNotMatch(text, /prelude/);
 	assert.doesNotMatch(text, /raw duplicate transcript block/);
 	assert.doesNotMatch(text, /<\/final_answer>$/);
 });

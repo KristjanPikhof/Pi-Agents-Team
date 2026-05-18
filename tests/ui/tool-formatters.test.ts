@@ -35,10 +35,10 @@ test("shared labels define the scan order vocabulary for tool results", () => {
 	assert.equal(TOOL_SECTION_LABELS.relayQuestions, "Pending relay questions");
 	assert.equal(TOOL_SECTION_LABELS.readFiles, "Read files (readFiles/files_read)");
 	assert.equal(TOOL_SECTION_LABELS.changedFiles, "Changed files (changedFiles/files_changed)");
-	assert.equal(TOOL_SECTION_LABELS.finalAnswer, "--- Final answer (from worker's <final_answer> block) ---");
+	assert.equal(TOOL_SECTION_LABELS.finalAnswer, "Result");
 });
 
-test("formatWorkerDetail uses compact status-widget-style header, then task, summary, relay, usage, final answer, transcript", () => {
+test("formatWorkerDetail keeps only title, task, relay, and result", () => {
 	const worker = makeWorker({
 		currentTask: {
 			taskId: "t1",
@@ -73,15 +73,8 @@ test("formatWorkerDetail uses compact status-widget-style header, then task, sum
 	const ordered = [
 		"fixer (w1)",
 		"Task: Implement foundation",
-		"Headline: Foundation added",
-		"Read files (readFiles/files_read): src/a.ts",
-		"Changed files (changedFiles/files_changed): src/b.ts",
-		"Risks: none",
-		"Next: tool lanes can consume helpers",
 		"Pending relay questions:",
-		"Usage: turns=1 input=1.2k output=3.4k cost=$0.0123",
-		"--- Final answer (from worker's <final_answer> block) ---",
-		"--- Latest assistant text ---",
+		"Result:\ndone",
 	];
 	let lastIndex = -1;
 	for (const part of ordered) {
@@ -95,9 +88,15 @@ test("formatWorkerDetail uses compact status-widget-style header, then task, sum
 	assert.doesNotMatch(plain, /^Goal:/m);
 	assert.doesNotMatch(plain, /^CWD:/m);
 	assert.doesNotMatch(plain, /^Path scope:/m);
+	assert.doesNotMatch(plain, /^Headline:/m);
+	assert.doesNotMatch(plain, /^Read files/m);
+	assert.doesNotMatch(plain, /^Changed files/m);
+	assert.doesNotMatch(plain, /^Risks:/m);
+	assert.doesNotMatch(plain, /^Usage:/m);
+	assert.doesNotMatch(plain, /Latest assistant text/);
 });
 
-test("formatWorkerCompact truncates summary lists but preserves final_answer verbatim", () => {
+test("formatWorkerCompact suppresses summary lists but preserves final_answer verbatim", () => {
 	const worker = makeWorker({
 		lastSummary: {
 			workerId: "w1",
@@ -113,9 +112,9 @@ test("formatWorkerCompact truncates summary lists but preserves final_answer ver
 		finalAnswer: "line 1\nline 2",
 	});
 	const text = formatWorkerCompact(worker);
-	assert.match(text, /Read files \(readFiles\/files_read\): read-0\.ts, read-1\.ts, read-2\.ts, read-3\.ts, read-4\.ts, read-5\.ts, read-6\.ts, read-7\.ts, read-8\.ts, read-9\.ts… \(\+2 more\)/);
-	assert.match(text, /Risks: r1, r2, r3, r4, r5… \(\+1 more\)/);
-	assert.match(text, /--- Final answer \(from worker's <final_answer> block\) ---\nline 1\nline 2/);
+	assert.doesNotMatch(text, /Read files/);
+	assert.doesNotMatch(text, /Risks:/);
+	assert.match(text, /Result:\nline 1\nline 2/);
 });
 
 test("formatWorkerCompact makes normal agent_result sections scannable without transcript", () => {
@@ -142,26 +141,25 @@ test("formatWorkerCompact makes normal agent_result sections scannable without t
 	for (const part of [
 		"fixer (w1)",
 		"Task: Render result",
-		"Headline: Renderer improved",
-		"Read files (readFiles/files_read): src/ui/tool-formatters.ts",
-		"Changed files (changedFiles/files_changed): tests/ui/tool-formatters.test.ts",
-		"Risks: none",
-		"Next: reviewer to spot-check output",
-		"Usage: turns=1 input=1200 output=3400 cost=$0.0123",
-		"--- Final answer (from worker's <final_answer> block) ---\nheadline: renderer improved\nverification: npm test passed",
+		"Result:\nheadline: renderer improved\nverification: npm test passed",
 	]) assert.match(plain, new RegExp(part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 	assert.doesNotMatch(plain, /^Worker:/m);
 	assert.doesNotMatch(plain, /^Status: completed/m);
+	assert.doesNotMatch(plain, /^Headline:/m);
+	assert.doesNotMatch(plain, /^Read files/m);
+	assert.doesNotMatch(plain, /^Changed files/m);
+	assert.doesNotMatch(plain, /^Risks:/m);
+	assert.doesNotMatch(plain, /^Usage:/m);
 	assert.doesNotMatch(plain, /Latest assistant text/);
 });
 
-test("formatWorkerCompact shows no-final and thin-final guidance", () => {
+test("formatWorkerCompact shows concise no-final and thin-final output", () => {
 	const noFinal = formatWorkerCompact(makeWorker());
-	assert.match(noFinal, /--- Final answer \(from worker's <final_answer> block\) ---\nNo <final_answer> block extracted yet/);
+	assert.match(noFinal, /Result:\nNo <final_answer> block extracted yet/);
 
 	const thin = formatWorkerCompact(makeWorker({ finalAnswer: "done" }));
-	assert.match(thin, /Final answer note: very short final_answer \(1 word\); verify it is sufficient before synthesizing\./);
-	assert.match(thin, /--- Final answer \(from worker's <final_answer> block\) ---\ndone/);
+	assert.doesNotMatch(thin, /very short final_answer/);
+	assert.match(thin, /Result:\ndone/);
 });
 
 test("formatWorkerCompact surfaces error workers, pending relays, aliases, and usage context", () => {
@@ -184,11 +182,11 @@ test("formatWorkerCompact surfaces error workers, pending relays, aliases, and u
 	});
 	const text = formatWorkerCompact(worker);
 	assert.match(text, /Error: worker crashed/);
-	assert.match(text, /Read files \(readFiles\/files_read\): src\/from-files-read\.ts/);
-	assert.match(text, /Changed files \(changedFiles\/files_changed\): src\/from-changed-files\.ts/);
+	assert.doesNotMatch(text, /Read files/);
+	assert.doesNotMatch(text, /Changed files/);
 	assert.match(text, /Pending relay questions:\n- \[high\] Retry with smaller scope\?\n  assumption: Yes/);
-	assert.match(text, /Usage: turns=2 input=1500 output=2500 cost=\$0\.5000/);
-	assert.match(text, /Context: ctx=64%\/200k rem=72k/);
+	assert.doesNotMatch(text, /^Usage:/m);
+	assert.doesNotMatch(text, /^Context:/m);
 });
 
 test("wait formatter makes all_terminal outcome and next action scannable", () => {
@@ -256,7 +254,8 @@ test("delegate formatter makes fresh launch lifecycle scannable", () => {
 	const worker = makeWorker({ status: "running", currentTask: task });
 	const text = formatDelegateTaskResult({ worker, task });
 
-	assert.match(text, /^Worker: w1\nTask: Build seam \(t1\)\nProfile: fixer\nCWD: \/repo\nPath scope: read\/write \/repo\/src, \/repo\/tests\nStatus: running \(Running\)\nLifecycle: launched fresh worker\nNext: call wait_for_agents with workerIds=\["w1"\]/);
+	const plain = stripAnsi(text);
+	assert.equal(plain, "fixer (w1)\nTask: Build seam (t1)\nNext: wait_for_agents workerIds=[\"w1\"]");
 });
 
 test("delegate formatter shows reuse state with same worker and new task", () => {
@@ -273,10 +272,11 @@ test("delegate formatter shows reuse state with same worker and new task", () =>
 	const worker = makeWorker({ status: "running", currentTask: task });
 	const text = formatDelegateTaskResult({ worker, task, reuseWorkerId: "w1" });
 
-	assert.match(text, /Worker: w1/);
-	assert.match(text, /Task: Follow-up fix \(t2\)/);
-	assert.match(text, /Lifecycle: reused worker w1 for new task t2/);
-	assert.match(text, /Next: call wait_for_agents with workerIds=\["w1"\]/);
+	const plain = stripAnsi(text);
+	assert.match(plain, /^fixer \(w1\)/);
+	assert.match(plain, /Task: Follow-up fix \(t2\)/);
+	assert.doesNotMatch(plain, /Lifecycle:/);
+	assert.match(plain, /Next: wait_for_agents workerIds=\["w1"\]/);
 });
 
 test("small helpers preserve list contracts", () => {
