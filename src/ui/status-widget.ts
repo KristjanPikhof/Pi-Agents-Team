@@ -212,9 +212,7 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	const visibleWorkers = workers.slice(0, MAX_WIDGET_WORKERS);
 	const hiddenByCap = workers.length - visibleWorkers.length;
 	const hiddenByRetention = allWorkers.filter((worker) => TERMINAL_STATUSES.has(worker.status) && !shouldRenderWorker(worker, now)).length;
-	const queued = allWorkers.filter((worker) => worker.status === "waiting_followup" && worker.pendingRelayQuestions.length === 0).length;
 	const summaryParts: string[] = [];
-	if (queued > 0) summaryParts.push(`${queued} queued`);
 	if (hiddenByCap > 0) summaryParts.push(`${hiddenByCap} more`);
 	if (hiddenByRetention > 0) summaryParts.push(`${hiddenByRetention} old hidden`);
 	if (visibleWorkers.length > 0 || summaryParts.length > 0) {
