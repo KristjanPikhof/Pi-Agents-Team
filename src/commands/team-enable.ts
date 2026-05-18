@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { Value } from "typebox/value";
 import { TeamProjectConfigSchema } from "../config";
 import { getProjectConfigPathForScope } from "../project-config/loader";
+import { formatCommandWarning } from "../ui/display-grammar";
 import type { LoadedTeamProjectConfig } from "../types";
 import { TEAM_PROJECT_SCHEMA_VERSION } from "../types";
 import { atomicWriteFileSync } from "../util/backup";
@@ -112,14 +113,14 @@ export function runSetRoutingMode(
 	try {
 		deps.ensureNotReloading();
 	} catch (error) {
-		ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+		ctx.ui.notify(formatCommandWarning(error instanceof Error ? error.message : String(error)), "warning");
 		return;
 	}
 
 	const projectConfig = deps.getProjectConfig();
 	if (mode === "team" && !projectConfig.enabled) {
 		ctx.ui.notify(
-			"Pi Agents Team is disabled — enable it by editing agents-team.json (set enabled: true), then /reload.",
+			formatCommandWarning("Pi Agents Team is disabled — enable it by editing agents-team.json (set enabled: true), then /reload."),
 			"warning",
 		);
 		return;
@@ -129,7 +130,7 @@ export function runSetRoutingMode(
 		const sourceSuffix = projectConfig.sourcePath ? ` at ${projectConfig.sourcePath}` : "";
 		const errorSuffix = firstError ? `: ${firstError.message}` : ".";
 		ctx.ui.notify(
-			`Cannot enable team routing: agents-team.json is invalid${sourceSuffix}${errorSuffix} Fix the config and /reload first.`,
+			formatCommandWarning(`Cannot enable team routing: agents-team.json is invalid${sourceSuffix}${errorSuffix} Fix the config and /reload first.`),
 			"warning",
 		);
 		return;
@@ -140,7 +141,7 @@ export function runSetRoutingMode(
 	manager.setRoutingMode(mode);
 
 	const lines: string[] = [
-		`Routing mode: ${previousMode} → ${mode}.`,
+		`${mode === "team" ? "Team enabled" : "Team disabled"} — routing mode: ${previousMode} → ${mode}.`,
 	];
 
 	const explicitScope = persist;
@@ -186,7 +187,7 @@ export function registerTeamEnableCommand(pi: ExtensionAPI, dependencies: TeamEn
 		handler: async (args, ctx) => {
 			const parsed = parseTeamEnableArgs(args);
 			if (parsed.error || !parsed.mode) {
-				ctx.ui.notify(parsed.error ?? "Usage: /team-enable on|off [--persist global|local]", "warning");
+				ctx.ui.notify(formatCommandWarning(parsed.error ?? "Usage: /team-enable on|off [--persist global|local]"), "warning");
 				return;
 			}
 			runSetRoutingMode(parsed.mode, parsed.persist, ctx, dependencies);

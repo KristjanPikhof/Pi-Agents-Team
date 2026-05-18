@@ -399,7 +399,7 @@ The worker inherits your Pi auth setup. Fix the missing provider key first, then
 
 Expected. Persisted workers are force-marked `exited` on restore so the operator sees what existed before the reload without being misled about process liveness.
 
-On a warm session start (`reload`, `resume`, `fork`, `new`), a one-line warning toast announces how many workers were flipped and the session-start reason. Example: `Pi Agents Team: 3 workers from prior session marked exited (resume). Relaunch via delegate_task if still needed.` Cold `startup` keeps the original info toast (`Pi Agents Team loaded…`). Each flipped worker's `error` field carries a reason-specific message (`session resumed…`, `session forked…`), which surfaces in `/team` detail view and copy payloads.
+On a warm session start (`reload`, `resume`, `fork`, `new`), a one-line warning toast announces how many workers were flipped and the session-start reason. Example: `Workers exited — 3 workers restored from resume; relaunch if needed.` Cold `startup` shows the compact info toast `Team ready — orchestrator mode`. Each flipped worker's `error` field carries a reason-specific message (`session resumed…`, `session forked…`), which surfaces in `/team` detail view and copy payloads.
 
 ### `/team-steer` "seems queued but nothing happens"
 
@@ -417,9 +417,9 @@ Launch policy is doing its job. `fixer` requires an explicit writable `pathScope
 
 The worker finished but did not follow the contract. Three moves, in order of preference: re-delegate with smaller slices, steer the existing worker with `/team-steer <id> <corrective message>` asking it to re-issue the final answer, or stop and re-spawn with a better brief. Do not fall back to running `bash`/`read`/`grep` yourself.
 
-### "Worker finished" toast fired, but the worker is still running
+### "Worker complete" toast fired, but the worker is still running
 
-Fixed. The `starting → idle` race has a guard in `applyNormalizedEvent` (worker stays `starting` until actually prompted) plus a filter in `flushTerminalNotifications` that drops entries whose status has flipped back off-terminal by flush time. If you see this again, it is a real bug: check `src/runtime/worker-manager.ts` and the `onStateChange` listener in the internal implementation entrypoint (`extensions/pi-agent-team/index.ts`).
+Fixed. The `starting → idle` race has a guard in `applyNormalizedEvent` (worker stays `starting` until actually prompted) plus a filter in the batched worker notification flush that drops entries whose status has flipped back off-terminal by flush time. Terminal toasts use user-facing actions (`complete`, `failed`, `cancelled`, `exited`) while preserving internal statuses in `/team` and tool results. If you see this again, it is a real bug: check `src/runtime/worker-manager.ts` and the `onStateChange` listener in the internal implementation entrypoint (`extensions/pi-agent-team/index.ts`).
 
 ## Local verification commands
 

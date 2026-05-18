@@ -663,8 +663,8 @@ export function createTeamDashboardOverlayComponent(
 			teamManager.getWorkerConsole(worker.workerId),
 		);
 		copyToClipboard(payload)
-			.then(() => setStatus(`Copied ${worker.workerId} (${payload.length.toLocaleString()} chars)`))
-			.catch((error) => setStatus(`Copy failed: ${error instanceof Error ? error.message : String(error)}`, 4000));
+			.then(() => setStatus(`Copy complete — ${worker.workerId} (${payload.length.toLocaleString()} chars)`))
+			.catch((error) => setStatus(`Warning — copy failed: ${error instanceof Error ? error.message : String(error)}`, 4000));
 	};
 
 	const openModal = (kind: ModalKind, workerId?: string) => {
