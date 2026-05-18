@@ -1,7 +1,8 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
-import { formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
+import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
+import { bold } from "./theme";
 import { formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -137,26 +138,36 @@ function getActiveElapsedStart(worker: WorkerRuntimeState): number {
 
 function buildWorkerCell(worker: WorkerRuntimeState, frame: number, now: number, connector: "├" | "└"): string {
 	const glyph = statusGlyph(worker, frame);
+	const identity = `${bold(formatProfileLabel(worker.profileName))} ${formatWorkerDisplayId(worker.workerId)}`;
+	if (getWorkerAttentionPriority(worker) === "completed_or_idle") {
+		return truncateToWidth(`${connector} ${glyph} ${identity} · Done`, HEADER_WIDTH, "…");
+	}
 	const title = buildWorkerTitle(worker);
 	const statusOrElapsed = isActiveSurfaceWorker(worker) ? formatElapsed(now - getActiveElapsedStart(worker)) : formatWorkerStatusLabel(worker);
-	const logical = `${connector} ${glyph} ${worker.workerId} ${worker.profileName} — ${title} · ${statusOrElapsed}`;
+	const logical = `${connector} ${glyph} ${identity} · ${title} · ${statusOrElapsed}`;
 	return truncateToWidth(logical, HEADER_WIDTH, "…");
 }
 
 function buildWorkerActivityLine(worker: WorkerRuntimeState, hasFollowingRow: boolean): string | undefined {
+	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker));
+	if (attention.key === "completed_or_idle") return undefined;
 	const relay = worker.pendingRelayQuestions[0];
 	const detail = relay?.question
 		?? worker.lastSummary?.headline
 		?? (worker.lastToolName ? `tool: ${worker.lastToolName}` : undefined)
 		?? (worker.error ? `error: ${worker.error}` : undefined);
 	if (!detail) return undefined;
-	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker));
 	const gutter = hasFollowingRow ? "│" : " ";
 	return truncateToWidth(`${gutter}  └ ${attention.label}: ${detail}`, HEADER_WIDTH, "…");
 }
 
 function buildAgentsSummaryLine(summaryParts: string[]): string {
 	return truncateToWidth(`└ + ${summaryParts.join(" · ")} · /team to view`, HEADER_WIDTH, "…");
+}
+
+function rightAlignToWidth(text: string, width: number): string {
+	const truncated = truncateToWidth(text, width, "…");
+	return `${" ".repeat(Math.max(0, width - visibleWidth(truncated)))}${truncated}`;
 }
 
 function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number, hasSummaryRow: boolean): string[] {
@@ -205,6 +216,6 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 		lines.push(...buildWorkerLines(visibleWorkers, frame, now, summaryParts.length > 0));
 		if (summaryParts.length > 0) lines.push(buildAgentsSummaryLine(summaryParts));
 	}
-	lines.push("tip: /team · /team-result <id> · /team-copy <id>");
+	lines.push(rightAlignToWidth("tip: /team · /team-result <id> · /team-copy <id>", HEADER_WIDTH));
 	return lines.map((line) => truncateToWidth(line, HEADER_WIDTH));
 }
