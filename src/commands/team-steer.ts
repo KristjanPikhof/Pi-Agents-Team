@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentMessageResult } from "../control-plane/team-manager";
+import { formatCommandWarning } from "../ui/display-grammar";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
 
@@ -99,7 +100,7 @@ export function registerTeamSteerCommand(pi: ExtensionAPI, dependencies: Command
 		handler: async (args, ctx) => {
 			const parsed = parseSteerArgs(args);
 			if (parsed.error || !parsed.target || !parsed.message) {
-				ctx.ui.notify(parsed.error ?? "Usage: /team-steer <worker-id|all> [--queue] <message>", "warning");
+				ctx.ui.notify(formatCommandWarning(parsed.error ?? "Usage: /team-steer <worker-id|all> [--queue] <message>"), "warning");
 				return;
 			}
 			const delivery = parsed.queue ? "follow_up" : "auto";
@@ -114,14 +115,14 @@ export function registerTeamSteerCommand(pi: ExtensionAPI, dependencies: Command
 			const workerId = dependencies.teamManager.resolveWorkerId(parsed.target);
 			if (!workerId) {
 				const candidates = ["all", ...dependencies.teamManager.listWorkers().map((worker) => worker.workerId)];
-				ctx.ui.notify(formatUnknownWorker(parsed.target, suggestTargets(parsed.target, candidates)), "warning");
+				ctx.ui.notify(formatCommandWarning(formatUnknownWorker(parsed.target, suggestTargets(parsed.target, candidates))), "warning");
 				return;
 			}
 			try {
 				const result = await dependencies.teamManager.messageWorker(workerId, parsed.message, delivery);
 				dependencies.emitText(ctx, describeDelivery(result));
 			} catch (error) {
-				ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+				ctx.ui.notify(formatCommandWarning(error instanceof Error ? error.message : String(error)), "warning");
 			}
 		},
 	});

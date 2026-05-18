@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { WorkerRuntimeState, WorkerStatus } from "../types";
+import { formatCommandWarning } from "../ui/display-grammar";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
 
@@ -103,7 +104,7 @@ export function registerTeamStopCommand(pi: ExtensionAPI, dependencies: CommandR
 		handler: async (args, ctx) => {
 			const input = args.trim();
 			if (!input) {
-				ctx.ui.notify("Usage: /team-stop <worker-id|all>", "warning");
+				ctx.ui.notify(formatCommandWarning("Usage: /team-stop <worker-id|all>"), "warning");
 				return;
 			}
 
@@ -130,13 +131,13 @@ export function registerTeamStopCommand(pi: ExtensionAPI, dependencies: CommandR
 			const workerId = dependencies.teamManager.resolveWorkerId(input);
 			if (!workerId) {
 				const candidates = ["all", ...dependencies.teamManager.listWorkers().map((worker) => worker.workerId)];
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
+				ctx.ui.notify(formatCommandWarning(formatUnknownWorker(input, suggestTargets(input, candidates))), "warning");
 				return;
 			}
 			const worker = dependencies.teamManager.getWorkerStatus(workerId);
 			if (!worker) {
 				const candidates = ["all", ...dependencies.teamManager.listWorkers().map((worker) => worker.workerId)];
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
+				ctx.ui.notify(formatCommandWarning(formatUnknownWorker(input, suggestTargets(input, candidates))), "warning");
 				return;
 			}
 			const result = await stopOne(dependencies, worker);

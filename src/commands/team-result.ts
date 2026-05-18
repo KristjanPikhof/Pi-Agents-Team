@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { formatCommandWarning } from "../ui/display-grammar";
 import { formatWorkerDetail as formatSharedWorkerDetail } from "../ui/tool-formatters";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
@@ -29,13 +30,13 @@ export function registerTeamResultCommand(pi: ExtensionAPI, dependencies: Comman
 		handler: async (args, ctx) => {
 			const input = args.trim();
 			if (!input) {
-				ctx.ui.notify("Usage: /team-result <worker-id>", "warning");
+				ctx.ui.notify(formatCommandWarning("Usage: /team-result <worker-id>"), "warning");
 				return;
 			}
 			const resolved = dependencies.teamManager.resolveWorkerId(input);
 			const candidates = dependencies.teamManager.listWorkers().map((worker) => worker.workerId);
 			if (!resolved) {
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
+				ctx.ui.notify(formatCommandWarning(formatUnknownWorker(input, suggestTargets(input, candidates))), "warning");
 				return;
 			}
 			const result = dependencies.teamManager.getWorkerResult(resolved)!;
