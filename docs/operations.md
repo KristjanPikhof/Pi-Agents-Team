@@ -81,7 +81,42 @@ Inspect and Console both show a compact follow/paused header: `[follow]  scroll 
 /team-result <worker-id>
 ```
 
-Prints the compact summary (headline, files read/changed, risks, next recommendation, pending relays, usage) plus the verbatim contents of the worker's `<final_answer>` block. When Pi reports context budget, usage includes a compact marker such as `ctx=64%/200k rem=72k`. This is the authoritative deliverable. If the block is empty, the worker did not follow the contract: re-delegate, steer it with a corrective message, or stop it.
+Prints the compact result surface that the orchestrator sees through `agent_result`: worker identity/status, task, compact summary sections, pending relays, usage/context, and the verbatim contents of the worker's `<final_answer>` block. `/team-result` may also append a live `--- Latest assistant text ---` section for operator inspection; `agent_result` does not include that transcript tail and remains the authoritative synthesis surface. When Pi reports context budget, usage includes a compact marker such as `ctx=64%/200k rem=72k`.
+
+Normal result shape:
+
+```text
+Worker: w1 (fixer)
+Status: completed
+Task: Render result
+Headline: Renderer improved
+Read files (readFiles/files_read): src/ui/tool-formatters.ts
+Changed files (changedFiles/files_changed): tests/ui/tool-formatters.test.ts
+Risks: none
+Next: reviewer to spot-check output
+Usage: turns=1 input=1200 output=3400 cost=$0.0123
+
+--- Final answer (from worker's <final_answer> block) ---
+headline: renderer improved
+verification: npm test passed
+```
+
+If the final answer is very short, the result includes a warning before the verbatim block:
+
+```text
+Final answer note: very short final_answer (1 word); verify it is sufficient before synthesizing.
+--- Final answer (from worker's <final_answer> block) ---
+done
+```
+
+If no `<final_answer>` block was extracted, the result says so and gives the corrective prompt:
+
+```text
+--- Final answer (from worker's <final_answer> block) ---
+No <final_answer> block extracted yet. This agent_result has no authoritative deliverable; steer/re-delegate with: `Please wrap your final deliverable in <final_answer>…</final_answer> tags.`
+```
+
+When the block is missing, do not synthesize from transcript tail alone. Re-delegate, steer the worker with the corrective message, or stop and respawn with a clearer brief.
 
 ## Clean up finished workers
 
@@ -230,6 +265,80 @@ By default, delegated path scopes may include `/tmp`, sibling repos, or other ab
 That only restricts delegated worker path-scope containment. The main orchestrator session and worker prompt-file containment are unchanged; prompt files must remain inside the project/current cwd.
 
 The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
+
+### Orchestrator tool output examples
+
+Operators normally see these through model narration, logs, or `/team-result`; they are included here so runbooks can match the real tool text.
+
+Fresh delegation returns launch metadata and the next wait call:
+
+```text
+Worker: w1
+Task: Build seam (t1)
+Profile: fixer
+CWD: /repo
+Path scope: read/write /repo/src, /repo/tests
+Status: running
+Lifecycle: launched fresh worker
+Next: call wait_for_agents with workerIds=["w1"] to wait for completion or relay questions
+```
+
+When the orchestrator intentionally reuses an idle same-scope worker, the lifecycle line makes that explicit:
+
+```text
+Worker: w1
+Task: Follow-up fix (t2)
+Profile: fixer
+Status: running
+Lifecycle: reused worker w1 for new task t2
+Next: call wait_for_agents with workerIds=["w1"] to wait for completion or relay questions
+```
+
+`wait_for_agents` begins with `Result reason:` and always includes a `Next:` action except for worker detail rows. Common outcomes:
+
+```text
+Result reason: all_terminal
+All 2 worker(s) reached terminal status.
+Next: call agent_result for each completed worker you need to synthesize.
+
+Workers:
+- w1 (fixer) · status=completed · task=Done task
+- w2 (reviewer) · status=idle
+```
+
+```text
+Result reason: relay_raised
+1 new relay question(s) raised — answer via agent_message, then call wait_for_agents again to resume.
+
+Pending relay questions:
+1. w1 (fixer) urgency=high
+   question: Need scope?
+   reply: agent_message {"workerId":"w1","message":"<answer>"}
+Next: answer each relay via agent_message, then call wait_for_agents {"workerIds":["w1"]} to resume.
+
+Workers:
+- w1 (fixer) · status=running · task=Question task
+```
+
+```text
+Result reason: timeout
+Wait timed out; some workers may still be running.
+Next: inspect statuses or call wait_for_agents again with the same workerIds.
+```
+
+```text
+Result reason: aborted
+Wait aborted by the caller before all workers reached terminal status.
+Next: inspect statuses with agent_status or cancel unwanted workers.
+```
+
+```text
+Result reason: no_workers
+No tracked workers to wait on.
+Next: call delegate_task before waiting for agents.
+```
+
+For `relay_raised`, answer each copied `agent_message` prompt, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
 
 ## Mid-flight relay handling
 

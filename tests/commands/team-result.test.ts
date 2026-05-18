@@ -154,3 +154,26 @@ test("formatWorkerDetail prints the final answer before latest assistant text", 
 	assert.match(text, /Authoritative worker deliverable/);
 	assert.match(text, /intermediate assistant tail/);
 });
+
+test("formatWorkerDetail strips raw final_answer blocks from latest assistant text", () => {
+	const worker: WorkerRuntimeState = {
+		workerId: "w9",
+		profileName: "fixer",
+		sessionMode: "worker",
+		status: "completed",
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		finalAnswer: "Authoritative section stays formatted.",
+		pendingRelayQuestions: [],
+		usage: { turns: 1, inputTokens: 10, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01 },
+	};
+	const text = resultTesting.formatWorkerDetail(
+		worker,
+		"prelude\n<final_answer>\nraw duplicate transcript block\n</final_answer>",
+	);
+
+	assert.match(text, /--- Final answer \(from worker's <final_answer> block\) ---\nAuthoritative section stays formatted\./);
+	assert.match(text, /--- Latest assistant text ---\nprelude$/);
+	assert.doesNotMatch(text, /raw duplicate transcript block/);
+	assert.doesNotMatch(text, /<\/final_answer>$/);
+});
