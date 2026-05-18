@@ -15,7 +15,7 @@ export const TEAM_STATUS_TIPS = [
 ] as const;
 
 const NON_TERMINAL_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
-const ACTIVE_ROW_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
+const ACTIVE_ROW_STATUSES = new Set<WorkerStatus>(["starting", "running"]);
 const TERMINAL_STATUSES = new Set<WorkerStatus>(["idle", "completed", "aborted", "error", "exited"]);
 const RECENT_TERMINAL_RETENTION_MS = 5 * 60 * 1000;
 const MAX_WIDGET_WORKERS = 8;
@@ -41,9 +41,8 @@ export function getTeamStatusTip(index: number): string {
 	return TEAM_STATUS_TIPS[normalized]!;
 }
 
-export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team", tip?: string): string {
-	const activity = hasActiveOrchestratorWork(state) ? "Working..." : "Idle";
-	const status = routingMode === "solo" ? `Orchestrator · Solo · ${activity}` : `Orchestrator · ${activity}`;
+export function buildTeamStatusLine(state: PersistedTeamState, _routingMode: "team" | "solo" = "team", tip?: string): string {
+	const status = hasActiveOrchestratorWork(state) ? "Orchestrator · Working..." : "Orchestrator · Idle";
 	return truncateToWidth(tip ? `${status} · Tip: ${tip}` : status, HEADER_WIDTH);
 }
 
@@ -213,7 +212,9 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	const visibleWorkers = workers.slice(0, MAX_WIDGET_WORKERS);
 	const hiddenByCap = workers.length - visibleWorkers.length;
 	const hiddenByRetention = allWorkers.filter((worker) => TERMINAL_STATUSES.has(worker.status) && !shouldRenderWorker(worker, now)).length;
+	const queued = allWorkers.filter((worker) => worker.status === "waiting_followup" && worker.pendingRelayQuestions.length === 0).length;
 	const summaryParts: string[] = [];
+	if (queued > 0) summaryParts.push(`${queued} queued`);
 	if (hiddenByCap > 0) summaryParts.push(`${hiddenByCap} more`);
 	if (hiddenByRetention > 0) summaryParts.push(`${hiddenByRetention} old hidden`);
 	if (visibleWorkers.length > 0 || summaryParts.length > 0) {
