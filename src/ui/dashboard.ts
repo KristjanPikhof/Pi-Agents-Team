@@ -61,14 +61,18 @@ export function buildActionSummaryLine(state: PersistedTeamState): string {
 		.join(" · ");
 }
 
+export function buildCompactTeamSummaryLine(state: PersistedTeamState): string {
+	const workerCount = Object.keys(state.activeWorkers).length;
+	return `workers ${workerCount} · mode ${state.sessionMode} · relays ${state.relayQueue.length} · ${buildActionSummaryLine(state)}`;
+}
+
 export function buildTeamDashboardLines(state: PersistedTeamState): string[] {
 	const workers = Object.values(state.activeWorkers);
 	const lines = [
 		"Pi Agents Team Dashboard",
-		buildActionSummaryLine(state),
-		`Mode ${state.sessionMode} · relay queue ${state.relayQueue.length}`,
-		"/team opens a keyboard-first overlay: queue on the left, inspector on the right when width allows.",
-		"Use /team <worker-id> for direct focus, then inspect Overview / Deliverable / Console tabs. Print mode stays summary-only.",
+		buildCompactTeamSummaryLine(state),
+		"/team opens a keyboard-first overlay with the complete worker registry grouped by attention.",
+		"Use /team <worker-id> for direct focus, then inspect Workers / Inspect / Console / Cost tabs. Print mode stays summary-only.",
 		"Use /team-result <id> for the final deliverable block.",
 		"",
 	];

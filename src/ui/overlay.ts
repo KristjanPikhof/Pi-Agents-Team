@@ -7,8 +7,9 @@ import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } f
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
-import { buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
+import { buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
 import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
+import { formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
 import {
 	accent,
 	accentBold,
@@ -446,6 +447,19 @@ function buildActionBar(): string {
 
 function firstFitting(width: number, candidates: string[]): string {
 	return candidates.find((candidate) => visibleWidth(candidate) <= width) ?? candidates[candidates.length - 1] ?? "";
+}
+
+function buildSelectedWorkerHeader(worker: WorkerRuntimeState | undefined, width: number): string {
+	if (!worker) return firstFitting(width, ["selected: none · action: delegate new", "selected: none", "none"]);
+	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker)).label;
+	const status = formatWorkerStatusLabel(worker);
+	const action = getWorkerPrimaryAction(worker);
+	return firstFitting(width, [
+		`selected: ${worker.workerId} · ${worker.profileName} · ${status} · ${attention} · action: ${action}`,
+		`selected: ${worker.workerId} · ${status} · action: ${action}`,
+		`${worker.workerId} · ${status} · ${action}`,
+		`${worker.workerId} · ${action}`,
+	]);
 }
 
 function formatFollowHeader(following: boolean, top: number, visible: number, total: number): string {

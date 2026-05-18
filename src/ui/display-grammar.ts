@@ -17,6 +17,7 @@ export interface WorkerStatusDisplay {
 }
 
 const STATUS_DISPLAY: Record<WorkerStatus, Omit<WorkerStatusDisplay, "status">> = {
+	created: { label: "Created", glyph: "·", primaryAction: "Wait for startup" },
 	starting: { label: "Starting", glyph: "◌", primaryAction: "Wait for startup" },
 	running: { label: "Running", glyph: "▶", primaryAction: "Monitor progress" },
 	waiting_followup: { label: "Waiting for follow-up", glyph: "▸", primaryAction: "Send follow-up" },
@@ -49,6 +50,42 @@ export function formatProfileLabel(profileName: string): string {
 	return profileName.trim() || "worker";
 }
 
+export function formatWorkerIdList(workerIds: readonly string[]): string {
+	return workerIds.map((workerId) => workerId.trim()).filter(Boolean).join(", ");
+}
+
+export function formatWorkerIdListSuffix(workerIds: readonly string[]): string {
+	const ids = formatWorkerIdList(workerIds);
+	return ids ? ` (${ids})` : "";
+}
+
+export type AgentToolName = "delegate_task" | "agent_result" | "wait_for_agents" | "agent_message" | "agent_status" | "ping_agents" | "agent_cancel";
+
+export interface AgentToolTitleArgs {
+	profileName?: string;
+	workerId?: string;
+	workerIds?: readonly string[];
+}
+
+export function buildAgentToolCallTitle(toolName: AgentToolName, args: AgentToolTitleArgs = {}): string {
+	switch (toolName) {
+		case "delegate_task":
+			return `Delegating to ${formatProfileLabel(args.profileName ?? "")}`;
+		case "agent_result":
+			return `Reading agent result${formatWorkerIdListSuffix(args.workerId ? [args.workerId] : [])}`;
+		case "wait_for_agents":
+			return `Waiting for agents${formatWorkerIdListSuffix(args.workerIds ?? [])}`;
+		case "agent_message":
+			return `Messaging agent${formatWorkerIdListSuffix(args.workerId ? [args.workerId] : [])}`;
+		case "agent_status":
+			return args.workerId ? `Checking agent status${formatWorkerIdListSuffix([args.workerId])}` : "Checking agent status";
+		case "ping_agents":
+			return `Pinging agents${formatWorkerIdListSuffix(args.workerIds ?? [])}`;
+		case "agent_cancel":
+			return `Cancelling agent${formatWorkerIdListSuffix(args.workerId ? [args.workerId] : [])}`;
+	}
+}
+
 export function formatWorkerLabel(worker: Pick<WorkerRuntimeState, "workerId" | "profileName">): string {
 	return `${formatProfileLabel(worker.profileName)} ${formatWorkerDisplayId(worker.workerId)}`;
 }
@@ -75,7 +112,7 @@ export function getWorkerStatusGlyph(worker: Pick<WorkerRuntimeState, "status" |
 export function getWorkerAttentionPriority(worker: Pick<WorkerRuntimeState, "status" | "error" | "pendingRelayQuestions">): WorkerAttentionPriority {
 	if (worker.pendingRelayQuestions.length > 0) return "needs_reply";
 	if (worker.error || worker.status === "error" || worker.status === "aborted" || worker.status === "exited") return "needs_recovery";
-	if (worker.status === "running" || worker.status === "starting" || worker.status === "waiting_followup") return "in_progress";
+	if (worker.status === "created" || worker.status === "running" || worker.status === "starting" || worker.status === "waiting_followup") return "in_progress";
 	return "completed_or_idle";
 }
 

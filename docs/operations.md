@@ -87,7 +87,7 @@ Normal result shape:
 
 ```text
 Worker: w1 (fixer)
-Status: completed
+Status: completed (Completed)
 Task: Render result
 Headline: Renderer improved
 Read files (readFiles/files_read): src/ui/tool-formatters.ts
@@ -278,7 +278,7 @@ Task: Build seam (t1)
 Profile: fixer
 CWD: /repo
 Path scope: read/write /repo/src, /repo/tests
-Status: running
+Status: running (Running)
 Lifecycle: launched fresh worker
 Next: call wait_for_agents with workerIds=["w1"] to wait for completion or relay questions
 ```
@@ -289,7 +289,7 @@ When the orchestrator intentionally reuses an idle same-scope worker, the lifecy
 Worker: w1
 Task: Follow-up fix (t2)
 Profile: fixer
-Status: running
+Status: running (Running)
 Lifecycle: reused worker w1 for new task t2
 Next: call wait_for_agents with workerIds=["w1"] to wait for completion or relay questions
 ```
@@ -302,8 +302,8 @@ All 2 worker(s) reached terminal status.
 Next: call agent_result for each completed worker you need to synthesize.
 
 Workers:
-- w1 (fixer) · status=completed · task=Done task
-- w2 (reviewer) · status=idle
+- w1 (fixer) · status=completed (Completed) · task=Done task
+- w2 (reviewer) · status=idle (Idle)
 ```
 
 ```text
@@ -317,7 +317,7 @@ Pending relay questions:
 Next: answer each relay via agent_message, then call wait_for_agents {"workerIds":["w1"]} to resume.
 
 Workers:
-- w1 (fixer) · status=running · task=Question task
+- w1 (fixer) · status=running (Running) · task=Question task
 ```
 
 ```text
