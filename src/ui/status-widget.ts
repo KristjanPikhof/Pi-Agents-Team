@@ -8,13 +8,13 @@ import { formatCompactTokenCount } from "./usage-format";
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 export const TEAM_STATUS_TIPS = [
 	"Use /team to view workers",
-	"Use /team-init [local] to rewrite default team",
 	"Use /team-result <id> for final output",
 	"Use /team-copy <id> to copy a worker result",
+	"Use /team-init [local] to rewrite default team",
 	"Use /team-steer <id> <message> to guide a worker",
 	"Use /team-stop <id> to cancel or close a worker",
 	"Use /team <id> to view one worker details",
-	"Use /team-enable [on/off] to manage orchestartor"
+	"Use /team-enable [on/off] to manage orchestrator"
 ] as const;
 
 const NON_TERMINAL_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
