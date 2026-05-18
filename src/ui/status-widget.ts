@@ -23,7 +23,7 @@ const TERMINAL_STATUSES = new Set<WorkerStatus>(["idle", "completed", "aborted",
 const RECENT_TERMINAL_RETENTION_MS = 5 * 60 * 1000;
 const MAX_WIDGET_WORKERS = 8;
 
-const HEADER_WIDTH = 78;
+const HEADER_WIDTH = 100;
 
 export function hasAnimatedWorkers(state: PersistedTeamState): boolean {
 	for (const worker of Object.values(state.activeWorkers)) {

@@ -163,7 +163,7 @@ test("widget caps active rows and reports hidden workers", () => {
 	assert.ok(lines.some((line) => /12 more/.test(line)), "expected spillover marker");
 
 	for (const line of lines) {
-		assert.ok(visibleWidth(line) <= 78, `line exceeds 78 cols (${visibleWidth(line)}): ${line}`);
+		assert.ok(visibleWidth(line) <= 100, `line exceeds 100 cols (${visibleWidth(line)}): ${line}`);
 	}
 });
 
@@ -265,7 +265,7 @@ test("widget enforces a hard cap on visible width even with long headlines", () 
 	});
 	const lines = buildTeamWidgetLines(state, { frame: 0 });
 	for (const line of lines) {
-		assert.ok(visibleWidth(line) <= 78, `line exceeds 78 cols (${visibleWidth(line)}): ${line}`);
+		assert.ok(visibleWidth(line) <= 100, `line exceeds 100 cols (${visibleWidth(line)}): ${line}`);
 	}
 });
 
