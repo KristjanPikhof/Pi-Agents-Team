@@ -65,12 +65,15 @@ export interface AgentToolTitleArgs {
 	profileName?: string;
 	workerId?: string;
 	workerIds?: readonly string[];
+	reuseWorkerId?: string;
 }
 
 export function buildAgentToolCallTitle(toolName: AgentToolName, args: AgentToolTitleArgs = {}): string {
 	switch (toolName) {
 		case "delegate_task":
-			return `Delegating to ${formatProfileLabel(args.profileName ?? "")}`;
+			return args.reuseWorkerId
+				? `Reusing ${formatProfileLabel(args.profileName ?? "")} ${formatWorkerDisplayId(args.reuseWorkerId)}`
+				: `Creating ${formatProfileLabel(args.profileName ?? "")} agent`;
 		case "agent_result":
 			return `Reading agent result${formatWorkerIdListSuffix(args.workerId ? [args.workerId] : [])}`;
 		case "wait_for_agents":

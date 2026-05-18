@@ -19,6 +19,7 @@ function coerceAgentToolTitleArgs(args: unknown): AgentToolTitleArgs {
 		profileName: typeof record.profileName === "string" ? record.profileName : undefined,
 		workerId: typeof record.workerId === "string" ? record.workerId : undefined,
 		workerIds: Array.isArray(record.workerIds) ? record.workerIds.filter((item): item is string => typeof item === "string") : undefined,
+		reuseWorkerId: typeof record.reuseWorkerId === "string" ? record.reuseWorkerId : undefined,
 	};
 }
 

@@ -1,5 +1,5 @@
-import type { DelegatedTaskInput, WorkerRuntimeState } from "../types";
-import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
+import type { DelegatedTaskInput, WorkerRuntimeState, WorkerStatus } from "../types";
+import { formatProfileLabel, formatWorkerDisplayId, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
 import { bold } from "./theme";
 
 export const TOOL_SECTION_LABELS = {
@@ -11,7 +11,7 @@ export const TOOL_SECTION_LABELS = {
 	cwd: "CWD",
 	pathScope: "Path scope",
 	lifecycle: "Lifecycle",
-	resultReason: "Result reason",
+	wait: "Wait",
 	relayQuestions: "Pending relay questions",
 	summary: "Headline",
 	readFiles: "Read files (readFiles/files_read)",
@@ -100,9 +100,26 @@ export function formatDelegateTaskResult(result: DelegateTaskFormatInput): strin
 	const task = result.task ?? result.worker.currentTask;
 	const title = task?.title ?? "delegated task";
 	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
-	const lines = [formatWorkerResultTitle(result.worker), `${TOOL_SECTION_LABELS.task}: ${taskLabel}`];
+	const action = result.reuseWorkerId ? "Reusing" : "Created";
+	const lines = [`${action} ${formatWorkerResultTitle(result.worker)}`, `${TOOL_SECTION_LABELS.task}: ${taskLabel}`];
 	lines.push(`${TOOL_SECTION_LABELS.nextAction}: wait_for_agents workerIds=["${result.worker.workerId}"]`);
 	return lines.join("\n");
+}
+
+export interface AgentMessageFormatInput {
+	worker: Pick<WorkerRuntimeState, "workerId" | "profileName" | "status">;
+	delivery: "steer" | "follow_up" | "prompt";
+	previousStatus?: WorkerStatus;
+}
+
+export function formatAgentMessageResult(result: AgentMessageFormatInput): string {
+	const previousStatus = result.previousStatus ?? result.worker.status;
+	const label = formatWorkerLabel(result.worker);
+	if (result.delivery === "steer") return `Steering running agent ${label}.`;
+	if (result.delivery === "follow_up") return `Queued follow-up for ${label}.`;
+	if (previousStatus === "idle") return `Waking idle agent ${label}.`;
+	if (previousStatus === "waiting_followup") return `Resuming agent ${label}.`;
+	return `Sent prompt to ${label}.`;
 }
 
 function formatWaitWorkerIds(workers: readonly WorkerRuntimeState[]): string {
@@ -118,30 +135,29 @@ function appendWaitRelayGuidance(lines: string[], result: WaitForAgentsFormatInp
 	if (relays.length === 0) return;
 	lines.push("", `${TOOL_SECTION_LABELS.relayQuestions}:`);
 	for (const [index, relay] of relays.entries()) {
-		lines.push(`${index + 1}. ${relay.workerId} (${relay.profileName}) urgency=${relay.urgency}`);
-		lines.push(`   question: ${relay.question}`);
-		lines.push(`   reply: agent_message {"workerId":${JSON.stringify(relay.workerId)},"message":"<answer>"}`);
+		lines.push(`${index + 1}. ${relay.profileName} ${formatWorkerDisplayId(relay.workerId)} [${relay.urgency}]`);
+		lines.push(`   ${relay.question}`);
 	}
-	lines.push(`${TOOL_SECTION_LABELS.nextAction}: answer each relay via agent_message, then call wait_for_agents {"workerIds":${formatWaitWorkerIds(result.workers)}} to resume.`);
+	lines.push(`${TOOL_SECTION_LABELS.nextAction}: answer with agent_message, then wait again for ${formatWaitWorkerIds(result.workers)}.`);
 }
 
 export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): string {
-	const lines = [`${TOOL_SECTION_LABELS.resultReason}: ${result.reason}`];
+	const lines = [`${TOOL_SECTION_LABELS.wait}: ${result.reason}`];
 	if (result.reason === "no_workers") {
-		lines.push("No tracked workers to wait on.", `${TOOL_SECTION_LABELS.nextAction}: call delegate_task before waiting for agents.`);
+		lines.push("No agents to wait for.", `${TOOL_SECTION_LABELS.nextAction}: delegate a task first.`);
 		return lines.join("\n");
 	}
 
 	if (result.reason === "all_terminal") {
-		lines.push(`All ${result.workers.length} worker(s) reached terminal status.`, `${TOOL_SECTION_LABELS.nextAction}: call agent_result for each completed worker you need to synthesize.`);
+		lines.push(`Done: ${result.workers.length} agent(s) finished or stopped.`, `${TOOL_SECTION_LABELS.nextAction}: read results with agent_result.`);
 	} else if (result.reason === "relay_raised") {
 		const count = result.newRelays?.length ?? 0;
-		lines.push(`${count} new relay question(s) raised — answer via agent_message, then call wait_for_agents again to resume.`);
+		lines.push(`Needs reply: ${count} relay question(s).`);
 		appendWaitRelayGuidance(lines, result);
 	} else if (result.reason === "timeout") {
-		lines.push("Wait timed out; some workers may still be running.", `${TOOL_SECTION_LABELS.nextAction}: inspect statuses or call wait_for_agents again with the same workerIds.`);
+		lines.push("Timed out: some agents are still running.", `${TOOL_SECTION_LABELS.nextAction}: wait again or inspect status.`);
 	} else {
-		lines.push("Wait aborted by the caller before all workers reached terminal status.", `${TOOL_SECTION_LABELS.nextAction}: inspect statuses with agent_status or cancel unwanted workers.`);
+		lines.push("Cancelled: wait stopped before all agents finished.", `${TOOL_SECTION_LABELS.nextAction}: inspect status or cancel unwanted agents.`);
 	}
 	appendWaitWorkers(lines, result.workers);
 	return lines.join("\n");
