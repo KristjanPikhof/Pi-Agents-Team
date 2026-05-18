@@ -1,58 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { WorkerRuntimeState } from "../types";
-import { formatCompactTokenCount, formatContextBudget } from "../ui/usage-format";
+import { formatWorkerDetail as formatSharedWorkerDetail } from "../ui/tool-formatters";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
 
-function formatWorkerDetail(worker: WorkerRuntimeState, transcript?: string): string {
-	const lines = [
-		`Worker: ${worker.workerId}`,
-		`Profile: ${worker.profileName}`,
-		`Status: ${worker.status}`,
-	];
-	if (worker.currentTask?.title) lines.push(`Task: ${worker.currentTask.title}`);
-	if (worker.currentTask?.goal) lines.push(`Goal: ${worker.currentTask.goal}`);
-	if (worker.lastToolName) lines.push(`Last tool: ${worker.lastToolName}`);
-	if (worker.error) lines.push(`Error: ${worker.error}`);
-
-	const summary = worker.lastSummary;
-	if (summary) {
-		if (summary.headline) lines.push(`Headline: ${summary.headline}`);
-		if (summary.readFiles.length) lines.push(`Read files: ${summary.readFiles.join(", ")}`);
-		if (summary.changedFiles.length) lines.push(`Changed files: ${summary.changedFiles.join(", ")}`);
-		if (summary.risks.length) lines.push(`Risks: ${summary.risks.join("; ")}`);
-		if (summary.nextRecommendation) lines.push(`Next: ${summary.nextRecommendation}`);
-	}
-
-	if (worker.pendingRelayQuestions.length > 0) {
-		lines.push("", "Pending relay questions:");
-		for (const relay of worker.pendingRelayQuestions) {
-			lines.push(`- [${relay.urgency}] ${relay.question}`);
-			lines.push(`  assumption: ${relay.assumption}`);
-		}
-	}
-
-	lines.push(
-		"",
-		`Usage: turns=${worker.usage.turns} input=${formatCompactTokenCount(worker.usage.inputTokens)} output=${formatCompactTokenCount(worker.usage.outputTokens)} cost=$${worker.usage.costUsd.toFixed(4)}`,
-	);
-	const contextBudget = formatContextBudget(worker.usage);
-	if (contextBudget) lines.push(`Context: ${contextBudget}`);
-
-	if (worker.finalAnswer && worker.finalAnswer.trim()) {
-		lines.push("", "--- Final answer (from worker's <final_answer> block) ---", worker.finalAnswer.trim());
-	} else {
-		lines.push(
-			"",
-			`No <final_answer> block extracted yet. If the worker is idle and this is empty, it did not follow the final-answer contract — re-delegate or steer it with: \`Please wrap your final deliverable in <final_answer>…</final_answer> tags.\``,
-		);
-	}
-
-	if (transcript && transcript.trim()) {
-		lines.push("", "--- Latest assistant text ---", transcript.trim());
-	}
-
-	return lines.join("\n");
+function formatWorkerDetail(worker: Parameters<typeof formatSharedWorkerDetail>[0], transcript?: string): string {
+	return formatSharedWorkerDetail(worker, { transcript, compactUsage: true });
 }
 
 export function registerTeamResultCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {

@@ -17,7 +17,7 @@ import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
-import { formatContextBudget } from "../../src/ui/usage-format";
+import { formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
 import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer";
 import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types";
 
@@ -133,69 +133,6 @@ function clearUi(ctx: ExtensionContext | undefined, config: TeamConfig = DEFAULT
 
 function persistSnapshot(pi: ExtensionAPI, state: PersistedTeamState, config: TeamConfig = DEFAULT_TEAM_CONFIG): void {
 	pi.appendEntry(config.persistence.stateCustomType, createPersistedStateSnapshot(state));
-}
-
-function formatWorker(worker: WorkerRuntimeState): string {
-	const parts = [`${worker.workerId} (${worker.profileName})`, `status=${worker.status}`];
-	const contextBudget = formatContextBudget(worker.usage);
-	if (contextBudget) parts.push(contextBudget);
-	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
-	if (worker.lastToolName && worker.status === "running") parts.push(`tool=${worker.lastToolName}`);
-	if (worker.lastSummary?.headline) {
-		const tag = worker.status === "running" ? "interim" : "summary";
-		parts.push(`${tag}=${worker.lastSummary.headline}`);
-	}
-	if (worker.pendingRelayQuestions.length > 0) parts.push(`relays=${worker.pendingRelayQuestions.length}`);
-	return parts.join(" · ");
-}
-
-function formatWorkers(workers: WorkerRuntimeState[]): string {
-	if (workers.length === 0) return "No active or persisted workers.";
-	return workers.map((worker) => `- ${formatWorker(worker)}`).join("\n");
-}
-
-function truncateList(items: string[], max: number): string {
-	if (items.length <= max) return items.join(", ");
-	return `${items.slice(0, max).join(", ")}… (+${items.length - max} more)`;
-}
-
-function formatWorkerCompact(worker: WorkerRuntimeState): string {
-	const lines = [
-		`Worker: ${worker.workerId} (${worker.profileName})`,
-		`Status: ${worker.status}`,
-	];
-	if (worker.currentTask?.title) lines.push(`Task: ${worker.currentTask.title}`);
-	if (worker.error) lines.push(`Error: ${worker.error}`);
-
-	const summary = worker.lastSummary;
-	if (summary?.headline) lines.push(`Headline: ${summary.headline}`);
-	if (summary?.readFiles.length) lines.push(`Read files: ${truncateList(summary.readFiles, 10)}`);
-	if (summary?.changedFiles.length) lines.push(`Changed files: ${truncateList(summary.changedFiles, 10)}`);
-	if (summary?.risks.length) lines.push(`Risks: ${truncateList(summary.risks, 5)}`);
-	if (summary?.nextRecommendation) lines.push(`Next: ${summary.nextRecommendation}`);
-
-	if (worker.pendingRelayQuestions.length > 0) {
-		lines.push("", "Pending relay questions:");
-		for (const relay of worker.pendingRelayQuestions) {
-			lines.push(`- [${relay.urgency}] ${relay.question}`);
-			lines.push(`  assumption: ${relay.assumption}`);
-		}
-	}
-
-	lines.push(`Usage: turns=${worker.usage.turns} input=${worker.usage.inputTokens} output=${worker.usage.outputTokens} cost=$${worker.usage.costUsd.toFixed(4)}`);
-	const contextBudget = formatContextBudget(worker.usage);
-	if (contextBudget) lines.push(`Context: ${contextBudget}`);
-
-	if (worker.finalAnswer && worker.finalAnswer.trim()) {
-		lines.push("", "--- Final answer (from worker's <final_answer> block) ---", worker.finalAnswer.trim());
-	} else {
-		lines.push(
-			"",
-			`No <final_answer> block extracted yet. If the worker is idle and this is empty, it did not follow the final-answer contract — re-delegate or steer it with: \`Please wrap your final deliverable in <final_answer>…</final_answer> tags.\``,
-		);
-	}
-
-	return lines.join("\n");
 }
 
 function emitCommandOutput(
@@ -579,7 +516,7 @@ export default function (pi: ExtensionAPI): void {
 				content: [
 					{
 						type: "text",
-						text: `Delegated ${result.task?.title ?? params.title} to ${result.worker.profileName} as ${result.worker.workerId}.`,
+						text: formatDelegateTaskResult(result.task?.title ?? params.title, result.worker),
 					},
 				],
 				details: result,
@@ -679,7 +616,7 @@ export default function (pi: ExtensionAPI): void {
 			if (targetIds.length === 0) {
 				const details: WaitDetails = { reason: "no_workers", workers: [] };
 				return {
-					content: [{ type: "text", text: "No tracked workers to wait on." }],
+					content: [{ type: "text", text: formatWaitForAgentsResult(details) }],
 					details,
 				};
 			}
@@ -688,24 +625,10 @@ export default function (pi: ExtensionAPI): void {
 				signal,
 				wakeOnRelay: params.wakeOnRelay !== false,
 			});
-			let header: string;
-			if (result.reason === "all_terminal") {
-				header = `All ${result.workers.length} worker(s) reached terminal status.`;
-			} else if (result.reason === "relay_raised") {
-				const count = result.newRelays?.length ?? 0;
-				header = `${count} new relay question(s) raised — answer via agent_message, then call wait_for_agents again to resume.`;
-			} else if (result.reason === "timeout") {
-				header = "Wait timed out; some workers may still be running.";
-			} else {
-				header = "Wait aborted.";
-			}
-			const relayLines = (result.newRelays ?? []).map(
-				(relay) => `  ! ${relay.workerId} (${relay.profileName}) [${relay.urgency}] ${relay.question}`,
-			);
 			const details: WaitDetails = { reason: result.reason, workers: result.workers };
 			if (result.newRelays) details.newRelays = result.newRelays;
 			return {
-				content: [{ type: "text", text: [header, ...relayLines, formatWorkers(result.workers)].join("\n") }],
+				content: [{ type: "text", text: formatWaitForAgentsResult(details) }],
 				details,
 			};
 		},
