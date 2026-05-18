@@ -15,7 +15,7 @@ export const TEAM_STATUS_TIPS = [
 ] as const;
 
 const NON_TERMINAL_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
-const ACTIVE_ROW_STATUSES = new Set<WorkerStatus>(["starting", "running"]);
+const ACTIVE_ROW_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
 const TERMINAL_STATUSES = new Set<WorkerStatus>(["idle", "completed", "aborted", "error", "exited"]);
 const RECENT_TERMINAL_RETENTION_MS = 5 * 60 * 1000;
 const MAX_WIDGET_WORKERS = 8;
@@ -41,8 +41,9 @@ export function getTeamStatusTip(index: number): string {
 	return TEAM_STATUS_TIPS[normalized]!;
 }
 
-export function buildTeamStatusLine(state: PersistedTeamState, _routingMode: "team" | "solo" = "team", tip?: string): string {
-	const status = hasActiveOrchestratorWork(state) ? "Orchestrator · Working..." : "Orchestrator · Idle";
+export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team", tip?: string): string {
+	const activity = hasActiveOrchestratorWork(state) ? "Working..." : "Idle";
+	const status = routingMode === "solo" ? `Orchestrator · Solo · ${activity}` : `Orchestrator · ${activity}`;
 	return truncateToWidth(tip ? `${status} · Tip: ${tip}` : status, HEADER_WIDTH);
 }
 
