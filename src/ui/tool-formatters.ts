@@ -1,5 +1,6 @@
 import type { DelegatedTaskInput, WorkerRuntimeState, WorkerStatus } from "../types";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
+import { formatContextBudget } from "./usage-format";
 
 export const TOOL_SECTION_LABELS = {
 	worker: "Worker",
@@ -80,6 +81,8 @@ function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState): void {
 export function formatWorkerListItem(worker: WorkerRuntimeState): string {
 	const parts = [formatWorkerToolLabel(worker), `status=${worker.status} (${formatWorkerStatusLabel(worker)})`];
 	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
+	const contextBudget = formatContextBudget(worker.usage);
+	if (contextBudget) parts.push(contextBudget);
 	if (worker.pendingRelayQuestions.length > 0) parts.push(`relays=${worker.pendingRelayQuestions.length}`);
 	return parts.join(" · ");
 }
