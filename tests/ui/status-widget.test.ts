@@ -34,7 +34,7 @@ test("status widget hides itself when no workers are tracked", () => {
 	assert.deepEqual(buildTeamWidgetLines(state), []);
 });
 
-test("status line shows routing-neutral orchestrator state with optional rotating tip", () => {
+test("status line shows routing mode, orchestrator state, and optional rotating tip", () => {
 	const state = createDefaultTeamState();
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
 	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Idle");
@@ -229,7 +229,7 @@ test("widget keeps registry order for visible rows while filtering inactive work
 	assert.ok(!plainLines.some((line) => line.includes("└ needs_reply:")), `expected no raw attention key; got:\n${plainLines.join("\n")}`);
 });
 
-test("widget hides old idle and completed rows but keeps queued and hidden summary", () => {
+test("widget treats waiting_followup as live and still summarizes old hidden workers", () => {
 	const state = createDefaultTeamState();
 	const now = 10_000_000;
 	state.activeWorkers.oldDone = makeWorker({ workerId: "oldDone", status: "completed", lastEventAt: now - 10 * 60 * 1_000 });
@@ -239,8 +239,10 @@ test("widget hides old idle and completed rows but keeps queued and hidden summa
 	const lines = buildTeamWidgetLines(state, { now });
 	const plainLines = lines.map(stripAnsi);
 	assert.ok(!plainLines.some((line) => line.includes("oldDone") || line.includes("oldIdle")), `old terminal rows should be hidden; got:\n${plainLines.join("\n")}`);
-	assert.ok(plainLines.some((line) => line.startsWith("● Agents")), `expected Agents tree section; got:\n${plainLines.join("\n")}`);
-	assert.ok(plainLines.some((line) => line.includes("1 queued") && line.includes("2 old hidden")), `expected queued/hidden summary; got:\n${plainLines.join("\n")}`);
+	assert.match(plainLines[0]!, /active=1/);
+	assert.ok(plainLines.some((line) => line.includes("▸ 1 queued")), `expected queued count; got:\n${plainLines.join("\n")}`);
+	assert.ok(plainLines.some((line) => line.includes("reviewer (queued)")), `waiting_followup worker should render as a live row; got:\n${plainLines.join("\n")}`);
+	assert.ok(plainLines.some((line) => line.includes("2 old hidden")), `expected hidden summary; got:\n${plainLines.join("\n")}`);
 });
 
 test("widget enforces a hard cap on visible width even with long headlines", () => {
