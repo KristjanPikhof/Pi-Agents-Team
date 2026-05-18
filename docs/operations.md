@@ -225,7 +225,7 @@ When reuse rejects, the error spells out which fields differ. The fix is usually
 What changes in **solo** mode:
 
 - `delegate_task` rejects with `Team routing off. Run /team-enable on to delegate.`. The orchestrator prompt drops the profile catalog and gets a one-line directive telling it to answer directly.
-- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The bottom status line stays routing-neutral and shows `Orchestrator · Working...` or `Orchestrator · Idle` plus the current rotating tip.
+- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The bottom status line also shows the routing mode, e.g. `Orchestrator · Solo · Working...` or `Orchestrator · Solo · Idle`, plus the current rotating tip.
 - `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay live so workers spawned earlier can still be inspected, steered, or shut down.
 
 How the persistence target is resolved when you don't pass `--persist`:
