@@ -31,8 +31,8 @@ const STATUS_DISPLAY: Record<WorkerStatus, Omit<WorkerStatusDisplay, "status">> 
 const ATTENTION_DISPLAY: Record<WorkerAttentionPriority, Omit<WorkerAttentionDisplay, "key">> = {
 	needs_reply: { rank: 0, label: "Needs reply", primaryAction: "Answer relay" },
 	needs_recovery: { rank: 1, label: "Needs recovery", primaryAction: "Recover or delegate fresh" },
-	in_progress: { rank: 2, label: "In progress", primaryAction: "Monitor progress" },
-	completed_or_idle: { rank: 3, label: "Completed or idle", primaryAction: "Review, reuse, or close" },
+	in_progress: { rank: 2, label: "Working", primaryAction: "Monitor progress" },
+	completed_or_idle: { rank: 3, label: "Done", primaryAction: "Review, reuse, or close" },
 };
 
 export const WORKER_ATTENTION_ORDER: readonly WorkerAttentionPriority[] = [

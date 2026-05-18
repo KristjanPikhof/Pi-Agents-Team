@@ -76,6 +76,8 @@ test("attention priority and primary action copy are centralized", () => {
 	assert.equal(getWorkerPrimaryAction(relayWorker), "Answer relay");
 	assert.equal(buildWorkerActionHint(relayWorker), "Needs reply: Answer relay");
 
+	assert.equal(getWorkerAttentionDisplay("in_progress").label, "Working");
+	assert.equal(getWorkerAttentionDisplay("completed_or_idle").label, "Done");
 	assert.equal(getWorkerAttentionPriority(makeWorker({ status: "error", error: "boom" })), "needs_recovery");
 	assert.equal(getWorkerPrimaryAction(makeWorker({ status: "waiting_followup" })), "Send follow-up");
 	assert.equal(getWorkerPrimaryAction(makeWorker({ status: "idle", finalAnswer: "done" })), "Review result");

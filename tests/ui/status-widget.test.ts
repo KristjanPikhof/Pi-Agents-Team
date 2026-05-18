@@ -90,6 +90,10 @@ test("widget shows spinner frame for running workers and ✓ for finished idle w
 	const w3Line = frame0.find((line) => line.includes("w3 fixer"));
 	assert.ok(w3Line?.startsWith("✗ "));
 
+	assert.ok(frame0.some((line) => line.includes("↳ Working: mapping src/runtime")), `expected friendly working activity line; got:\n${frame0.join("\n")}`);
+	assert.ok(frame0.some((line) => line.includes("↳ Done: architecture notes ready")), `expected friendly done activity line; got:\n${frame0.join("\n")}`);
+	assert.ok(!frame0.some((line) => /↳ (in_progress|completed_or_idle):/.test(line)), `expected no raw attention keys; got:\n${frame0.join("\n")}`);
+
 	const countsLine = frame0[1]!;
 	assert.match(countsLine, /1 running/);
 	assert.match(countsLine, /1 done/);
@@ -155,11 +159,12 @@ test("active worker elapsed uses task creation time when a reused worker has a f
 	assert.doesNotMatch(workerRow, /1h/);
 });
 
-test("widget prioritizes relay, running, starting, then recent terminal rows", () => {
+test("widget keeps registry order for visible rows while filtering inactive workers", () => {
 	const state = createDefaultTeamState();
 	const now = 10_000_000;
 	state.activeWorkers.done = makeWorker({ workerId: "done", profileName: "closer", status: "completed", lastEventAt: now - 1_000 });
 	state.activeWorkers.start = makeWorker({ workerId: "start", profileName: "starter", status: "starting", lastEventAt: now - 2_000 });
+	state.activeWorkers.oldHidden = makeWorker({ workerId: "oldHidden", profileName: "hidden", status: "idle", lastEventAt: now - 10 * 60 * 1_000 });
 	state.activeWorkers.run = makeWorker({ workerId: "run", profileName: "runner", status: "running", lastEventAt: now - 3_000 });
 	state.activeWorkers.relay = makeWorker({
 		workerId: "relay",
@@ -180,9 +185,11 @@ test("widget prioritizes relay, running, starting, then recent terminal rows", (
 
 	const lines = buildTeamWidgetLines(state, { frame: 0, now });
 	assert.match(lines[0]!, /active=3/);
-	const workerRows = lines.filter((line) => /^[⠋▸◌✓✗○▶]/.test(line) && / (relay|run|start|done) /.test(line));
-	assert.deepEqual(workerRows.map((line) => line.match(/ (relay|run|start|done) /)?.[1]), ["relay", "run", "start", "done"]);
-	assert.ok(lines.some((line) => line.includes("↳ needs_reply: Need scope decision?")), `expected relay activity line; got:\n${lines.join("\n")}`);
+	const workerRows = lines.filter((line) => /^[⠋▸◌✓✗○▶]/.test(line) && / (done|start|oldHidden|run|relay) /.test(line));
+	assert.deepEqual(workerRows.map((line) => line.match(/ (done|start|oldHidden|run|relay) /)?.[1]), ["done", "start", "run", "relay"]);
+	assert.ok(!workerRows.some((line) => line.includes("oldHidden")), `old hidden worker should stay filtered; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("↳ Needs reply: Need scope decision?")), `expected friendly relay activity line; got:\n${lines.join("\n")}`);
+	assert.ok(!lines.some((line) => line.includes("↳ needs_reply:")), `expected no raw attention key; got:\n${lines.join("\n")}`);
 });
 
 test("widget hides old idle and completed rows but keeps queued and hidden summary", () => {

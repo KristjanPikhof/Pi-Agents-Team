@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
+import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
-import { formatWorkerStatusLabel, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
+import { formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
 import { formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -117,15 +117,6 @@ function shouldRenderWorker(worker: WorkerRuntimeState, now: number): boolean {
 	return isActiveSurfaceWorker(worker) || isRecentTerminalWorker(worker, now);
 }
 
-function workerPriority(worker: WorkerRuntimeState, now: number): number {
-	if (worker.pendingRelayQuestions.length > 0) return 0;
-	if (worker.status === "running") return 1;
-	if (worker.status === "starting") return 2;
-	if (isRecentTerminalWorker(worker, now)) return 3;
-	if (worker.status === "waiting_followup") return 4;
-	return 5;
-}
-
 function formatElapsed(ms: number): string {
 	const seconds = Math.max(0, Math.floor(ms / 1000));
 	if (seconds < 60) return `${seconds}s`;
@@ -159,8 +150,8 @@ function buildWorkerActivityLine(worker: WorkerRuntimeState): string | undefined
 		?? (worker.lastToolName ? `tool: ${worker.lastToolName}` : undefined)
 		?? (worker.error ? `error: ${worker.error}` : undefined);
 	if (!detail) return undefined;
-	const attention = getWorkerAttentionPriority(worker);
-	return truncateToWidth(`  ↳ ${attention}: ${detail}`, HEADER_WIDTH, "…");
+	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker));
+	return truncateToWidth(`  ↳ ${attention.label}: ${detail}`, HEADER_WIDTH, "…");
 }
 
 function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number): string[] {
@@ -179,9 +170,7 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	const displayCost = options.displayCost !== false;
 	const now = options.now ?? Date.now();
 	const allWorkers = Object.values(state.activeWorkers);
-	const workers = allWorkers
-		.filter((worker) => shouldRenderWorker(worker, now))
-		.sort((left, right) => workerPriority(left, now) - workerPriority(right, now) || right.lastEventAt - left.lastEventAt || compareWorkerIds(left.workerId, right.workerId));
+	const workers = allWorkers.filter((worker) => shouldRenderWorker(worker, now));
 	if (routingMode === "solo") {
 		// In solo mode the status line already says "Pi Agents Team — solo".
 		// Only surface the widget when there is actual worker state worth showing.
