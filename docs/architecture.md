@@ -207,7 +207,7 @@ Persisted session state does **not** include:
 
 ## Routing mode
 
-`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line when workers are tracked (or hides the widget entirely when none are — the status line still carries the `solo` badge). `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
+`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line when workers are tracked (or hides the widget entirely when none are). The bottom status line is routing-neutral and only reports `Orchestrator · Working...` when workers/relays are active, otherwise `Orchestrator · Idle`. `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
 
 The initial mode is derived once per `session_start` from the loaded config:
 
@@ -234,7 +234,7 @@ Slash commands are supervision controls, not alternate chat channels:
 - `/team-copy <id>`, `/team-result <id>`
 - `/team-init [global|local] [--force]`
 
-The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
+The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. It remains the source of active/relay/worker counts; the bottom status line only shows the human orchestrator state. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
 ### Widget layout rules
 
