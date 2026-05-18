@@ -6,6 +6,13 @@ import { bold } from "./theme";
 import { formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+export const TEAM_STATUS_TIPS = [
+	"Use /team to view workers",
+	"Use /team-result <id> for final output",
+	"Use /team-copy <id> to copy a worker result",
+	"Use /team-steer <id> <message> to guide a running worker",
+	"Use /team-stop <id> to cancel or close a worker",
+] as const;
 
 const NON_TERMINAL_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
 const ACTIVE_ROW_STATUSES = new Set<WorkerStatus>(["starting", "running"]);
@@ -29,8 +36,14 @@ export interface WidgetRenderOptions {
 	now?: number;
 }
 
-export function buildTeamStatusLine(state: PersistedTeamState, _routingMode: "team" | "solo" = "team"): string {
-	return truncateToWidth(hasActiveOrchestratorWork(state) ? "Orchestrator · Working..." : "Orchestrator · Idle", HEADER_WIDTH);
+export function getTeamStatusTip(index: number): string {
+	const normalized = Math.max(0, Math.floor(index)) % TEAM_STATUS_TIPS.length;
+	return TEAM_STATUS_TIPS[normalized]!;
+}
+
+export function buildTeamStatusLine(state: PersistedTeamState, _routingMode: "team" | "solo" = "team", tip?: string): string {
+	const status = hasActiveOrchestratorWork(state) ? "Orchestrator · Working..." : "Orchestrator · Idle";
+	return truncateToWidth(tip ? `${status} · Tip: ${tip}` : status, HEADER_WIDTH);
 }
 
 function hasActiveOrchestratorWork(state: PersistedTeamState): boolean {
@@ -163,11 +176,6 @@ function buildAgentsSummaryLine(summaryParts: string[]): string {
 	return truncateToWidth(`└ + ${summaryParts.join(" · ")} · /team to view`, HEADER_WIDTH, "…");
 }
 
-function rightAlignToWidth(text: string, width: number): string {
-	const truncated = truncateToWidth(text, width, "…");
-	return `${" ".repeat(Math.max(0, width - visibleWidth(truncated)))}${truncated}`;
-}
-
 function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number, hasSummaryRow: boolean): string[] {
 	const lines: string[] = [];
 	workers.forEach((worker, index) => {
@@ -214,6 +222,5 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 		lines.push(...buildWorkerLines(visibleWorkers, frame, now, summaryParts.length > 0));
 		if (summaryParts.length > 0) lines.push(buildAgentsSummaryLine(summaryParts));
 	}
-	lines.push(rightAlignToWidth("tip: /team · /team-result <id> · /team-copy <id>", HEADER_WIDTH));
 	return lines.map((line) => truncateToWidth(line, HEADER_WIDTH));
 }

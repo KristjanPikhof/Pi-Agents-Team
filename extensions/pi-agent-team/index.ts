@@ -16,7 +16,7 @@ import { registerTeamInitCommand } from "../../src/commands/team-init";
 import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
-import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
+import { buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import { formatRelayToast, formatWorkerLabel, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar";
 import { formatAgentMessageResult, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
 import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers";
@@ -113,6 +113,7 @@ function applyUi(
 	active = true,
 	routingMode: "team" | "solo" = "team",
 	displayCost = true,
+	tip?: string,
 ): void {
 	if (!ctx?.hasUI) return;
 	if (!active) {
@@ -122,7 +123,7 @@ function applyUi(
 	}
 
 	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode, displayCost });
-	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode));
+	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip));
 	ctx.ui.setWidget(config.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
@@ -287,8 +288,25 @@ export default function (pi: ExtensionAPI): void {
 	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
 	let notificationTimer: NodeJS.Timeout | undefined;
 	let spinnerTimer: NodeJS.Timeout | undefined;
+	let tipTimer: NodeJS.Timeout | undefined;
 	let spinnerFrame = 0;
+	let tipIndex = 0;
 	const SPINNER_INTERVAL_MS = 120;
+	const TIP_INTERVAL_MS = 15_000;
+
+	function renderUi(
+		ctx: ExtensionContext | undefined,
+		state: PersistedTeamState,
+		frame = spinnerFrame,
+		config: TeamConfig = activeProjectConfig.config,
+		active = isTeamActive(activeProjectConfig),
+		routingMode: "team" | "solo" = teamManager.routingMode,
+		displayCost = activeProjectConfig.displayCost,
+	): void {
+		applyUi(ctx, state, frame, config, active, routingMode, displayCost, getTeamStatusTip(tipIndex));
+		if (ctx?.hasUI && active) ensureTipRotationRunning();
+		else stopTipRotation();
+	}
 
 	function ensureSpinnerRunning(): void {
 		if (spinnerTimer || !activeContext?.hasUI) return;
@@ -299,7 +317,7 @@ export default function (pi: ExtensionAPI): void {
 				stopSpinner();
 				return;
 			}
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 		}, SPINNER_INTERVAL_MS);
 		if (typeof spinnerTimer.unref === "function") spinnerTimer.unref();
 	}
@@ -308,6 +326,25 @@ export default function (pi: ExtensionAPI): void {
 		if (!spinnerTimer) return;
 		clearInterval(spinnerTimer);
 		spinnerTimer = undefined;
+	}
+
+	function ensureTipRotationRunning(): void {
+		if (tipTimer || !activeContext?.hasUI || !isTeamActive(activeProjectConfig)) return;
+		tipTimer = setInterval(() => {
+			if (!activeContext?.hasUI || !isTeamActive(activeProjectConfig)) {
+				stopTipRotation();
+				return;
+			}
+			tipIndex += 1;
+			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, true, teamManager.routingMode, activeProjectConfig.displayCost);
+		}, TIP_INTERVAL_MS);
+		if (typeof tipTimer.unref === "function") tipTimer.unref();
+	}
+
+	function stopTipRotation(): void {
+		if (!tipTimer) return;
+		clearInterval(tipTimer);
+		tipTimer = undefined;
 	}
 
 	function resetUiTracking(): void {
@@ -398,7 +435,7 @@ export default function (pi: ExtensionAPI): void {
 		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 
 			if (hasAnimatedWorkers(teamState)) {
 				ensureSpinnerRunning();
@@ -463,7 +500,7 @@ export default function (pi: ExtensionAPI): void {
 		teamManager = new TeamManager({ config, routingMode: deriveInitialRoutingMode(activeProjectConfig), displayCost: activeProjectConfig.displayCost });
 		attachTeamManagerListener(teamManager);
 		teamState = createDefaultTeamState(config);
-		applyUi(activeContext, teamState, spinnerFrame, config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+		renderUi(activeContext, teamState, spinnerFrame, config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 	}
 
 	attachTeamManagerListener(teamManager);
@@ -534,7 +571,7 @@ export default function (pi: ExtensionAPI): void {
 					reuseWorkerId: params.reuseWorkerId,
 				});
 			teamState = teamManager.snapshot();
-			applyUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			return {
 				content: [
 					{
@@ -688,7 +725,7 @@ export default function (pi: ExtensionAPI): void {
 			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
 			teamManager.restore(teamState);
-			applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+			renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
 
 			if (!ctx.hasUI) return;
@@ -719,7 +756,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		activeContext = ctx;
 		teamState = teamManager.snapshot();
-		applyUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+		renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 		if (!activeProjectConfig.enabled) {
 			return { systemPrompt: event.systemPrompt };
 		}
