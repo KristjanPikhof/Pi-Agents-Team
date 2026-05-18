@@ -132,7 +132,7 @@ Persisted state survives reloads via custom-typed session entries, but live work
 
 ### Wait, don't poll: mid-flight relay wake
 
-`wait_for_agents` subscribes to `state_change` events on `TeamManager`. It resolves on one of five reasons:
+`wait_for_agents` subscribes to `state_change` events on `TeamManager`. `TeamManager.waitForTerminal` resolves the four event-driven reasons (`all_terminal`, `relay_raised`, `timeout`, `aborted`), and the tool wrapper adds `no_workers` before subscribing when no targets are tracked. The tool result therefore has one of five reasons:
 
 - `all_terminal`: every target reached a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`). The formatted result tells the orchestrator to call `agent_result` for completed workers it needs to synthesize.
 - `relay_raised`: any target raised a new relay question while running. The response carries a `newRelays` list, and the formatted result includes copyable `agent_message {"workerId":"...","message":"<answer>"}` guidance plus the follow-up `wait_for_agents` call. Opt out with `wakeOnRelay: false`.
