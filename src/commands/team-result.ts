@@ -3,8 +3,13 @@ import { formatWorkerDetail as formatSharedWorkerDetail } from "../ui/tool-forma
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 import type { CommandRegistrationContext } from "./team";
 
+function stripFinalAnswerBlocks(transcript?: string): string | undefined {
+	const sanitized = transcript?.replace(/<final_answer>[\s\S]*?<\/final_answer>/gi, "").trim();
+	return sanitized || undefined;
+}
+
 function formatWorkerDetail(worker: Parameters<typeof formatSharedWorkerDetail>[0], transcript?: string): string {
-	return formatSharedWorkerDetail(worker, { transcript, compactUsage: true });
+	return formatSharedWorkerDetail(worker, { transcript: stripFinalAnswerBlocks(transcript), compactUsage: true });
 }
 
 export function registerTeamResultCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {
