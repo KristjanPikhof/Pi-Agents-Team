@@ -241,8 +241,9 @@ The always-visible widget (glyph + id + profile + short detail, counts bar) repl
 `buildTeamWidgetLines` (`src/ui/status-widget.ts`):
 
 - **Hidden when empty.** Returns `[]` if no workers are tracked and no retained-pruned usage exists; the extension then clears the widget via `setWidget(key, undefined)`. Retained usage can still render the compact `Σ` line after worker rows are pruned. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
-- **Single column** when ≤ 6 workers (cap at 8 visible rows). Per-worker row is one glyph + id + profile + 38-col truncated detail.
-- **Two columns** when > 6 workers: left column padded to 38 cols with visible-width-aware spaces, then `  ` + right cell. Cap at 16 visible workers (2 × 8); the rest show as `  +N more · /team to view`.
+- **Single column with bounded retention.** Per-worker rows are one glyph + id + profile + title/detail + status/elapsed, capped at 8 visible workers. Active rows (`starting`/`running` or workers with relay questions) stay visible; terminal rows (`idle`, `completed`, `aborted`, `error`, `exited`) are retained for five minutes, then summarized as old hidden rows until pruned.
+- **Elapsed display.** Active rows display elapsed time from the current task's `createdAt` when present, falling back to worker `startedAt`. This keeps reused workers from showing worker age as task age without changing reuse or lifecycle semantics.
+- **Full registry handoff.** The compact widget filters old/overflow rows for display only and always points to `/team`; the `/team` overlay is the full live registry for inspecting currently tracked workers.
 - **Width enforcement.** Every returned line passes through `truncateToWidth(line, HEADER_WIDTH=78)`. Both widget and overlay use pi-tui's `visibleWidth` / `truncateToWidth`, not raw `.length` / `.slice`, because braille spinner glyphs, emoji, and combining chars miscount under code-unit length and previously crashed pi-tui's render validator.
 
 ### Overlay layout rules
