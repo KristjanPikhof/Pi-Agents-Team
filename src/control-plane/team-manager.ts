@@ -103,6 +103,7 @@ export interface AgentResult {
 
 export interface AgentMessageResult extends AgentResult {
 	delivery: WorkerMessageDeliveryResolved;
+	previousStatus: WorkerStatus;
 }
 
 export interface PingAgentsRequest {
@@ -313,6 +314,7 @@ export class TeamManager {
 
 	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult> {
 		const worker = this.requireWorker(workerId);
+		const previousStatus = worker.status;
 		if (UNREACHABLE_STATUSES.has(worker.status)) {
 			throw new Error(
 				`Worker ${workerId} is ${worker.status} — its RPC session is already disposed. Re-delegate the task with delegate_task (and overlay [p] to clear terminal entries from the dashboard).`,
@@ -330,7 +332,7 @@ export class TeamManager {
 
 		await this.workerManager.refreshState(workerId);
 		const result = this.requireResult(workerId);
-		return { ...result, delivery: nextDelivery };
+		return { ...result, delivery: nextDelivery, previousStatus };
 	}
 
 	async messageAllWorkers(message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult[]> {
@@ -349,6 +351,7 @@ export class TeamManager {
 					worker: { ...latest, error: error instanceof Error ? error.message : String(error) },
 					task: latest.currentTask ? this.registry.getTask(latest.currentTask.taskId) : undefined,
 					delivery: delivery === "follow_up" ? "follow_up" : "steer",
+					previousStatus: latest.status,
 				});
 			}
 		}

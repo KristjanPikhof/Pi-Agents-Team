@@ -42,8 +42,9 @@ test("worker identity grammar keeps display ids in parentheses and profile fallb
 });
 
 test("agent tool call title grammar uses friendly phrases without changing canonical tool names", () => {
-	assert.equal(buildAgentToolCallTitle("delegate_task", { profileName: "fixer" }), "Delegating to fixer");
-	assert.equal(buildAgentToolCallTitle("delegate_task", { profileName: "   " }), "Delegating to worker");
+	assert.equal(buildAgentToolCallTitle("delegate_task", { profileName: "fixer" }), "Creating fixer agent");
+	assert.equal(buildAgentToolCallTitle("delegate_task", { profileName: "   " }), "Creating worker agent");
+	assert.equal(buildAgentToolCallTitle("delegate_task", { profileName: "fixer", reuseWorkerId: "w1" }), "Reusing fixer (w1)");
 	assert.equal(buildAgentToolCallTitle("agent_result", { workerId: "w7" }), "Reading agent result (w7)");
 	assert.equal(buildAgentToolCallTitle("agent_result"), "Reading agent result");
 	assert.equal(buildAgentToolCallTitle("wait_for_agents", { workerIds: ["w1", "w2"] }), "Waiting for agents (w1, w2)");

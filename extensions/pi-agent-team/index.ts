@@ -17,8 +17,8 @@ import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
-import { formatRelayToast, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar";
-import { formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
+import { formatRelayToast, formatWorkerLabel, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar";
+import { formatAgentMessageResult, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
 import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers";
 import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer";
 import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types";
@@ -601,7 +601,7 @@ export default function (pi: ExtensionAPI): void {
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
 			const result = await teamManager.messageWorker(workerId, params.message, delivery);
 			return {
-				content: [{ type: "text", text: `Sent message to ${result.worker.workerId} (${result.delivery}).` }],
+				content: [{ type: "text", text: formatAgentMessageResult(result) }],
 				details: result,
 			};
 		},
@@ -673,7 +673,7 @@ export default function (pi: ExtensionAPI): void {
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
 			const result = await teamManager.cancelWorker(workerId);
 			return {
-				content: [{ type: "text", text: `Cancelled ${result.worker.workerId}.` }],
+				content: [{ type: "text", text: `Cancelled ${formatWorkerLabel(result.worker)}.` }],
 				details: result,
 			};
 		},
