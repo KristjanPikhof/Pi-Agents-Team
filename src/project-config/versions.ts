@@ -29,4 +29,4 @@
 
 export const TEAM_PROJECT_SCHEMA_VERSION = 4 as const;
 export const TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED = [4] as const;
-export const TEAM_SCAFFOLD_VERSION = 2 as const;
+export const TEAM_SCAFFOLD_VERSION = 3 as const;
