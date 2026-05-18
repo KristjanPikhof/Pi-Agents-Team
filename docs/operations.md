@@ -81,7 +81,7 @@ Inspect and Console both show a compact follow/paused header: `[follow]  scroll 
 /team-result <worker-id>
 ```
 
-Prints the same compact result surface that the orchestrator sees through `agent_result`: worker identity/status, task, compact summary sections, pending relays, usage/context, and the verbatim contents of the worker's `<final_answer>` block. When Pi reports context budget, usage includes a compact marker such as `ctx=64%/200k rem=72k`. This is the authoritative deliverable.
+Prints the compact result surface that the orchestrator sees through `agent_result`: worker identity/status, task, compact summary sections, pending relays, usage/context, and the verbatim contents of the worker's `<final_answer>` block. `/team-result` may also append a live `--- Latest assistant text ---` section for operator inspection; `agent_result` does not include that transcript tail and remains the authoritative synthesis surface. When Pi reports context budget, usage includes a compact marker such as `ctx=64%/200k rem=72k`.
 
 Normal result shape:
 
