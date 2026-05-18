@@ -294,6 +294,15 @@ test("agent message formatter names resolved delivery and wake/resume cases", ()
 	assert.equal(formatAgentMessageResult({ worker, delivery: "prompt", previousStatus: "waiting_followup" }), "Resuming agent fixer (w1).");
 });
 
+test("worker list items expose context budget when available", () => {
+	const text = formatWorkers([
+		makeWorker({
+			usage: { turns: 2, inputTokens: 1500, outputTokens: 2500, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.5, contextTokens: 128000, contextWindow: 200000, contextPercent: 64, contextRemainingTokens: 72000 },
+		}),
+	]);
+	assert.equal(text, "- w1 (fixer) · status=idle (Idle) · ctx=64%/200k rem=72k");
+});
+
 test("small helpers preserve list contracts", () => {
 	assert.equal(formatWorkers([]), "No active or persisted workers.");
 	assert.equal(truncateList(["a", "b", "c"], 2), "a, b… (+1 more)");
