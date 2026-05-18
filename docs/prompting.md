@@ -129,7 +129,7 @@ next_recommendation:
 
 ### What the runtime does
 
-`extractFinalAnswer` pulls the block from the worker's final assistant message and stores it on `WorkerRuntimeState.finalAnswer`. `agent_result` and `/team-result` both render it under a `--- Final answer ---` section. If the block is missing, the output explicitly says so and tells the caller to re-delegate or steer.
+`extractFinalAnswer` pulls the block from the worker's final assistant message and stores it on `WorkerRuntimeState.finalAnswer`. `agent_result` and `/team-result` both render a small worker header followed by `Result:` and the extracted block content. If the block is missing, the `Result:` section says `No <final_answer> block extracted yet.`
 
 ## Worker set
 
