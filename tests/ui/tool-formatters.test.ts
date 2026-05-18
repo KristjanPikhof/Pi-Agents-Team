@@ -114,6 +114,76 @@ test("formatWorkerCompact truncates summary lists but preserves final_answer ver
 	assert.match(text, /--- Final answer \(from worker's <final_answer> block\) ---\nline 1\nline 2/);
 });
 
+test("formatWorkerCompact makes normal agent_result sections scannable without transcript", () => {
+	const worker = makeWorker({
+		status: "completed",
+		currentTask: { taskId: "t1", title: "Render result", goal: "Improve output", requestedBy: "orchestrator", profileName: "fixer", cwd: "/repo", contextHints: [], createdAt: 1 },
+		lastSummary: {
+			workerId: "w1",
+			taskId: "t1",
+			headline: "Renderer improved",
+			status: "completed",
+			readFiles: ["src/ui/tool-formatters.ts"],
+			changedFiles: ["tests/ui/tool-formatters.test.ts"],
+			risks: ["none"],
+			nextRecommendation: "reviewer to spot-check output",
+			relayQuestionCount: 0,
+			updatedAt: 2,
+		},
+		finalAnswer: "headline: renderer improved\nverification: npm test passed",
+	});
+	const text = formatWorkerCompact(worker);
+	for (const part of [
+		"Worker: w1 (fixer)",
+		"Status: completed",
+		"Task: Render result",
+		"Headline: Renderer improved",
+		"Read files (readFiles/files_read): src/ui/tool-formatters.ts",
+		"Changed files (changedFiles/files_changed): tests/ui/tool-formatters.test.ts",
+		"Risks: none",
+		"Next: reviewer to spot-check output",
+		"Usage: turns=1 input=1200 output=3400 cost=$0.0123",
+		"--- Final answer (from worker's <final_answer> block) ---\nheadline: renderer improved\nverification: npm test passed",
+	]) assert.match(text, new RegExp(part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	assert.doesNotMatch(text, /Latest assistant text/);
+});
+
+test("formatWorkerCompact shows no-final and thin-final guidance", () => {
+	const noFinal = formatWorkerCompact(makeWorker());
+	assert.match(noFinal, /--- Final answer \(from worker's <final_answer> block\) ---\nNo <final_answer> block extracted yet/);
+
+	const thin = formatWorkerCompact(makeWorker({ finalAnswer: "done" }));
+	assert.match(thin, /Final answer note: very short final_answer \(1 word\); verify it is sufficient before synthesizing\./);
+	assert.match(thin, /--- Final answer \(from worker's <final_answer> block\) ---\ndone/);
+});
+
+test("formatWorkerCompact surfaces error workers, pending relays, aliases, and usage context", () => {
+	const worker = makeWorker({
+		status: "error",
+		error: "worker crashed",
+		lastSummary: {
+			workerId: "w1",
+			taskId: "t1",
+			headline: "Summary alias accepted",
+			status: "error",
+			readFiles: ["src/from-files-read.ts"],
+			changedFiles: ["src/from-changed-files.ts"],
+			risks: ["crash prevented completion"],
+			relayQuestionCount: 1,
+			updatedAt: 2,
+		},
+		pendingRelayQuestions: [{ relayId: "r1", workerId: "w1", taskId: "t1", question: "Retry with smaller scope?", assumption: "Yes", urgency: "high", createdAt: 3 }],
+		usage: { turns: 2, inputTokens: 1500, outputTokens: 2500, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.5, contextTokens: 128000, contextWindow: 200000, contextPercent: 64, contextRemainingTokens: 72000 },
+	});
+	const text = formatWorkerCompact(worker);
+	assert.match(text, /Error: worker crashed/);
+	assert.match(text, /Read files \(readFiles\/files_read\): src\/from-files-read\.ts/);
+	assert.match(text, /Changed files \(changedFiles\/files_changed\): src\/from-changed-files\.ts/);
+	assert.match(text, /Pending relay questions:\n- \[high\] Retry with smaller scope\?\n  assumption: Yes/);
+	assert.match(text, /Usage: turns=2 input=1500 output=2500 cost=\$0\.5000/);
+	assert.match(text, /Context: ctx=64%\/200k rem=72k/);
+});
+
 test("wait formatter makes all_terminal outcome and next action scannable", () => {
 	const text = formatWaitForAgentsResult({
 		reason: "all_terminal",

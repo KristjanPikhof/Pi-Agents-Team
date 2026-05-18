@@ -132,12 +132,13 @@ Persisted state survives reloads via custom-typed session entries, but live work
 
 ### Wait, don't poll: mid-flight relay wake
 
-`wait_for_agents` subscribes to `state_change` events on `TeamManager`. It resolves on one of four reasons:
+`wait_for_agents` subscribes to `state_change` events on `TeamManager`. It resolves on one of five reasons:
 
-- `all_terminal`: every target reached a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`).
-- `relay_raised`: any target raised a new relay question while running. The response carries a `newRelays` list so the orchestrator can answer without having to enumerate workers itself. Opt out with `wakeOnRelay: false`.
-- `timeout`: default 5 min.
-- `aborted`: external abort signal.
+- `all_terminal`: every target reached a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`). The formatted result tells the orchestrator to call `agent_result` for completed workers it needs to synthesize.
+- `relay_raised`: any target raised a new relay question while running. The response carries a `newRelays` list, and the formatted result includes copyable `agent_message {"workerId":"...","message":"<answer>"}` guidance plus the follow-up `wait_for_agents` call. Opt out with `wakeOnRelay: false`.
+- `timeout`: default 5 min. The formatted result says workers may still be running and recommends inspecting status or waiting again with the same ids.
+- `aborted`: external abort signal. The formatted result recommends inspecting status or cancelling unwanted workers.
+- `no_workers`: no tracked workers matched the wait request. The formatted result tells the orchestrator to call `delegate_task` before waiting.
 
 The baseline pending-relay count is snapshotted at wait-start per call, so previously-answered relays don't wake subsequent waits. Only a fresh length increase wakes. This is what lets the orchestrator juggle multiple in-flight workers: answer, go back to sleep, answer, go back to sleep, until `all_terminal`. Zero tokens between wakes.
 
