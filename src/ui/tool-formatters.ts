@@ -1,4 +1,5 @@
 import type { DelegatedTaskInput, TeamPathScope, WorkerRuntimeState } from "../types";
+import { formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
 import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
 
 export const TOOL_SECTION_LABELS = {
@@ -97,7 +98,7 @@ function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState): void {
 }
 
 export function formatWorkerListItem(worker: WorkerRuntimeState): string {
-	const parts = [`${worker.workerId} (${worker.profileName})`, `status=${worker.status}`];
+	const parts = [formatWorkerToolLabel(worker), `status=${worker.status} (${formatWorkerStatusLabel(worker)})`];
 	const contextBudget = formatContextBudget(worker.usage);
 	if (contextBudget) parts.push(contextBudget);
 	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
@@ -192,8 +193,8 @@ export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): str
 
 export function formatWorkerCompact(worker: WorkerRuntimeState): string {
 	const lines = [
-		`${TOOL_SECTION_LABELS.worker}: ${worker.workerId} (${worker.profileName})`,
-		`${TOOL_SECTION_LABELS.status}: ${worker.status}`,
+		`${TOOL_SECTION_LABELS.worker}: ${formatWorkerToolLabel(worker)}`,
+		`${TOOL_SECTION_LABELS.status}: ${worker.status} (${formatWorkerStatusLabel(worker)})`,
 	];
 	if (worker.currentTask?.title) lines.push(`${TOOL_SECTION_LABELS.task}: ${worker.currentTask.title}`);
 	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
@@ -210,7 +211,7 @@ export function formatWorkerDetail(worker: WorkerRuntimeState, options: FormatWo
 		`${TOOL_SECTION_LABELS.worker}: ${worker.workerId}`,
 	];
 	if (options.includeProfileLine !== false) lines.push(`${TOOL_SECTION_LABELS.profile}: ${worker.profileName}`);
-	lines.push(`${TOOL_SECTION_LABELS.status}: ${worker.status}`);
+	lines.push(`${TOOL_SECTION_LABELS.status}: ${worker.status} (${formatWorkerStatusLabel(worker)})`);
 	if (worker.currentTask?.title) lines.push(`${TOOL_SECTION_LABELS.task}: ${worker.currentTask.title}`);
 	if (worker.currentTask?.goal) lines.push(`${TOOL_SECTION_LABELS.goal}: ${worker.currentTask.goal}`);
 	if (worker.currentTask?.cwd) lines.push(`${TOOL_SECTION_LABELS.cwd}: ${worker.currentTask.cwd}`);

@@ -1,6 +1,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
+import { getWorkerStatusGlyph } from "./display-grammar";
 import { formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -37,24 +38,8 @@ export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "tea
 }
 
 function statusGlyph(worker: WorkerRuntimeState, frame: number): string {
-	switch (worker.status) {
-		case "running":
-			return SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!;
-		case "starting":
-			return "◌";
-		case "waiting_followup":
-			return "▸";
-		case "idle":
-			return worker.finalAnswer ? "✓" : "○";
-		case "completed":
-			return "✓";
-		case "aborted":
-		case "error":
-		case "exited":
-			return "✗";
-		default:
-			return "·";
-	}
+	if (worker.status === "running") return SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!;
+	return getWorkerStatusGlyph(worker);
 }
 
 function padToWidth(text: string, width: number): string {
