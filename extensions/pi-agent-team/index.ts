@@ -717,6 +717,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", async (event, ctx) => {
+		stopTipRotation();
 		activeContext = ctx;
 		reloading = true;
 		try {
@@ -772,6 +773,7 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		stopSpinner();
+		stopTipRotation();
 		detachTeamManagerListener();
 		await teamManager.dispose();
 		teamState = teamManager.snapshot();

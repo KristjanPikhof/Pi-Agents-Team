@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDefaultTeamState } from "../../src/config";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { SPINNER_FRAMES, buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
+import { SPINNER_FRAMES, TEAM_STATUS_TIPS, buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import { stripAnsi } from "../../src/ui/theme";
 import type { WorkerRuntimeState, WorkerStatus } from "../../src/types";
 
@@ -34,12 +34,14 @@ test("status widget hides itself when no workers are tracked", () => {
 	assert.deepEqual(buildTeamWidgetLines(state), []);
 });
 
-test("status line shows only orchestrator working or idle state", () => {
+test("status line shows orchestrator state with optional rotating tip", () => {
 	const state = createDefaultTeamState();
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
+	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0)), "Orchestrator · Idle · Tip: Use /team to view workers");
 
 	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running" });
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
+	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(1)), "Orchestrator · Working... · Tip: Use /team-result <id> for final output");
 
 	state.activeWorkers.w1.status = "idle";
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
@@ -262,14 +264,15 @@ test("widget enforces a hard cap on visible width even with long headlines", () 
 	}
 });
 
-test("widget right-aligns the tip line", () => {
+test("widget omits the old static tip line and tips cycle by index", () => {
 	const state = createDefaultTeamState();
 	state.activeWorkers.w1 = makeWorker({ workerId: "w1", profileName: "reviewer", status: "running" });
 
-	const tipLine = buildTeamWidgetLines(state, { frame: 0 }).at(-1);
-	const tipText = "tip: /team · /team-result <id> · /team-copy <id>";
-	assert.equal(tipLine, `${" ".repeat(78 - visibleWidth(tipText))}${tipText}`);
-	assert.equal(visibleWidth(tipLine ?? ""), 78);
+	const lines = buildTeamWidgetLines(state, { frame: 0 });
+	assert.ok(!lines.some((line) => line.includes("tip: /team")), `expected no static widget tip; got:\n${lines.join("\n")}`);
+	assert.equal(getTeamStatusTip(0), TEAM_STATUS_TIPS[0]);
+	assert.equal(getTeamStatusTip(TEAM_STATUS_TIPS.length), TEAM_STATUS_TIPS[0]);
+	assert.equal(getTeamStatusTip(2), "Use /team-copy <id> to copy a worker result");
 });
 
 test("hasAnimatedWorkers flips with non-terminal status", () => {
