@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	TOOL_SECTION_LABELS,
+	formatAgentMessageResult,
 	formatDelegateTaskResult,
 	formatWaitForAgentsResult,
 	formatWorkerCompact,
@@ -10,6 +11,7 @@ import {
 	truncateList,
 } from "../../src/ui/tool-formatters";
 import type { WorkerRuntimeState } from "../../src/types";
+import { stripAnsi } from "../../src/ui/theme";
 
 function makeWorker(overrides: Partial<WorkerRuntimeState> = {}): WorkerRuntimeState {
 	return {
@@ -30,14 +32,14 @@ function makeWorker(overrides: Partial<WorkerRuntimeState> = {}): WorkerRuntimeS
 test("shared labels define the scan order vocabulary for tool results", () => {
 	assert.equal(TOOL_SECTION_LABELS.worker, "Worker");
 	assert.equal(TOOL_SECTION_LABELS.status, "Status");
-	assert.equal(TOOL_SECTION_LABELS.resultReason, "Result reason");
+	assert.equal(TOOL_SECTION_LABELS.wait, "Wait");
 	assert.equal(TOOL_SECTION_LABELS.relayQuestions, "Pending relay questions");
 	assert.equal(TOOL_SECTION_LABELS.readFiles, "Read files (readFiles/files_read)");
 	assert.equal(TOOL_SECTION_LABELS.changedFiles, "Changed files (changedFiles/files_changed)");
-	assert.equal(TOOL_SECTION_LABELS.finalAnswer, "--- Final answer (from worker's <final_answer> block) ---");
+	assert.equal(TOOL_SECTION_LABELS.finalAnswer, "Result");
 });
 
-test("formatWorkerDetail orders identity, task metadata, summary, relay, usage, final answer, transcript", () => {
+test("formatWorkerDetail keeps only title, task, relay, and result", () => {
 	const worker = makeWorker({
 		currentTask: {
 			taskId: "t1",
@@ -67,33 +69,36 @@ test("formatWorkerDetail orders identity, task metadata, summary, relay, usage, 
 	});
 
 	const text = formatWorkerDetail(worker, { transcript: "assistant tail" });
+	assert.doesNotMatch(text, /\x1b\[/, "tool result text must be ANSI-free");
+	assert.match(text, /^fixer \(w1\)/);
+	const plain = stripAnsi(text);
 	const ordered = [
-		"Worker: w1",
-		"Profile: fixer",
-		"Status: idle",
+		"fixer (w1)",
 		"Task: Implement foundation",
-		"Goal: Share formatter seams",
-		"CWD: /repo",
-		"Path scope: read/write /repo/src",
-		"Headline: Foundation added",
-		"Read files (readFiles/files_read): src/a.ts",
-		"Changed files (changedFiles/files_changed): src/b.ts",
-		"Risks: none",
-		"Next: tool lanes can consume helpers",
 		"Pending relay questions:",
-		"Usage: turns=1 input=1.2k output=3.4k cost=$0.0123",
-		"--- Final answer (from worker's <final_answer> block) ---",
-		"--- Latest assistant text ---",
+		"Result:\ndone",
 	];
 	let lastIndex = -1;
 	for (const part of ordered) {
-		const index = text.indexOf(part);
+		const index = plain.indexOf(part);
 		assert.ok(index > lastIndex, `expected ${part} after previous section`);
 		lastIndex = index;
 	}
+	assert.doesNotMatch(plain, /^Worker:/m);
+	assert.doesNotMatch(plain, /^Profile:/m);
+	assert.doesNotMatch(plain, /^Status: idle/m);
+	assert.doesNotMatch(plain, /^Goal:/m);
+	assert.doesNotMatch(plain, /^CWD:/m);
+	assert.doesNotMatch(plain, /^Path scope:/m);
+	assert.doesNotMatch(plain, /^Headline:/m);
+	assert.doesNotMatch(plain, /^Read files/m);
+	assert.doesNotMatch(plain, /^Changed files/m);
+	assert.doesNotMatch(plain, /^Risks:/m);
+	assert.doesNotMatch(plain, /^Usage:/m);
+	assert.doesNotMatch(plain, /Latest assistant text/);
 });
 
-test("formatWorkerCompact truncates summary lists but preserves final_answer verbatim", () => {
+test("formatWorkerCompact suppresses summary lists but preserves final_answer verbatim", () => {
 	const worker = makeWorker({
 		lastSummary: {
 			workerId: "w1",
@@ -109,9 +114,9 @@ test("formatWorkerCompact truncates summary lists but preserves final_answer ver
 		finalAnswer: "line 1\nline 2",
 	});
 	const text = formatWorkerCompact(worker);
-	assert.match(text, /Read files \(readFiles\/files_read\): read-0\.ts, read-1\.ts, read-2\.ts, read-3\.ts, read-4\.ts, read-5\.ts, read-6\.ts, read-7\.ts, read-8\.ts, read-9\.ts… \(\+2 more\)/);
-	assert.match(text, /Risks: r1, r2, r3, r4, r5… \(\+1 more\)/);
-	assert.match(text, /--- Final answer \(from worker's <final_answer> block\) ---\nline 1\nline 2/);
+	assert.doesNotMatch(text, /Read files/);
+	assert.doesNotMatch(text, /Risks:/);
+	assert.match(text, /Result:\nline 1\nline 2/);
 });
 
 test("formatWorkerCompact makes normal agent_result sections scannable without transcript", () => {
@@ -133,28 +138,31 @@ test("formatWorkerCompact makes normal agent_result sections scannable without t
 		finalAnswer: "headline: renderer improved\nverification: npm test passed",
 	});
 	const text = formatWorkerCompact(worker);
+	assert.doesNotMatch(text, /\x1b\[/, "agent_result text must be ANSI-free");
+	assert.match(text, /^fixer \(w1\)/);
+	const plain = stripAnsi(text);
 	for (const part of [
-		"Worker: w1 (fixer)",
-		"Status: completed",
+		"fixer (w1)",
 		"Task: Render result",
-		"Headline: Renderer improved",
-		"Read files (readFiles/files_read): src/ui/tool-formatters.ts",
-		"Changed files (changedFiles/files_changed): tests/ui/tool-formatters.test.ts",
-		"Risks: none",
-		"Next: reviewer to spot-check output",
-		"Usage: turns=1 input=1200 output=3400 cost=$0.0123",
-		"--- Final answer (from worker's <final_answer> block) ---\nheadline: renderer improved\nverification: npm test passed",
-	]) assert.match(text, new RegExp(part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-	assert.doesNotMatch(text, /Latest assistant text/);
+		"Result:\nheadline: renderer improved\nverification: npm test passed",
+	]) assert.match(plain, new RegExp(part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	assert.doesNotMatch(plain, /^Worker:/m);
+	assert.doesNotMatch(plain, /^Status: completed/m);
+	assert.doesNotMatch(plain, /^Headline:/m);
+	assert.doesNotMatch(plain, /^Read files/m);
+	assert.doesNotMatch(plain, /^Changed files/m);
+	assert.doesNotMatch(plain, /^Risks:/m);
+	assert.doesNotMatch(plain, /^Usage:/m);
+	assert.doesNotMatch(plain, /Latest assistant text/);
 });
 
-test("formatWorkerCompact shows no-final and thin-final guidance", () => {
+test("formatWorkerCompact shows concise no-final and thin-final output", () => {
 	const noFinal = formatWorkerCompact(makeWorker());
-	assert.match(noFinal, /--- Final answer \(from worker's <final_answer> block\) ---\nNo <final_answer> block extracted yet/);
+	assert.match(noFinal, /Result:\nNo <final_answer> block extracted yet/);
 
 	const thin = formatWorkerCompact(makeWorker({ finalAnswer: "done" }));
-	assert.match(thin, /Final answer note: very short final_answer \(1 word\); verify it is sufficient before synthesizing\./);
-	assert.match(thin, /--- Final answer \(from worker's <final_answer> block\) ---\ndone/);
+	assert.doesNotMatch(thin, /very short final_answer/);
+	assert.match(thin, /Result:\ndone/);
 });
 
 test("formatWorkerCompact surfaces error workers, pending relays, aliases, and usage context", () => {
@@ -177,11 +185,11 @@ test("formatWorkerCompact surfaces error workers, pending relays, aliases, and u
 	});
 	const text = formatWorkerCompact(worker);
 	assert.match(text, /Error: worker crashed/);
-	assert.match(text, /Read files \(readFiles\/files_read\): src\/from-files-read\.ts/);
-	assert.match(text, /Changed files \(changedFiles\/files_changed\): src\/from-changed-files\.ts/);
+	assert.doesNotMatch(text, /Read files/);
+	assert.doesNotMatch(text, /Changed files/);
 	assert.match(text, /Pending relay questions:\n- \[high\] Retry with smaller scope\?\n  assumption: Yes/);
-	assert.match(text, /Usage: turns=2 input=1500 output=2500 cost=\$0\.5000/);
-	assert.match(text, /Context: ctx=64%\/200k rem=72k/);
+	assert.doesNotMatch(text, /^Usage:/m);
+	assert.doesNotMatch(text, /^Context:/m);
 });
 
 test("wait formatter makes all_terminal outcome and next action scannable", () => {
@@ -192,9 +200,9 @@ test("wait formatter makes all_terminal outcome and next action scannable", () =
 			makeWorker({ workerId: "w2", status: "idle", profileName: "reviewer" }),
 		],
 	});
-	assert.match(text, /^Result reason: all_terminal\nAll 2 worker\(s\) reached terminal status\./);
-	assert.match(text, /Next: call agent_result for each completed worker you need to synthesize\./);
-	assert.match(text, /Workers:\n- w1 \(fixer\) · status=completed · task=Done task\n- w2 \(reviewer\) · status=idle/);
+	assert.match(text, /^Done: 2 agent\(s\) finished or stopped\./);
+	assert.match(text, /Next: read results with agent_result\./);
+	assert.match(text, /Workers:\n- w1 \(fixer\) · status=completed \(Completed\) · task=Done task\n- w2 \(reviewer\) · status=idle \(Idle\)/);
 });
 
 test("wait formatter makes relay questions copyable with agent_message and follow-up wait", () => {
@@ -203,10 +211,10 @@ test("wait formatter makes relay questions copyable with agent_message and follo
 		workers: [makeWorker({ status: "running", currentTask: { taskId: "t1", title: "Question task", goal: "Ask", requestedBy: "orchestrator", profileName: "fixer", cwd: "/repo", contextHints: [], createdAt: 1 } })],
 		newRelays: [{ workerId: "w1", profileName: "fixer", urgency: "high", question: "Need scope?" }],
 	});
-	assert.match(text, /^Result reason: relay_raised\n1 new relay question\(s\) raised — answer via agent_message, then call wait_for_agents again to resume\./);
-	assert.match(text, /Pending relay questions:\n1\. w1 \(fixer\) urgency=high\n   question: Need scope\?\n   reply: agent_message \{"workerId":"w1","message":"<answer>"\}/);
-	assert.match(text, /Next: answer each relay via agent_message, then call wait_for_agents \{"workerIds":\["w1"\]\} to resume\./);
-	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running · task=Question task/);
+	assert.match(text, /^Needs reply: 1 relay question\(s\)\./);
+	assert.match(text, /Pending relay questions:\n1\. fixer \(w1\) \[high\]\n   Need scope\?/);
+	assert.match(text, /Next: answer with agent_message, then wait again for \["w1"\]\./);
+	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\) · task=Question task/);
 });
 
 test("wait formatter distinguishes timeout with mixed worker statuses", () => {
@@ -214,9 +222,9 @@ test("wait formatter distinguishes timeout with mixed worker statuses", () => {
 		reason: "timeout",
 		workers: [makeWorker({ status: "running" }), makeWorker({ workerId: "w2", profileName: "reviewer", status: "completed" })],
 	});
-	assert.match(text, /^Result reason: timeout\nWait timed out; some workers may still be running\./);
-	assert.match(text, /Next: inspect statuses or call wait_for_agents again with the same workerIds\./);
-	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running\n- w2 \(reviewer\) · status=completed/);
+	assert.match(text, /^Still waiting: some agents are still running\./);
+	assert.match(text, /Next: wait again or inspect status\./);
+	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\)\n- w2 \(reviewer\) · status=completed \(Completed\)/);
 });
 
 test("wait formatter distinguishes aborted waits", () => {
@@ -224,14 +232,14 @@ test("wait formatter distinguishes aborted waits", () => {
 		reason: "aborted",
 		workers: [makeWorker({ status: "running" })],
 	});
-	assert.match(text, /^Result reason: aborted\nWait aborted by the caller before all workers reached terminal status\./);
-	assert.match(text, /Next: inspect statuses with agent_status or cancel unwanted workers\./);
-	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running/);
+	assert.match(text, /^Wait cancelled: stopped before all agents finished\./);
+	assert.match(text, /Next: inspect status or cancel unwanted agents\./);
+	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\)/);
 });
 
 test("wait formatter explains no_workers wrapper outcome", () => {
 	const text = formatWaitForAgentsResult({ reason: "no_workers", workers: [] });
-	assert.equal(text, "Result reason: no_workers\nNo tracked workers to wait on.\nNext: call delegate_task before waiting for agents.");
+	assert.equal(text, "No agents to wait for.\nNext: delegate a task first.");
 });
 
 test("delegate formatter makes fresh launch lifecycle scannable", () => {
@@ -249,7 +257,10 @@ test("delegate formatter makes fresh launch lifecycle scannable", () => {
 	const worker = makeWorker({ status: "running", currentTask: task });
 	const text = formatDelegateTaskResult({ worker, task });
 
-	assert.match(text, /^Worker: w1\nTask: Build seam \(t1\)\nProfile: fixer\nCWD: \/repo\nPath scope: read\/write \/repo\/src, \/repo\/tests\nStatus: running\nLifecycle: launched fresh worker\nNext: call wait_for_agents with workerIds=\["w1"\]/);
+	assert.doesNotMatch(text, /\x1b\[/, "delegate_task text must be ANSI-free");
+	const plain = stripAnsi(text);
+	assert.equal(plain, "Created fixer (w1)\nTask: Build seam (t1)\nPath: /repo");
+	assert.doesNotMatch(plain, /Path scope:/);
 });
 
 test("delegate formatter shows reuse state with same worker and new task", () => {
@@ -266,10 +277,30 @@ test("delegate formatter shows reuse state with same worker and new task", () =>
 	const worker = makeWorker({ status: "running", currentTask: task });
 	const text = formatDelegateTaskResult({ worker, task, reuseWorkerId: "w1" });
 
-	assert.match(text, /Worker: w1/);
-	assert.match(text, /Task: Follow-up fix \(t2\)/);
-	assert.match(text, /Lifecycle: reused worker w1 for new task t2/);
-	assert.match(text, /Next: call wait_for_agents with workerIds=\["w1"\]/);
+	const plain = stripAnsi(text);
+	assert.match(plain, /^Reusing fixer \(w1\)/);
+	assert.match(plain, /Task: Follow-up fix \(t2\)/);
+	assert.match(plain, /Path: \/repo/);
+	assert.doesNotMatch(plain, /Lifecycle:/);
+	assert.doesNotMatch(plain, /Path scope:/);
+	assert.doesNotMatch(plain, /Next: wait_for_agents/);
+});
+
+test("agent message formatter names resolved delivery and wake/resume cases", () => {
+	const worker = makeWorker({ status: "running" });
+	assert.equal(formatAgentMessageResult({ worker, delivery: "steer", previousStatus: "running" }), "Steering running agent fixer (w1).");
+	assert.equal(formatAgentMessageResult({ worker, delivery: "follow_up", previousStatus: "running" }), "Queued follow-up for fixer (w1).");
+	assert.equal(formatAgentMessageResult({ worker, delivery: "prompt", previousStatus: "idle" }), "Waking idle agent fixer (w1).");
+	assert.equal(formatAgentMessageResult({ worker, delivery: "prompt", previousStatus: "waiting_followup" }), "Resuming agent fixer (w1).");
+});
+
+test("worker list items expose context budget when available", () => {
+	const text = formatWorkers([
+		makeWorker({
+			usage: { turns: 2, inputTokens: 1500, outputTokens: 2500, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.5, contextTokens: 128000, contextWindow: 200000, contextPercent: 64, contextRemainingTokens: 72000 },
+		}),
+	]);
+	assert.equal(text, "- w1 (fixer) · status=idle (Idle) · ctx=64%/200k rem=72k");
 });
 
 test("small helpers preserve list contracts", () => {

@@ -4,6 +4,14 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import extension, { _testing } from "../../extensions/pi-agent-team/index";
+import {
+	formatCommandWarning,
+	formatRelayToast,
+	formatWorkerStartedToast,
+	formatWorkerTerminalToast,
+	formatWorkersStartedToast,
+	formatWorkersTerminalToast,
+} from "../../src/ui/display-grammar";
 import { THINKING_LEVELS, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE } from "../../src/types";
 
 process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = "none";
@@ -13,6 +21,17 @@ function writeProjectConfig(root: string, config: Record<string, unknown>): void
 	mkdirSync(configDir, { recursive: true });
 	writeFileSync(join(configDir, TEAM_PROJECT_CONFIG_FILE), JSON.stringify(config, null, 2));
 }
+
+test("notification wording helpers use compact/action-oriented copy", () => {
+	assert.equal(formatWorkerStartedToast({ workerId: "w1", profileName: "fixer" }), "w1 (fixer) started");
+	assert.equal(formatWorkersStartedToast([{ workerId: "w1" }, { workerId: "w2" }]), "2 workers started: w1, w2");
+	assert.equal(formatWorkerTerminalToast({ workerId: "w1", profileName: "fixer", status: "completed" }), "w1 (fixer) complete");
+	assert.equal(formatWorkerTerminalToast({ workerId: "w2", profileName: "reviewer", status: "aborted" }), "w2 (reviewer) cancelled");
+	assert.equal(formatWorkerTerminalToast({ workerId: "w3", profileName: "oracle", status: "error" }), "w3 (oracle) failed");
+	assert.equal(formatWorkersTerminalToast([{ workerId: "w1", status: "completed" }, { workerId: "w3", status: "error" }]), "2 workers done: w1 complete, w3 failed");
+	assert.equal(formatRelayToast({ workerId: "w4", profileName: "reviewer" }, "Should I proceed?"), "Reply to w4 (reviewer): Should I proceed?");
+	assert.equal(formatCommandWarning("Unknown worker: w99"), "Warning — Unknown worker: w99");
+});
 
 test("thinkingLevel warning toast lists valid values and keys by scope/profile/bad value", () => {
 	const warning = { scope: "project" as const, profileName: "reviewer", badValue: "turbo" };

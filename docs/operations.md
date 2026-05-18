@@ -36,13 +36,13 @@ tsx --test tests/runtime/worker-manager.test.ts
 /team <worker-id>
 ```
 
-- `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact dashboard summary in print mode.
+- `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact dashboard summary in print mode. Treat it as the full live worker registry: running, queued, idle/reusable, recent terminal, error, and retained-cost state are all reachable there rather than through separate status commands.
 - Top tabs (`1` Workers · `2` Inspect · `3` Console · `4` Cost) are jumped with the number row, or `tab` / `shift+tab` to cycle. The overlay is a single right-anchored stack panel; switch to `Workers` to change selection, then use `Inspect` or `Console` for the selected worker.
 - `/team <worker-id>` skips the roster and opens the overlay on that worker's Inspect tab (tab completion suggests live worker ids).
 
 Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
 
-The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command.
+The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command. Active rows display task elapsed time (using the current task start on reused workers); recent terminal rows are retained for five minutes so finishes remain visible until the operator opens `/team` or prunes them. Command tips rotate in the bottom orchestrator status line, for example `Orchestrator · Idle · Tip: Use /team to view workers`.
 
 ### Dashboard keys
 
@@ -81,42 +81,44 @@ Inspect and Console both show a compact follow/paused header: `[follow]  scroll 
 /team-result <worker-id>
 ```
 
-Prints the compact result surface that the orchestrator sees through `agent_result`: worker identity/status, task, compact summary sections, pending relays, usage/context, and the verbatim contents of the worker's `<final_answer>` block. `/team-result` may also append a live `--- Latest assistant text ---` section for operator inspection; `agent_result` does not include that transcript tail and remains the authoritative synthesis surface. When Pi reports context budget, usage includes a compact marker such as `ctx=64%/200k rem=72k`.
+Prints the compact result surface that the orchestrator sees through `agent_result`: a plain-text worker title, optional task/status/error, pending relay questions, and `Result:` followed by the verbatim contents of the worker's `<final_answer>` block. The current compact surface intentionally omits the older summary metadata lists (`Headline`, `Read files`, `Changed files`, `Risks`, `Usage`) so the authoritative synthesis payload stays small. `/team-result` may include latest assistant text only when no final answer exists; `agent_result` remains the transcript-free synthesis surface.
 
 Normal result shape:
 
 ```text
-Worker: w1 (fixer)
-Status: completed
+fixer (w1)
 Task: Render result
-Headline: Renderer improved
-Read files (readFiles/files_read): src/ui/tool-formatters.ts
-Changed files (changedFiles/files_changed): tests/ui/tool-formatters.test.ts
-Risks: none
-Next: reviewer to spot-check output
-Usage: turns=1 input=1200 output=3400 cost=$0.0123
 
---- Final answer (from worker's <final_answer> block) ---
+Result:
 headline: renderer improved
 verification: npm test passed
 ```
 
-If the final answer is very short, the result includes a warning before the verbatim block:
+Pending relays are shown before the result:
 
 ```text
-Final answer note: very short final_answer (1 word); verify it is sufficient before synthesizing.
---- Final answer (from worker's <final_answer> block) ---
+fixer (w1)
+Task: Decide scope
+Status: waiting_followup (Waiting for follow-up)
+
+Pending relay questions:
+- [high] Retry with smaller scope?
+  assumption: Yes
+
+Result:
 done
 ```
 
-If no `<final_answer>` block was extracted, the result says so and gives the corrective prompt:
+If no `<final_answer>` block was extracted, the result says so:
 
 ```text
---- Final answer (from worker's <final_answer> block) ---
-No <final_answer> block extracted yet. This agent_result has no authoritative deliverable; steer/re-delegate with: `Please wrap your final deliverable in <final_answer>…</final_answer> tags.`
+fixer (w1)
+
+Result:
+No <final_answer> block extracted yet.
 ```
 
-When the block is missing, do not synthesize from transcript tail alone. Re-delegate, steer the worker with the corrective message, or stop and respawn with a clearer brief.
+When the block is missing, do not synthesize from transcript tail alone. Re-delegate, steer the worker to wrap its final deliverable in `<final_answer>…</final_answer>`, or stop and respawn with a clearer brief.
 
 ## Clean up finished workers
 
@@ -172,7 +174,7 @@ Clipboard providers are picked by platform: `pbcopy` on macOS, `clip.exe` on Win
 
 Use `all` to broadcast to every deliverable worker at once. The printed mode is per-worker, so you can see whether each target was steered, queued behind a live stream, or re-prompted.
 
-The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "follow_up"` and follows the same rules. Its tool result text ends with the resolved mode, e.g. `Sent message to w1 (prompt).`
+The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "follow_up"` and follows the same rules. Its tool result names the user-visible action: `Steering running agent fixer (w1).`, `Queued follow-up for fixer (w1).`, `Waking idle agent fixer (w1).`, or `Resuming agent fixer (w1).`
 
 Inside the `/team` overlay, `s` steers the selected worker and `m` sends a message — both defer to the same delivery resolver and only block unreachable terminal workers.
 
@@ -223,7 +225,7 @@ When reuse rejects, the error spells out which fields differ. The fix is usually
 What changes in **solo** mode:
 
 - `delegate_task` rejects with `Team routing off. Run /team-enable on to delegate.`. The orchestrator prompt drops the profile catalog and gets a one-line directive telling it to answer directly.
-- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The status line keeps the badge either way.
+- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The bottom status line also shows solo routing explicitly, e.g. `Orchestrator · Solo · Working...` or `Orchestrator · Solo · Idle`, plus the current rotating tip.
 - `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay live so workers spawned earlier can still be inspected, steered, or shut down.
 
 How the persistence target is resolved when you don't pass `--persist`:
@@ -270,75 +272,61 @@ The orchestrator should pair every `delegate_task` with a `wait_for_agents` call
 
 Operators normally see these through model narration, logs, or `/team-result`; they are included here so runbooks can match the real tool text.
 
-Fresh delegation returns launch metadata and the next wait call:
+Fresh delegation returns compact launch metadata:
 
 ```text
-Worker: w1
+Created fixer (w1)
 Task: Build seam (t1)
-Profile: fixer
-CWD: /repo
-Path scope: read/write /repo/src, /repo/tests
-Status: running
-Lifecycle: launched fresh worker
-Next: call wait_for_agents with workerIds=["w1"] to wait for completion or relay questions
+Path: /repo
 ```
 
-When the orchestrator intentionally reuses an idle same-scope worker, the lifecycle line makes that explicit:
+When the orchestrator intentionally reuses an idle same-scope worker, the first line makes that explicit:
 
 ```text
-Worker: w1
+Reusing fixer (w1)
 Task: Follow-up fix (t2)
-Profile: fixer
-Status: running
-Lifecycle: reused worker w1 for new task t2
-Next: call wait_for_agents with workerIds=["w1"] to wait for completion or relay questions
+Path: /repo
 ```
 
-`wait_for_agents` begins with `Result reason:` and always includes a `Next:` action except for worker detail rows. Common outcomes:
+`wait_for_agents` uses compact user-facing outcomes without exposing internal reason labels. Common outcomes:
 
 ```text
-Result reason: all_terminal
-All 2 worker(s) reached terminal status.
-Next: call agent_result for each completed worker you need to synthesize.
+Done: 2 agent(s) finished or stopped.
+Next: read results with agent_result.
 
 Workers:
-- w1 (fixer) · status=completed · task=Done task
-- w2 (reviewer) · status=idle
+- w1 (fixer) · status=completed (Completed) · task=Done task
+- w2 (reviewer) · status=idle (Idle)
 ```
 
 ```text
-Result reason: relay_raised
-1 new relay question(s) raised — answer via agent_message, then call wait_for_agents again to resume.
+Needs reply: 1 relay question(s).
 
 Pending relay questions:
-1. w1 (fixer) urgency=high
-   question: Need scope?
-   reply: agent_message {"workerId":"w1","message":"<answer>"}
-Next: answer each relay via agent_message, then call wait_for_agents {"workerIds":["w1"]} to resume.
+1. fixer (w1) [high]
+   Need scope?
+Next: answer with agent_message, then wait again for ["w1"].
 
 Workers:
-- w1 (fixer) · status=running · task=Question task
+- w1 (fixer) · status=running (Running) · task=Question task
 ```
 
 ```text
-Result reason: timeout
-Wait timed out; some workers may still be running.
-Next: inspect statuses or call wait_for_agents again with the same workerIds.
+Still waiting: some agents are still running.
+Next: wait again or inspect status.
 ```
 
 ```text
-Result reason: aborted
-Wait aborted by the caller before all workers reached terminal status.
-Next: inspect statuses with agent_status or cancel unwanted workers.
+Wait cancelled: stopped before all agents finished.
+Next: inspect status or cancel unwanted agents.
 ```
 
 ```text
-Result reason: no_workers
-No tracked workers to wait on.
-Next: call delegate_task before waiting for agents.
+No agents to wait for.
+Next: delegate a task first.
 ```
 
-For `relay_raised`, answer each copied `agent_message` prompt, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
+For `relay_raised`, answer each relay with `agent_message`, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
 
 ## Mid-flight relay handling
 
@@ -399,7 +387,7 @@ The worker inherits your Pi auth setup. Fix the missing provider key first, then
 
 Expected. Persisted workers are force-marked `exited` on restore so the operator sees what existed before the reload without being misled about process liveness.
 
-On a warm session start (`reload`, `resume`, `fork`, `new`), a one-line warning toast announces how many workers were flipped and the session-start reason. Example: `Pi Agents Team: 3 workers from prior session marked exited (resume). Relaunch via delegate_task if still needed.` Cold `startup` keeps the original info toast (`Pi Agents Team loaded…`). Each flipped worker's `error` field carries a reason-specific message (`session resumed…`, `session forked…`), which surfaces in `/team` detail view and copy payloads.
+On a warm session start (`reload`, `resume`, `fork`, `new`), a one-line warning toast announces how many workers were flipped and the session-start reason. Example: `Workers exited — 3 workers restored from resume; relaunch if needed.` Cold `startup` shows the compact info toast `Team ready — orchestrator mode`. Each flipped worker's `error` field carries a reason-specific message (`session resumed…`, `session forked…`), which surfaces in `/team` detail view and copy payloads.
 
 ### `/team-steer` "seems queued but nothing happens"
 
@@ -417,9 +405,9 @@ Launch policy is doing its job. `fixer` requires an explicit writable `pathScope
 
 The worker finished but did not follow the contract. Three moves, in order of preference: re-delegate with smaller slices, steer the existing worker with `/team-steer <id> <corrective message>` asking it to re-issue the final answer, or stop and re-spawn with a better brief. Do not fall back to running `bash`/`read`/`grep` yourself.
 
-### "Worker finished" toast fired, but the worker is still running
+### "Worker complete" toast fired, but the worker is still running
 
-Fixed. The `starting → idle` race has a guard in `applyNormalizedEvent` (worker stays `starting` until actually prompted) plus a filter in `flushTerminalNotifications` that drops entries whose status has flipped back off-terminal by flush time. If you see this again, it is a real bug: check `src/runtime/worker-manager.ts` and the `onStateChange` listener in the internal implementation entrypoint (`extensions/pi-agent-team/index.ts`).
+Fixed. The `starting → idle` race has a guard in `applyNormalizedEvent` (worker stays `starting` until actually prompted) plus a filter in the batched worker notification flush that drops entries whose status has flipped back off-terminal by flush time. Terminal toasts use user-facing actions (`complete`, `failed`, `cancelled`, `exited`) while preserving internal statuses in `/team` and tool results. If you see this again, it is a real bug: check `src/runtime/worker-manager.ts` and the `onStateChange` listener in the internal implementation entrypoint (`extensions/pi-agent-team/index.ts`).
 
 ## Local verification commands
 

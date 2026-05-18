@@ -1,14 +1,16 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TUI, OverlayOptions } from "@earendil-works/pi-tui";
-import type { TeamManager } from "../control-plane/team-manager";
+import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager";
 import type { AssistantChunk, WorkerConsoleEvent } from "../runtime/worker-manager";
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
-import { buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
+import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
 import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
+import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
+import { formatAgentMessageResult } from "./tool-formatters";
 import {
 	accent,
 	accentBold,
@@ -448,6 +450,19 @@ function firstFitting(width: number, candidates: string[]): string {
 	return candidates.find((candidate) => visibleWidth(candidate) <= width) ?? candidates[candidates.length - 1] ?? "";
 }
 
+function buildSelectedWorkerHeader(worker: WorkerRuntimeState | undefined, width: number): string {
+	if (!worker) return firstFitting(width, ["selected: none · action: delegate new", "selected: none", "none"]);
+	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker)).label;
+	const status = formatWorkerStatusLabel(worker);
+	const action = getWorkerPrimaryAction(worker);
+	return firstFitting(width, [
+		`selected: ${worker.workerId} · ${worker.profileName} · ${status} · ${attention} · action: ${action}`,
+		`selected: ${worker.workerId} · ${status} · action: ${action}`,
+		`${worker.workerId} · ${status} · ${action}`,
+		`${worker.workerId} · ${action}`,
+	]);
+}
+
 function formatFollowHeader(following: boolean, top: number, visible: number, total: number): string {
 	const start = total === 0 ? 0 : top + 1;
 	const end = Math.min(total, top + visible);
@@ -509,7 +524,7 @@ interface OverlayTeamManager {
 	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined;
 	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[];
 	onAssistantChunk?(listener: (workerId: string, chunk: AssistantChunk) => void): () => void;
-	messageWorker?(workerId: string, message: string, delivery?: "auto" | "steer" | "follow_up"): Promise<unknown>;
+	messageWorker?(workerId: string, message: string, delivery?: "auto" | "steer" | "follow_up"): Promise<AgentMessageResult>;
 	closeWorker?(workerId: string, reason?: string): Promise<unknown>;
 	cancelWorker?(workerId: string): Promise<unknown>;
 	pruneTerminalWorkers?(): Promise<unknown[]>;
@@ -649,8 +664,8 @@ export function createTeamDashboardOverlayComponent(
 			teamManager.getWorkerConsole(worker.workerId),
 		);
 		copyToClipboard(payload)
-			.then(() => setStatus(`Copied ${worker.workerId} (${payload.length.toLocaleString()} chars)`))
-			.catch((error) => setStatus(`Copy failed: ${error instanceof Error ? error.message : String(error)}`, 4000));
+			.then(() => setStatus(`Copy complete — ${worker.workerId} (${payload.length.toLocaleString()} chars)`))
+			.catch((error) => setStatus(`Warning — copy failed: ${error instanceof Error ? error.message : String(error)}`, 4000));
 	};
 
 	const openModal = (kind: ModalKind, workerId?: string) => {
@@ -710,11 +725,11 @@ export function createTeamDashboardOverlayComponent(
 		}
 		try {
 			if (modal.kind === "steer" && modal.workerId) {
-				await teamManager.messageWorker?.(modal.workerId, trimmed, "steer");
-				setStatus(`Steered ${modal.workerId}`);
+				const result = await teamManager.messageWorker?.(modal.workerId, trimmed, "steer");
+				setStatus(result ? formatAgentMessageResult(result) : `Steering running agent ${modal.workerId}.`);
 			} else if (modal.kind === "message" && modal.workerId) {
-				await teamManager.messageWorker?.(modal.workerId, trimmed, "auto");
-				setStatus(`Sent message to ${modal.workerId}`);
+				const result = await teamManager.messageWorker?.(modal.workerId, trimmed, "auto");
+				setStatus(result ? formatAgentMessageResult(result) : `Messaged agent ${modal.workerId}.`);
 			} else if (modal.kind === "new_task") {
 				if (teamManager.routingMode === "solo") {
 					setStatus("Team routing off. Run /team-enable on to delegate.");
@@ -734,7 +749,7 @@ export function createTeamDashboardOverlayComponent(
 					profileName: profile,
 					cwd: options.cwd ?? process.cwd(),
 				});
-				setStatus(`Delegated new task to ${profile}`);
+				setStatus(`Created ${profile} agent.`);
 				refreshSnapshot();
 			}
 		} catch (error) {
@@ -750,7 +765,7 @@ export function createTeamDashboardOverlayComponent(
 		}
 		try {
 			await teamManager.closeWorker?.(worker.workerId);
-			setStatus(`Closed ${worker.workerId}`);
+			setStatus(`Closed ${formatWorkerLabel(worker)}`);
 		} catch (error) {
 			setStatus(`Close failed: ${error instanceof Error ? error.message : String(error)}`, 4000);
 		}
@@ -760,7 +775,7 @@ export function createTeamDashboardOverlayComponent(
 		if (!worker) return setStatus("No worker selected");
 		try {
 			await teamManager.cancelWorker?.(worker.workerId);
-			setStatus(`Cancelled ${worker.workerId}`);
+			setStatus(`Cancelled ${formatWorkerLabel(worker)}`);
 		} catch (error) {
 			setStatus(`Cancel failed: ${error instanceof Error ? error.message : String(error)}`, 4000);
 		}
@@ -935,13 +950,27 @@ export function createTeamDashboardOverlayComponent(
 							`↑↓ scroll · space/b · g/G · ${compactTabHint}`,
 							`↑↓ · space/b · g/G · ${compactTabHint}`,
 						]);
-			const sel = state.selectedWorkerId ?? "none";
-			const snippet = currentWorker() ? buildWorkerPrioritySnippet(currentWorker()!) : "no worker selected";
-			const subHeader = `selected=${sel}  ·  ${snippet}`;
+			const worker = currentWorker();
+			const workerCount = Object.keys(snapshot.activeWorkers).length;
+			const attentionSummary = buildActionSummaryLine(snapshot);
+			const summaryRow = firstFitting(innerWidth, [
+				buildCompactTeamSummaryLine(snapshot),
+				`workers ${workerCount} · ${attentionSummary}`,
+				`workers ${workerCount} · ${attentionSummary.replace(/Needs /g, "").replace("Completed or idle", "Done/idle")}`,
+				`${workerCount} workers · ${snapshot.relayQueue.length} relays`,
+			]);
+			const selectedHeader = buildSelectedWorkerHeader(worker, innerWidth);
+			const snippet = worker ? buildWorkerPrioritySnippet(worker) : "no worker selected";
+			const selectedSnippet = firstFitting(innerWidth, [
+				`focus: ${snippet}`,
+				snippet,
+			]);
 			const headerLines = [
 				tabBar,
+				accent(summaryRow),
 				dim(helpRow),
-				dim(subHeader),
+				bold(selectedHeader),
+				dim(selectedSnippet),
 			];
 
 			const footerLines: string[] = [];

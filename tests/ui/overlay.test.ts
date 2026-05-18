@@ -251,14 +251,43 @@ test("workers tab renders roster sections, reuse tag for idle workers, and suppo
 	component.handleInput("1");
 	let lines = renderPlain(component, 100);
 	assert.ok(lines.some((line) => line.includes("[reuse]")), "expected reuse hint for idle worker");
-	assert.ok(lines.some((line) => line.includes("In progress")));
-	assert.ok(lines.some((line) => line.includes("Completed or idle")));
+	assert.ok(lines.some((line) => line.includes("Working")));
+	assert.ok(lines.some((line) => line.includes("Done")));
 
 	component.handleInput("j");
 	component.handleInput("j");
 	lines = renderPlain(component, 100);
 	const selectedRow = lines.find((line) => line.includes("▶"));
 	assert.ok(selectedRow, "expected selection arrow on a row");
+});
+
+test("workers tab shows compact summary, selected mini header, and state-specific action hint", () => {
+	const state = makeState(4);
+	state.activeWorkers.w1!.pendingRelayQuestions = [{
+		relayId: "relay-1",
+		workerId: "w1",
+		taskId: "t1",
+		question: "Need deployment approval?",
+		assumption: "wait",
+		urgency: "high",
+		createdAt: Date.now(),
+	}];
+	state.activeWorkers.w2!.status = "error";
+	state.activeWorkers.w2!.error = "RPC crashed";
+	state.activeWorkers.w3!.status = "idle";
+	state.activeWorkers.w3!.finalAnswer = "headline: done";
+	const { component } = makeComponent({ state, rows: 34, cols: 96, initialWorkerId: "w1" });
+
+	component.handleInput("1");
+	const lines = renderPlain(component, 96);
+	const body = lines.join("\n");
+	assert.match(body, /workers 4 .*Needs reply 1 .*Needs recovery 1 .*Working 1 .*Done 1/);
+	assert.match(body, /selected: w1 .*Running .*Needs reply .*action: Answer relay/);
+	assert.match(body, /Needs reply \(1\)/);
+	assert.match(body, /Needs recovery \(1\)/);
+	assert.match(body, /Done \(1\)/);
+	assert.equal(lines.length, Math.floor(34 * 0.9));
+	for (const line of lines) assert.ok(visibleWidth(line) <= 96, `line exceeds width: ${visibleWidth(line)} ${line}`);
 });
 
 test("inspect tab renders a single thinking value when not clamped", () => {

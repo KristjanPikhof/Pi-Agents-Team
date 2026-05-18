@@ -1,7 +1,16 @@
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types";
+import {
+	WORKER_ATTENTION_ORDER,
+	formatWorkerLabel,
+	formatWorkerStatusLabel,
+	getWorkerAttentionDisplay,
+	getWorkerAttentionPriority as getSharedWorkerAttentionPriority,
+	getWorkerPrimaryAction,
+	type WorkerAttentionPriority,
+} from "./display-grammar";
 import { formatCompactTokenCount } from "./usage-format";
 
-export type WorkerAttentionGroup = "needs_reply" | "needs_recovery" | "in_progress" | "completed_or_idle";
+export type WorkerAttentionGroup = WorkerAttentionPriority;
 
 export interface WorkerRosterSection {
 	key: WorkerAttentionGroup;
@@ -9,24 +18,12 @@ export interface WorkerRosterSection {
 	workers: WorkerRuntimeState[];
 }
 
-const ATTENTION_GROUP_ORDER: WorkerAttentionGroup[] = ["needs_reply", "needs_recovery", "in_progress", "completed_or_idle"];
-
-const ATTENTION_GROUP_LABELS: Record<WorkerAttentionGroup, string> = {
-	needs_reply: "Needs reply",
-	needs_recovery: "Needs recovery",
-	in_progress: "In progress",
-	completed_or_idle: "Completed or idle",
-};
-
 function sortWorkers(workers: WorkerRuntimeState[]): WorkerRuntimeState[] {
 	return workers.slice().sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 }
 
 export function getWorkerAttentionGroup(worker: WorkerRuntimeState): WorkerAttentionGroup {
-	if (worker.pendingRelayQuestions.length > 0) return "needs_reply";
-	if (worker.error || worker.status === "error" || worker.status === "aborted" || worker.status === "exited") return "needs_recovery";
-	if (worker.status === "running" || worker.status === "starting" || worker.status === "waiting_followup") return "in_progress";
-	return "completed_or_idle";
+	return getSharedWorkerAttentionPriority(worker);
 }
 
 export function buildWorkerPrioritySnippet(worker: WorkerRuntimeState): string {
@@ -50,9 +47,9 @@ export function buildRosterSections(state: PersistedTeamState): WorkerRosterSect
 		grouped[getWorkerAttentionGroup(worker)].push(worker);
 	}
 
-	return ATTENTION_GROUP_ORDER.map((key) => ({
+	return WORKER_ATTENTION_ORDER.map((key) => ({
 		key,
-		label: ATTENTION_GROUP_LABELS[key],
+		label: getWorkerAttentionDisplay(key).label,
 		workers: sortWorkers(grouped[key]),
 	}));
 }
@@ -64,14 +61,18 @@ export function buildActionSummaryLine(state: PersistedTeamState): string {
 		.join(" · ");
 }
 
+export function buildCompactTeamSummaryLine(state: PersistedTeamState): string {
+	const workerCount = Object.keys(state.activeWorkers).length;
+	return `workers ${workerCount} · mode ${state.sessionMode} · relays ${state.relayQueue.length} · ${buildActionSummaryLine(state)}`;
+}
+
 export function buildTeamDashboardLines(state: PersistedTeamState): string[] {
 	const workers = Object.values(state.activeWorkers);
 	const lines = [
 		"Pi Agents Team Dashboard",
-		buildActionSummaryLine(state),
-		`Mode ${state.sessionMode} · relay queue ${state.relayQueue.length}`,
-		"/team opens a keyboard-first overlay: queue on the left, inspector on the right when width allows.",
-		"Use /team <worker-id> for direct focus, then inspect Overview / Deliverable / Console tabs. Print mode stays summary-only.",
+		buildCompactTeamSummaryLine(state),
+		"/team opens a keyboard-first overlay with the complete worker registry grouped by attention.",
+		"Use /team <worker-id> for direct focus, then inspect Workers / Inspect / Console / Cost tabs. Print mode stays summary-only.",
 		"Use /team-result <id> for the final deliverable block.",
 		"",
 	];
@@ -85,8 +86,8 @@ export function buildTeamDashboardLines(state: PersistedTeamState): string[] {
 		if (section.workers.length === 0) continue;
 		lines.push(`${section.label} (${section.workers.length})`);
 		for (const worker of section.workers) {
-			lines.push(`- ${worker.workerId} (${worker.profileName}) — ${buildWorkerPrioritySnippet(worker)}`);
-			lines.push(`  status: ${worker.status}`);
+			lines.push(`- ${formatWorkerLabel(worker)} — ${buildWorkerPrioritySnippet(worker)}`);
+			lines.push(`  status: ${worker.status} (${formatWorkerStatusLabel(worker)}) · action: ${getWorkerPrimaryAction(worker)}`);
 			if (worker.currentTask?.title) lines.push(`  task: ${worker.currentTask.title}`);
 			lines.push(
 				`  usage: turns=${worker.usage.turns} input=${formatCompactTokenCount(worker.usage.inputTokens)} output=${formatCompactTokenCount(worker.usage.outputTokens)}`,

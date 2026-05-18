@@ -134,11 +134,11 @@ Persisted state survives reloads via custom-typed session entries, but live work
 
 `wait_for_agents` subscribes to `state_change` events on `TeamManager`. `TeamManager.waitForTerminal` resolves the four event-driven reasons (`all_terminal`, `relay_raised`, `timeout`, `aborted`), and the tool wrapper adds `no_workers` before subscribing when no targets are tracked. The tool result therefore has one of five reasons:
 
-- `all_terminal`: every target reached a terminal status (`idle`, `completed`, `aborted`, `error`, `exited`). The formatted result tells the orchestrator to call `agent_result` for completed workers it needs to synthesize.
-- `relay_raised`: any target raised a new relay question while running. The response carries a `newRelays` list, and the formatted result includes copyable `agent_message {"workerId":"...","message":"<answer>"}` guidance plus the follow-up `wait_for_agents` call. Opt out with `wakeOnRelay: false`.
-- `timeout`: default 5 min. The formatted result says workers may still be running and recommends inspecting status or waiting again with the same ids.
-- `aborted`: external abort signal. The formatted result recommends inspecting status or cancelling unwanted workers.
-- `no_workers`: no tracked workers matched the wait request. The formatted result tells the orchestrator to call `delegate_task` before waiting.
+- `all_terminal`: every target reached a done/stopped status (`idle`, `completed`, `aborted`, `error`, `exited`). The formatted result starts with `Done: ...` and points to `agent_result`.
+- `relay_raised`: any target raised a new relay question while running. The response carries a `newRelays` list, and the formatted result starts with `Needs reply: ...`, lists profile/id/question, and says to answer with `agent_message` before waiting again. Opt out with `wakeOnRelay: false`.
+- `timeout`: default 5 min. The formatted result starts with `Still waiting: ...` and recommends waiting again or inspecting status.
+- `aborted`: external abort signal. The formatted result starts with `Wait cancelled: ...` and recommends inspecting status or cancelling unwanted agents.
+- `no_workers`: no tracked workers matched the wait request. The formatted result starts with `No agents to wait for.` and tells the orchestrator to delegate first.
 
 The baseline pending-relay count is snapshotted at wait-start per call, so previously-answered relays don't wake subsequent waits. Only a fresh length increase wakes. This is what lets the orchestrator juggle multiple in-flight workers: answer, go back to sleep, answer, go back to sleep, until `all_terminal`. Zero tokens between wakes.
 
@@ -207,7 +207,7 @@ Persisted session state does **not** include:
 
 ## Routing mode
 
-`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line when workers are tracked (or hides the widget entirely when none are — the status line still carries the `solo` badge). `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
+`TeamManager.routingMode` is `"team"` or `"solo"`. It gates `delegate_task`, swaps the orchestrator profile catalog for a one-line solo directive, and collapses the widget to a single `Pi Agents Team — solo` line when workers are tracked (or hides the widget entirely when none are). The bottom status line shows solo routing explicitly (`Orchestrator · Solo · Working...` / `Orchestrator · Solo · Idle`) and otherwise reports `Orchestrator · Working...` or `Orchestrator · Idle`, followed by a rotating app tip such as `Tip: Use /team to view workers`. `setRoutingMode` emits `state_change` so the extension's listener re-renders without reload.
 
 The initial mode is derived once per `session_start` from the loaded config:
 
@@ -234,15 +234,16 @@ Slash commands are supervision controls, not alternate chat channels:
 - `/team-copy <id>`, `/team-result <id>`
 - `/team-init [global|local] [--force]`
 
-The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
+The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. It remains the source of active/relay/worker counts; static command tips live in the bottom status line instead of the top widget. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
 ### Widget layout rules
 
 `buildTeamWidgetLines` (`src/ui/status-widget.ts`):
 
 - **Hidden when empty.** Returns `[]` if no workers are tracked and no retained-pruned usage exists; the extension then clears the widget via `setWidget(key, undefined)`. Retained usage can still render the compact `Σ` line after worker rows are pruned. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
-- **Single column** when ≤ 6 workers (cap at 8 visible rows). Per-worker row is one glyph + id + profile + 38-col truncated detail.
-- **Two columns** when > 6 workers: left column padded to 38 cols with visible-width-aware spaces, then `  ` + right cell. Cap at 16 visible workers (2 × 8); the rest show as `  +N more · /team to view`.
+- **Single column with bounded retention.** Per-worker rows are one glyph + id + profile + title/detail + status/elapsed, capped at 8 visible workers. Active rows (`starting`/`running` or workers with relay questions) stay visible; terminal rows (`idle`, `completed`, `aborted`, `error`, `exited`) are retained for five minutes, then summarized as old hidden rows until pruned.
+- **Elapsed display.** Active rows display elapsed time from the current task's `createdAt` when present, falling back to worker `startedAt`. This keeps reused workers from showing worker age as task age without changing reuse or lifecycle semantics.
+- **Full registry handoff.** The compact widget filters old/overflow rows for display only and always points to `/team`; the `/team` overlay is the full live registry for inspecting currently tracked workers.
 - **Width enforcement.** Every returned line passes through `truncateToWidth(line, HEADER_WIDTH=78)`. Both widget and overlay use pi-tui's `visibleWidth` / `truncateToWidth`, not raw `.length` / `.slice`, because braille spinner glyphs, emoji, and combining chars miscount under code-unit length and previously crashed pi-tui's render validator.
 
 ### Overlay layout rules
@@ -283,6 +284,8 @@ All are UI-only. The orchestrator prompt explicitly instructs the model to ignor
 ### Spinner animation
 
 A 120 ms `setInterval` animates the widget while `hasAnimatedWorkers(state)` is true (any worker in `starting`/`running`/`waiting_followup`). The tick re-applies the widget at the next frame. It starts on state change, stops when the last non-terminal worker finishes, stops on `session_shutdown`, and calls `.unref()` so it never blocks process exit.
+
+A separate 15 s managed `setInterval` rotates the bottom status-line tip while the team UI is active. It is unref'd, restarts cleanly on session reload, and stops when there is no UI, the team UI is inactive, or `session_shutdown` runs.
 
 ## What to read next
 

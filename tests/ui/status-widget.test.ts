@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDefaultTeamState } from "../../src/config";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { SPINNER_FRAMES, buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
+import { SPINNER_FRAMES, TEAM_STATUS_TIPS, buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget";
+import { stripAnsi } from "../../src/ui/theme";
 import type { WorkerRuntimeState, WorkerStatus } from "../../src/types";
 
 function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string; status: WorkerStatus }): WorkerRuntimeState {
@@ -29,8 +30,34 @@ function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string;
 test("status widget hides itself when no workers are tracked", () => {
 	const state = createDefaultTeamState();
 	const statusLine = buildTeamStatusLine(state);
-	assert.match(statusLine, /workers=0/);
+	assert.equal(statusLine, "Orchestrator · Idle");
 	assert.deepEqual(buildTeamWidgetLines(state), []);
+});
+
+test("status line shows routing mode, orchestrator state, and optional rotating tip", () => {
+	const state = createDefaultTeamState();
+	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
+	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Idle");
+	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0)), "Orchestrator · Idle · Tip: Use /team to view workers");
+
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running" });
+	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
+	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Working...");
+	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(1)), "Orchestrator · Working... · Tip: Use /team-result <id> for final output");
+
+	state.activeWorkers.w1.status = "idle";
+	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
+
+	state.relayQueue = [{
+		relayId: "r1",
+		workerId: "w1",
+		taskId: "t1",
+		question: "Need a decision?",
+		assumption: "wait",
+		urgency: "normal",
+		createdAt: Date.now(),
+	}];
+	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
 });
 
 test("widget shows spinner frame for running workers and ✓ for finished idle workers", () => {
@@ -79,16 +106,27 @@ test("widget shows spinner frame for running workers and ✓ for finished idle w
 
 	const frame0 = buildTeamWidgetLines(state, { frame: 0 });
 	const frame3 = buildTeamWidgetLines(state, { frame: 3 });
-	const w1Frame0 = frame0.find((line) => line.includes("w1 explorer"));
-	const w1Frame3 = frame3.find((line) => line.includes("w1 explorer"));
-	assert.ok(w1Frame0?.startsWith(`${SPINNER_FRAMES[0]} `));
-	assert.ok(w1Frame3?.startsWith(`${SPINNER_FRAMES[3]} `));
+	const plainFrame0 = frame0.map(stripAnsi);
+	const plainFrame3 = frame3.map(stripAnsi);
+	const w1Frame0 = plainFrame0.find((line) => line.includes("explorer (w1)"));
+	const w1Frame3 = plainFrame3.find((line) => line.includes("explorer (w1)"));
+	assert.ok(w1Frame0?.startsWith(`├ ${SPINNER_FRAMES[0]} `));
+	assert.ok(w1Frame3?.startsWith(`├ ${SPINNER_FRAMES[3]} `));
+	assert.match(frame0.find((line) => stripAnsi(line).includes("explorer (w1)")) ?? "", /\x1b\[1mexplorer\x1b\[0m \(w1\)/);
+	assert.ok(w1Frame0?.includes("explorer (w1) · mapping src/runtime · 0s"));
+	assert.ok(!w1Frame0?.includes(" — "));
 
-	const w2Line = frame0.find((line) => line.includes("w2 librarian"));
-	assert.ok(w2Line?.startsWith("✓ "));
+	const w2Line = plainFrame0.find((line) => line.includes("librarian (w2)"));
+	assert.ok(w2Line?.startsWith("├ ✓ "));
+	assert.equal(w2Line?.endsWith(" · Done"), true);
+	assert.ok(!w2Line?.includes("architecture notes ready"));
 
-	const w3Line = frame0.find((line) => line.includes("w3 fixer"));
-	assert.ok(w3Line?.startsWith("✗ "));
+	const w3Line = plainFrame0.find((line) => line.includes("fixer (w3)"));
+	assert.ok(w3Line?.startsWith("└ ✗ "));
+
+	assert.ok(plainFrame0.some((line) => line.includes("└ Working: mapping src/runtime")), `expected friendly working activity line; got:\n${plainFrame0.join("\n")}`);
+	assert.ok(!plainFrame0.some((line) => line.includes("Done: architecture notes ready")), `expected no done detail line; got:\n${plainFrame0.join("\n")}`);
+	assert.ok(!plainFrame0.some((line) => /└ (in_progress|completed_or_idle):/.test(line)), `expected no raw attention keys; got:\n${plainFrame0.join("\n")}`);
 
 	const countsLine = frame0[1]!;
 	assert.match(countsLine, /1 running/);
@@ -96,7 +134,7 @@ test("widget shows spinner frame for running workers and ✓ for finished idle w
 	assert.match(countsLine, /1 ended/);
 });
 
-test("widget switches to two-column layout above six workers and caps visible count", () => {
+test("widget caps active rows and reports hidden workers", () => {
 	const state = createDefaultTeamState();
 	for (let i = 1; i <= 20; i += 1) {
 		const id = `w${i}`;
@@ -119,15 +157,92 @@ test("widget switches to two-column layout above six workers and caps visible co
 	}
 
 	const lines = buildTeamWidgetLines(state, { frame: 0 });
-	const workerRows = lines.filter((line) => / w\d+ reviewer /.test(line));
+	const plainLines = lines.map(stripAnsi);
+	const workerRows = plainLines.filter((line) => / reviewer \(w\d+\) /.test(line));
 	assert.equal(workerRows.length, 8);
-	const twoColRows = workerRows.filter((line) => /w\d+ reviewer.*w\d+ reviewer/.test(line));
-	assert.ok(twoColRows.length > 0, "expected at least one two-column row");
-	assert.ok(lines.some((line) => /\+4 more/.test(line)), "expected spillover marker");
+	assert.ok(lines.some((line) => /12 more/.test(line)), "expected spillover marker");
 
 	for (const line of lines) {
-		assert.ok(visibleWidth(line) <= 78, `line exceeds 78 cols (${visibleWidth(line)}): ${line}`);
+		assert.ok(visibleWidth(line) <= 100, `line exceeds 100 cols (${visibleWidth(line)}): ${line}`);
 	}
+});
+
+test("active worker elapsed uses task creation time when a reused worker has a fresh task", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.w1 = makeWorker({
+		workerId: "w1",
+		profileName: "fixer",
+		status: "running",
+		startedAt: now - 60 * 60 * 1_000,
+		currentTask: {
+			taskId: "t2",
+			title: "fresh reused task",
+			goal: "validate elapsed display",
+			requestedBy: "orchestrator",
+			profileName: "fixer",
+			cwd: "/repo",
+			contextHints: [],
+			createdAt: now - 30_000,
+		},
+	});
+
+	const lines = buildTeamWidgetLines(state, { now, frame: 0 });
+	const plainLines = lines.map(stripAnsi);
+	const workerRow = plainLines.find((line) => line.includes("fixer (w1)"));
+	assert.ok(workerRow, `expected worker row; got:\n${plainLines.join("\n")}`);
+	assert.match(workerRow, /fresh reused task · 30s/);
+	assert.doesNotMatch(workerRow, /1h/);
+});
+
+test("widget keeps registry order for visible rows while filtering inactive workers", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.done = makeWorker({ workerId: "done", profileName: "closer", status: "completed", lastEventAt: now - 1_000 });
+	state.activeWorkers.start = makeWorker({ workerId: "start", profileName: "starter", status: "starting", lastEventAt: now - 2_000 });
+	state.activeWorkers.oldHidden = makeWorker({ workerId: "oldHidden", profileName: "hidden", status: "idle", lastEventAt: now - 10 * 60 * 1_000 });
+	state.activeWorkers.run = makeWorker({ workerId: "run", profileName: "runner", status: "running", lastEventAt: now - 3_000 });
+	state.activeWorkers.relay = makeWorker({
+		workerId: "relay",
+		profileName: "fixer",
+		status: "waiting_followup",
+		lastEventAt: now - 4_000,
+		pendingRelayQuestions: [{
+			relayId: "r1",
+			workerId: "relay",
+			taskId: "t1",
+			question: "Need scope decision?",
+			assumption: "continue narrowly",
+			urgency: "normal",
+			createdAt: now - 4_000,
+		}],
+	});
+	state.relayQueue = [state.activeWorkers.relay.pendingRelayQuestions[0]!];
+
+	const lines = buildTeamWidgetLines(state, { frame: 0, now });
+	const plainLines = lines.map(stripAnsi);
+	assert.match(plainLines[0]!, /active=3/);
+	const workerRows = plainLines.filter((line) => /^[├└] [⠋▸◌✓✗○▶]/.test(line) && / \((done|start|oldHidden|run|relay)\)/.test(line));
+	assert.deepEqual(workerRows.map((line) => line.match(/ \((done|start|oldHidden|run|relay)\)/)?.[1]), ["done", "start", "run", "relay"]);
+	assert.ok(!workerRows.some((line) => line.includes("oldHidden")), `old hidden worker should stay filtered; got:\n${plainLines.join("\n")}`);
+	assert.ok(plainLines.some((line) => line.includes("└ Needs reply: Need scope decision?")), `expected friendly relay activity line; got:\n${plainLines.join("\n")}`);
+	assert.ok(!plainLines.some((line) => line.includes("└ needs_reply:")), `expected no raw attention key; got:\n${plainLines.join("\n")}`);
+});
+
+test("widget treats waiting_followup as live and still summarizes old hidden workers", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.oldDone = makeWorker({ workerId: "oldDone", status: "completed", lastEventAt: now - 10 * 60 * 1_000 });
+	state.activeWorkers.oldIdle = makeWorker({ workerId: "oldIdle", status: "idle", lastEventAt: now - 10 * 60 * 1_000 });
+	state.activeWorkers.queued = makeWorker({ workerId: "queued", status: "waiting_followup", lastEventAt: now - 1_000 });
+
+	const lines = buildTeamWidgetLines(state, { now });
+	const plainLines = lines.map(stripAnsi);
+	assert.ok(!plainLines.some((line) => line.includes("oldDone") || line.includes("oldIdle")), `old terminal rows should be hidden; got:\n${plainLines.join("\n")}`);
+	assert.match(plainLines[0]!, /active=1/);
+	assert.ok(plainLines.some((line) => line.includes("▸ 1 queued")), `expected queued count; got:\n${plainLines.join("\n")}`);
+	assert.ok(plainLines.some((line) => line.includes("reviewer (queued)")), `waiting_followup worker should render as a live row; got:\n${plainLines.join("\n")}`);
+	assert.ok(plainLines.some((line) => line.includes("2 old hidden")), `expected hidden summary; got:\n${plainLines.join("\n")}`);
 });
 
 test("widget enforces a hard cap on visible width even with long headlines", () => {
@@ -150,8 +265,19 @@ test("widget enforces a hard cap on visible width even with long headlines", () 
 	});
 	const lines = buildTeamWidgetLines(state, { frame: 0 });
 	for (const line of lines) {
-		assert.ok(visibleWidth(line) <= 78, `line exceeds 78 cols (${visibleWidth(line)}): ${line}`);
+		assert.ok(visibleWidth(line) <= 100, `line exceeds 100 cols (${visibleWidth(line)}): ${line}`);
 	}
+});
+
+test("widget omits the old static tip line and tips cycle by index", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", profileName: "reviewer", status: "running" });
+
+	const lines = buildTeamWidgetLines(state, { frame: 0 });
+	assert.ok(!lines.some((line) => line.includes("tip: /team")), `expected no static widget tip; got:\n${lines.join("\n")}`);
+	assert.equal(getTeamStatusTip(0), TEAM_STATUS_TIPS[0]);
+	assert.equal(getTeamStatusTip(TEAM_STATUS_TIPS.length), TEAM_STATUS_TIPS[0]);
+	assert.equal(getTeamStatusTip(2), "Use /team-copy <id> to copy a worker result");
 });
 
 test("hasAnimatedWorkers flips with non-terminal status", () => {
@@ -162,6 +288,9 @@ test("hasAnimatedWorkers flips with non-terminal status", () => {
 	assert.equal(hasAnimatedWorkers(state), false);
 
 	state.activeWorkers.w2 = makeWorker({ workerId: "w2", status: "running" });
+	assert.equal(hasAnimatedWorkers(state), true);
+
+	state.activeWorkers = { w3: makeWorker({ workerId: "w3", status: "waiting_followup" }) };
 	assert.equal(hasAnimatedWorkers(state), true);
 });
 

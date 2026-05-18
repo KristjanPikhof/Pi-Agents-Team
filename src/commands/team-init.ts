@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { atomicWriteFileSync, backupExisting, formatBackupTimestamp } from "../util/backup";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG } from "../config";
+import { formatCommandWarning } from "../ui/display-grammar";
 import { getProjectConfigPathForScope } from "../project-config/loader";
 import {
 	DEFAULT_MODEL_SENTINEL,
@@ -93,7 +94,7 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 		handler: async (args, ctx) => {
 			const parsed = parseInitArgs(args);
 			if (parsed.error) {
-				ctx.ui.notify(parsed.error, "warning");
+				ctx.ui.notify(formatCommandWarning(parsed.error), "warning");
 				return;
 			}
 			const scope = parsed.scope ?? "local";
@@ -104,7 +105,7 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 				// Global scope with PI_AGENT_TEAM_GLOBAL_CONFIG_PATH set to
 				// "none"/""/"null" — writing would be ambiguous. Refuse cleanly.
 				ctx.ui.notify(
-					"Global agents-team.json is disabled (PI_AGENT_TEAM_GLOBAL_CONFIG_PATH=none). Unset the env var or point it at a path to scaffold a global config.",
+					formatCommandWarning("Global agents-team.json is disabled (PI_AGENT_TEAM_GLOBAL_CONFIG_PATH=none). Unset the env var or point it at a path to scaffold a global config."),
 					"warning",
 				);
 				return;
