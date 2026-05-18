@@ -153,7 +153,7 @@ test("widget prioritizes relay, running, starting, then recent terminal rows", (
 
 	const lines = buildTeamWidgetLines(state, { frame: 0, now });
 	assert.match(lines[0]!, /active=3/);
-	const workerRows = lines.filter((line) => / (relay|run|start|done) /.test(line) && !line.includes("↳"));
+	const workerRows = lines.filter((line) => /^[⠋▸◌✓✗○▶]/.test(line) && / (relay|run|start|done) /.test(line));
 	assert.deepEqual(workerRows.map((line) => line.match(/ (relay|run|start|done) /)?.[1]), ["relay", "run", "start", "done"]);
 	assert.ok(lines.some((line) => line.includes("↳ needs_reply: Need scope decision?")), `expected relay activity line; got:\n${lines.join("\n")}`);
 });
