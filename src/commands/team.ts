@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { openTeamDashboardOverlay } from "../ui/overlay";
+import { formatCommandWarning } from "../ui/display-grammar";
 import type { TeamManager } from "../control-plane/team-manager";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
 
@@ -31,7 +32,7 @@ export function registerTeamCommand(pi: ExtensionAPI, dependencies: CommandRegis
 			const workerId = dependencies.teamManager.resolveWorkerId(input);
 			if (!workerId) {
 				const candidates = dependencies.teamManager.listWorkers().map((worker) => worker.workerId);
-				ctx.ui.notify(formatUnknownWorker(input, suggestTargets(input, candidates)), "warning");
+				ctx.ui.notify(formatCommandWarning(formatUnknownWorker(input, suggestTargets(input, candidates))), "warning");
 				return;
 			}
 			await openTeamDashboardOverlay(ctx, dependencies.teamManager, { initialWorkerId: workerId });

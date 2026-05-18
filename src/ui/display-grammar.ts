@@ -131,3 +131,36 @@ export function buildWorkerActionHint(worker: Pick<WorkerRuntimeState, "status" 
 	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker));
 	return `${attention.label}: ${getWorkerPrimaryAction(worker)}`;
 }
+
+export function formatWorkerStartedToast(worker: Pick<WorkerRuntimeState, "workerId" | "profileName">): string {
+	return `${worker.workerId} (${formatProfileLabel(worker.profileName)}) started`;
+}
+
+export function formatWorkersStartedToast(workers: readonly Pick<WorkerRuntimeState, "workerId">[]): string {
+	return `${workers.length} workers started: ${formatWorkerIdList(workers.map((worker) => worker.workerId))}`;
+}
+
+export function formatTerminalStatusAction(status: WorkerStatus): "complete" | "cancelled" | "failed" | "exited" {
+	if (status === "aborted") return "cancelled";
+	if (status === "error") return "failed";
+	if (status === "exited") return "exited";
+	return "complete";
+}
+
+export function formatWorkerTerminalToast(worker: Pick<WorkerRuntimeState, "workerId" | "profileName" | "status">): string {
+	return `${worker.workerId} (${formatProfileLabel(worker.profileName)}) ${formatTerminalStatusAction(worker.status)}`;
+}
+
+export function formatWorkersTerminalToast(workers: readonly Pick<WorkerRuntimeState, "workerId" | "status">[]): string {
+	const items = workers.map((worker) => `${worker.workerId} ${formatTerminalStatusAction(worker.status)}`);
+	return `${workers.length} workers done: ${items.join(", ")}`;
+}
+
+export function formatRelayToast(worker: Pick<WorkerRuntimeState, "workerId" | "profileName">, question: string): string {
+	const preview = question.replace(/\s+/g, " ").trim().slice(0, 120);
+	return `Reply to ${worker.workerId} (${formatProfileLabel(worker.profileName)}): ${preview}`;
+}
+
+export function formatCommandWarning(message: string): string {
+	return `Warning — ${message}`;
+}

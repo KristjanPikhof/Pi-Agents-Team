@@ -17,6 +17,7 @@ import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
 import { buildTeamStatusLine, buildTeamWidgetLines, hasAnimatedWorkers } from "../../src/ui/status-widget";
+import { formatRelayToast, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar";
 import { formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
 import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers";
 import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer";
@@ -282,6 +283,7 @@ export default function (pi: ExtensionAPI): void {
 	const toastedThinkingClamps = new Map<string, true>();
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 	const lastRelayCount = new Map<string, number>();
+	const pendingStartedTransitions: Array<{ workerId: string; profileName: string }> = [];
 	const pendingTerminalTransitions: Array<{ workerId: string; profileName: string; status: WorkerRuntimeState["status"] }> = [];
 	let notificationTimer: NodeJS.Timeout | undefined;
 	let spinnerTimer: NodeJS.Timeout | undefined;
@@ -311,6 +313,7 @@ export default function (pi: ExtensionAPI): void {
 	function resetUiTracking(): void {
 		lastStatus.clear();
 		lastRelayCount.clear();
+		pendingStartedTransitions.length = 0;
 		pendingTerminalTransitions.length = 0;
 		if (notificationTimer) {
 			clearTimeout(notificationTimer);
@@ -318,20 +321,31 @@ export default function (pi: ExtensionAPI): void {
 		}
 	}
 
-	function flushTerminalNotifications(): void {
+	function flushWorkerNotifications(): void {
 		notificationTimer = undefined;
-		if (pendingTerminalTransitions.length === 0) return;
-		const queued = pendingTerminalTransitions.splice(0);
+		const started = pendingStartedTransitions.splice(0);
+		const terminal = pendingTerminalTransitions.splice(0);
 		if (!activeContext?.hasUI) return;
-		const items = queued.filter((item) => {
+
+		const startedItems = started.filter((item) => {
+			const current = lastStatus.get(item.workerId);
+			return current === "starting" || current === "running";
+		});
+		if (startedItems.length === 1) {
+			activeContext.ui.notify(formatWorkerStartedToast(startedItems[0]), "info");
+		} else if (startedItems.length > 1) {
+			activeContext.ui.notify(formatWorkersStartedToast(startedItems), "info");
+		}
+
+		const terminalItems = terminal.filter((item) => {
 			const current = lastStatus.get(item.workerId);
 			return current ? isTerminalWorkerStatus(current) : false;
 		});
-		if (items.length === 0) return;
-		const message = items.length === 1
-			? `✓ ${items[0].workerId} (${items[0].profileName}) finished: ${items[0].status}`
-			: `✓ ${items.length} workers finished: ${items.map((i) => i.workerId).join(", ")}`;
-		activeContext.ui.notify(message, "info");
+		if (terminalItems.length === 1) {
+			activeContext.ui.notify(formatWorkerTerminalToast(terminalItems[0]), "info");
+		} else if (terminalItems.length > 1) {
+			activeContext.ui.notify(formatWorkersTerminalToast(terminalItems), "info");
+		}
 	}
 
 	function notifyThinkingLevelWarnings(ctx: ExtensionContext, warnings: ThinkingLevelConfigWarning[] | undefined): void {
@@ -396,6 +410,14 @@ export default function (pi: ExtensionAPI): void {
 				const previous = lastStatus.get(worker.workerId);
 				const nowTerminal = isTerminalWorkerStatus(worker.status);
 				const wasTerminal = previous ? isTerminalWorkerStatus(previous) : false;
+				if (!previous && (worker.status === "starting" || worker.status === "running")) {
+					pendingStartedTransitions.push({
+						workerId: worker.workerId,
+						profileName: worker.profileName,
+					});
+					if (notificationTimer) clearTimeout(notificationTimer);
+					notificationTimer = setTimeout(flushWorkerNotifications, 400);
+				}
 				if (previous !== worker.status && nowTerminal && !wasTerminal) {
 					pendingTerminalTransitions.push({
 						workerId: worker.workerId,
@@ -403,7 +425,7 @@ export default function (pi: ExtensionAPI): void {
 						status: worker.status,
 					});
 					if (notificationTimer) clearTimeout(notificationTimer);
-					notificationTimer = setTimeout(flushTerminalNotifications, 400);
+					notificationTimer = setTimeout(flushWorkerNotifications, 400);
 				}
 				lastStatus.set(worker.workerId, worker.status);
 
@@ -413,8 +435,7 @@ export default function (pi: ExtensionAPI): void {
 					const newest = worker.pendingRelayQuestions[worker.pendingRelayQuestions.length - 1];
 					const question = newest?.question?.trim();
 					if (question) {
-						const preview = question.replace(/\s+/g, " ").slice(0, 120);
-						activeContext.ui.notify(`❓ ${worker.workerId} (${worker.profileName}) needs guidance: ${preview}`, "warning");
+						activeContext.ui.notify(formatRelayToast(worker, question), "warning");
 					}
 				}
 				lastRelayCount.set(worker.workerId, currRelays);
@@ -673,7 +694,7 @@ export default function (pi: ExtensionAPI): void {
 			if (!ctx.hasUI) return;
 
 			if (activeProjectConfig.enabled) {
-				ctx.ui.notify("Pi Agents Team loaded: this session is running in orchestrator mode.", "info");
+				ctx.ui.notify("Team ready — orchestrator mode", "info");
 			}
 			const configNotice = getProjectConfigNotice(activeProjectConfig);
 			if (configNotice) {
@@ -686,7 +707,7 @@ export default function (pi: ExtensionAPI): void {
 			if (event.reason !== "startup" && markedCount > 0 && isTeamActive(activeProjectConfig)) {
 				const noun = markedCount === 1 ? "worker" : "workers";
 				ctx.ui.notify(
-					`Pi Agents Team: ${markedCount} ${noun} from prior session marked exited (${event.reason}). Relaunch via delegate_task if still needed.`,
+					`Workers exited — ${markedCount} ${noun} restored from ${event.reason}; relaunch if needed.`,
 					"warning",
 				);
 			}
