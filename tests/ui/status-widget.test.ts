@@ -30,8 +30,30 @@ function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string;
 test("status widget hides itself when no workers are tracked", () => {
 	const state = createDefaultTeamState();
 	const statusLine = buildTeamStatusLine(state);
-	assert.match(statusLine, /workers=0/);
+	assert.equal(statusLine, "Orchestrator · Idle");
 	assert.deepEqual(buildTeamWidgetLines(state), []);
+});
+
+test("status line shows only orchestrator working or idle state", () => {
+	const state = createDefaultTeamState();
+	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
+
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running" });
+	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
+
+	state.activeWorkers.w1.status = "idle";
+	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
+
+	state.relayQueue = [{
+		relayId: "r1",
+		workerId: "w1",
+		taskId: "t1",
+		question: "Need a decision?",
+		assumption: "wait",
+		urgency: "normal",
+		createdAt: Date.now(),
+	}];
+	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
 });
 
 test("widget shows spinner frame for running workers and ✓ for finished idle workers", () => {
