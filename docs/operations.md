@@ -286,10 +286,9 @@ Task: Follow-up fix (t2)
 Next: wait_for_agents workerIds=["w1"]
 ```
 
-`wait_for_agents` begins with `Wait:` and uses compact user-facing outcomes. Common outcomes:
+`wait_for_agents` uses compact user-facing outcomes without exposing internal reason labels. Common outcomes:
 
 ```text
-Wait: all_terminal
 Done: 2 agent(s) finished or stopped.
 Next: read results with agent_result.
 
@@ -299,7 +298,6 @@ Workers:
 ```
 
 ```text
-Wait: relay_raised
 Needs reply: 1 relay question(s).
 
 Pending relay questions:
@@ -312,19 +310,16 @@ Workers:
 ```
 
 ```text
-Wait: timeout
-Timed out: some agents are still running.
+Still waiting: some agents are still running.
 Next: wait again or inspect status.
 ```
 
 ```text
-Wait: aborted
-Cancelled: wait stopped before all agents finished.
+Wait cancelled: stopped before all agents finished.
 Next: inspect status or cancel unwanted agents.
 ```
 
 ```text
-Wait: no_workers
 No agents to wait for.
 Next: delegate a task first.
 ```
