@@ -31,6 +31,22 @@ test("buildOrchestratorPromptBundle combines file contract with runtime state", 
 	assert.doesNotMatch(bundle, /auto-compact option|auto compact option/i);
 });
 
+test("built-in profile catalog keeps mode labels without duplicate access wording", () => {
+	const state = createDefaultTeamState();
+	const bundle = buildOrchestratorPromptBundle(state);
+
+	assert.match(
+		bundle,
+		/- `explorer` \(read-only\) — Use for fast codebase reconnaissance\. Best for 'where is X\?', 'how does Y work\?', 'list all files that touch Z', or 'map the structure of this directory' questions\./,
+	);
+	assert.match(
+		bundle,
+		/- `fixer` \(write\) — Use for bounded code changes: implement a specific fix, add a test, refactor a single file, apply a targeted edit\. Requires an explicit pathScope at delegate time\./,
+	);
+	assert.doesNotMatch(bundle, /\(read-only\).*Read-only\./);
+	assert.doesNotMatch(bundle, /\(write\).*Write-capable — do not use for questions or analysis\./);
+});
+
 test("buildWorkerTaskPrompt includes relay guidance and scope", () => {
 	const prompt = buildWorkerTaskPrompt({
 		taskId: "task-1",

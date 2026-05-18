@@ -329,7 +329,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[0],
 			description:
-				"Use for fast codebase reconnaissance. Best for 'where is X?', 'how does Y work?', 'list all files that touch Z', or 'map the structure of this directory' questions. Read-only.",
+				"Use for fast codebase reconnaissance. Best for 'where is X?', 'how does Y work?', 'list all files that touch Z', or 'map the structure of this directory' questions.",
 			thinkingLevel: "low",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/explorer.md",
@@ -340,7 +340,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[1],
 			description:
-				"Use for library/API/documentation research. Best for 'how do I use this dependency?', 'what changed in vX.Y?', or 'find the canonical reference for...' questions. Read-only.",
+				"Use for library/API/documentation research. Best for 'how do I use this dependency?', 'what changed in vX.Y?', or 'find the canonical reference for...' questions.",
 			thinkingLevel: "medium",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/librarian.md",
@@ -351,7 +351,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[2],
 			description:
-				"Use for deep reasoning tasks: architecture tradeoffs, root-cause analysis of hard bugs, or judgment calls that need careful thought. Thinks slowly, answers carefully. Read-only.",
+				"Use for deep reasoning tasks: architecture tradeoffs, root-cause analysis of hard bugs, or judgment calls that need careful thought. Thinks slowly, answers carefully.",
 			thinkingLevel: "high",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/oracle.md",
@@ -362,7 +362,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[3],
 			description:
-				"Use for UI/UX guidance: component layout critique, visual flow suggestions, design-system consistency checks. Read-only.",
+				"Use for UI/UX guidance: component layout critique, visual flow suggestions, design-system consistency checks.",
 			thinkingLevel: "medium",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/designer.md",
@@ -373,7 +373,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[4],
 			description:
-				"Use for bounded code changes: implement a specific fix, add a test, refactor a single file, apply a targeted edit. Requires an explicit pathScope at delegate time. Write-capable — do not use for questions or analysis.",
+				"Use for bounded code changes: implement a specific fix, add a test, refactor a single file, apply a targeted edit. Requires an explicit pathScope at delegate time.",
 			thinkingLevel: "medium",
 			tools: ["read", "bash", "edit", "write"],
 			promptPath: "prompts/agents/fixer.md",
@@ -384,8 +384,8 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[5],
 			description:
-				"Use to validate a change, critique a PR, hunt for regressions, or confirm that tests actually cover what they claim. Reports confirmed issues vs softer suggestions. Read-only.",
-			thinkingLevel: "medium",
+				"Use to validate a change, critique a PR, hunt for regressions, or confirm that tests actually cover what they claim. Reports confirmed issues vs softer suggestions.",
+			thinkingLevel: "high",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/reviewer.md",
 			extensionMode: "worker-minimal",
@@ -395,7 +395,7 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		{
 			name: TEAM_PROFILE_NAMES[6],
 			description:
-				"Use when the task involves screenshots, images, or non-code artifacts that need inspection before the answer makes sense. Read-only.",
+				"Use when the task involves screenshots, images, or non-code artifacts that need inspection before the answer makes sense.",
 			thinkingLevel: "low",
 			tools: ["read", "grep", "find", "ls", "bash"],
 			promptPath: "prompts/agents/observer.md",

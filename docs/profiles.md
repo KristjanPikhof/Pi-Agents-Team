@@ -25,7 +25,7 @@ These are what the orchestrator sees when no file is present. `/team-init` stamp
 | `librarian` | Library and docs research. "How do I use this dependency?", "what changed in vX.Y?" | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
 | `oracle` | Architecture judgment and root-cause work. Thinks slowly, answers carefully. | `read`, `grep`, `find`, `ls`, `bash` | high | no |
 | `designer` | UI/UX critique, layout suggestions, design-system consistency. | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
-| `reviewer` | Validate a change, hunt regressions, confirm tests cover what they claim. | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
+| `reviewer` | Validate a change, hunt regressions, confirm tests cover what they claim. | `read`, `grep`, `find`, `ls`, `bash` | high | no |
 | `observer` | Screenshots, images, non-code artifacts. | `read`, `grep`, `find`, `ls`, `bash` | low | no |
 | `fixer` | Bounded code changes. Implement a fix, add a test, edit one file. | `read`, `bash`, `edit`, `write` | medium | yes |
 
@@ -53,7 +53,7 @@ The scaffold contains all seven built-in roles in the current shape. `/team-init
 | `oracle` | `high` |
 | `designer` | `medium` |
 | `fixer` | `medium` |
-| `reviewer` | `medium` |
+| `reviewer` | `high` |
 | `observer` | `low` |
 
 ### The shape, field by field
