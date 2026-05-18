@@ -96,7 +96,7 @@ test("widget shows spinner frame for running workers and ✓ for finished idle w
 	assert.match(countsLine, /1 ended/);
 });
 
-test("widget switches to two-column layout above six workers and caps visible count", () => {
+test("widget caps active rows and reports hidden workers", () => {
 	const state = createDefaultTeamState();
 	for (let i = 1; i <= 20; i += 1) {
 		const id = `w${i}`;
@@ -121,13 +121,53 @@ test("widget switches to two-column layout above six workers and caps visible co
 	const lines = buildTeamWidgetLines(state, { frame: 0 });
 	const workerRows = lines.filter((line) => / w\d+ reviewer /.test(line));
 	assert.equal(workerRows.length, 8);
-	const twoColRows = workerRows.filter((line) => /w\d+ reviewer.*w\d+ reviewer/.test(line));
-	assert.ok(twoColRows.length > 0, "expected at least one two-column row");
-	assert.ok(lines.some((line) => /\+4 more/.test(line)), "expected spillover marker");
+	assert.ok(lines.some((line) => /12 more/.test(line)), "expected spillover marker");
 
 	for (const line of lines) {
 		assert.ok(visibleWidth(line) <= 78, `line exceeds 78 cols (${visibleWidth(line)}): ${line}`);
 	}
+});
+
+test("widget prioritizes relay, running, starting, then recent terminal rows", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.done = makeWorker({ workerId: "done", profileName: "closer", status: "completed", lastEventAt: now - 1_000 });
+	state.activeWorkers.start = makeWorker({ workerId: "start", profileName: "starter", status: "starting", lastEventAt: now - 2_000 });
+	state.activeWorkers.run = makeWorker({ workerId: "run", profileName: "runner", status: "running", lastEventAt: now - 3_000 });
+	state.activeWorkers.relay = makeWorker({
+		workerId: "relay",
+		profileName: "fixer",
+		status: "waiting_followup",
+		lastEventAt: now - 4_000,
+		pendingRelayQuestions: [{
+			relayId: "r1",
+			workerId: "relay",
+			taskId: "t1",
+			question: "Need scope decision?",
+			assumption: "continue narrowly",
+			urgency: "normal",
+			createdAt: now - 4_000,
+		}],
+	});
+	state.relayQueue = [state.activeWorkers.relay.pendingRelayQuestions[0]!];
+
+	const lines = buildTeamWidgetLines(state, { frame: 0, now });
+	assert.match(lines[0]!, /active=3/);
+	const workerRows = lines.filter((line) => / (relay|run|start|done) /.test(line) && !line.includes("↳"));
+	assert.deepEqual(workerRows.map((line) => line.match(/ (relay|run|start|done) /)?.[1]), ["relay", "run", "start", "done"]);
+	assert.ok(lines.some((line) => line.includes("↳ needs_reply: Need scope decision?")), `expected relay activity line; got:\n${lines.join("\n")}`);
+});
+
+test("widget hides old idle and completed rows but keeps queued and hidden summary", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.oldDone = makeWorker({ workerId: "oldDone", status: "completed", lastEventAt: now - 10 * 60 * 1_000 });
+	state.activeWorkers.oldIdle = makeWorker({ workerId: "oldIdle", status: "idle", lastEventAt: now - 10 * 60 * 1_000 });
+	state.activeWorkers.queued = makeWorker({ workerId: "queued", status: "waiting_followup", lastEventAt: now - 1_000 });
+
+	const lines = buildTeamWidgetLines(state, { now });
+	assert.ok(!lines.some((line) => line.includes("oldDone") || line.includes("oldIdle")), `old terminal rows should be hidden; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("1 queued") && line.includes("2 old hidden")), `expected queued/hidden summary; got:\n${lines.join("\n")}`);
 });
 
 test("widget enforces a hard cap on visible width even with long headlines", () => {

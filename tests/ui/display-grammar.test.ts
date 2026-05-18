@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
 	WORKER_ATTENTION_ORDER,
+	buildAgentToolCallTitle,
 	buildWorkerActionHint,
 	formatProfileLabel,
 	formatWorkerDisplayId,
+	formatWorkerIdListSuffix,
 	formatWorkerLabel,
 	formatWorkerStatusLabel,
 	formatWorkerToolLabel,
@@ -37,6 +39,20 @@ test("worker identity grammar keeps display ids in parentheses and profile fallb
 	assert.equal(formatProfileLabel("   "), "worker");
 	assert.equal(formatWorkerLabel(makeWorker({ status: "running", workerId: "w12", profileName: "reviewer" })), "reviewer (w12)");
 	assert.equal(formatWorkerToolLabel(makeWorker({ status: "running", workerId: "w12", profileName: "reviewer" })), "w12 (reviewer)");
+});
+
+test("agent tool call title grammar uses friendly phrases without changing canonical tool names", () => {
+	assert.equal(buildAgentToolCallTitle("delegate_task", { profileName: "fixer" }), "Delegating to fixer");
+	assert.equal(buildAgentToolCallTitle("delegate_task", { profileName: "   " }), "Delegating to worker");
+	assert.equal(buildAgentToolCallTitle("agent_result", { workerId: "w7" }), "Reading agent result (w7)");
+	assert.equal(buildAgentToolCallTitle("agent_result"), "Reading agent result");
+	assert.equal(buildAgentToolCallTitle("wait_for_agents", { workerIds: ["w1", "w2"] }), "Waiting for agents (w1, w2)");
+	assert.equal(buildAgentToolCallTitle("agent_message", { workerId: "w1" }), "Messaging agent (w1)");
+	assert.equal(buildAgentToolCallTitle("agent_status", { workerId: "w1" }), "Checking agent status (w1)");
+	assert.equal(buildAgentToolCallTitle("agent_status"), "Checking agent status");
+	assert.equal(buildAgentToolCallTitle("ping_agents", { workerIds: ["w1", "w2"] }), "Pinging agents (w1, w2)");
+	assert.equal(buildAgentToolCallTitle("agent_cancel", { workerId: "w1" }), "Cancelling agent (w1)");
+	assert.equal(formatWorkerIdListSuffix(["w1", "", "w2"]), " (w1, w2)");
 });
 
 test("status display grammar provides friendly labels and glyphs without changing canonical statuses", () => {

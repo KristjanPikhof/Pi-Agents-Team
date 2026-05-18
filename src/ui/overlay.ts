@@ -7,7 +7,7 @@ import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } f
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
-import { buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
+import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
 import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import { formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
 import {
@@ -950,10 +950,13 @@ export function createTeamDashboardOverlayComponent(
 							`↑↓ · space/b · g/G · ${compactTabHint}`,
 						]);
 			const worker = currentWorker();
+			const workerCount = Object.keys(snapshot.activeWorkers).length;
+			const attentionSummary = buildActionSummaryLine(snapshot);
 			const summaryRow = firstFitting(innerWidth, [
 				buildCompactTeamSummaryLine(snapshot),
-				buildCompactTeamSummaryLine(snapshot).replace(/Needs /g, "").replace("Completed or idle", "Done/idle"),
-				`${Object.keys(snapshot.activeWorkers).length} workers · ${snapshot.relayQueue.length} relays`,
+				`workers ${workerCount} · ${attentionSummary}`,
+				`workers ${workerCount} · ${attentionSummary.replace(/Needs /g, "").replace("Completed or idle", "Done/idle")}`,
+				`${workerCount} workers · ${snapshot.relayQueue.length} relays`,
 			]);
 			const selectedHeader = buildSelectedWorkerHeader(worker, innerWidth);
 			const snippet = worker ? buildWorkerPrioritySnippet(worker) : "no worker selected";

@@ -4,6 +4,7 @@ import extension from "../../extensions/pi-agent-team/index";
 
 interface RegisteredTool {
 	name: string;
+	renderCall?: (...args: any[]) => unknown;
 }
 
 interface RegisteredCommand {
@@ -50,6 +51,7 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(!commands.some((command) => command.name === "team-on"));
 	assert.ok(!commands.some((command) => command.name === "team-off"));
 	assert.ok(!commands.some((command) => command.name === "team-disable"));
+	assert.ok(tools.every((tool) => typeof tool.renderCall === "function"));
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("before_agent_start"));
 });
