@@ -609,7 +609,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_result",
 		label: "Agent Result",
-		description: "Get the worker's final deliverable: structured summary header (headline/files/risks/next) plus the verbatim contents of the worker's <final_answer>…</final_answer> block. This is the authoritative answer — synthesize directly from it. If the final_answer block is empty, the worker did not follow the contract; re-delegate with smaller scope instead of reading files yourself.",
+		description: "Get the worker's final deliverable as compact plain text: worker title, optional task/status/error/relay lines, then Result: followed by the verbatim contents of the worker's <final_answer>…</final_answer> block. This is the authoritative answer — synthesize directly from it. If the final_answer block is missing, the result says so; steer or re-delegate with a clearer final_answer instruction instead of reading files yourself.",
 		parameters: WorkerIdSchema,
 		renderCall: renderAgentToolCallTitle("agent_result"),
 		async execute(_toolCallId, params) {

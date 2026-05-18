@@ -81,42 +81,44 @@ Inspect and Console both show a compact follow/paused header: `[follow]  scroll 
 /team-result <worker-id>
 ```
 
-Prints the compact result surface that the orchestrator sees through `agent_result`: worker identity/status, task, compact summary sections, pending relays, usage/context, and the verbatim contents of the worker's `<final_answer>` block. Output uses friendly scan labels such as `Worker`, `Status`, `Headline`, `Read files (readFiles/files_read)`, `Changed files (changedFiles/files_changed)`, `Risks`, `Next`, and `Usage` so operators do not need to memorize raw tool schema keys. `/team-result` may also append a live `--- Latest assistant text ---` section for operator inspection; `agent_result` does not include that transcript tail and remains the authoritative synthesis surface. When Pi reports context budget, usage includes a compact marker such as `ctx=64%/200k rem=72k`.
+Prints the compact result surface that the orchestrator sees through `agent_result`: a plain-text worker title, optional task/status/error, pending relay questions, and `Result:` followed by the verbatim contents of the worker's `<final_answer>` block. The current compact surface intentionally omits the older summary metadata lists (`Headline`, `Read files`, `Changed files`, `Risks`, `Usage`) so the authoritative synthesis payload stays small. `/team-result` may include latest assistant text only when no final answer exists; `agent_result` remains the transcript-free synthesis surface.
 
 Normal result shape:
 
 ```text
-Worker: w1 (fixer)
-Status: completed (Completed)
+fixer (w1)
 Task: Render result
-Headline: Renderer improved
-Read files (readFiles/files_read): src/ui/tool-formatters.ts
-Changed files (changedFiles/files_changed): tests/ui/tool-formatters.test.ts
-Risks: none
-Next: reviewer to spot-check output
-Usage: turns=1 input=1200 output=3400 cost=$0.0123
 
---- Final answer (from worker's <final_answer> block) ---
+Result:
 headline: renderer improved
 verification: npm test passed
 ```
 
-If the final answer is very short, the result includes a warning before the verbatim block:
+Pending relays are shown before the result:
 
 ```text
-Final answer note: very short final_answer (1 word); verify it is sufficient before synthesizing.
---- Final answer (from worker's <final_answer> block) ---
+fixer (w1)
+Task: Decide scope
+Status: waiting_followup (Waiting for follow-up)
+
+Pending relay questions:
+- [high] Retry with smaller scope?
+  assumption: Yes
+
+Result:
 done
 ```
 
-If no `<final_answer>` block was extracted, the result says so and gives the corrective prompt:
+If no `<final_answer>` block was extracted, the result says so:
 
 ```text
---- Final answer (from worker's <final_answer> block) ---
-No <final_answer> block extracted yet. This agent_result has no authoritative deliverable; steer/re-delegate with: `Please wrap your final deliverable in <final_answer>…</final_answer> tags.`
+fixer (w1)
+
+Result:
+No <final_answer> block extracted yet.
 ```
 
-When the block is missing, do not synthesize from transcript tail alone. Re-delegate, steer the worker with the corrective message, or stop and respawn with a clearer brief.
+When the block is missing, do not synthesize from transcript tail alone. Re-delegate, steer the worker to wrap its final deliverable in `<final_answer>…</final_answer>`, or stop and respawn with a clearer brief.
 
 ## Clean up finished workers
 
@@ -223,7 +225,7 @@ When reuse rejects, the error spells out which fields differ. The fix is usually
 What changes in **solo** mode:
 
 - `delegate_task` rejects with `Team routing off. Run /team-enable on to delegate.`. The orchestrator prompt drops the profile catalog and gets a one-line directive telling it to answer directly.
-- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The bottom status line stays routing-neutral and shows `Orchestrator · Working...` or `Orchestrator · Idle` plus the current rotating tip.
+- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The bottom status line also shows the routing mode, e.g. `Orchestrator · Solo · Working...` or `Orchestrator · Solo · Idle`, plus the current rotating tip.
 - `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay live so workers spawned earlier can still be inspected, steered, or shut down.
 
 How the persistence target is resolved when you don't pass `--persist`:
