@@ -34,15 +34,15 @@ test("status widget hides itself when no workers are tracked", () => {
 	assert.deepEqual(buildTeamWidgetLines(state), []);
 });
 
-test("status line shows routing-neutral orchestrator state with optional rotating tip", () => {
+test("status line shows routing mode, orchestrator state, and optional rotating tip", () => {
 	const state = createDefaultTeamState();
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
-	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Idle");
+	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Idle");
 	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0)), "Orchestrator · Idle · Tip: Use /team to view workers");
 
 	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running" });
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
-	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Working...");
+	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Working...");
 	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(1)), "Orchestrator · Working... · Tip: Use /team-result <id> for final output");
 
 	state.activeWorkers.w1.status = "idle";

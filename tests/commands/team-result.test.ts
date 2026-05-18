@@ -59,7 +59,8 @@ test("/team-result <id> emits the formatted worker detail for a known worker", a
 	assert.equal(harness.notifications.length, 0);
 	assert.equal(harness.emitted.length, 1);
 	const out = harness.emitted[0]!;
-	assert.match(out, new RegExp(`^\\x1b\\[1mreviewer\\x1b\\[0m \\(${delegated.worker.workerId}\\)`));
+	assert.doesNotMatch(out, /\x1b\[/, "team-result output must be ANSI-free");
+	assert.match(out, new RegExp(`^reviewer \\(${delegated.worker.workerId}\\)`));
 	const plain = stripAnsi(out);
 	const detailSection = plain.split("--- Latest assistant text ---")[0]!;
 	assert.match(detailSection, new RegExp(`^reviewer \\(${delegated.worker.workerId}\\)`));
@@ -135,7 +136,8 @@ test("formatWorkerDetail without transcript renders the placeholder line (parity
 		usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
 	};
 	const text = resultTesting.formatWorkerDetail(worker, undefined);
-	assert.match(text, /^\x1b\[1mreviewer\x1b\[0m \(w7\)/);
+	assert.doesNotMatch(text, /\x1b\[/, "team-result formatter output must be ANSI-free");
+	assert.match(text, /^reviewer \(w7\)/);
 	const plain = stripAnsi(text);
 	assert.match(plain, /^reviewer \(w7\)/);
 	assert.match(plain, /Status: idle \(Idle\)/);
