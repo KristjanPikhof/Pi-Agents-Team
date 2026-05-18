@@ -29,14 +29,12 @@ export interface WidgetRenderOptions {
 	now?: number;
 }
 
-export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team"): string {
-	if (routingMode === "solo") {
-		return truncateToWidth("Pi Agents Team — solo", HEADER_WIDTH);
-	}
-	const workerCount = Object.keys(state.activeWorkers).length;
-	const activeCount = Object.values(state.activeWorkers).filter((worker) => isActiveSurfaceWorker(worker)).length;
-	const relayCount = state.relayQueue.length;
-	return truncateToWidth(`${state.sessionMode} · active=${activeCount} · workers=${workerCount} · relays=${relayCount}`, HEADER_WIDTH);
+export function buildTeamStatusLine(state: PersistedTeamState, _routingMode: "team" | "solo" = "team"): string {
+	return truncateToWidth(hasActiveOrchestratorWork(state) ? "Orchestrator · Working..." : "Orchestrator · Idle", HEADER_WIDTH);
+}
+
+function hasActiveOrchestratorWork(state: PersistedTeamState): boolean {
+	return state.relayQueue.length > 0 || Object.values(state.activeWorkers).some((worker) => isActiveSurfaceWorker(worker));
 }
 
 function statusGlyph(worker: WorkerRuntimeState, frame: number): string {
