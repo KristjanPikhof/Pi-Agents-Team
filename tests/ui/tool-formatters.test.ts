@@ -32,6 +32,8 @@ test("shared labels define the scan order vocabulary for tool results", () => {
 	assert.equal(TOOL_SECTION_LABELS.status, "Status");
 	assert.equal(TOOL_SECTION_LABELS.resultReason, "Result reason");
 	assert.equal(TOOL_SECTION_LABELS.relayQuestions, "Pending relay questions");
+	assert.equal(TOOL_SECTION_LABELS.readFiles, "Read files (readFiles/files_read)");
+	assert.equal(TOOL_SECTION_LABELS.changedFiles, "Changed files (changedFiles/files_changed)");
 	assert.equal(TOOL_SECTION_LABELS.finalAnswer, "--- Final answer (from worker's <final_answer> block) ---");
 });
 
@@ -74,8 +76,8 @@ test("formatWorkerDetail orders identity, task metadata, summary, relay, usage, 
 		"CWD: /repo",
 		"Path scope: read/write /repo/src",
 		"Headline: Foundation added",
-		"Read files: src/a.ts",
-		"Changed files: src/b.ts",
+		"Read files (readFiles/files_read): src/a.ts",
+		"Changed files (changedFiles/files_changed): src/b.ts",
 		"Risks: none",
 		"Next: tool lanes can consume helpers",
 		"Pending relay questions:",
@@ -107,20 +109,59 @@ test("formatWorkerCompact truncates summary lists but preserves final_answer ver
 		finalAnswer: "line 1\nline 2",
 	});
 	const text = formatWorkerCompact(worker);
-	assert.match(text, /Read files: read-0\.ts, read-1\.ts, read-2\.ts, read-3\.ts, read-4\.ts, read-5\.ts, read-6\.ts, read-7\.ts, read-8\.ts, read-9\.ts… \(\+2 more\)/);
+	assert.match(text, /Read files \(readFiles\/files_read\): read-0\.ts, read-1\.ts, read-2\.ts, read-3\.ts, read-4\.ts, read-5\.ts, read-6\.ts, read-7\.ts, read-8\.ts, read-9\.ts… \(\+2 more\)/);
 	assert.match(text, /Risks: r1, r2, r3, r4, r5… \(\+1 more\)/);
 	assert.match(text, /--- Final answer \(from worker's <final_answer> block\) ---\nline 1\nline 2/);
 });
 
-test("wait formatter preserves reason wording, relay formatting, and worker list shape", () => {
+test("wait formatter makes all_terminal outcome and next action scannable", () => {
+	const text = formatWaitForAgentsResult({
+		reason: "all_terminal",
+		workers: [
+			makeWorker({ status: "completed", currentTask: { taskId: "t1", title: "Done task", goal: "Finish", requestedBy: "orchestrator", profileName: "fixer", cwd: "/repo", contextHints: [], createdAt: 1 } }),
+			makeWorker({ workerId: "w2", status: "idle", profileName: "reviewer" }),
+		],
+	});
+	assert.match(text, /^Result reason: all_terminal\nAll 2 worker\(s\) reached terminal status\./);
+	assert.match(text, /Next: call agent_result for each completed worker you need to synthesize\./);
+	assert.match(text, /Workers:\n- w1 \(fixer\) · status=completed · task=Done task\n- w2 \(reviewer\) · status=idle/);
+});
+
+test("wait formatter makes relay questions copyable with agent_message and follow-up wait", () => {
 	const text = formatWaitForAgentsResult({
 		reason: "relay_raised",
 		workers: [makeWorker({ status: "running", currentTask: { taskId: "t1", title: "Question task", goal: "Ask", requestedBy: "orchestrator", profileName: "fixer", cwd: "/repo", contextHints: [], createdAt: 1 } })],
 		newRelays: [{ workerId: "w1", profileName: "fixer", urgency: "high", question: "Need scope?" }],
 	});
-	assert.match(text, /^1 new relay question\(s\) raised — answer via agent_message, then call wait_for_agents again to resume\./);
-	assert.match(text, /  ! w1 \(fixer\) \[high\] Need scope\?/);
-	assert.match(text, /- w1 \(fixer\) · status=running · task=Question task/);
+	assert.match(text, /^Result reason: relay_raised\n1 new relay question\(s\) raised — answer via agent_message, then call wait_for_agents again to resume\./);
+	assert.match(text, /Pending relay questions:\n1\. w1 \(fixer\) urgency=high\n   question: Need scope\?\n   reply: agent_message \{"workerId":"w1","message":"<answer>"\}/);
+	assert.match(text, /Next: answer each relay via agent_message, then call wait_for_agents \{"workerIds":\["w1"\]\} to resume\./);
+	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running · task=Question task/);
+});
+
+test("wait formatter distinguishes timeout with mixed worker statuses", () => {
+	const text = formatWaitForAgentsResult({
+		reason: "timeout",
+		workers: [makeWorker({ status: "running" }), makeWorker({ workerId: "w2", profileName: "reviewer", status: "completed" })],
+	});
+	assert.match(text, /^Result reason: timeout\nWait timed out; some workers may still be running\./);
+	assert.match(text, /Next: inspect statuses or call wait_for_agents again with the same workerIds\./);
+	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running\n- w2 \(reviewer\) · status=completed/);
+});
+
+test("wait formatter distinguishes aborted waits", () => {
+	const text = formatWaitForAgentsResult({
+		reason: "aborted",
+		workers: [makeWorker({ status: "running" })],
+	});
+	assert.match(text, /^Result reason: aborted\nWait aborted by the caller before all workers reached terminal status\./);
+	assert.match(text, /Next: inspect statuses with agent_status or cancel unwanted workers\./);
+	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running/);
+});
+
+test("wait formatter explains no_workers wrapper outcome", () => {
+	const text = formatWaitForAgentsResult({ reason: "no_workers", workers: [] });
+	assert.equal(text, "Result reason: no_workers\nNo tracked workers to wait on.\nNext: call delegate_task before waiting for agents.");
 });
 
 test("delegate formatter makes fresh launch lifecycle scannable", () => {

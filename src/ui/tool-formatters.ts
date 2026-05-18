@@ -13,18 +13,22 @@ export const TOOL_SECTION_LABELS = {
 	resultReason: "Result reason",
 	relayQuestions: "Pending relay questions",
 	summary: "Headline",
-	readFiles: "Read files",
-	changedFiles: "Changed files",
+	readFiles: "Read files (readFiles/files_read)",
+	changedFiles: "Changed files (changedFiles/files_changed)",
 	risks: "Risks",
 	nextAction: "Next",
 	usage: "Usage",
 	context: "Context",
+	error: "Error",
+	finalAnswerNote: "Final answer note",
 	finalAnswer: "--- Final answer (from worker's <final_answer> block) ---",
 	latestAssistantText: "--- Latest assistant text ---",
 } as const;
 
 const FINAL_ANSWER_MISSING_MESSAGE =
-	"No <final_answer> block extracted yet. If the worker is idle and this is empty, it did not follow the final-answer contract — re-delegate or steer it with: `Please wrap your final deliverable in <final_answer>…</final_answer> tags.`";
+	"No <final_answer> block extracted yet. This agent_result has no authoritative deliverable; steer/re-delegate with: `Please wrap your final deliverable in <final_answer>…</final_answer> tags.`";
+
+const FINAL_ANSWER_THIN_WORD_LIMIT = 3;
 
 export interface WaitForAgentsFormatInput {
 	reason: "all_terminal" | "timeout" | "aborted" | "relay_raised" | "no_workers";
@@ -49,13 +53,18 @@ function formatUsage(worker: WorkerRuntimeState, compact: boolean): string {
 	return `${TOOL_SECTION_LABELS.usage}: turns=${worker.usage.turns} input=${input} output=${output} cost=$${worker.usage.costUsd.toFixed(4)}`;
 }
 
+function appendListLine(lines: string[], label: string, items: readonly string[], max?: number): void {
+	if (items.length === 0) return;
+	lines.push(`${label}: ${max ? truncateList(items, max) : items.join(", ")}`);
+}
+
 function appendWorkerSummary(lines: string[], worker: WorkerRuntimeState, limits?: { readFiles: number; changedFiles: number; risks: number }): void {
 	const summary = worker.lastSummary;
 	if (!summary) return;
 	if (summary.headline) lines.push(`${TOOL_SECTION_LABELS.summary}: ${summary.headline}`);
-	if (summary.readFiles.length) lines.push(`${TOOL_SECTION_LABELS.readFiles}: ${limits ? truncateList(summary.readFiles, limits.readFiles) : summary.readFiles.join(", ")}`);
-	if (summary.changedFiles.length) lines.push(`${TOOL_SECTION_LABELS.changedFiles}: ${limits ? truncateList(summary.changedFiles, limits.changedFiles) : summary.changedFiles.join(", ")}`);
-	if (summary.risks.length) lines.push(`${TOOL_SECTION_LABELS.risks}: ${limits ? truncateList(summary.risks, limits.risks) : summary.risks.join("; ")}`);
+	appendListLine(lines, TOOL_SECTION_LABELS.readFiles, summary.readFiles, limits?.readFiles);
+	appendListLine(lines, TOOL_SECTION_LABELS.changedFiles, summary.changedFiles, limits?.changedFiles);
+	appendListLine(lines, TOOL_SECTION_LABELS.risks, summary.risks, limits?.risks);
 	if (summary.nextRecommendation) lines.push(`${TOOL_SECTION_LABELS.nextAction}: ${summary.nextRecommendation}`);
 }
 
@@ -75,11 +84,16 @@ function appendUsageAndContext(lines: string[], worker: WorkerRuntimeState, comp
 }
 
 function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState): void {
-	if (worker.finalAnswer && worker.finalAnswer.trim()) {
-		lines.push("", TOOL_SECTION_LABELS.finalAnswer, worker.finalAnswer.trim());
-	} else {
-		lines.push("", FINAL_ANSWER_MISSING_MESSAGE);
+	const finalAnswer = worker.finalAnswer?.trim();
+	if (!finalAnswer) {
+		lines.push("", TOOL_SECTION_LABELS.finalAnswer, FINAL_ANSWER_MISSING_MESSAGE);
+		return;
 	}
+	const wordCount = finalAnswer.split(/\s+/).filter(Boolean).length;
+	if (wordCount <= FINAL_ANSWER_THIN_WORD_LIMIT) {
+		lines.push(`${TOOL_SECTION_LABELS.finalAnswerNote}: very short final_answer (${wordCount} word${wordCount === 1 ? "" : "s"}); verify it is sufficient before synthesizing.`);
+	}
+	lines.push("", TOOL_SECTION_LABELS.finalAnswer, finalAnswer);
 }
 
 export function formatWorkerListItem(worker: WorkerRuntimeState): string {
@@ -182,7 +196,7 @@ export function formatWorkerCompact(worker: WorkerRuntimeState): string {
 		`${TOOL_SECTION_LABELS.status}: ${worker.status}`,
 	];
 	if (worker.currentTask?.title) lines.push(`${TOOL_SECTION_LABELS.task}: ${worker.currentTask.title}`);
-	if (worker.error) lines.push(`Error: ${worker.error}`);
+	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
 
 	appendWorkerSummary(lines, worker, { readFiles: 10, changedFiles: 10, risks: 5 });
 	appendRelayQuestions(lines, worker);
@@ -205,7 +219,7 @@ export function formatWorkerDetail(worker: WorkerRuntimeState, options: FormatWo
 		lines.push(`${TOOL_SECTION_LABELS.pathScope}: ${mode} ${worker.currentTask.pathScope.roots.join(", ")}`);
 	}
 	if (worker.lastToolName) lines.push(`Last tool: ${worker.lastToolName}`);
-	if (worker.error) lines.push(`Error: ${worker.error}`);
+	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
 
 	appendWorkerSummary(lines, worker);
 	appendRelayQuestions(lines, worker);
