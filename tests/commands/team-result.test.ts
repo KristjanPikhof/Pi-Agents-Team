@@ -5,6 +5,7 @@ import { WorkerManager } from "../../src/runtime/worker-manager";
 import { _testing as resultTesting, registerTeamResultCommand } from "../../src/commands/team-result";
 import type { WorkerRuntimeState } from "../../src/types";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "../runtime/test-helpers";
+import { stripAnsi } from "../../src/ui/theme";
 
 interface RegisteredCommand {
 	name: string;
@@ -58,12 +59,14 @@ test("/team-result <id> emits the formatted worker detail for a known worker", a
 	assert.equal(harness.notifications.length, 0);
 	assert.equal(harness.emitted.length, 1);
 	const out = harness.emitted[0]!;
-	assert.match(out, new RegExp(`Worker: ${delegated.worker.workerId}`));
-	assert.match(out, /Profile: reviewer/);
-	assert.match(out, /Status:/);
-	assert.match(out, /Task: Inspect runtime/);
-	assert.match(out, /Goal:/);
-	assert.match(out, /Usage: turns=/);
+	assert.match(out, new RegExp(`^\\x1b\\[1mreviewer\\x1b\\[0m \\(${delegated.worker.workerId}\\)`));
+	const plain = stripAnsi(out);
+	assert.match(plain, new RegExp(`^reviewer \\(${delegated.worker.workerId}\\)`));
+	assert.match(plain, /Task: Inspect runtime/);
+	assert.match(plain, /Usage: turns=/);
+	assert.doesNotMatch(plain, /^Worker:/m);
+	assert.doesNotMatch(plain, /^Profile:/m);
+	assert.doesNotMatch(plain, /^Goal:/m);
 });
 
 test("/team-result with an unknown id notifies and does not emit", async () => {
@@ -129,9 +132,13 @@ test("formatWorkerDetail without transcript renders the placeholder line (parity
 		usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
 	};
 	const text = resultTesting.formatWorkerDetail(worker, undefined);
-	assert.match(text, /Worker: w7/);
-	assert.match(text, /No <final_answer> block extracted yet/);
-	assert.doesNotMatch(text, /Latest assistant text/);
+	assert.match(text, /^\x1b\[1mreviewer\x1b\[0m \(w7\)/);
+	const plain = stripAnsi(text);
+	assert.match(plain, /^reviewer \(w7\)/);
+	assert.match(plain, /Status: idle \(Idle\)/);
+	assert.match(plain, /No <final_answer> block extracted yet/);
+	assert.doesNotMatch(plain, /^Worker:/m);
+	assert.doesNotMatch(plain, /Latest assistant text/);
 });
 
 test("formatWorkerDetail prints the final answer before latest assistant text", () => {

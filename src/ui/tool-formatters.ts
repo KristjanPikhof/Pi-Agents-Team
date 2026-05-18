@@ -1,5 +1,6 @@
 import type { DelegatedTaskInput, TeamPathScope, WorkerRuntimeState } from "../types";
-import { formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
+import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
+import { bold } from "./theme";
 import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
 
 export const TOOL_SECTION_LABELS = {
@@ -67,6 +68,21 @@ function appendWorkerSummary(lines: string[], worker: WorkerRuntimeState, limits
 	appendListLine(lines, TOOL_SECTION_LABELS.changedFiles, summary.changedFiles, limits?.changedFiles);
 	appendListLine(lines, TOOL_SECTION_LABELS.risks, summary.risks, limits?.risks);
 	if (summary.nextRecommendation) lines.push(`${TOOL_SECTION_LABELS.nextAction}: ${summary.nextRecommendation}`);
+}
+
+function formatWorkerResultTitle(worker: Pick<WorkerRuntimeState, "workerId" | "profileName">): string {
+	return `${bold(formatProfileLabel(worker.profileName))} ${formatWorkerDisplayId(worker.workerId)}`;
+}
+
+function shouldShowWorkerResultStatus(worker: WorkerRuntimeState): boolean {
+	return !(worker.status === "completed" || (worker.status === "idle" && Boolean(worker.finalAnswer)));
+}
+
+function appendWorkerResultHeader(lines: string[], worker: WorkerRuntimeState): void {
+	lines.push(formatWorkerResultTitle(worker));
+	if (worker.currentTask?.title) lines.push(`${TOOL_SECTION_LABELS.task}: ${worker.currentTask.title}`);
+	if (shouldShowWorkerResultStatus(worker)) lines.push(`${TOOL_SECTION_LABELS.status}: ${worker.status} (${formatWorkerStatusLabel(worker)})`);
+	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
 }
 
 function appendRelayQuestions(lines: string[], worker: WorkerRuntimeState): void {
@@ -192,12 +208,8 @@ export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): str
 }
 
 export function formatWorkerCompact(worker: WorkerRuntimeState): string {
-	const lines = [
-		`${TOOL_SECTION_LABELS.worker}: ${formatWorkerToolLabel(worker)}`,
-		`${TOOL_SECTION_LABELS.status}: ${worker.status} (${formatWorkerStatusLabel(worker)})`,
-	];
-	if (worker.currentTask?.title) lines.push(`${TOOL_SECTION_LABELS.task}: ${worker.currentTask.title}`);
-	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
+	const lines: string[] = [];
+	appendWorkerResultHeader(lines, worker);
 
 	appendWorkerSummary(lines, worker, { readFiles: 10, changedFiles: 10, risks: 5 });
 	appendRelayQuestions(lines, worker);
@@ -207,20 +219,9 @@ export function formatWorkerCompact(worker: WorkerRuntimeState): string {
 }
 
 export function formatWorkerDetail(worker: WorkerRuntimeState, options: FormatWorkerDetailOptions = {}): string {
-	const lines = [
-		`${TOOL_SECTION_LABELS.worker}: ${worker.workerId}`,
-	];
-	if (options.includeProfileLine !== false) lines.push(`${TOOL_SECTION_LABELS.profile}: ${worker.profileName}`);
-	lines.push(`${TOOL_SECTION_LABELS.status}: ${worker.status} (${formatWorkerStatusLabel(worker)})`);
-	if (worker.currentTask?.title) lines.push(`${TOOL_SECTION_LABELS.task}: ${worker.currentTask.title}`);
-	if (worker.currentTask?.goal) lines.push(`${TOOL_SECTION_LABELS.goal}: ${worker.currentTask.goal}`);
-	if (worker.currentTask?.cwd) lines.push(`${TOOL_SECTION_LABELS.cwd}: ${worker.currentTask.cwd}`);
-	if (worker.currentTask?.pathScope?.roots.length) {
-		const mode = worker.currentTask.pathScope.allowWrite ? "read/write" : "read-only";
-		lines.push(`${TOOL_SECTION_LABELS.pathScope}: ${mode} ${worker.currentTask.pathScope.roots.join(", ")}`);
-	}
+	const lines: string[] = [];
+	appendWorkerResultHeader(lines, worker);
 	if (worker.lastToolName) lines.push(`Last tool: ${worker.lastToolName}`);
-	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
 
 	appendWorkerSummary(lines, worker);
 	appendRelayQuestions(lines, worker);

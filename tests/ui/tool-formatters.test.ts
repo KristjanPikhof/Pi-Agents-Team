@@ -10,6 +10,7 @@ import {
 	truncateList,
 } from "../../src/ui/tool-formatters";
 import type { WorkerRuntimeState } from "../../src/types";
+import { stripAnsi } from "../../src/ui/theme";
 
 function makeWorker(overrides: Partial<WorkerRuntimeState> = {}): WorkerRuntimeState {
 	return {
@@ -37,7 +38,7 @@ test("shared labels define the scan order vocabulary for tool results", () => {
 	assert.equal(TOOL_SECTION_LABELS.finalAnswer, "--- Final answer (from worker's <final_answer> block) ---");
 });
 
-test("formatWorkerDetail orders identity, task metadata, summary, relay, usage, final answer, transcript", () => {
+test("formatWorkerDetail uses compact status-widget-style header, then task, summary, relay, usage, final answer, transcript", () => {
 	const worker = makeWorker({
 		currentTask: {
 			taskId: "t1",
@@ -67,14 +68,11 @@ test("formatWorkerDetail orders identity, task metadata, summary, relay, usage, 
 	});
 
 	const text = formatWorkerDetail(worker, { transcript: "assistant tail" });
+	assert.match(text, /^\x1b\[1mfixer\x1b\[0m \(w1\)/);
+	const plain = stripAnsi(text);
 	const ordered = [
-		"Worker: w1",
-		"Profile: fixer",
-		"Status: idle",
+		"fixer (w1)",
 		"Task: Implement foundation",
-		"Goal: Share formatter seams",
-		"CWD: /repo",
-		"Path scope: read/write /repo/src",
 		"Headline: Foundation added",
 		"Read files (readFiles/files_read): src/a.ts",
 		"Changed files (changedFiles/files_changed): src/b.ts",
@@ -87,10 +85,16 @@ test("formatWorkerDetail orders identity, task metadata, summary, relay, usage, 
 	];
 	let lastIndex = -1;
 	for (const part of ordered) {
-		const index = text.indexOf(part);
+		const index = plain.indexOf(part);
 		assert.ok(index > lastIndex, `expected ${part} after previous section`);
 		lastIndex = index;
 	}
+	assert.doesNotMatch(plain, /^Worker:/m);
+	assert.doesNotMatch(plain, /^Profile:/m);
+	assert.doesNotMatch(plain, /^Status: idle/m);
+	assert.doesNotMatch(plain, /^Goal:/m);
+	assert.doesNotMatch(plain, /^CWD:/m);
+	assert.doesNotMatch(plain, /^Path scope:/m);
 });
 
 test("formatWorkerCompact truncates summary lists but preserves final_answer verbatim", () => {
@@ -133,9 +137,10 @@ test("formatWorkerCompact makes normal agent_result sections scannable without t
 		finalAnswer: "headline: renderer improved\nverification: npm test passed",
 	});
 	const text = formatWorkerCompact(worker);
+	assert.match(text, /^\x1b\[1mfixer\x1b\[0m \(w1\)/);
+	const plain = stripAnsi(text);
 	for (const part of [
-		"Worker: w1 (fixer)",
-		"Status: completed (Completed)",
+		"fixer (w1)",
 		"Task: Render result",
 		"Headline: Renderer improved",
 		"Read files (readFiles/files_read): src/ui/tool-formatters.ts",
@@ -144,8 +149,10 @@ test("formatWorkerCompact makes normal agent_result sections scannable without t
 		"Next: reviewer to spot-check output",
 		"Usage: turns=1 input=1200 output=3400 cost=$0.0123",
 		"--- Final answer (from worker's <final_answer> block) ---\nheadline: renderer improved\nverification: npm test passed",
-	]) assert.match(text, new RegExp(part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-	assert.doesNotMatch(text, /Latest assistant text/);
+	]) assert.match(plain, new RegExp(part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	assert.doesNotMatch(plain, /^Worker:/m);
+	assert.doesNotMatch(plain, /^Status: completed/m);
+	assert.doesNotMatch(plain, /Latest assistant text/);
 });
 
 test("formatWorkerCompact shows no-final and thin-final guidance", () => {
