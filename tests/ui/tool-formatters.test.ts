@@ -69,7 +69,8 @@ test("formatWorkerDetail keeps only title, task, relay, and result", () => {
 	});
 
 	const text = formatWorkerDetail(worker, { transcript: "assistant tail" });
-	assert.match(text, /^\x1b\[1mfixer\x1b\[0m \(w1\)/);
+	assert.doesNotMatch(text, /\x1b\[/, "tool result text must be ANSI-free");
+	assert.match(text, /^fixer \(w1\)/);
 	const plain = stripAnsi(text);
 	const ordered = [
 		"fixer (w1)",
@@ -137,7 +138,8 @@ test("formatWorkerCompact makes normal agent_result sections scannable without t
 		finalAnswer: "headline: renderer improved\nverification: npm test passed",
 	});
 	const text = formatWorkerCompact(worker);
-	assert.match(text, /^\x1b\[1mfixer\x1b\[0m \(w1\)/);
+	assert.doesNotMatch(text, /\x1b\[/, "agent_result text must be ANSI-free");
+	assert.match(text, /^fixer \(w1\)/);
 	const plain = stripAnsi(text);
 	for (const part of [
 		"fixer (w1)",
@@ -255,6 +257,7 @@ test("delegate formatter makes fresh launch lifecycle scannable", () => {
 	const worker = makeWorker({ status: "running", currentTask: task });
 	const text = formatDelegateTaskResult({ worker, task });
 
+	assert.doesNotMatch(text, /\x1b\[/, "delegate_task text must be ANSI-free");
 	const plain = stripAnsi(text);
 	assert.equal(plain, "Created fixer (w1)\nTask: Build seam (t1)\nPath: /repo");
 	assert.doesNotMatch(plain, /Path scope:/);

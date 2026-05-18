@@ -1,6 +1,5 @@
 import type { DelegatedTaskInput, WorkerRuntimeState, WorkerStatus } from "../types";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
-import { bold } from "./theme";
 
 export const TOOL_SECTION_LABELS = {
 	worker: "Worker",
@@ -46,7 +45,7 @@ export function truncateList(items: readonly string[], max: number): string {
 }
 
 function formatWorkerResultTitle(worker: Pick<WorkerRuntimeState, "workerId" | "profileName">): string {
-	return `${bold(formatProfileLabel(worker.profileName))} ${formatWorkerDisplayId(worker.workerId)}`;
+	return `${formatProfileLabel(worker.profileName)} ${formatWorkerDisplayId(worker.workerId)}`;
 }
 
 function shouldShowWorkerResultStatus(worker: WorkerRuntimeState): boolean {
