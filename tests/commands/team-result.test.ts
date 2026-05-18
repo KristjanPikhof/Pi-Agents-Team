@@ -61,12 +61,13 @@ test("/team-result <id> emits the formatted worker detail for a known worker", a
 	const out = harness.emitted[0]!;
 	assert.match(out, new RegExp(`^\\x1b\\[1mreviewer\\x1b\\[0m \\(${delegated.worker.workerId}\\)`));
 	const plain = stripAnsi(out);
-	assert.match(plain, new RegExp(`^reviewer \\(${delegated.worker.workerId}\\)`));
-	assert.match(plain, /Task: Inspect runtime/);
-	assert.match(plain, /Usage: turns=/);
-	assert.doesNotMatch(plain, /^Worker:/m);
-	assert.doesNotMatch(plain, /^Profile:/m);
-	assert.doesNotMatch(plain, /^Goal:/m);
+	const detailSection = plain.split("--- Latest assistant text ---")[0]!;
+	assert.match(detailSection, new RegExp(`^reviewer \\(${delegated.worker.workerId}\\)`));
+	assert.match(detailSection, /Task: Inspect runtime/);
+	assert.match(detailSection, /Usage: turns=/);
+	assert.doesNotMatch(detailSection, /^Worker:/m);
+	assert.doesNotMatch(detailSection, /^Profile:/m);
+	assert.doesNotMatch(detailSection, /^Goal:/m);
 });
 
 test("/team-result with an unknown id notifies and does not emit", async () => {
