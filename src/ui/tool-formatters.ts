@@ -101,8 +101,8 @@ export function truncateScanValue(value: string, options: ScanFriendlyTextOption
 	const maxWidth = options.maxWidth ?? DEFAULT_TRUNCATE_WIDTH;
 	const placeholder = options.placeholder ?? "";
 	const normalized = value.replace(/\s+/g, " ").trim() || placeholder;
-	if (maxWidth <= 0 || visibleWidth(normalized) <= maxWidth) return normalized;
 	const plain = normalized.replace(ANSI_PATTERN, "");
+	if (maxWidth <= 0 || plain.length <= maxWidth) return plain;
 	const clipped = plain.slice(0, Math.max(0, maxWidth - 1)).trimEnd();
 	const lastSpace = clipped.lastIndexOf(" ");
 	const wordSafe = lastSpace > Math.floor(maxWidth * 0.6) ? clipped.slice(0, lastSpace) : clipped;
