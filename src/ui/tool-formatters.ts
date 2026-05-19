@@ -101,7 +101,10 @@ export function truncateScanValue(value: string, options: ScanFriendlyTextOption
 	const normalized = value.replace(/\s+/g, " ").trim() || placeholder;
 	if (maxWidth <= 0 || visibleWidth(normalized) <= maxWidth) return normalized;
 	const plain = normalized.replace(ANSI_PATTERN, "");
-	return `${plain.slice(0, Math.max(0, maxWidth - 1)).trimEnd()}…`;
+	const clipped = plain.slice(0, Math.max(0, maxWidth - 1)).trimEnd();
+	const lastSpace = clipped.lastIndexOf(" ");
+	const wordSafe = lastSpace > Math.floor(maxWidth * 0.6) ? clipped.slice(0, lastSpace) : clipped;
+	return `${wordSafe}…`;
 }
 
 export function formatScanSection(section: ScanSectionInput): string | undefined {

@@ -43,6 +43,30 @@ test("shared labels define the scan order vocabulary for tool results", () => {
 	assert.equal(TOOL_SECTION_LABELS.readFiles, "Read files (readFiles/files_read)");
 	assert.equal(TOOL_SECTION_LABELS.changedFiles, "Changed files (changedFiles/files_changed)");
 	assert.equal(TOOL_SECTION_LABELS.finalAnswer, "Result");
+	assert.deepEqual(TOOL_SECTION_ORDER, [
+		"Lifecycle",
+		"Status",
+		"Pending relay questions",
+		"Headline",
+		"Read files (readFiles/files_read)",
+		"Changed files (changedFiles/files_changed)",
+		"Risks",
+		"Next",
+		"Result note",
+		"Result",
+	]);
+	assert.deepEqual(WORKER_STATUS_SCAN_ORDER, ["error", "aborted", "exited", "waiting_followup", "running", "starting", "created", "completed", "idle"]);
+	assert.equal(FINAL_ANSWER_METADATA_LABELS.headline, "Headline");
+	assert.equal(FINAL_ANSWER_METADATA_LABELS.result, "Result");
+});
+
+// Pins scan-friendly helper contracts without snapshotting whole tool outputs.
+test("scan sections normalize ANSI and truncate by visible width", () => {
+	assert.equal(visibleWidth("\u001b[31mabcdef\u001b[0m"), 6);
+	assert.equal(truncateScanValue("  \u001b[31mabcdef\u001b[0m  ", { maxWidth: 4 }), "abc…");
+	assert.equal(formatScanSection({ label: "Risks", items: ["none", "  multi\nline  risk  "], maxWidth: 20 }), "Risks:\n- none\n- multi line risk");
+	assert.equal(formatScanSection({ label: "Next", value: "reviewer should spot-check helper consumers", maxWidth: 18 }), "Next: reviewer should…");
+	assert.equal(formatScanSection({ label: "Result note", value: "", empty: "No <final_answer> block extracted yet." }), "Result note: No <final_answer> block extracted yet.");
 });
 
 test("formatWorkerDetail keeps only title, task, relay, and result", () => {
