@@ -128,7 +128,7 @@ test("formatWorkerDetail keeps only title, task, relay, and result", () => {
 	assert.doesNotMatch(plain, /Latest assistant text/);
 });
 
-test("formatWorkerCompact suppresses summary lists but preserves final_answer verbatim", () => {
+test("formatWorkerCompact summarizes long file and risk lists without truncating final_answer", () => {
 	const worker = makeWorker({
 		lastSummary: {
 			workerId: "w1",
@@ -144,8 +144,9 @@ test("formatWorkerCompact suppresses summary lists but preserves final_answer ve
 		finalAnswer: "line 1\nline 2",
 	});
 	const text = formatWorkerCompact(worker);
-	assert.doesNotMatch(text, /Read files/);
-	assert.doesNotMatch(text, /Risks:/);
+	assert.match(text, /Headline: Many files/);
+	assert.match(text, /Read files \(readFiles\/files_read\):\n- read-0\.ts\n- read-1\.ts\n- read-2\.ts\n- read-3\.ts\n- read-4\.ts\n- \+7 more/);
+	assert.match(text, /Risks:\n- r1\n- r2\n- r3\n- r4\n- r5\n- \+1 more/);
 	assert.match(text, /Result:\nline 1\nline 2/);
 });
 
@@ -174,14 +175,15 @@ test("formatWorkerCompact makes normal agent_result sections scannable without t
 	for (const part of [
 		"fixer (w1)",
 		"Task: Render result",
+		"Status: completed (Completed)",
+		"Headline: Renderer improved",
+		"Read files (readFiles/files_read):\n- src/ui/tool-formatters.ts",
+		"Changed files (changedFiles/files_changed):\n- tests/ui/tool-formatters.test.ts",
+		"Risks:\n- none",
+		"Next: reviewer to spot-check output",
 		"Result:\nheadline: renderer improved\nverification: npm test passed",
 	]) assert.match(plain, new RegExp(part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 	assert.doesNotMatch(plain, /^Worker:/m);
-	assert.doesNotMatch(plain, /^Status: completed/m);
-	assert.doesNotMatch(plain, /^Headline:/m);
-	assert.doesNotMatch(plain, /^Read files/m);
-	assert.doesNotMatch(plain, /^Changed files/m);
-	assert.doesNotMatch(plain, /^Risks:/m);
 	assert.doesNotMatch(plain, /^Usage:/m);
 	assert.doesNotMatch(plain, /Latest assistant text/);
 });
@@ -191,7 +193,7 @@ test("formatWorkerCompact shows concise no-final and thin-final output", () => {
 	assert.match(noFinal, /Result:\nNo <final_answer> block extracted yet/);
 
 	const thin = formatWorkerCompact(makeWorker({ finalAnswer: "done" }));
-	assert.doesNotMatch(thin, /very short final_answer/);
+	assert.match(thin, /Result note: final_answer is very short; verify it is complete\./);
 	assert.match(thin, /Result:\ndone/);
 });
 
@@ -214,9 +216,12 @@ test("formatWorkerCompact surfaces error workers, pending relays, aliases, and u
 		usage: { turns: 2, inputTokens: 1500, outputTokens: 2500, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.5, contextTokens: 128000, contextWindow: 200000, contextPercent: 64, contextRemainingTokens: 72000 },
 	});
 	const text = formatWorkerCompact(worker);
+	assert.match(text, /Status: error \(Error\)/);
 	assert.match(text, /Error: worker crashed/);
-	assert.doesNotMatch(text, /Read files/);
-	assert.doesNotMatch(text, /Changed files/);
+	assert.match(text, /Headline: Summary alias accepted/);
+	assert.match(text, /Read files \(readFiles\/files_read\):\n- src\/from-files-read\.ts/);
+	assert.match(text, /Changed files \(changedFiles\/files_changed\):\n- src\/from-changed-files\.ts/);
+	assert.match(text, /Risks:\n- crash prevented completion/);
 	assert.match(text, /Pending relay questions:\n- \[high\] Retry with smaller scope\?\n  assumption: Yes/);
 	assert.doesNotMatch(text, /^Usage:/m);
 	assert.doesNotMatch(text, /^Context:/m);

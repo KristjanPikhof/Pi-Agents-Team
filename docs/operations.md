@@ -266,33 +266,42 @@ By default, delegated path scopes may include `/tmp`, sibling repos, or other ab
 
 That only restricts delegated worker path-scope containment. The main orchestrator session and worker prompt-file containment are unchanged; prompt files must remain inside the project/current cwd.
 
-The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
+The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. Worker-complete and relay toasts are UI-only hints; the tool loop is the authority. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
 ### Orchestrator tool output examples
 
 Operators normally see these through model narration, logs, or `/team-result`; they are included here so runbooks can match the real tool text.
 
-Fresh delegation returns compact launch metadata:
+Fresh delegation returns compact launch metadata and tells the orchestrator to wait next:
 
 ```text
-Created fixer (w1)
+Lifecycle: launched fixer (w1)
 Task: Build seam (t1)
-Path: /repo
+Profile: fixer
+Status: starting (Starting)
+CWD: /repo
+Path scope: write allowed: /repo/src (read outside scope allowed)
+Next: call wait_for_agents for ["w1"].
 ```
 
-When the orchestrator intentionally reuses an idle same-scope worker, the first line makes that explicit:
+When the orchestrator intentionally reuses an idle same-scope worker, the lifecycle line makes that explicit:
 
 ```text
-Reusing fixer (w1)
+Lifecycle: reused fixer (w1)
 Task: Follow-up fix (t2)
-Path: /repo
+Profile: fixer
+Status: running (Running)
+CWD: /repo
+Path scope: write allowed: /repo/src (read outside scope allowed)
+Next: call wait_for_agents for ["w1"].
 ```
 
-`wait_for_agents` uses compact user-facing outcomes without exposing internal reason labels. Common outcomes:
+`wait_for_agents` is the zero-token supervision loop. It returns a `Wait:` reason plus a `Next:` instruction; follow that instruction instead of polling with `ping_agents` or sleeping in bash. Common outcomes:
 
 ```text
-Done: 2 agent(s) finished or stopped.
-Next: read results with agent_result.
+Wait: all_terminal
+Status: 2 agent(s) finished or stopped
+Next: read results with agent_result for ["w1","w2"].
 
 Workers:
 - w1 (fixer) · status=completed (Completed) · task=Done task
@@ -300,33 +309,77 @@ Workers:
 ```
 
 ```text
-Needs reply: 1 relay question(s).
+Wait: relay_raised
+Status: 1 relay question(s) need reply
 
 Pending relay questions:
 1. fixer (w1) [high]
-   Need scope?
-Next: answer with agent_message, then wait again for ["w1"].
+   question: Need scope?
+   respond: agent_message workerId="w1" message=<answer>
+Next: answer relay(s) with agent_message, then wait_for_agents for ["w1"].
 
 Workers:
-- w1 (fixer) · status=running (Running) · task=Question task
+- w1 (fixer) · status=running (Running) · task=Question task · relays=1
 ```
 
 ```text
-Still waiting: some agents are still running.
-Next: wait again or inspect status.
+Wait: timeout
+Status: still waiting for non-terminal agent(s)
+Next: call wait_for_agents again for ["w1"] or inspect agent_status.
+
+Workers:
+- w1 (fixer) · status=running (Running) · task=Long task
 ```
 
 ```text
-Wait cancelled: stopped before all agents finished.
-Next: inspect status or cancel unwanted agents.
+Wait: aborted
+Status: wait cancelled before all agents finished
+Next: inspect agent_status or cancel unwanted agents.
+
+Workers:
+- w1 (fixer) · status=running (Running) · task=Long task
 ```
 
 ```text
-No agents to wait for.
+Wait: no_workers
+Status: no agents tracked
 Next: delegate a task first.
 ```
 
 For `relay_raised`, answer each relay with `agent_message`, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
+
+`agent_result` and `/team-result` are the transcript-free synthesis surfaces. They show a compact worker header and `Result:` followed by the verbatim `<final_answer>` block; the older parsed-summary metadata lists are intentionally omitted from this result surface.
+
+```text
+fixer (w1)
+Task: Build seam
+
+Result:
+headline: seam implemented
+changed_files:
+- src/runtime/seam.ts: added guarded adapter
+verification:
+- npm test → passed
+risks:
+- none known
+```
+
+If a worker is still waiting on the operator, pending relays appear before the result:
+
+```text
+fixer (w1)
+Task: Decide scope
+Status: waiting_followup (Waiting for follow-up)
+
+Pending relay questions:
+- [high] Retry with smaller scope?
+  assumption: Yes
+
+Result:
+No <final_answer> block extracted yet.
+```
+
+If the `<final_answer>` block is missing, do not synthesize from transcript tail or persisted state. Steer the worker to emit the required block, or re-delegate with a clearer brief.
 
 ## Mid-flight relay handling
 

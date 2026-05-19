@@ -30,6 +30,7 @@ export const TOOL_SECTION_LABELS = {
 const FINAL_ANSWER_MISSING_MESSAGE = "No <final_answer> block extracted yet.";
 const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const DEFAULT_TRUNCATE_WIDTH = 120;
+const SUMMARY_ITEM_LIMIT = 5;
 
 export const TOOL_SECTION_ORDER = [
 	TOOL_SECTION_LABELS.lifecycle,
@@ -138,6 +139,32 @@ function appendWorkerResultHeader(lines: string[], worker: WorkerRuntimeState): 
 	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
 }
 
+function appendWorkerCompactHeader(lines: string[], worker: WorkerRuntimeState): void {
+	lines.push(formatWorkerResultTitle(worker));
+	if (worker.currentTask?.title) lines.push(`${TOOL_SECTION_LABELS.task}: ${worker.currentTask.title}`);
+	lines.push(`${TOOL_SECTION_LABELS.status}: ${worker.status} (${formatWorkerStatusLabel(worker)})`);
+	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
+}
+
+function compactSummaryItems(items: readonly string[]): string[] {
+	const visible = items.slice(0, SUMMARY_ITEM_LIMIT);
+	if (items.length > SUMMARY_ITEM_LIMIT) return [...visible, `+${items.length - SUMMARY_ITEM_LIMIT} more`];
+	return [...visible];
+}
+
+function appendWorkerSummary(lines: string[], worker: WorkerRuntimeState): void {
+	const summary = worker.lastSummary;
+	if (!summary) return;
+	const sections = [
+		formatScanSection({ label: TOOL_SECTION_LABELS.summary, value: summary.headline }),
+		formatScanSection({ label: TOOL_SECTION_LABELS.readFiles, items: compactSummaryItems(summary.readFiles) }),
+		formatScanSection({ label: TOOL_SECTION_LABELS.changedFiles, items: compactSummaryItems(summary.changedFiles) }),
+		formatScanSection({ label: TOOL_SECTION_LABELS.risks, items: compactSummaryItems(summary.risks) }),
+		formatScanSection({ label: TOOL_SECTION_LABELS.nextAction, value: summary.nextRecommendation }),
+	].filter((section): section is string => Boolean(section));
+	if (sections.length > 0) lines.push("", ...sections);
+}
+
 function appendRelayQuestions(lines: string[], worker: WorkerRuntimeState): void {
 	if (worker.pendingRelayQuestions.length === 0) return;
 	lines.push("", `${TOOL_SECTION_LABELS.relayQuestions}:`);
@@ -147,12 +174,14 @@ function appendRelayQuestions(lines: string[], worker: WorkerRuntimeState): void
 	}
 }
 
-function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState): void {
+function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState, options: { includeResultNotes?: boolean } = {}): void {
 	const finalAnswer = worker.finalAnswer?.trim();
 	if (!finalAnswer) {
+		if (options.includeResultNotes) lines.push("", `${TOOL_SECTION_LABELS.finalAnswerNote}: ${FINAL_ANSWER_MISSING_MESSAGE}`);
 		lines.push("", `${TOOL_SECTION_LABELS.finalAnswer}:`, FINAL_ANSWER_MISSING_MESSAGE);
 		return;
 	}
+	if (options.includeResultNotes && visibleWidth(finalAnswer) < 20) lines.push("", `${TOOL_SECTION_LABELS.finalAnswerNote}: final_answer is very short; verify it is complete.`);
 	lines.push("", `${TOOL_SECTION_LABELS.finalAnswer}:`, finalAnswer);
 }
 
@@ -275,10 +304,10 @@ export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): str
 
 export function formatWorkerCompact(worker: WorkerRuntimeState): string {
 	const lines: string[] = [];
-	appendWorkerResultHeader(lines, worker);
-
+	appendWorkerCompactHeader(lines, worker);
+	appendWorkerSummary(lines, worker);
 	appendRelayQuestions(lines, worker);
-	appendFinalAnswer(lines, worker);
+	appendFinalAnswer(lines, worker, { includeResultNotes: true });
 	return lines.join("\n");
 }
 
