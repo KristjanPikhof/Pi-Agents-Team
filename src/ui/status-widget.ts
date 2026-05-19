@@ -45,12 +45,12 @@ export function getTeamStatusTip(index: number): string {
 }
 
 export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team", tip?: string): string {
-	const activity = hasActiveOrchestratorWork(state) ? "Working..." : "Idle";
-	const status = routingMode === "solo" ? `Orchestrator · Solo · ${activity}` : `Orchestrator · ${activity}`;
+	const activity = hasActiveWorkerWork(state) ? "Working..." : "Idle";
+	const status = routingMode === "solo" ? `Agents · Solo · ${activity}` : `Agents · ${activity}`;
 	return truncateToWidth(tip ? `${status} · Tip: ${tip}` : status, HEADER_WIDTH);
 }
 
-function hasActiveOrchestratorWork(state: PersistedTeamState): boolean {
+function hasActiveWorkerWork(state: PersistedTeamState): boolean {
 	return state.relayQueue.length > 0 || Object.values(state.activeWorkers).some((worker) => isActiveSurfaceWorker(worker));
 }
 

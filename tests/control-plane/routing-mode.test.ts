@@ -88,7 +88,7 @@ test("widget collapses to a single solo badge line when routingMode is solo and 
 	assert.match(soloLinesWithWorker[0]!, /Pi Agents Team — solo/);
 
 	const soloStatus = buildTeamStatusLine(emptyState, "solo");
-	assert.equal(soloStatus, "Orchestrator · Solo · Idle");
+	assert.equal(soloStatus, "Agents · Solo · Idle");
 });
 
 test("parseTeamEnableArgs requires on|off and accepts --persist global|local", () => {

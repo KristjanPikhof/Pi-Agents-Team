@@ -30,23 +30,23 @@ function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string;
 test("status widget hides itself when no workers are tracked", () => {
 	const state = createDefaultTeamState();
 	const statusLine = buildTeamStatusLine(state);
-	assert.equal(statusLine, "Orchestrator · Idle");
+	assert.equal(statusLine, "Agents · Idle");
 	assert.deepEqual(buildTeamWidgetLines(state), []);
 });
 
 test("status line shows routing mode, orchestrator state, and optional rotating tip", () => {
 	const state = createDefaultTeamState();
-	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
-	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Idle");
-	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0)), "Orchestrator · Idle · Tip: Use /team to view workers");
+	assert.equal(buildTeamStatusLine(state), "Agents · Idle");
+	assert.equal(buildTeamStatusLine(state, "solo"), "Agents · Solo · Idle");
+	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0)), "Agents · Idle · Tip: Use /team to view workers");
 
 	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running" });
-	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
-	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Working...");
-	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(1)), "Orchestrator · Working... · Tip: Use /team-result <id> for final output");
+	assert.equal(buildTeamStatusLine(state), "Agents · Working...");
+	assert.equal(buildTeamStatusLine(state, "solo"), "Agents · Solo · Working...");
+	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(1)), "Agents · Working... · Tip: Use /team-result <id> for final output");
 
 	state.activeWorkers.w1.status = "idle";
-	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
+	assert.equal(buildTeamStatusLine(state), "Agents · Idle");
 
 	state.relayQueue = [{
 		relayId: "r1",
@@ -57,7 +57,7 @@ test("status line shows routing mode, orchestrator state, and optional rotating 
 		urgency: "normal",
 		createdAt: Date.now(),
 	}];
-	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
+	assert.equal(buildTeamStatusLine(state), "Agents · Working...");
 });
 
 test("widget shows spinner frame for running workers and ✓ for finished idle workers", () => {
