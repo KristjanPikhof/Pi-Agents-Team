@@ -115,7 +115,7 @@ If no `<final_answer>` block was extracted, the result says so:
 fixer (w1)
 
 Result:
-No <final_answer> block extracted yet.
+No final answer block extracted yet.
 ```
 
 When the block is missing, do not synthesize from transcript tail alone. Re-delegate, steer the worker to wrap its final deliverable in `<final_answer>…</final_answer>`, or stop and respawn with a clearer brief.
@@ -370,7 +370,7 @@ Pending relay questions:
   assumption: Yes
 
 Result:
-No <final_answer> block extracted yet.
+No final answer block extracted yet.
 ```
 
 If the `<final_answer>` block is missing, do not synthesize from transcript tail or persisted state. Steer the worker to emit the required block, or re-delegate with a clearer brief.

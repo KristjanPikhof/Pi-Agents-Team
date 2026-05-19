@@ -50,7 +50,7 @@ test("buildPassivePing keeps cached worker status compact", () => {
 	const snapshot = buildPassivePing(worker);
 	assert.equal(snapshot.lastSummary, "Worker is ready for follow-up.");
 	assert.equal(snapshot.usage.contextWindow, 200000);
-	assert.match(formatPingSnapshot(snapshot), /status=idle/);
+	assert.match(formatPingSnapshot(snapshot), / idle/);
 	assert.match(formatPingSnapshot(snapshot), /ctx=64%\/200k rem=72k/);
-	assert.match(formatPingSnapshot(snapshot), /summary=Worker is ready for follow-up/);
+	assert.match(formatPingSnapshot(snapshot), /Worker is ready for follow-up/);
 });

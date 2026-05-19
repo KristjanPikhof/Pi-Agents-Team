@@ -121,7 +121,7 @@ test("formatWorkerDetail suppresses usage and context metadata", () => {
 	const text = resultTesting.formatWorkerDetail(worker, undefined);
 	assert.doesNotMatch(text, /^Usage:/m);
 	assert.doesNotMatch(text, /^Context:/m);
-	assert.match(text, /Result:\nNo <final_answer> block extracted yet\./);
+	assert.match(text, /Result:\nNo final answer block extracted yet\./);
 });
 
 test("formatWorkerDetail without transcript renders the placeholder line (parity with inline agent-result)", () => {
@@ -141,7 +141,7 @@ test("formatWorkerDetail without transcript renders the placeholder line (parity
 	const plain = stripAnsi(text);
 	assert.match(plain, /^reviewer \(w7\)/);
 	assert.match(plain, /Status: idle \(Idle\)/);
-	assert.match(plain, /No <final_answer> block extracted yet/);
+	assert.match(plain, /No final answer block extracted yet/);
 	assert.doesNotMatch(plain, /^Worker:/m);
 	assert.doesNotMatch(plain, /Latest assistant text/);
 });

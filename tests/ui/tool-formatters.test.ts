@@ -40,16 +40,16 @@ test("shared labels define the scan order vocabulary for tool results", () => {
 	assert.equal(TOOL_SECTION_LABELS.status, "Status");
 	assert.equal(TOOL_SECTION_LABELS.wait, "Wait");
 	assert.equal(TOOL_SECTION_LABELS.relayQuestions, "Pending relay questions");
-	assert.equal(TOOL_SECTION_LABELS.readFiles, "Read files (readFiles/files_read)");
-	assert.equal(TOOL_SECTION_LABELS.changedFiles, "Changed files (changedFiles/files_changed)");
+	assert.equal(TOOL_SECTION_LABELS.readFiles, "Read files");
+	assert.equal(TOOL_SECTION_LABELS.changedFiles, "Changed files");
 	assert.equal(TOOL_SECTION_LABELS.finalAnswer, "Result");
 	assert.deepEqual(TOOL_SECTION_ORDER, [
 		"Lifecycle",
 		"Status",
 		"Pending relay questions",
 		"Headline",
-		"Read files (readFiles/files_read)",
-		"Changed files (changedFiles/files_changed)",
+		"Read files",
+		"Changed files",
 		"Risks",
 		"Next",
 		"Result note",
@@ -67,7 +67,7 @@ test("scan sections normalize ANSI and truncate by visible width", () => {
 	assert.equal(truncateScanValue("  \u001b[31mabcdef\u001b[0m  ", { maxWidth: 4 }), "abc…");
 	assert.equal(formatScanSection({ label: "Risks", items: ["none", "  multi\nline  risk  "], maxWidth: 20 }), "Risks:\n- none\n- multi line risk");
 	assert.equal(formatScanSection({ label: "Next", value: "reviewer should spot-check helper consumers", maxWidth: 18 }), "Next: reviewer should s…");
-	assert.equal(formatScanSection({ label: "Result note", value: "", empty: "No <final_answer> block extracted yet." }), "Result note: No <final_answer> block extracted yet.");
+	assert.equal(formatScanSection({ label: "Result note", value: "", empty: "No final answer block extracted yet." }), "Result note: No final answer block extracted yet.");
 });
 
 test("formatWorkerDetail keeps only title, task, relay, and result", () => {
@@ -146,7 +146,7 @@ test("formatWorkerCompact summarizes long file and risk lists without truncating
 	});
 	const text = formatWorkerCompact(worker);
 	assert.match(text, /Headline: Many files/);
-	assert.match(text, /Read files \(readFiles\/files_read\):\n- read-0\.ts\n- read-1\.ts\n- read-2\.ts\n- read-3\.ts\n- read-4\.ts\n- \+7 more/);
+	assert.match(text, /Read files:\n- read-0\.ts\n- read-1\.ts\n- read-2\.ts\n- read-3\.ts\n- read-4\.ts\n- \+7 more/);
 	assert.match(text, /Risks:\n- r1\n- r2\n- r3\n- r4\n- r5\n- \+1 more/);
 	assert.match(text, /Result:\nline 1\nline 2/);
 });
@@ -196,8 +196,8 @@ test("formatWorkerCompact makes normal agent_result sections scannable without t
 		"Task: Render result",
 		"Status: completed (Completed)",
 		"Headline: Renderer improved",
-		"Read files (readFiles/files_read):\n- src/ui/tool-formatters.ts",
-		"Changed files (changedFiles/files_changed):\n- tests/ui/tool-formatters.test.ts",
+		"Read files:\n- src/ui/tool-formatters.ts",
+		"Changed files:\n- tests/ui/tool-formatters.test.ts",
 		"Risks:\n- none",
 		"Next: reviewer to spot-check output",
 		"Result:\nheadline: renderer improved\nverification: npm test passed",
@@ -209,10 +209,10 @@ test("formatWorkerCompact makes normal agent_result sections scannable without t
 
 test("formatWorkerCompact shows concise no-final and thin-final output", () => {
 	const noFinal = formatWorkerCompact(makeWorker());
-	assert.match(noFinal, /Result:\nNo <final_answer> block extracted yet/);
+	assert.match(noFinal, /Result:\nNo final answer block extracted yet/);
 
 	const thin = formatWorkerCompact(makeWorker({ finalAnswer: "done" }));
-	assert.match(thin, /Result note: final_answer is very short; verify it is complete\./);
+	assert.match(thin, /Result note: final answer is very short; verify it is complete\./);
 	assert.match(thin, /Result:\ndone/);
 });
 
@@ -239,8 +239,8 @@ test("formatWorkerCompact surfaces error workers, pending relays, aliases, and u
 	assert.match(text, /Error: worker crashed/);
 	assert.ok(text.indexOf("Pending relay questions:") < text.indexOf("Headline: Summary alias accepted"));
 	assert.match(text, /Headline: Summary alias accepted/);
-	assert.match(text, /Read files \(readFiles\/files_read\):\n- src\/from-files-read\.ts/);
-	assert.match(text, /Changed files \(changedFiles\/files_changed\):\n- src\/from-changed-files\.ts/);
+	assert.match(text, /Read files:\n- src\/from-files-read\.ts/);
+	assert.match(text, /Changed files:\n- src\/from-changed-files\.ts/);
 	assert.match(text, /Risks:\n- crash prevented completion/);
 	assert.match(text, /Pending relay questions:\n- \[high\] Retry with smaller scope\?\n  assumption: Yes/);
 	assert.doesNotMatch(text, /^Usage:/m);
