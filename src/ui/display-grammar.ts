@@ -1,4 +1,4 @@
-import type { WorkerRuntimeState, WorkerStatus } from "../types";
+import { compareWorkerIds, type WorkerRuntimeState, type WorkerStatus } from "../types";
 
 export type WorkerAttentionPriority = "needs_reply" | "needs_recovery" | "in_progress" | "completed_or_idle";
 
@@ -51,7 +51,7 @@ export function formatProfileLabel(profileName: string): string {
 }
 
 export function formatWorkerIdList(workerIds: readonly string[]): string {
-	return workerIds.map((workerId) => workerId.trim()).filter(Boolean).join(", ");
+	return workerIds.map((workerId) => workerId.trim()).filter(Boolean).sort(compareWorkerIds).join(", ");
 }
 
 export function formatWorkerIdListSuffix(workerIds: readonly string[]): string {
