@@ -1,14 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+	FINAL_ANSWER_METADATA_LABELS,
 	TOOL_SECTION_LABELS,
+	TOOL_SECTION_ORDER,
+	WORKER_STATUS_SCAN_ORDER,
 	formatAgentMessageResult,
 	formatDelegateTaskResult,
 	formatWaitForAgentsResult,
 	formatWorkerCompact,
 	formatWorkerDetail,
 	formatWorkers,
+	formatScanSection,
 	truncateList,
+	truncateScanValue,
+	visibleWidth,
 } from "../../src/ui/tool-formatters";
 import type { WorkerRuntimeState } from "../../src/types";
 import { stripAnsi } from "../../src/ui/theme";

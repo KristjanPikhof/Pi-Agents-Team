@@ -27,6 +27,57 @@ export const TOOL_SECTION_LABELS = {
 } as const;
 
 const FINAL_ANSWER_MISSING_MESSAGE = "No <final_answer> block extracted yet.";
+const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const DEFAULT_TRUNCATE_WIDTH = 120;
+
+export const TOOL_SECTION_ORDER = [
+	TOOL_SECTION_LABELS.lifecycle,
+	TOOL_SECTION_LABELS.status,
+	TOOL_SECTION_LABELS.relayQuestions,
+	TOOL_SECTION_LABELS.summary,
+	TOOL_SECTION_LABELS.readFiles,
+	TOOL_SECTION_LABELS.changedFiles,
+	TOOL_SECTION_LABELS.risks,
+	TOOL_SECTION_LABELS.nextAction,
+	TOOL_SECTION_LABELS.finalAnswerNote,
+	TOOL_SECTION_LABELS.finalAnswer,
+] as const;
+
+export const WORKER_STATUS_SCAN_ORDER: readonly WorkerStatus[] = [
+	"error",
+	"aborted",
+	"exited",
+	"waiting_followup",
+	"running",
+	"starting",
+	"created",
+	"completed",
+	"idle",
+];
+
+export const FINAL_ANSWER_METADATA_LABELS = {
+	headline: TOOL_SECTION_LABELS.summary,
+	filesRead: TOOL_SECTION_LABELS.readFiles,
+	filesChanged: TOOL_SECTION_LABELS.changedFiles,
+	risks: TOOL_SECTION_LABELS.risks,
+	nextRecommendation: TOOL_SECTION_LABELS.nextAction,
+	relayQuestions: TOOL_SECTION_LABELS.relayQuestions,
+	resultNote: TOOL_SECTION_LABELS.finalAnswerNote,
+	result: TOOL_SECTION_LABELS.finalAnswer,
+} as const;
+
+export interface ScanFriendlyTextOptions {
+	maxWidth?: number;
+	placeholder?: string;
+}
+
+export interface ScanSectionInput {
+	label: string;
+	value?: string | number | boolean | null;
+	items?: readonly (string | number | boolean | null | undefined)[];
+	maxWidth?: number;
+	empty?: string;
+}
 
 export interface WaitForAgentsFormatInput {
 	reason: "all_terminal" | "timeout" | "aborted" | "relay_raised" | "no_workers";
@@ -38,6 +89,29 @@ export interface FormatWorkerDetailOptions {
 	transcript?: string;
 	compactUsage?: boolean;
 	includeProfileLine?: boolean;
+}
+
+export function visibleWidth(text: string): number {
+	return text.replace(ANSI_PATTERN, "").length;
+}
+
+export function truncateScanValue(value: string, options: ScanFriendlyTextOptions = {}): string {
+	const maxWidth = options.maxWidth ?? DEFAULT_TRUNCATE_WIDTH;
+	const placeholder = options.placeholder ?? "";
+	const normalized = value.replace(/\s+/g, " ").trim() || placeholder;
+	if (maxWidth <= 0 || visibleWidth(normalized) <= maxWidth) return normalized;
+	const plain = normalized.replace(ANSI_PATTERN, "");
+	return `${plain.slice(0, Math.max(0, maxWidth - 1)).trimEnd()}…`;
+}
+
+export function formatScanSection(section: ScanSectionInput): string | undefined {
+	const maxWidth = section.maxWidth ?? DEFAULT_TRUNCATE_WIDTH;
+	const values = section.items
+		? section.items.map((item) => truncateScanValue(String(item ?? ""), { maxWidth })).filter(Boolean)
+		: [truncateScanValue(String(section.value ?? ""), { maxWidth, placeholder: section.empty })].filter(Boolean);
+	if (values.length === 0) return undefined;
+	if (section.items) return [`${section.label}:`, ...values.map((value) => `- ${value}`)].join("\n");
+	return `${section.label}: ${values[0]}`;
 }
 
 export function truncateList(items: readonly string[], max: number): string {
