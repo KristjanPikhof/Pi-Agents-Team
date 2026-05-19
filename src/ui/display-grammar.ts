@@ -72,8 +72,8 @@ export function buildAgentToolCallTitle(toolName: AgentToolName, args: AgentTool
 	switch (toolName) {
 		case "delegate_task":
 			return args.reuseWorkerId
-				? `Reusing ${formatProfileLabel(args.profileName ?? "")} ${formatWorkerDisplayId(args.reuseWorkerId)}`
-				: `Creating ${formatProfileLabel(args.profileName ?? "")} agent`;
+				? `Reusing ${formatProfileLabel(args.profileName ?? "")} agent ${formatWorkerDisplayId(args.reuseWorkerId)}`
+				: `Launching ${formatProfileLabel(args.profileName ?? "")} agent`;
 		case "agent_result":
 			return `Reading agent result${formatWorkerIdListSuffix(args.workerId ? [args.workerId] : [])}`;
 		case "wait_for_agents":

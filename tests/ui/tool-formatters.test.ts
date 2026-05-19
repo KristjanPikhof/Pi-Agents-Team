@@ -300,13 +300,11 @@ test("delegate formatter makes fresh launch lifecycle scannable", () => {
 	assert.doesNotMatch(text, /\x1b\[/, "delegate_task text must be ANSI-free");
 	const plain = stripAnsi(text);
 	assert.equal(plain, [
-		"Lifecycle: launched fixer (w1)",
+		"Launched fixer agent (w1)",
 		"Task: Build seam (t1)",
-		"Profile: fixer",
-		"Status: running (Running)",
 		"CWD: /repo",
 		"Path scope: write allowed: /repo/src, /repo/tests (read restricted to scope)",
-		"Next: call wait_for_agents for [\"w1\"].",
+		"Next: wait for w1.",
 	].join("\n"));
 });
 
@@ -325,13 +323,13 @@ test("delegate formatter shows reuse state with same worker and new task", () =>
 	const text = formatDelegateTaskResult({ worker, task, reuseWorkerId: "w1" });
 
 	const plain = stripAnsi(text);
-	assert.match(plain, /^Lifecycle: reused fixer \(w1\)/);
+	assert.match(plain, /^Reused fixer agent \(w1\)/);
 	assert.match(plain, /Task: Follow-up fix \(t2\)/);
-	assert.match(plain, /Profile: fixer/);
-	assert.match(plain, /Status: running \(Running\)/);
+	assert.doesNotMatch(plain, /Profile:/);
+	assert.doesNotMatch(plain, /Status:/);
 	assert.match(plain, /CWD: \/repo/);
 	assert.doesNotMatch(plain, /Path scope:/);
-	assert.match(plain, /Next: call wait_for_agents for \["w1"\]\./);
+	assert.match(plain, /Next: wait for w1\./);
 });
 
 // Direct formatter coverage for warning text that callers may pass when delegate_task is gated or rejected.
@@ -343,11 +341,11 @@ test("delegate formatter can surface routing and validation warnings when availa
 	});
 
 	const plain = stripAnsi(text);
-	assert.match(plain, /^Lifecycle: launched reviewer \(w1\)/);
+	assert.match(plain, /^Launched reviewer agent \(w1\)/);
 	assert.match(plain, /Task: delegated task/);
-	assert.match(plain, /Status: created \(Created\)/);
+	assert.doesNotMatch(plain, /Status:/);
 	assert.match(plain, /Warning:\n- Team routing off\. Run \/team-enable on to delegate\.\n- Invalid request: pathScopeRoots is required for scoped-write profiles\./);
-	assert.match(plain, /Next: call wait_for_agents for \["w1"\]\./);
+	assert.match(plain, /Next: wait for w1\./);
 });
 
 test("agent message formatter names resolved delivery and wake/resume cases", () => {

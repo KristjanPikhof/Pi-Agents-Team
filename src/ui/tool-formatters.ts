@@ -218,17 +218,16 @@ export function formatDelegateTaskResult(result: DelegateTaskFormatInput): strin
 	const title = task?.title ?? "delegated task";
 	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
 	const lifecycle = result.reuseWorkerId ? "reused" : "launched";
+	const action = result.reuseWorkerId ? "Reused" : "Launched";
 	const lines = [
-		`${TOOL_SECTION_LABELS.lifecycle}: ${lifecycle} ${formatWorkerResultTitle(result.worker)}`,
+		`${action} ${formatProfileLabel(result.worker.profileName)} agent ${formatWorkerDisplayId(result.worker.workerId)}`,
 		`${TOOL_SECTION_LABELS.task}: ${taskLabel}`,
-		`${TOOL_SECTION_LABELS.profile}: ${formatProfileLabel(result.worker.profileName)}`,
-		`${TOOL_SECTION_LABELS.status}: ${result.worker.status} (${formatWorkerStatusLabel(result.worker)})`,
 	];
 	if (task?.cwd) lines.push(`${TOOL_SECTION_LABELS.cwd}: ${task.cwd}`);
 	if (task?.pathScope) lines.push(`${TOOL_SECTION_LABELS.pathScope}: ${formatPathScope(task.pathScope)}`);
 	const warnings = result.warnings ?? [];
 	if (warnings.length > 0) lines.push(formatScanSection({ label: TOOL_SECTION_LABELS.warning, items: warnings }) ?? "");
-	lines.push(`${TOOL_SECTION_LABELS.nextAction}: call wait_for_agents for [${JSON.stringify(result.worker.workerId)}].`);
+	lines.push(`${TOOL_SECTION_LABELS.nextAction}: wait for ${result.worker.workerId}.`);
 	return lines.filter(Boolean).join("\n");
 }
 
