@@ -129,7 +129,7 @@ next_recommendation:
 
 ### What the runtime does
 
-`extractFinalAnswer` pulls the block from the worker's final assistant message and stores it on `WorkerRuntimeState.finalAnswer`. `agent_result` and `/team-result` both render a small worker header followed by `Result:` and the extracted block content. If the block is missing, the `Result:` section says `No <final_answer> block extracted yet.`
+`extractFinalAnswer` pulls the block from the worker's final assistant message and stores it on `WorkerRuntimeState.finalAnswer`. `agent_result` is the orchestrator-facing surface: it renders a compact worker header, any scan-friendly summary sections available from the worker's latest structured summary, then `Result:` and the extracted block content. `/team-result` is the operator command for the full deliverable block: it renders the worker detail header, relay questions when present, then `Result:` and the extracted block content, with the latest assistant text shown only when no final block was extracted. If the block is missing, the `Result:` section says `No final answer block extracted yet.`
 
 ## Worker set
 
