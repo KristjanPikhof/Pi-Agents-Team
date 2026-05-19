@@ -56,7 +56,53 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(!commands.some((command) => command.name === "team-disable"));
 	assert.ok(tools.every((tool) => typeof tool.renderCall === "function"));
 	assert.ok(events.includes("session_start"));
+	assert.ok(events.includes("agent_start"));
 	assert.ok(events.includes("before_agent_start"));
+});
+
+test("extension handles direct agent_start lifecycle without prompt injection hook", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const statusLines: Array<string | undefined> = [];
+
+	extension({
+		registerTool() {},
+		registerCommand() {},
+		on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) {
+			handlers.set(event, handler);
+		},
+		appendEntry() {},
+		sendMessage() {},
+	} as any);
+
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-agent-start-"));
+	const ctx = {
+		cwd,
+		hasUI: true,
+		ui: {
+			notify() {},
+			setStatus(_key: string, value: string | undefined) {
+				statusLines.push(value);
+			},
+			setWidget() {},
+			setTitle() {},
+		},
+		sessionManager: {
+			getEntries() {
+				return [];
+			},
+		},
+	} as any;
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle/);
+
+	await handlers.get("agent_start")?.({}, ctx);
+	assert.match(statusLines.at(-1) ?? "", /Orchestrator · Working\.\.\./);
+
+	await handlers.get("agent_end")?.({}, ctx);
+	assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle/);
+
+	await handlers.get("session_shutdown")?.({}, ctx);
 });
 
 test("extension rotates footer tips with an unref'd timer and clears it on shutdown", async () => {
