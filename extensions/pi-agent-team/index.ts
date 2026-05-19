@@ -114,6 +114,7 @@ function applyUi(
 	routingMode: "team" | "solo" = "team",
 	displayCost = true,
 	tip?: string,
+	orchestratorWorking = false,
 ): void {
 	if (!ctx?.hasUI) return;
 	if (!active) {
@@ -123,7 +124,7 @@ function applyUi(
 	}
 
 	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode, displayCost });
-	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip));
+	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip, orchestratorWorking));
 	ctx.ui.setWidget(config.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
@@ -291,6 +292,7 @@ export default function (pi: ExtensionAPI): void {
 	let tipTimer: NodeJS.Timeout | undefined;
 	let spinnerFrame = 0;
 	let tipIndex = 0;
+	let orchestratorWorking = false;
 	const SPINNER_INTERVAL_MS = 120;
 	const TIP_INTERVAL_MS = 15_000;
 
@@ -303,7 +305,7 @@ export default function (pi: ExtensionAPI): void {
 		routingMode: "team" | "solo" = teamManager.routingMode,
 		displayCost = activeProjectConfig.displayCost,
 	): void {
-		applyUi(ctx, state, frame, config, active, routingMode, displayCost, getTeamStatusTip(tipIndex));
+		applyUi(ctx, state, frame, config, active, routingMode, displayCost, getTeamStatusTip(tipIndex), orchestratorWorking);
 		if (ctx?.hasUI && active) ensureTipRotationRunning();
 		else stopTipRotation();
 	}
@@ -754,8 +756,23 @@ export default function (pi: ExtensionAPI): void {
 		}
 	});
 
+	pi.on("agent_start", async (_event, ctx) => {
+		activeContext = ctx;
+		orchestratorWorking = true;
+		teamState = teamManager.snapshot();
+		renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+	});
+
+	pi.on("agent_end", async (_event, ctx) => {
+		activeContext = ctx;
+		orchestratorWorking = false;
+		teamState = teamManager.snapshot();
+		renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+	});
+
 	pi.on("before_agent_start", async (event, ctx) => {
 		activeContext = ctx;
+		orchestratorWorking = true;
 		teamState = teamManager.snapshot();
 		renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 		if (!activeProjectConfig.enabled) {
@@ -779,6 +796,7 @@ export default function (pi: ExtensionAPI): void {
 		teamState = teamManager.snapshot();
 		persistSnapshot(pi, teamState, activeProjectConfig.config);
 		clearUi(ctx, activeProjectConfig.config);
+		orchestratorWorking = false;
 		activeContext = undefined;
 	});
 }

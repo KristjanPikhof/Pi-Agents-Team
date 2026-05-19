@@ -118,10 +118,10 @@ test("extension rotates footer tips with an unref'd timer and clears it on shutd
 		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
 		assert.equal(intervalMs, 15_000);
 		assert.equal(unrefCount, 1);
-		assert.match(statusLines.at(-1) ?? "", /Agents · Idle · Tip: Use \/team to view workers/);
+		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle · Tip: Use \/team to view workers/);
 
 		callbacks[0]?.();
-		assert.match(statusLines.at(-1) ?? "", /Agents · Idle · Tip: Use \/team-result <id> for final output/);
+		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle · Tip: Use \/team-result <id> for final output/);
 
 		await handlers.get("session_shutdown")?.({}, ctx);
 		assert.equal(clearedTimer, timers[0]);
