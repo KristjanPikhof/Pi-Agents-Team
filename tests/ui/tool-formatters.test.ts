@@ -230,8 +230,9 @@ test("wait formatter makes all_terminal outcome and next action scannable", () =
 			makeWorker({ workerId: "w2", status: "idle", profileName: "reviewer" }),
 		],
 	});
-	assert.match(text, /^Done: 2 agent\(s\) finished or stopped\./);
-	assert.match(text, /Next: read results with agent_result\./);
+	assert.match(text, /^Wait: all_terminal/);
+	assert.match(text, /Status: 2 agent\(s\) finished or stopped/);
+	assert.match(text, /Next: read results with agent_result for \["w1","w2"\]\./);
 	assert.match(text, /Workers:\n- w1 \(fixer\) · status=completed \(Completed\) · task=Done task\n- w2 \(reviewer\) · status=idle \(Idle\)/);
 });
 
@@ -241,9 +242,10 @@ test("wait formatter makes relay questions copyable with agent_message and follo
 		workers: [makeWorker({ status: "running", currentTask: { taskId: "t1", title: "Question task", goal: "Ask", requestedBy: "orchestrator", profileName: "fixer", cwd: "/repo", contextHints: [], createdAt: 1 } })],
 		newRelays: [{ workerId: "w1", profileName: "fixer", urgency: "high", question: "Need scope?" }],
 	});
-	assert.match(text, /^Needs reply: 1 relay question\(s\)\./);
-	assert.match(text, /Pending relay questions:\n1\. fixer \(w1\) \[high\]\n   Need scope\?/);
-	assert.match(text, /Next: answer with agent_message, then wait again for \["w1"\]\./);
+	assert.match(text, /^Wait: relay_raised/);
+	assert.match(text, /Status: 1 relay question\(s\) need reply/);
+	assert.match(text, /Pending relay questions:\n1\. fixer \(w1\) \[high\]\n   question: Need scope\?\n   respond: agent_message workerId="w1" message=<answer>/);
+	assert.match(text, /Next: answer relay\(s\) with agent_message, then wait_for_agents for \["w1"\]\./);
 	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\) · task=Question task/);
 });
 
@@ -252,8 +254,9 @@ test("wait formatter distinguishes timeout with mixed worker statuses", () => {
 		reason: "timeout",
 		workers: [makeWorker({ status: "running" }), makeWorker({ workerId: "w2", profileName: "reviewer", status: "completed" })],
 	});
-	assert.match(text, /^Still waiting: some agents are still running\./);
-	assert.match(text, /Next: wait again or inspect status\./);
+	assert.match(text, /^Wait: timeout/);
+	assert.match(text, /Status: still waiting for non-terminal agent\(s\)/);
+	assert.match(text, /Next: call wait_for_agents again for \["w1","w2"\] or inspect agent_status\./);
 	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\)\n- w2 \(reviewer\) · status=completed \(Completed\)/);
 });
 
@@ -262,14 +265,15 @@ test("wait formatter distinguishes aborted waits", () => {
 		reason: "aborted",
 		workers: [makeWorker({ status: "running" })],
 	});
-	assert.match(text, /^Wait cancelled: stopped before all agents finished\./);
-	assert.match(text, /Next: inspect status or cancel unwanted agents\./);
+	assert.match(text, /^Wait: aborted/);
+	assert.match(text, /Status: wait cancelled before all agents finished/);
+	assert.match(text, /Next: inspect agent_status or cancel unwanted agents\./);
 	assert.match(text, /Workers:\n- w1 \(fixer\) · status=running \(Running\)/);
 });
 
 test("wait formatter explains no_workers wrapper outcome", () => {
 	const text = formatWaitForAgentsResult({ reason: "no_workers", workers: [] });
-	assert.equal(text, "No agents to wait for.\nNext: delegate a task first.");
+	assert.equal(text, "Wait: no_workers\nStatus: no agents tracked\nNext: delegate a task first.");
 });
 
 test("delegate formatter makes fresh launch lifecycle scannable", () => {
@@ -289,8 +293,15 @@ test("delegate formatter makes fresh launch lifecycle scannable", () => {
 
 	assert.doesNotMatch(text, /\x1b\[/, "delegate_task text must be ANSI-free");
 	const plain = stripAnsi(text);
-	assert.equal(plain, "Created fixer (w1)\nTask: Build seam (t1)\nPath: /repo");
-	assert.doesNotMatch(plain, /Path scope:/);
+	assert.equal(plain, [
+		"Lifecycle: launched fixer (w1)",
+		"Task: Build seam (t1)",
+		"Profile: fixer",
+		"Status: running (Running)",
+		"CWD: /repo",
+		"Path scope: write allowed: /repo/src, /repo/tests (read restricted to scope)",
+		"Next: call wait_for_agents for [\"w1\"].",
+	].join("\n"));
 });
 
 test("delegate formatter shows reuse state with same worker and new task", () => {
@@ -308,12 +319,29 @@ test("delegate formatter shows reuse state with same worker and new task", () =>
 	const text = formatDelegateTaskResult({ worker, task, reuseWorkerId: "w1" });
 
 	const plain = stripAnsi(text);
-	assert.match(plain, /^Reusing fixer \(w1\)/);
+	assert.match(plain, /^Lifecycle: reused fixer \(w1\)/);
 	assert.match(plain, /Task: Follow-up fix \(t2\)/);
-	assert.match(plain, /Path: \/repo/);
-	assert.doesNotMatch(plain, /Lifecycle:/);
+	assert.match(plain, /Profile: fixer/);
+	assert.match(plain, /Status: running \(Running\)/);
+	assert.match(plain, /CWD: \/repo/);
 	assert.doesNotMatch(plain, /Path scope:/);
-	assert.doesNotMatch(plain, /Next: wait_for_agents/);
+	assert.match(plain, /Next: call wait_for_agents for \["w1"\]\./);
+});
+
+// Direct formatter coverage for warning text that callers may pass when delegate_task is gated or rejected.
+test("delegate formatter can surface routing and validation warnings when available", () => {
+	const worker = makeWorker({ status: "created", profileName: "reviewer" });
+	const text = formatDelegateTaskResult({
+		worker,
+		warnings: ["Team routing off. Run /team-enable on to delegate.", "Invalid request: pathScopeRoots is required for scoped-write profiles."],
+	});
+
+	const plain = stripAnsi(text);
+	assert.match(plain, /^Lifecycle: launched reviewer \(w1\)/);
+	assert.match(plain, /Task: delegated task/);
+	assert.match(plain, /Status: created \(Created\)/);
+	assert.match(plain, /Warning:\n- Team routing off\. Run \/team-enable on to delegate\.\n- Invalid request: pathScopeRoots is required for scoped-write profiles\./);
+	assert.match(plain, /Next: call wait_for_agents for \["w1"\]\./);
 });
 
 test("agent message formatter names resolved delivery and wake/resume cases", () => {
