@@ -123,6 +123,12 @@ test("extension rotates footer tips with an unref'd timer and clears it on shutd
 		callbacks[0]?.();
 		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle · Tip: Use \/team-result <id> for final output/);
 
+		await handlers.get("before_agent_start")?.({ systemPrompt: "base", prompt: "work" }, ctx);
+		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Working\.\.\./);
+
+		await handlers.get("agent_end")?.({ messages: [] }, ctx);
+		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle/);
+
 		await handlers.get("session_shutdown")?.({}, ctx);
 		assert.equal(clearedTimer, timers[0]);
 	} finally {
