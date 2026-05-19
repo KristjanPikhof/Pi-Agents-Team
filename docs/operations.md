@@ -81,7 +81,7 @@ Inspect and Console both show a compact follow/paused header: `[follow]  scroll 
 /team-result <worker-id>
 ```
 
-Prints the compact result surface that the orchestrator sees through `agent_result`: a plain-text worker title, optional task/status/error, pending relay questions, scan-friendly summary sections such as `Headline`, `Read files`, `Changed files`, `Risks`, and `Next` when available, and `Result:` followed by the verbatim contents of the worker's `<final_answer>` block. `/team-result` may include latest assistant text only when no final answer exists; `agent_result` remains the transcript-free synthesis surface.
+Prints the command result surface for a worker: a plain-text worker title, optional task/status/error, pending relay questions, and `Result:` followed by the verbatim contents of the worker's `<final_answer>` block. `/team-result` may include latest assistant text only when no final answer exists; `agent_result` remains the transcript-free synthesis surface and may additionally include scan-friendly summary sections such as `Headline`, `Read files`, `Changed files`, `Risks`, and `Next` when available.
 
 Normal result shape:
 
@@ -348,7 +348,7 @@ Next: delegate a task first.
 
 For `relay_raised`, answer each relay with `agent_message`, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
 
-`agent_result` and `/team-result` are the transcript-free synthesis surfaces. They show a compact worker header, pending relay questions, available scan-friendly summary sections, and `Result:` followed by the verbatim `<final_answer>` block.
+`agent_result` is the transcript-free synthesis surface for the orchestrator. It shows a compact worker header, pending relay questions, available scan-friendly summary sections, and `Result:` followed by the verbatim `<final_answer>` block. `/team-result` prints the related operator command surface with the same header/relay/result contract, but omits summary metadata sections and may include latest assistant text only when no final answer exists.
 
 ```text
 fixer (w1)
