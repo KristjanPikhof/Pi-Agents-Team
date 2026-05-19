@@ -9,7 +9,7 @@ const plainTheme = {
 
 test("renderAgentToolCallTitle renders friendly call titles", () => {
 	const delegate = renderAgentToolCallTitle("delegate_task")({ profileName: "reviewer" }, plainTheme) as { text: string };
-	assert.equal(delegate.text, "Creating reviewer agent");
+	assert.equal(delegate.text, "Launching reviewer agent");
 
 	const wait = renderAgentToolCallTitle("wait_for_agents")({ workerIds: ["w1", "w2"] }, plainTheme) as { text: string };
 	assert.equal(wait.text, "Waiting for agents (w1, w2)");

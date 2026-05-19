@@ -1,3 +1,4 @@
+import { truncateToWidth, visibleWidth as measureVisibleWidth } from "@earendil-works/pi-tui";
 import type { DelegatedTaskInput, TeamPathScope, WorkerRuntimeState, WorkerStatus } from "../types";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
 import { formatContextBudget } from "./usage-format";
@@ -94,7 +95,7 @@ export interface FormatWorkerDetailOptions {
 }
 
 export function visibleWidth(text: string): number {
-	return text.replace(ANSI_PATTERN, "").length;
+	return measureVisibleWidth(text);
 }
 
 export function truncateScanValue(value: string, options: ScanFriendlyTextOptions = {}): string {
@@ -102,11 +103,8 @@ export function truncateScanValue(value: string, options: ScanFriendlyTextOption
 	const placeholder = options.placeholder ?? "";
 	const normalized = value.replace(/\s+/g, " ").trim() || placeholder;
 	const plain = normalized.replace(ANSI_PATTERN, "");
-	if (maxWidth <= 0 || plain.length <= maxWidth) return plain;
-	const clipped = plain.slice(0, Math.max(0, maxWidth - 1)).trimEnd();
-	const lastSpace = clipped.lastIndexOf(" ");
-	const wordSafe = lastSpace > Math.floor(maxWidth * 0.6) ? clipped.slice(0, lastSpace) : clipped;
-	return `${wordSafe}…`;
+	if (maxWidth <= 0 || measureVisibleWidth(plain) <= maxWidth) return plain;
+	return truncateToWidth(plain, maxWidth, "…").trimEnd();
 }
 
 export function formatScanSection(section: ScanSectionInput): string | undefined {
@@ -146,9 +144,14 @@ function appendWorkerCompactHeader(lines: string[], worker: WorkerRuntimeState):
 	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
 }
 
-function compactSummaryItems(items: readonly string[]): string[] {
-	const visible = items.slice(0, SUMMARY_ITEM_LIMIT);
-	if (items.length > SUMMARY_ITEM_LIMIT) return [...visible, `+${items.length - SUMMARY_ITEM_LIMIT} more`];
+function coerceSummaryItems(items: unknown): string[] {
+	return Array.isArray(items) ? items.map((item) => String(item)).filter(Boolean) : [];
+}
+
+function compactSummaryItems(items: unknown): string[] {
+	const normalized = coerceSummaryItems(items);
+	const visible = normalized.slice(0, SUMMARY_ITEM_LIMIT);
+	if (normalized.length > SUMMARY_ITEM_LIMIT) return [...visible, `+${normalized.length - SUMMARY_ITEM_LIMIT} more`];
 	return [...visible];
 }
 
@@ -217,12 +220,7 @@ export function formatDelegateTaskResult(result: DelegateTaskFormatInput): strin
 	const task = result.task ?? result.worker.currentTask;
 	const title = task?.title ?? "delegated task";
 	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
-	const lifecycle = result.reuseWorkerId ? "reused" : "launched";
-	const action = result.reuseWorkerId ? "Reused" : "Launched";
-	const lines = [
-		`${action} ${formatProfileLabel(result.worker.profileName)} agent ${formatWorkerDisplayId(result.worker.workerId)}`,
-		`${TOOL_SECTION_LABELS.task}: ${taskLabel}`,
-	];
+	const lines = [`${TOOL_SECTION_LABELS.task}: ${taskLabel}`];
 	if (task?.cwd) lines.push(`${TOOL_SECTION_LABELS.cwd}: ${task.cwd}`);
 	if (task?.pathScope) lines.push(`${TOOL_SECTION_LABELS.pathScope}: ${formatPathScope(task.pathScope)}`);
 	const warnings = result.warnings ?? [];
@@ -304,8 +302,8 @@ export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): str
 export function formatWorkerCompact(worker: WorkerRuntimeState): string {
 	const lines: string[] = [];
 	appendWorkerCompactHeader(lines, worker);
-	appendWorkerSummary(lines, worker);
 	appendRelayQuestions(lines, worker);
+	appendWorkerSummary(lines, worker);
 	appendFinalAnswer(lines, worker, { includeResultNotes: true });
 	return lines.join("\n");
 }

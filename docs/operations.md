@@ -275,25 +275,21 @@ Operators normally see these through model narration, logs, or `/team-result`; t
 Fresh delegation returns compact launch metadata and tells the orchestrator to wait next:
 
 ```text
-Lifecycle: launched fixer (w1)
+Launched fixer agent (w1)
 Task: Build seam (t1)
-Profile: fixer
-Status: starting (Starting)
 CWD: /repo
 Path scope: write allowed: /repo/src (read outside scope allowed)
-Next: call wait_for_agents for ["w1"].
+Next: wait for w1.
 ```
 
-When the orchestrator intentionally reuses an idle same-scope worker, the lifecycle line makes that explicit:
+When the orchestrator intentionally reuses an idle same-scope worker, the first line makes that explicit:
 
 ```text
-Lifecycle: reused fixer (w1)
+Reused fixer agent (w1)
 Task: Follow-up fix (t2)
-Profile: fixer
-Status: running (Running)
 CWD: /repo
 Path scope: write allowed: /repo/src (read outside scope allowed)
-Next: call wait_for_agents for ["w1"].
+Next: wait for w1.
 ```
 
 `wait_for_agents` is the zero-token supervision loop. It returns a `Wait:` reason plus a `Next:` instruction; follow that instruction instead of polling with `ping_agents` or sleeping in bash. Common outcomes:
