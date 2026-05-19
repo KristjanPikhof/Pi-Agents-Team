@@ -104,7 +104,7 @@ export function truncateScanValue(value: string, options: ScanFriendlyTextOption
 	const normalized = value.replace(/\s+/g, " ").trim() || placeholder;
 	const plain = normalized.replace(ANSI_PATTERN, "");
 	if (maxWidth <= 0 || measureVisibleWidth(plain) <= maxWidth) return plain;
-	return truncateToWidth(plain, maxWidth, "…").trimEnd();
+	return truncateToWidth(plain, maxWidth, "…").replace(ANSI_PATTERN, "").trimEnd();
 }
 
 export function formatScanSection(section: ScanSectionInput): string | undefined {
