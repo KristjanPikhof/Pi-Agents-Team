@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth as measureVisibleWidth } from "@earendil-works/pi-tui";
-import type { DelegatedTaskInput, TeamPathScope, WorkerRuntimeState, WorkerStatus } from "../types";
+import type { DelegatedTaskInput, WorkerRuntimeState, WorkerStatus } from "../types";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerIdList, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
 import { formatContextBudget } from "./usage-format";
 
@@ -29,7 +29,7 @@ export const TOOL_SECTION_LABELS = {
 } as const;
 
 const FINAL_ANSWER_MISSING_MESSAGE = "No final answer block extracted yet.";
-const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const ANSI_PATTERN = /(?:\x1B\][\s\S]*?(?:\x07|\x1B\\)|\x1BP[\s\S]*?\x1B\\|\x1B[\^_][\s\S]*?\x1B\\|\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]))/g;
 const DEFAULT_TRUNCATE_WIDTH = 120;
 const SUMMARY_ITEM_LIMIT = 5;
 
@@ -207,13 +207,6 @@ export interface DelegateTaskFormatInput {
 	task?: DelegatedTaskInput;
 	reuseWorkerId?: string;
 	warnings?: readonly string[];
-}
-
-function formatPathScope(scope: TeamPathScope): string {
-	const mode = scope.allowWrite ? "write allowed" : "read-only";
-	const roots = truncateList(scope.roots, 4) || "no roots";
-	const readPolicy = scope.allowReadOutsideRoots ? "read outside scope allowed" : "read restricted to scope";
-	return `${mode}: ${roots} (${readPolicy})`;
 }
 
 export function formatDelegateTaskResult(result: DelegateTaskFormatInput): string {

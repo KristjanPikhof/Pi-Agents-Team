@@ -155,7 +155,10 @@ export function formatWorkerTerminalToast(worker: Pick<WorkerRuntimeState, "work
 }
 
 export function formatWorkersTerminalToast(workers: readonly Pick<WorkerRuntimeState, "workerId" | "status">[]): string {
-	const items = workers.map((worker) => `${worker.workerId} ${formatTerminalStatusAction(worker.status)}`);
+	const items = workers
+		.slice()
+		.sort((left, right) => compareWorkerIds(left.workerId, right.workerId))
+		.map((worker) => `${worker.workerId} ${formatTerminalStatusAction(worker.status)}`);
 	return `${workers.length} workers done: ${items.join(", ")}`;
 }
 

@@ -64,6 +64,8 @@ test("shared labels define the scan order vocabulary for tool results", () => {
 test("scan sections normalize ANSI and truncate by visible width", () => {
 	assert.equal(visibleWidth("\u001b[31mabcdef\u001b[0m"), 6);
 	assert.equal(truncateScanValue("  \u001b[31mok\u001b[0m  ", { maxWidth: 10 }), "ok");
+	assert.equal(truncateScanValue("  \u001b]8;;https://example.test\u0007link\u001b]8;;\u0007  ", { maxWidth: 10 }), "link");
+	assert.equal(truncateScanValue("  \u001b]0;window title\u001b\\ok  ", { maxWidth: 10 }), "ok");
 	assert.equal(truncateScanValue("  \u001b[31mabcdef\u001b[0m  ", { maxWidth: 4 }), "abc…");
 	assert.equal(formatScanSection({ label: "Risks", items: ["none", "  multi\nline  risk  "], maxWidth: 20 }), "Risks:\n- none\n- multi line risk");
 	assert.equal(formatScanSection({ label: "Next", value: "reviewer should spot-check helper consumers", maxWidth: 18 }), "Next: reviewer should s…");
