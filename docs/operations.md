@@ -290,57 +290,57 @@ Path scope: write allowed: /repo/src (read restricted to scope)
 Next: wait for w1.
 ```
 
-`wait_for_agents` is the zero-token supervision loop. It returns a `Wait:` reason plus a `Next:` instruction; follow that instruction instead of polling with `ping_agents` or sleeping in bash. Common outcomes:
+`wait_for_agents` is the zero-token supervision loop. It returns a human-readable `Wait:` outcome plus a `Next:` instruction; follow that instruction instead of polling with `ping_agents` or sleeping in bash. Common outcomes:
 
 ```text
-Wait: all_terminal
+Wait: all agents finished
 Status: 2 agent(s) finished or stopped
-Next: read results with agent_result for ["w1","w2"].
+Next: read results for w1, w2.
 
 Workers:
-- w1 (fixer) · status=completed (Completed) · task=Done task
-- w2 (reviewer) · status=idle (Idle)
+- w1 (fixer) · Completed · Done task
+- w2 (reviewer) · Idle
 ```
 
 ```text
-Wait: relay_raised
+Wait: relay question raised
 Status: 1 relay question(s) need reply
 
 Pending relay questions:
 1. fixer (w1) [high]
    question: Need scope?
-   respond: agent_message workerId="w1" message=<answer>
-Next: answer relay(s) with agent_message, then wait_for_agents for ["w1"].
+   reply: send answer to w1
+Next: answer relay(s), then wait for w1.
 
 Workers:
-- w1 (fixer) · status=running (Running) · task=Question task · relays=1
+- w1 (fixer) · Running · Question task · 1 relay
 ```
 
 ```text
 Wait: timeout
-Status: still waiting for non-terminal agent(s)
-Next: call wait_for_agents again for ["w1"] or inspect agent_status.
+Status: still waiting for active agent(s)
+Next: wait again for w1 or inspect status.
 
 Workers:
-- w1 (fixer) · status=running (Running) · task=Long task
+- w1 (fixer) · Running · Long task
 ```
 
 ```text
 Wait: aborted
 Status: wait cancelled before all agents finished
-Next: inspect agent_status or cancel unwanted agents.
+Next: inspect status or cancel unwanted agents.
 
 Workers:
-- w1 (fixer) · status=running (Running) · task=Long task
+- w1 (fixer) · Running · Long task
 ```
 
 ```text
-Wait: no_workers
+Wait: no agents
 Status: no agents tracked
 Next: delegate a task first.
 ```
 
-For `relay_raised`, answer each relay with `agent_message`, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
+For relay questions, answer each relay, then immediately call `wait_for_agents` again with the same worker ids. For timeouts, either wait again or inspect status before taking action; a timeout does not cancel workers. For aborted waits, decide whether to continue supervising, inspect status, or cancel unwanted workers. If there are no agents, delegate first — repeated waits cannot create work.
 
 `agent_result` is the transcript-free synthesis surface for the orchestrator. It shows a compact worker header, pending relay questions, available scan-friendly summary sections, and `Result:` followed by the verbatim `<final_answer>` block. `/team-result` prints the related operator command surface with the same header/relay/result contract, but omits summary metadata sections and may include latest assistant text only when no final answer exists.
 

@@ -1,6 +1,6 @@
 import { truncateToWidth, visibleWidth as measureVisibleWidth } from "@earendil-works/pi-tui";
 import type { DelegatedTaskInput, TeamPathScope, WorkerRuntimeState, WorkerStatus } from "../types";
-import { formatProfileLabel, formatWorkerDisplayId, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
+import { formatProfileLabel, formatWorkerDisplayId, formatWorkerIdList, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
 import { formatContextBudget } from "./usage-format";
 
 export const TOOL_SECTION_LABELS = {
@@ -189,11 +189,11 @@ function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState, options:
 }
 
 export function formatWorkerListItem(worker: WorkerRuntimeState): string {
-	const parts = [formatWorkerToolLabel(worker), `status=${worker.status} (${formatWorkerStatusLabel(worker)})`];
-	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
+	const parts = [formatWorkerToolLabel(worker), formatWorkerStatusLabel(worker)];
+	if (worker.currentTask?.title) parts.push(worker.currentTask.title);
 	const contextBudget = formatContextBudget(worker.usage);
 	if (contextBudget) parts.push(contextBudget);
-	if (worker.pendingRelayQuestions.length > 0) parts.push(`relays=${worker.pendingRelayQuestions.length}`);
+	if (worker.pendingRelayQuestions.length > 0) parts.push(`${worker.pendingRelayQuestions.length} relay${worker.pendingRelayQuestions.length === 1 ? "" : "s"}`);
 	return parts.join(" · ");
 }
 
@@ -246,7 +246,14 @@ export function formatAgentMessageResult(result: AgentMessageFormatInput): strin
 }
 
 function formatWaitWorkerIds(workers: readonly WorkerRuntimeState[]): string {
-	return `[${workers.map((worker) => JSON.stringify(worker.workerId)).join(",")}]`;
+	return formatWorkerIdList(workers.map((worker) => worker.workerId));
+}
+
+function formatWaitReason(reason: WaitForAgentsFormatInput["reason"]): string {
+	if (reason === "all_terminal") return "all agents finished";
+	if (reason === "relay_raised") return "relay question raised";
+	if (reason === "no_workers") return "no agents";
+	return reason;
 }
 
 function appendWaitWorkers(lines: string[], workers: readonly WorkerRuntimeState[]): void {
@@ -260,39 +267,39 @@ function appendWaitRelayGuidance(lines: string[], result: WaitForAgentsFormatInp
 	for (const [index, relay] of relays.entries()) {
 		lines.push(`${index + 1}. ${formatProfileLabel(relay.profileName)} ${formatWorkerDisplayId(relay.workerId)} [${relay.urgency}]`);
 		lines.push(`   question: ${relay.question}`);
-		lines.push(`   respond: agent_message workerId=${JSON.stringify(relay.workerId)} message=<answer>`);
+		lines.push(`   reply: send answer to ${relay.workerId}`);
 	}
 }
 
 export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): string {
 	if (result.reason === "no_workers") {
 		return [
-			`${TOOL_SECTION_LABELS.wait}: no_workers`,
+			`${TOOL_SECTION_LABELS.wait}: ${formatWaitReason(result.reason)}`,
 			`${TOOL_SECTION_LABELS.status}: no agents tracked`,
 			`${TOOL_SECTION_LABELS.nextAction}: delegate a task first.`,
 		].join("\n");
 	}
 
-	const lines: string[] = [`${TOOL_SECTION_LABELS.wait}: ${result.reason}`];
+	const lines: string[] = [`${TOOL_SECTION_LABELS.wait}: ${formatWaitReason(result.reason)}`];
 	if (result.reason === "all_terminal") {
 		lines.push(
 			`${TOOL_SECTION_LABELS.status}: ${result.workers.length} agent(s) finished or stopped`,
-			`${TOOL_SECTION_LABELS.nextAction}: read results with agent_result for ${formatWaitWorkerIds(result.workers)}.`,
+			`${TOOL_SECTION_LABELS.nextAction}: read results for ${formatWaitWorkerIds(result.workers)}.`,
 		);
 	} else if (result.reason === "relay_raised") {
 		const count = result.newRelays?.length ?? 0;
 		lines.push(`${TOOL_SECTION_LABELS.status}: ${count} relay question(s) need reply`);
 		appendWaitRelayGuidance(lines, result);
-		lines.push(`${TOOL_SECTION_LABELS.nextAction}: answer relay(s) with agent_message, then wait_for_agents for ${formatWaitWorkerIds(result.workers)}.`);
+		lines.push(`${TOOL_SECTION_LABELS.nextAction}: answer relay(s), then wait for ${formatWaitWorkerIds(result.workers)}.`);
 	} else if (result.reason === "timeout") {
 		lines.push(
-			`${TOOL_SECTION_LABELS.status}: still waiting for non-terminal agent(s)`,
-			`${TOOL_SECTION_LABELS.nextAction}: call wait_for_agents again for ${formatWaitWorkerIds(result.workers)} or inspect agent_status.`,
+			`${TOOL_SECTION_LABELS.status}: still waiting for active agent(s)`,
+			`${TOOL_SECTION_LABELS.nextAction}: wait again for ${formatWaitWorkerIds(result.workers)} or inspect status.`,
 		);
 	} else {
 		lines.push(
 			`${TOOL_SECTION_LABELS.status}: wait cancelled before all agents finished`,
-			`${TOOL_SECTION_LABELS.nextAction}: inspect agent_status or cancel unwanted agents.`,
+			`${TOOL_SECTION_LABELS.nextAction}: inspect status or cancel unwanted agents.`,
 		);
 	}
 	appendWaitWorkers(lines, result.workers);
