@@ -39,6 +39,8 @@ test("status line shows routing mode, orchestrator state, and optional rotating 
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
 	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Idle");
 	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0)), "Orchestrator · Idle · Tip: Use /team to view workers");
+	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0), true), "Orchestrator · Working... · Tip: Use /team to view workers");
+	assert.equal(buildTeamStatusLine(state, "solo", undefined, true), "Orchestrator · Solo · Working...");
 
 	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running" });
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
