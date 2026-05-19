@@ -15,8 +15,8 @@ export const TOOL_SECTION_LABELS = {
 	wait: "Wait",
 	relayQuestions: "Pending relay questions",
 	summary: "Headline",
-	readFiles: "Read files (readFiles/files_read)",
-	changedFiles: "Changed files (changedFiles/files_changed)",
+	readFiles: "Read files",
+	changedFiles: "Changed files",
 	risks: "Risks",
 	nextAction: "Next",
 	usage: "Usage",
@@ -28,7 +28,7 @@ export const TOOL_SECTION_LABELS = {
 	latestAssistantText: "Latest assistant text",
 } as const;
 
-const FINAL_ANSWER_MISSING_MESSAGE = "No <final_answer> block extracted yet.";
+const FINAL_ANSWER_MISSING_MESSAGE = "No final answer block extracted yet.";
 const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const DEFAULT_TRUNCATE_WIDTH = 120;
 const SUMMARY_ITEM_LIMIT = 5;
@@ -184,7 +184,7 @@ function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState, options:
 		lines.push("", `${TOOL_SECTION_LABELS.finalAnswer}:`, FINAL_ANSWER_MISSING_MESSAGE);
 		return;
 	}
-	if (options.includeResultNotes && visibleWidth(finalAnswer) < 20) lines.push("", `${TOOL_SECTION_LABELS.finalAnswerNote}: final_answer is very short; verify it is complete.`);
+	if (options.includeResultNotes && visibleWidth(finalAnswer) < 20) lines.push("", `${TOOL_SECTION_LABELS.finalAnswerNote}: final answer is very short; verify it is complete.`);
 	lines.push("", `${TOOL_SECTION_LABELS.finalAnswer}:`, finalAnswer);
 }
 

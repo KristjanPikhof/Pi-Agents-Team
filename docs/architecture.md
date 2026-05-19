@@ -132,13 +132,13 @@ Persisted state survives reloads via custom-typed session entries, but live work
 
 ### Wait, don't poll: mid-flight relay wake
 
-`wait_for_agents` subscribes to `state_change` events on `TeamManager`. `TeamManager.waitForTerminal` resolves the four event-driven reasons (`all_terminal`, `relay_raised`, `timeout`, `aborted`), and the tool wrapper adds `no_workers` before subscribing when no targets are tracked. The tool result therefore has one of five reasons:
+`wait_for_agents` subscribes to `state_change` events on `TeamManager`. `TeamManager.waitForTerminal` resolves the four event-driven reasons (`all_terminal`, `relay_raised`, `timeout`, `aborted`), and the tool wrapper adds `no_workers` before subscribing when no targets are tracked. `details.reason` keeps that canonical machine value; the formatted text uses human-readable labels:
 
-- `all_terminal`: every target reached a done/stopped status (`idle`, `completed`, `aborted`, `error`, `exited`). The formatted result starts with `Wait: all_terminal`, reports how many agents finished or stopped, and points to `agent_result` for each worker.
-- `relay_raised`: any target raised a new relay question while running. The response carries a `newRelays` list, and the formatted result starts with `Wait: relay_raised`, lists profile/id/question plus an `agent_message` response hint, and says to wait again after answering. Opt out with `wakeOnRelay: false`.
+- `all_terminal`: every target reached a done/stopped status (`idle`, `completed`, `aborted`, `error`, `exited`). The formatted result starts with `Wait: all agents finished`, reports how many agents finished or stopped, and says to read results for the worker ids.
+- `relay_raised`: any target raised a new relay question while running. The response carries a `newRelays` list, and the formatted result starts with `Wait: relay question raised`, lists profile/id/question plus a reply hint, and says to wait again after answering. Opt out with `wakeOnRelay: false`.
 - `timeout`: default 5 min. The formatted result starts with `Wait: timeout` and recommends waiting again or inspecting status.
 - `aborted`: external abort signal. The formatted result starts with `Wait: aborted` and recommends inspecting status or cancelling unwanted agents.
-- `no_workers`: no tracked workers matched the wait request. The formatted result starts with `Wait: no_workers` and tells the orchestrator to delegate first.
+- `no_workers`: no tracked workers matched the wait request. The formatted result starts with `Wait: no agents` and tells the orchestrator to delegate first.
 
 The baseline pending-relay count is snapshotted at wait-start per call, so previously-answered relays don't wake subsequent waits. Only a fresh length increase wakes. This is what lets the orchestrator juggle multiple in-flight workers: answer, go back to sleep, answer, go back to sleep, until `all_terminal`. Zero tokens between wakes.
 
