@@ -168,7 +168,7 @@ export function buildWorkerTaskPrompt(task: DelegatedTaskInput): string {
 		skills.length > 0
 			? `Requested Pi skills for this task:\n- ${skills.join("\n- ")}\n\nPi has loaded available skill metadata into your system prompt context. Load and apply each relevant requested skill by name before producing your \`<final_answer>\`. Do not output skill commands as the deliverable. If a requested skill is not available in this Pi session, note it in the final answer and proceed without it.`
 			: undefined,
-		`Your final assistant message **must** wrap the complete deliverable in a single \`<final_answer>…</final_answer>\` block. Include headline, findings, files read/changed, risks, next_recommendation inside the block. Contents outside the block are treated as internal notes and are not sent to the orchestrator.`,
+		`Your final assistant message **must** wrap the complete deliverable in a single \`<final_answer>…</final_answer>\` block. Include \`headline:\`, \`read_files:\`, \`changed_files:\`, \`risks:\`, and \`next_recommendation:\` inside the block. Contents outside the block are treated as internal notes and are not sent to the orchestrator.`,
 		`Add \`relay_question:\` + \`assumption:\` inside the block **only if you genuinely need the orchestrator to decide something**. If you do not, **omit those fields entirely** — do not write \`relay_question: none\`, \`relay_question: n/a\`, \`relay_question: -\`, or any placeholder. Placeholders are treated as real questions and waste the orchestrator's attention.`,
 	]
 		.filter((line): line is string => Boolean(line))

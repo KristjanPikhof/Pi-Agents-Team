@@ -4,8 +4,16 @@ function trimLine(line: string): string {
 	return line.replace(/^[-*]\s*/, "").trim();
 }
 
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function labelPattern(label: string): string {
+	return escapeRegExp(label).replace(/[ _-]+/g, "[ _-]+");
+}
+
 function findScalar(text: string, label: string): string | undefined {
-	const pattern = new RegExp(`^${label}:\\s*(.+)$`, "im");
+	const pattern = new RegExp(`^${labelPattern(label)}:\\s*(.+)$`, "im");
 	const match = text.match(pattern);
 	return match?.[1]?.trim();
 }
@@ -18,7 +26,7 @@ function findList(text: string, label: string): string[] {
 	for (const rawLine of lines) {
 		const line = rawLine.trimEnd();
 		if (!collecting) {
-			if (new RegExp(`^${label}:\\s*$`, "i").test(line)) {
+			if (new RegExp(`^${labelPattern(label)}:\\s*$`, "i").test(line)) {
 				collecting = true;
 			}
 			continue;
@@ -100,10 +108,10 @@ export function extractRelayQuestions(text: string, worker: WorkerRuntimeState):
 
 export function buildWorkerSummaryFromText(text: string, worker: WorkerRuntimeState): WorkerSummary {
 	const headline = findScalar(text, "headline") ?? findScalar(text, "summary") ?? fallbackHeadline(text, worker);
-	const readFiles = findAnyList(text, ["read_files", "files_read"]);
-	const changedFiles = findAnyList(text, ["changed_files", "files_changed"]);
+	const readFiles = findAnyList(text, ["read_files", "files_read", "read files"]);
+	const changedFiles = findAnyList(text, ["changed_files", "files_changed", "changed files"]);
 	const risks = findList(text, "risks");
-	const nextRecommendation = findScalar(text, "next_recommendation") ?? findScalar(text, "next recommendation");
+	const nextRecommendation = findScalar(text, "next_recommendation") ?? findScalar(text, "next recommendation") ?? findScalar(text, "next");
 	const relayQuestions = extractRelayQuestions(text, worker);
 
 	return {
