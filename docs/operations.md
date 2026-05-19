@@ -272,23 +272,21 @@ The orchestrator should pair every `delegate_task` with a `wait_for_agents` call
 
 Operators normally see these through model narration, logs, or `/team-result`; they are included here so runbooks can match the real tool text.
 
-Fresh delegation returns compact launch metadata and tells the orchestrator to wait next:
+Fresh delegation uses the tool-call title for the action (`Launching fixer agent`) and keeps the receipt focused on what the orchestrator needs next:
 
 ```text
-Launched fixer agent (w1)
 Task: Build seam (t1)
 CWD: /repo
-Path scope: write allowed: /repo/src (read outside scope allowed)
+Path scope: write allowed: /repo/src (read restricted to scope)
 Next: wait for w1.
 ```
 
-When the orchestrator intentionally reuses an idle same-scope worker, the first line makes that explicit:
+When the orchestrator intentionally reuses an idle same-scope worker, the tool-call title can include the known worker id (`Reusing fixer agent (w1)`), while the receipt stays compact:
 
 ```text
-Reused fixer agent (w1)
 Task: Follow-up fix (t2)
 CWD: /repo
-Path scope: write allowed: /repo/src (read outside scope allowed)
+Path scope: write allowed: /repo/src (read restricted to scope)
 Next: wait for w1.
 ```
 

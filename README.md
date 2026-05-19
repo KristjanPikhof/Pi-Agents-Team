@@ -75,7 +75,7 @@ The orchestrator may answer trivial, already-known or tiny bounded asks directly
 
 For delegated work, the orchestrator **picks a role** from the loaded config (seven [built-ins](https://github.com/KristjanPikhof/Pi-Agents-Team/tree/main/prompts/agents) by default: explorer, fixer, reviewer, librarian, observer, oracle, designer) and calls `delegate_task`. The runtime spawns `pi --mode rpc --no-session` and feeds the worker its role prompt plus a task prompt that requires the final reply to wrap the deliverable in a `<final_answer>…</final_answer>` block. If `delegate_task.skills` names installed Pi skills, worker skill discovery is enabled and the worker is told to load and apply those requested skill names from its available skill context.
 
-`delegate_task` returns a compact launch receipt such as `Launched fixer agent (w1)` or `Reused fixer agent (w1)`, then the task, optional cwd/path scope, and a short `Next: wait for w1.` hint.
+`delegate_task` shows a launch title such as `Launching fixer agent` (or `Reusing fixer agent (w1)` for warm reuse), then returns only the task, optional cwd/path scope, and a short `Next: wait for w1.` hint.
 
 Worker RPC events get normalized into compact state: status, last tool, last summary, pending relay questions, token usage, and known context budget.
 

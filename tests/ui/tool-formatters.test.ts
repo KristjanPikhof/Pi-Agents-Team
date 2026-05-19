@@ -66,7 +66,7 @@ test("scan sections normalize ANSI and truncate by visible width", () => {
 	assert.equal(truncateScanValue("  \u001b[31mok\u001b[0m  ", { maxWidth: 10 }), "ok");
 	assert.equal(truncateScanValue("  \u001b[31mabcdef\u001b[0m  ", { maxWidth: 4 }), "abc…");
 	assert.equal(formatScanSection({ label: "Risks", items: ["none", "  multi\nline  risk  "], maxWidth: 20 }), "Risks:\n- none\n- multi line risk");
-	assert.equal(formatScanSection({ label: "Next", value: "reviewer should spot-check helper consumers", maxWidth: 18 }), "Next: reviewer should…");
+	assert.equal(formatScanSection({ label: "Next", value: "reviewer should spot-check helper consumers", maxWidth: 18 }), "Next: reviewer should sp…");
 	assert.equal(formatScanSection({ label: "Result note", value: "", empty: "No <final_answer> block extracted yet." }), "Result note: No <final_answer> block extracted yet.");
 });
 
@@ -151,6 +151,24 @@ test("formatWorkerCompact summarizes long file and risk lists without truncating
 	assert.match(text, /Result:\nline 1\nline 2/);
 });
 
+test("formatWorkerCompact tolerates partial persisted summaries", () => {
+	const worker = makeWorker({
+		lastSummary: {
+			workerId: "w1",
+			taskId: "t1",
+			headline: "Legacy summary",
+			status: "idle",
+			relayQuestionCount: 0,
+			updatedAt: 6,
+		} as WorkerRuntimeState["lastSummary"],
+		finalAnswer: "complete",
+	});
+	const text = formatWorkerCompact(worker);
+	assert.match(text, /Headline: Legacy summary/);
+	assert.doesNotMatch(text, /Read files/);
+	assert.match(text, /Result:\ncomplete/);
+});
+
 test("formatWorkerCompact makes normal agent_result sections scannable without transcript", () => {
 	const worker = makeWorker({
 		status: "completed",
@@ -219,6 +237,7 @@ test("formatWorkerCompact surfaces error workers, pending relays, aliases, and u
 	const text = formatWorkerCompact(worker);
 	assert.match(text, /Status: error \(Error\)/);
 	assert.match(text, /Error: worker crashed/);
+	assert.ok(text.indexOf("Pending relay questions:") < text.indexOf("Headline: Summary alias accepted"));
 	assert.match(text, /Headline: Summary alias accepted/);
 	assert.match(text, /Read files \(readFiles\/files_read\):\n- src\/from-files-read\.ts/);
 	assert.match(text, /Changed files \(changedFiles\/files_changed\):\n- src\/from-changed-files\.ts/);
@@ -300,7 +319,6 @@ test("delegate formatter makes fresh launch lifecycle scannable", () => {
 	assert.doesNotMatch(text, /\x1b\[/, "delegate_task text must be ANSI-free");
 	const plain = stripAnsi(text);
 	assert.equal(plain, [
-		"Launched fixer agent (w1)",
 		"Task: Build seam (t1)",
 		"CWD: /repo",
 		"Path scope: write allowed: /repo/src, /repo/tests (read restricted to scope)",
@@ -323,8 +341,7 @@ test("delegate formatter shows reuse state with same worker and new task", () =>
 	const text = formatDelegateTaskResult({ worker, task, reuseWorkerId: "w1" });
 
 	const plain = stripAnsi(text);
-	assert.match(plain, /^Reused fixer agent \(w1\)/);
-	assert.match(plain, /Task: Follow-up fix \(t2\)/);
+	assert.match(plain, /^Task: Follow-up fix \(t2\)/);
 	assert.doesNotMatch(plain, /Profile:/);
 	assert.doesNotMatch(plain, /Status:/);
 	assert.match(plain, /CWD: \/repo/);
@@ -341,8 +358,7 @@ test("delegate formatter can surface routing and validation warnings when availa
 	});
 
 	const plain = stripAnsi(text);
-	assert.match(plain, /^Launched reviewer agent \(w1\)/);
-	assert.match(plain, /Task: delegated task/);
+	assert.match(plain, /^Task: delegated task/);
 	assert.doesNotMatch(plain, /Status:/);
 	assert.match(plain, /Warning:\n- Team routing off\. Run \/team-enable on to delegate\.\n- Invalid request: pathScopeRoots is required for scoped-write profiles\./);
 	assert.match(plain, /Next: wait for w1\./);
