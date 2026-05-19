@@ -321,12 +321,7 @@ test("delegate formatter makes fresh launch lifecycle scannable", () => {
 
 	assert.doesNotMatch(text, /\x1b\[/, "delegate_task text must be ANSI-free");
 	const plain = stripAnsi(text);
-	assert.equal(plain, [
-		"Task: Build seam (t1)",
-		"CWD: /repo",
-		"Path scope: write allowed: /repo/src, /repo/tests (read restricted to scope)",
-		"Next: wait for w1.",
-	].join("\n"));
+	assert.equal(plain, "w1 · Build seam (t1)");
 });
 
 test("delegate formatter shows reuse state with same worker and new task", () => {
@@ -344,12 +339,12 @@ test("delegate formatter shows reuse state with same worker and new task", () =>
 	const text = formatDelegateTaskResult({ worker, task, reuseWorkerId: "w1" });
 
 	const plain = stripAnsi(text);
-	assert.match(plain, /^Task: Follow-up fix \(t2\)/);
+	assert.equal(plain, "w1 · Follow-up fix (t2)");
 	assert.doesNotMatch(plain, /Profile:/);
 	assert.doesNotMatch(plain, /Status:/);
-	assert.match(plain, /CWD: \/repo/);
+	assert.doesNotMatch(plain, /CWD:/);
 	assert.doesNotMatch(plain, /Path scope:/);
-	assert.match(plain, /Next: wait for w1\./);
+	assert.doesNotMatch(plain, /Next:/);
 });
 
 // Direct formatter coverage for warning text that callers may pass when delegate_task is gated or rejected.
@@ -361,10 +356,10 @@ test("delegate formatter can surface routing and validation warnings when availa
 	});
 
 	const plain = stripAnsi(text);
-	assert.match(plain, /^Task: delegated task/);
+	assert.match(plain, /^w1 · delegated task/);
 	assert.doesNotMatch(plain, /Status:/);
 	assert.match(plain, /Warning:\n- Team routing off\. Run \/team-enable on to delegate\.\n- Invalid request: pathScopeRoots is required for scoped-write profiles\./);
-	assert.match(plain, /Next: wait for w1\./);
+	assert.doesNotMatch(plain, /Next:/);
 });
 
 test("agent message formatter names resolved delivery and wake/resume cases", () => {

@@ -272,22 +272,16 @@ The orchestrator should pair every `delegate_task` with a `wait_for_agents` call
 
 Operators normally see these through model narration, logs, or `/team-result`; they are included here so runbooks can match the real tool text.
 
-Fresh delegation uses the tool-call title for the action (`Launching fixer agent`) and keeps the receipt focused on what the orchestrator needs next:
+Fresh delegation uses the tool-call title for the action (`Launching fixer agent`) and keeps the receipt to one compact worker/task line:
 
 ```text
-Task: Build seam (t1)
-CWD: /repo
-Path scope: write allowed: /repo/src (read restricted to scope)
-Next: wait for w1.
+w1 · Build seam (t1)
 ```
 
-When the orchestrator intentionally reuses an idle same-scope worker, the tool-call title can include the known worker id (`Reusing fixer agent (w1)`), while the receipt stays compact:
+When the orchestrator intentionally reuses an idle same-scope worker, the tool-call title can include the known worker id (`Reusing fixer agent (w1)`), and the receipt stays the same shape:
 
 ```text
-Task: Follow-up fix (t2)
-CWD: /repo
-Path scope: write allowed: /repo/src (read restricted to scope)
-Next: wait for w1.
+w1 · Follow-up fix (t2)
 ```
 
 `wait_for_agents` is the zero-token supervision loop. It returns a human-readable `Wait:` outcome plus a `Next:` instruction; follow that instruction instead of polling with `ping_agents` or sleeping in bash. Common outcomes:

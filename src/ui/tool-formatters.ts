@@ -220,12 +220,9 @@ export function formatDelegateTaskResult(result: DelegateTaskFormatInput): strin
 	const task = result.task ?? result.worker.currentTask;
 	const title = task?.title ?? "delegated task";
 	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
-	const lines = [`${TOOL_SECTION_LABELS.task}: ${taskLabel}`];
-	if (task?.cwd) lines.push(`${TOOL_SECTION_LABELS.cwd}: ${task.cwd}`);
-	if (task?.pathScope) lines.push(`${TOOL_SECTION_LABELS.pathScope}: ${formatPathScope(task.pathScope)}`);
+	const lines = [`${result.worker.workerId} · ${taskLabel}`];
 	const warnings = result.warnings ?? [];
 	if (warnings.length > 0) lines.push(formatScanSection({ label: TOOL_SECTION_LABELS.warning, items: warnings }) ?? "");
-	lines.push(`${TOOL_SECTION_LABELS.nextAction}: wait for ${result.worker.workerId}.`);
 	return lines.filter(Boolean).join("\n");
 }
 
