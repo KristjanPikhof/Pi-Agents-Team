@@ -42,7 +42,7 @@ tsx --test tests/runtime/worker-manager.test.ts
 
 Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
 
-The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command. Active rows display task elapsed time (using the current task start on reused workers); recent terminal rows are retained for five minutes so finishes remain visible until the operator opens `/team` or prunes them. Command tips rotate in the bottom orchestrator status line, for example `Orchestrator · Idle · Tip: Use /team to view workers`.
+The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command. Active rows display task elapsed time (using the current task start on reused workers); recent terminal rows are retained for five minutes so finishes remain visible until the operator opens `/team` or prunes them. Command tips rotate in the bottom agents status line, for example `Agents · Idle · Tip: Use /team to view workers`.
 
 ### Dashboard keys
 
@@ -225,7 +225,7 @@ When reuse rejects, the error spells out which fields differ. The fix is usually
 What changes in **solo** mode:
 
 - `delegate_task` rejects with `Team routing off. Run /team-enable on to delegate.`. The orchestrator prompt drops the profile catalog and gets a one-line directive telling it to answer directly.
-- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The bottom status line also shows solo routing explicitly, e.g. `Orchestrator · Solo · Working...` or `Orchestrator · Solo · Idle`, plus the current rotating tip.
+- The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The bottom status line also shows solo routing explicitly, e.g. `Agents · Solo · Working...` or `Agents · Solo · Idle`, plus the current rotating tip.
 - `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay live so workers spawned earlier can still be inspected, steered, or shut down.
 
 How the persistence target is resolved when you don't pass `--persist`:
