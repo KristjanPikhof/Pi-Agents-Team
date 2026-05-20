@@ -61,6 +61,9 @@ test("buildWorkerTaskPrompt includes relay guidance and scope", () => {
 	});
 	assert.match(prompt, /relay_question/i);
 	assert.match(prompt, /<final_answer>/);
+	for (const label of ["headline", "read_files", "changed_files", "risks", "next_recommendation"]) {
+		assert.ok(prompt.includes(`\`${label}:\``), `expected task prompt to require ${label}:`);
+	}
 	assert.match(prompt, /src\/comms/);
 	assert.doesNotMatch(prompt, /Pi skills to use/);
 });
