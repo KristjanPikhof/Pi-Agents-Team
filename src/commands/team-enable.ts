@@ -114,7 +114,7 @@ export function persistRoutingMode(
 	}
 	if (scope === "global") {
 		const localPath = findNearestProjectConfigPath(cwd);
-		if (localPath) {
+		if (localPath && localPath !== path) {
 			warnings.push(`Warning: project-local config exists at ${localPath} and shadows this global routingMode in this project.`);
 		}
 	}

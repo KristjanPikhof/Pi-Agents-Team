@@ -188,6 +188,66 @@ test("/team-enable off --global is honored and warns when a local config shadows
 	}
 });
 
+test("/team-enable --global does not warn that the target global file shadows itself", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-self-shadow-"));
+	const previous = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+	try {
+		const globalPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = globalPath;
+		const harness = installTeamEnableCommand(root, buildLoadedConfig());
+		await harness.run("off --global");
+		assert.ok(harness.emitted[0]?.includes(`Persisted routingMode=solo to ${globalPath}`));
+		assert.ok(!harness.emitted[0]?.includes("shadows this global routingMode"));
+	} finally {
+		if (previous === undefined) delete process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+		else process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = previous;
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("/team-enable --global warns when an ancestor project config shadows it", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-ancestor-shadow-"));
+	const globalDir = mkdtempSync(join(tmpdir(), "pi-team-enable-ancestor-global-"));
+	const globalPath = join(globalDir, TEAM_PROJECT_CONFIG_FILE);
+	const previous = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+	process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = globalPath;
+	try {
+		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		const childCwd = join(root, "packages", "one");
+		mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
+		mkdirSync(childCwd, { recursive: true });
+		writeFileSync(localPath, JSON.stringify({ schemaVersion: 4, routingMode: "team" }, null, 2));
+		const harness = installTeamEnableCommand(childCwd, buildLoadedConfig({ sourcePath: localPath }));
+		await harness.run("off --global");
+		const written = JSON.parse(readFileSync(globalPath, "utf8"));
+		assert.equal(written.routingMode, "solo");
+		assert.ok(harness.emitted[0]?.includes(localPath));
+		assert.ok(harness.emitted[0]?.includes("shadows this global routingMode"));
+	} finally {
+		if (previous === undefined) delete process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+		else process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = previous;
+		rmSync(root, { recursive: true, force: true });
+		rmSync(globalDir, { recursive: true, force: true });
+	}
+});
+
+test("/team-enable explicit persistence failure leaves live routing unchanged", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-persist-fail-"));
+	try {
+		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
+		writeFileSync(localPath, "{ broken json");
+		const harness = installTeamEnableCommand(root, buildLoadedConfig({ sourcePath: localPath }));
+		harness.teamManager.setRoutingMode("solo");
+		await harness.run("on --local");
+		assert.equal(harness.teamManager.routingMode, "solo", "failed persistence must not change live routing");
+		assert.ok(harness.emitted[0]?.includes("Persistence failed"));
+		assert.ok(harness.emitted[0]?.includes("Routing mode remains solo"));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("/team-enable on refuses when the project config has Pi Agents Team disabled", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-disabled-"));
 	try {
