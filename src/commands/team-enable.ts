@@ -70,6 +70,35 @@ function parseTeamEnableArgs(args: string): ParsedArgs {
 	return persistAliasDeprecated ? { mode, persist, persistAliasDeprecated } : { mode, persist };
 }
 
+interface CompletionItem {
+	value: string;
+	label: string;
+	description: string;
+}
+
+function buildTeamEnableCompletions(prefix: string): CompletionItem[] {
+	const hasTrailingSpace = /\s$/.test(prefix);
+	const tokens = prefix.trim().split(/\s+/).filter(Boolean);
+	const modeTokens = tokens.filter((token) => token === "on" || token === "off");
+	const hasMode = modeTokens.length > 0;
+	const hasPersistence = tokens.some((token) => token === "--local" || token === "--global" || token === "--persist");
+	const currentToken = hasTrailingSpace ? "" : (tokens.at(-1) ?? "");
+
+	if (!hasMode) {
+		return [
+			{ value: "on", label: "on", description: "team routing on (delegate_task gated open)" },
+			{ value: "off", label: "off", description: "team routing off (Pi answers directly)" },
+		].filter((item) => item.value.startsWith(currentToken));
+	}
+
+	if (hasPersistence) return [];
+
+	return [
+		{ value: "--local", label: "--local", description: "persist routingMode to project agents-team.json" },
+		{ value: "--global", label: "--global", description: "persist routingMode to global agents-team.json" },
+	].filter((item) => item.value.startsWith(currentToken));
+}
+
 export function deriveScopeFromSourcePath(sourcePath: string, cwd: string): "global" | "local" | undefined {
 	const localPath = getProjectConfigPathForScope("project", cwd);
 	if (localPath && sourcePath === localPath) return "local";
@@ -196,23 +225,7 @@ export function runSetRoutingMode(
 export function registerTeamEnableCommand(pi: ExtensionAPI, dependencies: TeamEnableCommandDependencies): void {
 	pi.registerCommand("team-enable", {
 		description: "Turn team routing on or off for this session, or persist explicitly: /team-enable on|off [--local|--global]",
-		getArgumentCompletions: (prefix) => {
-			if (/\s/.test(prefix)) return [];
-			return ["on", "off", "--local", "--global", "--persist"]
-				.filter((value) => value.startsWith(prefix))
-				.map((value) => ({
-					value,
-					label: value,
-					description:
-						value === "on"
-							? "team routing on (delegate_task gated open)"
-							: value === "off"
-								? "team routing off (Pi answers directly)"
-								: value === "--persist"
-							? "deprecated alias for --local/--global"
-							: "persist routingMode to agents-team.json",
-				}));
-		},
+		getArgumentCompletions: (prefix) => buildTeamEnableCompletions(prefix),
 		handler: async (args, ctx) => {
 			const parsed = parseTeamEnableArgs(args);
 			if (parsed.error || !parsed.mode) {
@@ -224,4 +237,4 @@ export function registerTeamEnableCommand(pi: ExtensionAPI, dependencies: TeamEn
 	});
 }
 
-export const _testing = { parseTeamEnableArgs, persistRoutingMode, deriveScopeFromSourcePath };
+export const _testing = { parseTeamEnableArgs, buildTeamEnableCompletions, persistRoutingMode, deriveScopeFromSourcePath };

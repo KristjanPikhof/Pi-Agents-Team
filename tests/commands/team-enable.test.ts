@@ -95,6 +95,15 @@ test("parseTeamEnableArgs accepts on/off, --local/--global, and deprecated --per
 	assert.match(garbage.error ?? "", /Unknown argument/);
 });
 
+test("buildTeamEnableCompletions suggests valid next arguments only", () => {
+	assert.deepEqual(enableTesting.buildTeamEnableCompletions("").map((item) => item.value), ["on", "off"]);
+	assert.deepEqual(enableTesting.buildTeamEnableCompletions("--").map((item) => item.value), []);
+	assert.deepEqual(enableTesting.buildTeamEnableCompletions("on ").map((item) => item.value), ["--local", "--global"]);
+	assert.deepEqual(enableTesting.buildTeamEnableCompletions("off --g").map((item) => item.value), ["--global"]);
+	assert.deepEqual(enableTesting.buildTeamEnableCompletions("on --local").map((item) => item.value), []);
+	assert.ok(enableTesting.buildTeamEnableCompletions("on ").every((item) => item.value !== "--persist"));
+});
+
 test("/team-enable on flips routingMode to team session-only without persistence by default", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-on-"));
 	try {
