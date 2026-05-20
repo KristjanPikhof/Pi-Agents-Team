@@ -213,13 +213,14 @@ When reuse rejects, the error spells out which fields differ. The fix is usually
 
 ## Toggle routing without reload
 
-`/team-enable on` and `/team-enable off` flip orchestrator behavior live. No `/reload` needed, and the choice sticks across restarts because the command writes `routingMode` to the active `agents-team.json` by default.
+`/team-enable on` and `/team-enable off` flip orchestrator behavior live. No `/reload` needed. With no persistence flag, the change is session-only and resets on `/reload` or restart; pass `--local` or `--global` when you want the choice to stick.
 
 ```text
-/team-enable off                       # solo, persist to the active config file
-/team-enable off --persist local       # force write to ./.pi/agent/agents-team.json
-/team-enable on                        # back to team, persist to the active config file
-/team-enable on --persist global       # force write to ~/.pi/agent/agents-team.json
+/team-enable off                       # solo for this session only
+/team-enable off --local               # persist to ./.pi/agent/agents-team.json
+/team-enable on                        # back to team for this session only
+/team-enable on --global               # persist to ~/.pi/agent/agents-team.json
+/team-enable off --persist local       # deprecated alias for --local
 ```
 
 What changes in **solo** mode:
@@ -228,12 +229,14 @@ What changes in **solo** mode:
 - The widget collapses to a single `Pi Agents Team — solo` line when workers are tracked, or hides entirely when none are. The bottom status line also shows solo routing explicitly, e.g. `Orchestrator · Solo · Working...` or `Orchestrator · Solo · Idle`, plus the current rotating tip.
 - `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, and `agent_cancel` stay live so workers spawned earlier can still be inspected, steered, or shut down.
 
-How the persistence target is resolved when you don't pass `--persist`:
+Persistence is explicit:
 
-1. A winning `agents-team.json` is loaded (project file present, or global if no project file) → patch its `routingMode` field in place. `roles`, `enabled`, `workerAccess` stay untouched.
-2. No config file anywhere → create a minimal local stub at `<cwd>/.pi/agent/agents-team.json` containing only `schemaVersion` and `routingMode`. Built-in role defaults still apply.
+- No flag: update only the live in-memory routing mode and print a session-only reset reminder.
+- `--local`: write `routingMode` to `<cwd>/.pi/agent/agents-team.json`.
+- `--global`: write `routingMode` to `~/.pi/agent/agents-team.json` (or `PI_AGENT_TEAM_GLOBAL_CONFIG_PATH`). If a project-local config exists, the command warns that the local file shadows the global value in this project.
+- `--persist local|global`: deprecated alias retained for compatibility; docs and completions prefer `--local` / `--global`.
 
-`--persist global|local` overrides the resolver and always writes to that scope, even when a different layer is winning. Use it when you want to flip `routingMode` for a different scope than the one currently in effect (for example, set the global default while a project file overrides it locally).
+Use explicit persistence when you want the next session to boot with the same routing mode. A persisted global default applies only in projects that do not have their own local `agents-team.json`.
 
 Write semantics: atomic (`<file>.tmp.<pid>.<ts>` then `renameSync`), shallow-merged into the existing JSON so other fields survive. A schema-mismatched but parseable file is patched anyway with a warning toast; an unparseable file errors out without touching the in-memory toggle.
 
