@@ -3,7 +3,8 @@
 Pi main session acts as the coordinator, while background RPC workers execute the tasks. The orchestrator does not view the complete transcripts from the workers, receiving only concise summaries and one `<final_answer>` block per worker. Meanwhile, the user is able to monitor the cost, tokens used, active workers and their full transcripts.
 
 <p align="center">
-  <img width="auto" height="900" alt="pi-agents-team" src="https://github.com/user-attachments/assets/39fedc42-4097-4b79-932e-2eba0e06c07e" />
+  <img width="auto" height="900" alt="pi-agents-team" src="https://github.com/user-attachments/assets/5dd744c3-3fef-4c9c-9e1a-29443f0570bb" />
+
 </p>
 
 - **Repo:** [`git@github.com:KristjanPikhof/pi-agents-team.git`](https://github.com/KristjanPikhof/Pi-Agents-Team)
