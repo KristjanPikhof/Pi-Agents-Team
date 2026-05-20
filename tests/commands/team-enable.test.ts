@@ -74,12 +74,13 @@ function installTeamEnableCommand(
 	};
 }
 
-test("parseTeamEnableArgs accepts on/off and --persist global|local", () => {
+test("parseTeamEnableArgs accepts on/off, --local/--global, and deprecated --persist global|local", () => {
 	assert.deepEqual(enableTesting.parseTeamEnableArgs("on"), { mode: "team", persist: undefined });
 	assert.deepEqual(enableTesting.parseTeamEnableArgs("off"), { mode: "solo", persist: undefined });
-	assert.deepEqual(enableTesting.parseTeamEnableArgs("on --persist global"), { mode: "team", persist: "global" });
-	assert.deepEqual(enableTesting.parseTeamEnableArgs("off --persist local"), { mode: "solo", persist: "local" });
-	assert.deepEqual(enableTesting.parseTeamEnableArgs("--persist local off"), { mode: "solo", persist: "local" });
+	assert.deepEqual(enableTesting.parseTeamEnableArgs("on --global"), { mode: "team", persist: "global" });
+	assert.deepEqual(enableTesting.parseTeamEnableArgs("off --local"), { mode: "solo", persist: "local" });
+	assert.deepEqual(enableTesting.parseTeamEnableArgs("on --persist global"), { mode: "team", persist: "global", persistAliasDeprecated: true });
+	assert.deepEqual(enableTesting.parseTeamEnableArgs("--persist local off"), { mode: "solo", persist: "local", persistAliasDeprecated: true });
 
 	const empty = enableTesting.parseTeamEnableArgs("");
 	assert.match(empty.error ?? "", /Usage:/);
@@ -94,7 +95,7 @@ test("parseTeamEnableArgs accepts on/off and --persist global|local", () => {
 	assert.match(garbage.error ?? "", /Unknown argument/);
 });
 
-test("/team-enable on flips routingMode to team and auto-persists locally", async () => {
+test("/team-enable on flips routingMode to team session-only without persistence by default", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-on-"));
 	try {
 		const harness = installTeamEnableCommand(root, buildLoadedConfig());
@@ -102,11 +103,9 @@ test("/team-enable on flips routingMode to team and auto-persists locally", asyn
 		await harness.run("on");
 		assert.equal(harness.teamManager.routingMode, "team");
 		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
-		assert.ok(existsSync(localPath), `expected stub at ${localPath}`);
-		const written = JSON.parse(readFileSync(localPath, "utf8"));
-		assert.equal(written.routingMode, "team");
+		assert.equal(existsSync(localPath), false, "no-flag toggle must not persist");
 		assert.ok(harness.emitted[0]?.includes("solo → team"));
-		assert.ok(harness.emitted[0]?.includes(`Persisted routingMode=team to ${localPath}`));
+		assert.ok(harness.emitted[0]?.includes("Session-only change; resets on /reload or restart"));
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -125,7 +124,7 @@ test("/team-enable off flips routingMode to solo and emits the solo guidance lin
 	}
 });
 
-test("/team-enable on --persist local writes routingMode to the local file", async () => {
+test("/team-enable on --local writes routingMode to the local file", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-persist-local-"));
 	try {
 		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
@@ -140,7 +139,7 @@ test("/team-enable on --persist local writes routingMode to the local file", asy
 		);
 		const harness = installTeamEnableCommand(root, buildLoadedConfig({ sourcePath: localPath }));
 		harness.teamManager.setRoutingMode("solo");
-		await harness.run("on --persist local");
+		await harness.run("on --local");
 		assert.equal(harness.teamManager.routingMode, "team");
 		const written = JSON.parse(readFileSync(localPath, "utf8"));
 		assert.equal(written.routingMode, "team");
@@ -150,19 +149,37 @@ test("/team-enable on --persist local writes routingMode to the local file", asy
 	}
 });
 
-test("/team-enable off --persist global is honored when global config path is configured", async () => {
+test("/team-enable off --persist local still works as a deprecated alias", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-persist-alias-"));
+	try {
+		const harness = installTeamEnableCommand(root, buildLoadedConfig());
+		await harness.run("off --persist local");
+		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		const written = JSON.parse(readFileSync(localPath, "utf8"));
+		assert.equal(written.routingMode, "solo");
+		assert.ok(harness.emitted[0]?.includes("--persist is deprecated"));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("/team-enable off --global is honored and warns when a local config shadows it", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-persist-global-"));
 	const globalDir = mkdtempSync(join(tmpdir(), "pi-team-enable-global-"));
 	const globalPath = join(globalDir, TEAM_PROJECT_CONFIG_FILE);
 	const previous = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
 	process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = globalPath;
 	try {
-		const harness = installTeamEnableCommand(root, buildLoadedConfig());
-		await harness.run("off --persist global");
+		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
+		writeFileSync(localPath, JSON.stringify({ schemaVersion: 4, routingMode: "team" }, null, 2));
+		const harness = installTeamEnableCommand(root, buildLoadedConfig({ sourcePath: localPath }));
+		await harness.run("off --global");
 		const written = JSON.parse(readFileSync(globalPath, "utf8"));
 		assert.equal(written.routingMode, "solo");
-		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
-		assert.equal(existsSync(localPath), false, "explicit --persist global must not also create a local stub");
+		const localWritten = JSON.parse(readFileSync(localPath, "utf8"));
+		assert.equal(localWritten.routingMode, "team", "explicit --global must not patch local config");
+		assert.ok(harness.emitted[0]?.includes("shadows this global routingMode"));
 	} finally {
 		if (previous === undefined) delete process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
 		else process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH = previous;
@@ -193,16 +210,19 @@ test("/team-enable on refuses when the project config has Pi Agents Team disable
 	}
 });
 
-test("/team-enable on auto-resolves persistence target from sourcePath winning layer", async () => {
+test("/team-enable on does not auto-resolve persistence target from sourcePath winning layer", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-team-enable-auto-resolve-"));
 	try {
 		const localPath = join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		mkdirSync(join(root, TEAM_PROJECT_CONFIG_DIR), { recursive: true });
+		writeFileSync(localPath, JSON.stringify({ schemaVersion: 4, routingMode: "solo" }, null, 2));
 		const harness = installTeamEnableCommand(root, buildLoadedConfig({ sourcePath: localPath }));
 		harness.teamManager.setRoutingMode("solo");
 		await harness.run("on");
 		assert.equal(harness.teamManager.routingMode, "team");
 		const written = JSON.parse(readFileSync(localPath, "utf8"));
-		assert.equal(written.routingMode, "team");
+		assert.equal(written.routingMode, "solo", "no-flag toggle must not patch winning layer");
+		assert.ok(harness.emitted[0]?.includes("Session-only change"));
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

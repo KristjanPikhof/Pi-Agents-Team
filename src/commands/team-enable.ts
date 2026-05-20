@@ -20,16 +20,18 @@ export interface TeamEnableCommandDependencies {
 interface ParsedArgs {
 	mode?: RoutingMode;
 	persist?: "global" | "local";
+	persistAliasDeprecated?: boolean;
 	error?: string;
 }
 
 function parseTeamEnableArgs(args: string): ParsedArgs {
 	const tokens = args.trim().split(/\s+/).filter(Boolean);
 	if (tokens.length === 0) {
-		return { error: "Usage: /team-enable on|off [--persist global|local]" };
+		return { error: "Usage: /team-enable on|off [--local|--global]" };
 	}
 	let mode: RoutingMode | undefined;
 	let persist: "global" | "local" | undefined;
+	let persistAliasDeprecated = false;
 	for (let i = 0; i < tokens.length; i += 1) {
 		const token = tokens[i]!;
 		if (token === "on" || token === "off") {
@@ -39,21 +41,33 @@ function parseTeamEnableArgs(args: string): ParsedArgs {
 			mode = token === "on" ? "team" : "solo";
 			continue;
 		}
+		if (token === "--local" || token === "--global") {
+			const scope = token === "--local" ? "local" : "global";
+			if (persist && persist !== scope) {
+				return { error: `Specify only one persistence scope.` };
+			}
+			persist = scope;
+			continue;
+		}
 		if (token === "--persist") {
 			const scope = tokens[i + 1];
 			if (scope !== "global" && scope !== "local") {
 				return { error: `--persist requires a scope: --persist global|local.` };
 			}
+			if (persist && persist !== scope) {
+				return { error: `Specify only one persistence scope.` };
+			}
 			persist = scope;
+			persistAliasDeprecated = true;
 			i += 1;
 			continue;
 		}
 		return { error: `Unknown argument: ${token}.` };
 	}
 	if (!mode) {
-		return { error: "Usage: /team-enable on|off [--persist global|local]" };
+		return { error: "Usage: /team-enable on|off [--local|--global]" };
 	}
-	return { mode, persist };
+	return persistAliasDeprecated ? { mode, persist, persistAliasDeprecated } : { mode, persist };
 }
 
 export function deriveScopeFromSourcePath(sourcePath: string, cwd: string): "global" | "local" | undefined {
@@ -94,14 +108,21 @@ export function persistRoutingMode(
 	};
 
 	const errors = Array.from(Value.Errors(TeamProjectConfigSchema, merged));
-	const schemaWarning = errors.length > 0
-		? `Note: ${path} does not match the current schema (${errors[0]?.message ?? "unknown error"}). The routingMode field was patched but the rest of the file was left untouched.`
-		: undefined;
+	const warnings: string[] = [];
+	if (errors.length > 0) {
+		warnings.push(`Note: ${path} does not match the current schema (${errors[0]?.message ?? "unknown error"}). The routingMode field was patched but the rest of the file was left untouched.`);
+	}
+	if (scope === "global") {
+		const localPath = getProjectConfigPathForScope("project", cwd);
+		if (localPath && existsSync(localPath)) {
+			warnings.push(`Warning: project-local config exists at ${localPath} and shadows this global routingMode in this project.`);
+		}
+	}
 
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 	atomicWriteFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
 
-	return schemaWarning ? { path, warning: schemaWarning } : { path };
+	return warnings.length > 0 ? { path, warning: warnings.join("\n") } : { path };
 }
 
 export function runSetRoutingMode(
@@ -109,6 +130,7 @@ export function runSetRoutingMode(
 	persist: "global" | "local" | undefined,
 	ctx: ExtensionContext,
 	deps: TeamEnableCommandDependencies,
+	options: { persistAliasDeprecated?: boolean } = {},
 ): void {
 	try {
 		deps.ensureNotReloading();
@@ -144,19 +166,19 @@ export function runSetRoutingMode(
 		`${mode === "team" ? "Team enabled" : "Team disabled"} — routing mode: ${previousMode} → ${mode}.`,
 	];
 
-	const explicitScope = persist;
-	const autoScope: "global" | "local" | undefined = explicitScope
-		? undefined
-		: (projectConfig.sourcePath ? deriveScopeFromSourcePath(projectConfig.sourcePath, ctx.cwd) : undefined) ?? "local";
-	const persistScope = explicitScope ?? autoScope;
-	if (persistScope) {
-		const result = persistRoutingMode(persistScope, mode, ctx.cwd);
+	if (persist) {
+		if (options.persistAliasDeprecated) {
+			lines.push("Note: --persist is deprecated; use --local or --global instead.");
+		}
+		const result = persistRoutingMode(persist, mode, ctx.cwd);
 		if ("error" in result) {
-			lines.push(explicitScope ? `--persist failed: ${result.error}` : `Could not persist routingMode: ${result.error}`);
+			lines.push(`Persistence failed: ${result.error}`);
 		} else {
 			lines.push(`Persisted routingMode=${mode} to ${result.path}.`);
 			if (result.warning) lines.push(result.warning);
 		}
+	} else {
+		lines.push("Session-only change; resets on /reload or restart. Use --local or --global to persist.");
 	}
 
 	if (mode === "solo") {
@@ -168,10 +190,10 @@ export function runSetRoutingMode(
 
 export function registerTeamEnableCommand(pi: ExtensionAPI, dependencies: TeamEnableCommandDependencies): void {
 	pi.registerCommand("team-enable", {
-		description: "Turn team routing on or off and persist routingMode to the active agents-team.json: /team-enable on|off [--persist global|local]",
+		description: "Turn team routing on or off for this session, or persist explicitly: /team-enable on|off [--local|--global]",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
-			return ["on", "off", "--persist"]
+			return ["on", "off", "--local", "--global", "--persist"]
 				.filter((value) => value.startsWith(prefix))
 				.map((value) => ({
 					value,
@@ -181,16 +203,18 @@ export function registerTeamEnableCommand(pi: ExtensionAPI, dependencies: TeamEn
 							? "team routing on (delegate_task gated open)"
 							: value === "off"
 								? "team routing off (Pi answers directly)"
-								: "persist routingMode to agents-team.json",
+								: value === "--persist"
+							? "deprecated alias for --local/--global"
+							: "persist routingMode to agents-team.json",
 				}));
 		},
 		handler: async (args, ctx) => {
 			const parsed = parseTeamEnableArgs(args);
 			if (parsed.error || !parsed.mode) {
-				ctx.ui.notify(formatCommandWarning(parsed.error ?? "Usage: /team-enable on|off [--persist global|local]"), "warning");
+				ctx.ui.notify(formatCommandWarning(parsed.error ?? "Usage: /team-enable on|off [--local|--global]"), "warning");
 				return;
 			}
-			runSetRoutingMode(parsed.mode, parsed.persist, ctx, dependencies);
+			runSetRoutingMode(parsed.mode, parsed.persist, ctx, dependencies, { persistAliasDeprecated: parsed.persistAliasDeprecated });
 		},
 	});
 }
