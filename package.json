@@ -1,6 +1,6 @@
 {
   "name": "pi-agents-team",
-  "version": "2026.5.20",
+  "version": "2026.5.21",
   "description": "Pi extension that turns one coding session into a multi-agent team with background RPC worker agents.",
   "license": "MIT",
   "type": "module",
@@ -53,6 +53,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
     "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check",
     "smoke:runtime": "tsx scripts/smoke/runtime-worker.ts",
     "smoke:team": "tsx scripts/smoke/team-flow.ts"
   },

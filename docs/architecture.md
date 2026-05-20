@@ -217,7 +217,7 @@ The initial mode is derived once per `session_start` from the loaded config:
 | `enabled: true`, no persisted `routingMode` | `team` |
 | `enabled: true`, persisted `routingMode` | that value |
 
-`/team-enable on|off` flips the in-memory mode and persists `routingMode` to disk so the choice survives restart. The persistence target is resolved in this order: `--persist global|local` if passed; otherwise `LoadedTeamProjectConfig.sourcePath` (mapped back to its scope via `deriveScopeFromSourcePath`) when a config layer is loaded; otherwise a fresh local stub at `<cwd>/.pi/agent/agents-team.json`. Writes go through `atomicWriteFileSync` and shallow-merge into the existing JSON, so roles, `enabled`, and `workerAccess` survive the patch. The loader pulls the persisted value into `LoadedTeamProjectConfig.persistedRoutingMode` on the next `session_start`.
+`/team-enable on|off` flips the in-memory mode immediately. With no persistence flag, the change is session-only and resets on `/reload` or restart. `--local` and `--global` explicitly persist `routingMode` to the project or global `agents-team.json`; legacy `--persist local|global` is accepted as a deprecated alias. Writes go through `atomicWriteFileSync` and shallow-merge into the existing JSON, so roles, `enabled`, and `workerAccess` survive the patch. When writing global while a project-local config file exists, the command warns that the local file shadows the global routing mode in this project. The loader pulls any persisted value into `LoadedTeamProjectConfig.persistedRoutingMode` on the next `session_start`.
 
 Routing toggles run through `ensureNotReloading()` like the orchestrator tools, so a toggle fired during the `session_start` config swap fails fast instead of mutating a soon-to-be-disposed `TeamManager`.
 
@@ -228,7 +228,7 @@ Routing only narrows behavior. It does not stop live workers; `agent_status`, `a
 Slash commands are supervision controls, not alternate chat channels:
 
 - `/team` and `/team <worker-id>`
-- `/team-enable on|off` (and `--persist global|local`)
+- `/team-enable on|off` (session-only by default; `--local` / `--global` to persist)
 - `/team-steer <id|all> <message> [--queue]`
 - `/team-stop <id|all>`
 - `/team-copy <id>`, `/team-result <id>`

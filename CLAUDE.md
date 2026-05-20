@@ -71,7 +71,7 @@ Package surface: `package.json` exports `./extensions/index.ts`; Pi discovers th
 - Config writes are atomic via `src/util/backup.ts#atomicWriteFileSync`; `/team-enable` shallow-merges so roles/`enabled`/`workerAccess`/`display` survive.
 - Team profile names come from active config; Pi skills are separate `delegate_task.skills`. Never bake installed skill names into prompts/examples/default roles.
 - Cost totals are agents only: `aggregateUsage()` and widget `Σ` exclude orchestrator cost but include `prunedWorkerUsageTotals` retained from pruned terminal workers, so totals survive across prune. Cost tab shows a `retained/pruned` note when retained usage is non-zero; widget can render Σ-only after all rows are pruned. `display.cost` gates widget row, Cost tab, and the retained/pruned note, default true.
-- Routing mode is control-plane state, not persisted worker state. `TeamManager.routingMode` gates `delegate_task`; `/team-enable on|off` persists `routingMode` to active or requested scope. Do not put routing mode in `PersistedTeamState`.
+- Routing mode is control-plane state, not persisted worker state. `TeamManager.routingMode` gates `delegate_task`; `/team-enable on|off` without flags changes only the live session, while `--local`/`--global` (or deprecated `--persist local|global`) explicitly persist `routingMode`. Do not put routing mode in `PersistedTeamState`.
 
 ## Tests and validation
 

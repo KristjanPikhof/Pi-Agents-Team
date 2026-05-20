@@ -89,7 +89,7 @@ The scaffold contains all seven built-in roles in the current shape. `/team-init
 | `schemaVersion` | yes | Tells the loader which shape this file is. Currently `4`. A mismatch triggers a warning and falls back to built-ins for that layer. |
 | `scaffoldVersion` | no | Freshness marker. Currently `3`. Mismatched or missing values on the active config layer just nudge you to re-run `/team-init <scope> --force` to pick up newer defaults. |
 | `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
-| `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-enable on\|off` rewrites it on every toggle (auto-persisting to the active config), and you can hand-edit it. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
+| `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-enable on\|off --local` or `--global` rewrites it explicitly, and you can hand-edit it. No-flag `/team-enable on\|off` is session-only. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
 | `workerAccess` | no | Global access policy for delegated workers. Omit to keep the defaults. |
 | `display` | no | UI display options. Omit to keep the defaults. See "Display options" below. |
 | `roles.<name>` | no | Free-form map. Name whatever you want. If `roles` is missing or empty, all built-in roles load. If `roles` contains entries, only those declared roles load. |
@@ -352,8 +352,8 @@ Launch-time overrides (tools, path scope, extension mode) may only narrow the ro
 
 | Command | What it does |
 |---|---|
-| `/team-enable on [--persist global\|local]` | Flip routing to `team` and persist `routingMode: "team"` to the active `agents-team.json` (winning layer, or a fresh local stub if no file exists). Pass `--persist` to force a specific scope. Errors when `enabled: false`. |
-| `/team-enable off [--persist global\|local]` | Flip routing to `solo` and persist `routingMode: "solo"` to the active `agents-team.json` (winning layer, or a fresh local stub). Live workers stay reachable; only `delegate_task` is gated off. |
+| `/team-enable on [--local\|--global]` | Flip routing to `team` for the live session. With no flag, the change resets on `/reload` or restart. Pass `--local` or `--global` to persist `routingMode: "team"` to that scope. Errors when `enabled: false`. |
+| `/team-enable off [--local\|--global]` | Flip routing to `solo` for the live session. With no flag, the change resets on `/reload` or restart. Pass `--local` or `--global` to persist `routingMode: "solo"`; live workers stay reachable and only `delegate_task` is gated off. |
 
 Both forms are non-destructive:
 
@@ -361,7 +361,7 @@ Both forms are non-destructive:
 - If the file parses as JSON but drifts from the current schema, the command preserves your raw object and only patches `routingMode`. A warning surfaces that the file still needs a schema-level fix.
 - If the file isn't parseable JSON at all, the command errors out without touching the in-memory toggle.
 
-All config writes are atomic via staged `<path>.tmp.<pid>.<ts>` → `renameSync`, so a ctrl-C mid-write leaves the original file intact.
+All config writes are atomic via staged `<path>.tmp.<pid>.<ts>` → `renameSync`, so a ctrl-C mid-write leaves the original file intact. Legacy `--persist local|global` is still accepted as a deprecated alias for compatibility; prefer `--local` / `--global`. Writing `--global` while a project-local config exists emits a warning because that local file shadows the global routing mode in the current project.
 
 To toggle the `enabled` flag itself, edit `agents-team.json` by hand and follow with `/reload`. The `enabled` flag controls whether delegation is active at all; `/team-enable on|off` controls only the routing mode within an already-enabled setup.
 
