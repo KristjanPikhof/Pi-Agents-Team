@@ -152,7 +152,7 @@ test("/team-enable on --local writes routingMode to the local file", async () =>
 		assert.equal(harness.teamManager.routingMode, "team");
 		const written = JSON.parse(readFileSync(localPath, "utf8"));
 		assert.equal(written.routingMode, "team");
-		assert.ok(written.roles?.reviewer, "roles must be preserved on explicit --persist patch");
+		assert.ok(written.roles?.reviewer, "roles must be preserved on explicit --local patch");
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
