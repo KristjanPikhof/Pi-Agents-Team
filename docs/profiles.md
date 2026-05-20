@@ -25,7 +25,7 @@ These are what the orchestrator sees when no file is present. `/team-init` stamp
 | `librarian` | Library and docs research. "How do I use this dependency?", "what changed in vX.Y?" | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
 | `oracle` | Architecture judgment and root-cause work. Thinks slowly, answers carefully. | `read`, `grep`, `find`, `ls`, `bash` | high | no |
 | `designer` | UI/UX critique, layout suggestions, design-system consistency. | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
-| `reviewer` | Validate a change, hunt regressions, confirm tests cover what they claim. | `read`, `grep`, `find`, `ls`, `bash` | medium | no |
+| `reviewer` | Validate a change, hunt regressions, confirm tests cover what they claim. | `read`, `grep`, `find`, `ls`, `bash` | high | no |
 | `observer` | Screenshots, images, non-code artifacts. | `read`, `grep`, `find`, `ls`, `bash` | low | no |
 | `fixer` | Bounded code changes. Implement a fix, add a test, edit one file. | `read`, `bash`, `edit`, `write` | medium | yes |
 
@@ -53,7 +53,7 @@ The scaffold contains all seven built-in roles in the current shape. `/team-init
 | `oracle` | `high` |
 | `designer` | `medium` |
 | `fixer` | `medium` |
-| `reviewer` | `medium` |
+| `reviewer` | `high` |
 | `observer` | `low` |
 
 ### The shape, field by field
@@ -61,7 +61,7 @@ The scaffold contains all seven built-in roles in the current shape. `/team-init
 ```json
 {
   "schemaVersion": 4,
-  "scaffoldVersion": 2,
+  "scaffoldVersion": 3,
   "enabled": true,
   "workerAccess": {
     "allowPathsOutsideProject": true
@@ -87,7 +87,7 @@ The scaffold contains all seven built-in roles in the current shape. `/team-init
 | Field | Required | Meaning |
 |---|---|---|
 | `schemaVersion` | yes | Tells the loader which shape this file is. Currently `4`. A mismatch triggers a warning and falls back to built-ins for that layer. |
-| `scaffoldVersion` | no | Freshness marker. Currently `2`. Mismatched or missing values on the active config layer just nudge you to re-run `/team-init <scope> --force` to pick up newer defaults. |
+| `scaffoldVersion` | no | Freshness marker. Currently `3`. Mismatched or missing values on the active config layer just nudge you to re-run `/team-init <scope> --force` to pick up newer defaults. |
 | `enabled` | no | `false` puts the extension in dormant mode (tools refuse, UI clears). Default `true`. |
 | `routingMode` | no | `"team"` or `"solo"`. Sticky default for orchestrator routing. `/team-init` seeds it as `"team"`; `/team-enable on\|off` rewrites it on every toggle (auto-persisting to the active config), and you can hand-edit it. Default `"team"` when `enabled: true` and the field is missing. See [`operations.md`](operations.md#toggle-routing-without-reload). |
 | `workerAccess` | no | Global access policy for delegated workers. Omit to keep the defaults. |
@@ -335,7 +335,7 @@ Freshness warnings are de-duped per process by active scope plus the active file
 
 Refresh explicitly with `/team-init <local|global> --force`. The command backs up the previous file first, writes the current `schemaVersion` and `scaffoldVersion`, and stamps the current packaged defaults.
 
-Both constants live in `src/project-config/versions.ts` (currently `schemaVersion=4`, `scaffoldVersion=2`). Bump there, nothing else needs to change. See [CLAUDE.md](../CLAUDE.md) "Schema versioning" for the rules on which counter to move.
+Both constants live in `src/project-config/versions.ts` (currently `schemaVersion=4`, `scaffoldVersion=3`). Bump there, nothing else needs to change. See [CLAUDE.md](../CLAUDE.md) "Schema versioning" for the rules on which counter to move.
 
 ## Launch-time safety
 

@@ -42,7 +42,7 @@ tsx --test tests/runtime/worker-manager.test.ts
 
 Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
 
-The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command. Active rows display task elapsed time (using the current task start on reused workers); recent terminal rows are retained for five minutes so finishes remain visible until the operator opens `/team` or prunes them. Command tips rotate in the bottom orchestrator status line, for example `Orchestrator · Idle · Tip: Use /team to view workers`.
+The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command. Active rows display task elapsed time (using the current task start on reused workers); recent terminal rows are retained for five minutes so finishes remain visible until the operator opens `/team` or prunes them. Command tips rotate in the bottom orchestrator status line, for example `Orchestrator · Idle · Tip: Use /team to view workers`. The line switches to `Working...` while the visible orchestrator turn is active, and also while worker/relay activity is active.
 
 ### Dashboard keys
 
@@ -81,7 +81,7 @@ Inspect and Console both show a compact follow/paused header: `[follow]  scroll 
 /team-result <worker-id>
 ```
 
-Prints the compact result surface that the orchestrator sees through `agent_result`: a plain-text worker title, optional task/status/error, pending relay questions, and `Result:` followed by the verbatim contents of the worker's `<final_answer>` block. The current compact surface intentionally omits the older summary metadata lists (`Headline`, `Read files`, `Changed files`, `Risks`, `Usage`) so the authoritative synthesis payload stays small. `/team-result` may include latest assistant text only when no final answer exists; `agent_result` remains the transcript-free synthesis surface.
+Prints the command result surface for a worker: a plain-text worker title, optional task/status/error, pending relay questions, and `Result:` followed by the verbatim contents of the worker's `<final_answer>` block. `/team-result` may include latest assistant text only when no final answer exists; `agent_result` remains the transcript-free synthesis surface and may additionally include scan-friendly summary sections such as `Headline`, `Read files`, `Changed files`, `Risks`, and `Next` when available.
 
 Normal result shape:
 
@@ -115,7 +115,7 @@ If no `<final_answer>` block was extracted, the result says so:
 fixer (w1)
 
 Result:
-No <final_answer> block extracted yet.
+No final answer block extracted yet.
 ```
 
 When the block is missing, do not synthesize from transcript tail alone. Re-delegate, steer the worker to wrap its final deliverable in `<final_answer>…</final_answer>`, or stop and respawn with a clearer brief.
@@ -266,67 +266,108 @@ By default, delegated path scopes may include `/tmp`, sibling repos, or other ab
 
 That only restricts delegated worker path-scope containment. The main orchestrator session and worker prompt-file containment are unchanged; prompt files must remain inside the project/current cwd.
 
-The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
+The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. Worker-complete and relay toasts are UI-only hints; the tool loop is the authority. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
 ### Orchestrator tool output examples
 
 Operators normally see these through model narration, logs, or `/team-result`; they are included here so runbooks can match the real tool text.
 
-Fresh delegation returns compact launch metadata:
+Fresh delegation uses the tool-call title for the action (`Launching fixer agent`) and keeps the receipt to one compact worker/task line:
 
 ```text
-Created fixer (w1)
-Task: Build seam (t1)
-Path: /repo
+w1 · Build seam (t1)
 ```
 
-When the orchestrator intentionally reuses an idle same-scope worker, the first line makes that explicit:
+When the orchestrator intentionally reuses an idle same-scope worker, the tool-call title can include the known worker id (`Reusing fixer agent (w1)`), and the receipt stays the same shape:
 
 ```text
-Reusing fixer (w1)
-Task: Follow-up fix (t2)
-Path: /repo
+w1 · Follow-up fix (t2)
 ```
 
-`wait_for_agents` uses compact user-facing outcomes without exposing internal reason labels. Common outcomes:
+`wait_for_agents` is the zero-token supervision loop. It returns a human-readable `Wait:` outcome plus a `Next:` instruction; follow that instruction instead of polling with `ping_agents` or sleeping in bash. Common outcomes:
 
 ```text
-Done: 2 agent(s) finished or stopped.
-Next: read results with agent_result.
+Wait: all agents finished
+Status: 2 agent(s) finished or stopped
+Next: read results for w1, w2.
 
 Workers:
-- w1 (fixer) · status=completed (Completed) · task=Done task
-- w2 (reviewer) · status=idle (Idle)
+- w1 (fixer) · Completed · Done task
+- w2 (reviewer) · Idle
 ```
 
 ```text
-Needs reply: 1 relay question(s).
+Wait: relay question raised
+Status: 1 relay question(s) need reply
 
 Pending relay questions:
 1. fixer (w1) [high]
-   Need scope?
-Next: answer with agent_message, then wait again for ["w1"].
+   question: Need scope?
+   reply: send answer to w1
+Next: answer relay(s), then wait for w1.
 
 Workers:
-- w1 (fixer) · status=running (Running) · task=Question task
+- w1 (fixer) · Running · Question task · 1 relay
 ```
 
 ```text
-Still waiting: some agents are still running.
-Next: wait again or inspect status.
+Wait: timeout
+Status: still waiting for active agent(s)
+Next: wait again for w1 or inspect status.
+
+Workers:
+- w1 (fixer) · Running · Long task
 ```
 
 ```text
-Wait cancelled: stopped before all agents finished.
+Wait: aborted
+Status: wait cancelled before all agents finished
 Next: inspect status or cancel unwanted agents.
+
+Workers:
+- w1 (fixer) · Running · Long task
 ```
 
 ```text
-No agents to wait for.
+Wait: no agents
+Status: no agents tracked
 Next: delegate a task first.
 ```
 
-For `relay_raised`, answer each relay with `agent_message`, then immediately call `wait_for_agents` again with the same worker ids. For `timeout`, either wait again or inspect status before taking action; a timeout does not cancel workers. For `aborted`, decide whether to continue supervising, call `agent_status`, or cancel unwanted workers. For `no_workers`, delegate first — repeated waits cannot create work.
+For relay questions, answer each relay, then immediately call `wait_for_agents` again with the same worker ids. For timeouts, either wait again or inspect status before taking action; a timeout does not cancel workers. For aborted waits, decide whether to continue supervising, inspect status, or cancel unwanted workers. If there are no agents, delegate first — repeated waits cannot create work.
+
+`agent_result` is the transcript-free synthesis surface for the orchestrator. It shows a compact worker header, pending relay questions, available scan-friendly summary sections, and `Result:` followed by the verbatim `<final_answer>` block. `/team-result` prints the related operator command surface with the same header/relay/result contract, but omits summary metadata sections and may include latest assistant text only when no final answer exists.
+
+```text
+fixer (w1)
+Task: Build seam
+
+Result:
+headline: seam implemented
+changed_files:
+- src/runtime/seam.ts: added guarded adapter
+verification:
+- npm test → passed
+risks:
+- none known
+```
+
+If a worker is still waiting on the operator, pending relays appear before the result:
+
+```text
+fixer (w1)
+Task: Decide scope
+Status: waiting_followup (Waiting for follow-up)
+
+Pending relay questions:
+- [high] Retry with smaller scope?
+  assumption: Yes
+
+Result:
+No final answer block extracted yet.
+```
+
+If the `<final_answer>` block is missing, do not synthesize from transcript tail or persisted state. Steer the worker to emit the required block, or re-delegate with a clearer brief.
 
 ## Mid-flight relay handling
 

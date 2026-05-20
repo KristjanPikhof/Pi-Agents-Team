@@ -39,6 +39,8 @@ test("status line shows routing mode, orchestrator state, and optional rotating 
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Idle");
 	assert.equal(buildTeamStatusLine(state, "solo"), "Orchestrator · Solo · Idle");
 	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0)), "Orchestrator · Idle · Tip: Use /team to view workers");
+	assert.equal(buildTeamStatusLine(state, "team", getTeamStatusTip(0), true), "Orchestrator · Working... · Tip: Use /team to view workers");
+	assert.equal(buildTeamStatusLine(state, "solo", undefined, true), "Orchestrator · Solo · Working...");
 
 	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running" });
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
@@ -195,21 +197,21 @@ test("active worker elapsed uses task creation time when a reused worker has a f
 	assert.doesNotMatch(workerRow, /1h/);
 });
 
-test("widget keeps registry order for visible rows while filtering inactive workers", () => {
+test("widget keeps worker-id order for visible rows while filtering inactive workers", () => {
 	const state = createDefaultTeamState();
 	const now = 10_000_000;
-	state.activeWorkers.done = makeWorker({ workerId: "done", profileName: "closer", status: "completed", lastEventAt: now - 1_000 });
-	state.activeWorkers.start = makeWorker({ workerId: "start", profileName: "starter", status: "starting", lastEventAt: now - 2_000 });
-	state.activeWorkers.oldHidden = makeWorker({ workerId: "oldHidden", profileName: "hidden", status: "idle", lastEventAt: now - 10 * 60 * 1_000 });
-	state.activeWorkers.run = makeWorker({ workerId: "run", profileName: "runner", status: "running", lastEventAt: now - 3_000 });
-	state.activeWorkers.relay = makeWorker({
-		workerId: "relay",
+	state.activeWorkers.w3 = makeWorker({ workerId: "w3", profileName: "closer", status: "completed", lastEventAt: now - 1_000 });
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", profileName: "starter", status: "starting", lastEventAt: now - 2_000 });
+	state.activeWorkers.w99 = makeWorker({ workerId: "w99", profileName: "hidden", status: "idle", lastEventAt: now - 10 * 60 * 1_000 });
+	state.activeWorkers.w2 = makeWorker({ workerId: "w2", profileName: "runner", status: "running", lastEventAt: now - 3_000 });
+	state.activeWorkers.w4 = makeWorker({
+		workerId: "w4",
 		profileName: "fixer",
 		status: "waiting_followup",
 		lastEventAt: now - 4_000,
 		pendingRelayQuestions: [{
 			relayId: "r1",
-			workerId: "relay",
+			workerId: "w4",
 			taskId: "t1",
 			question: "Need scope decision?",
 			assumption: "continue narrowly",
@@ -217,14 +219,14 @@ test("widget keeps registry order for visible rows while filtering inactive work
 			createdAt: now - 4_000,
 		}],
 	});
-	state.relayQueue = [state.activeWorkers.relay.pendingRelayQuestions[0]!];
+	state.relayQueue = [state.activeWorkers.w4.pendingRelayQuestions[0]!];
 
 	const lines = buildTeamWidgetLines(state, { frame: 0, now });
 	const plainLines = lines.map(stripAnsi);
 	assert.match(plainLines[0]!, /active=3/);
-	const workerRows = plainLines.filter((line) => /^[├└] [⠋▸◌✓✗○▶]/.test(line) && / \((done|start|oldHidden|run|relay)\)/.test(line));
-	assert.deepEqual(workerRows.map((line) => line.match(/ \((done|start|oldHidden|run|relay)\)/)?.[1]), ["done", "start", "run", "relay"]);
-	assert.ok(!workerRows.some((line) => line.includes("oldHidden")), `old hidden worker should stay filtered; got:\n${plainLines.join("\n")}`);
+	const workerRows = plainLines.filter((line) => /^[├└] [⠋▸◌✓✗○▶]/.test(line) && / \(w\d+\)/.test(line));
+	assert.deepEqual(workerRows.map((line) => line.match(/ \((w\d+)\)/)?.[1]), ["w1", "w2", "w3", "w4"]);
+	assert.ok(!workerRows.some((line) => line.includes("w99")), `old hidden worker should stay filtered; got:\n${plainLines.join("\n")}`);
 	assert.ok(plainLines.some((line) => line.includes("└ Needs reply: Need scope decision?")), `expected friendly relay activity line; got:\n${plainLines.join("\n")}`);
 	assert.ok(!plainLines.some((line) => line.includes("└ needs_reply:")), `expected no raw attention key; got:\n${plainLines.join("\n")}`);
 });

@@ -24,11 +24,11 @@ function writeProjectConfig(root: string, config: Record<string, unknown>): void
 
 test("notification wording helpers use compact/action-oriented copy", () => {
 	assert.equal(formatWorkerStartedToast({ workerId: "w1", profileName: "fixer" }), "w1 (fixer) started");
-	assert.equal(formatWorkersStartedToast([{ workerId: "w1" }, { workerId: "w2" }]), "2 workers started: w1, w2");
+	assert.equal(formatWorkersStartedToast([{ workerId: "w2" }, { workerId: "w1" }]), "2 workers started: w1, w2");
 	assert.equal(formatWorkerTerminalToast({ workerId: "w1", profileName: "fixer", status: "completed" }), "w1 (fixer) complete");
 	assert.equal(formatWorkerTerminalToast({ workerId: "w2", profileName: "reviewer", status: "aborted" }), "w2 (reviewer) cancelled");
 	assert.equal(formatWorkerTerminalToast({ workerId: "w3", profileName: "oracle", status: "error" }), "w3 (oracle) failed");
-	assert.equal(formatWorkersTerminalToast([{ workerId: "w1", status: "completed" }, { workerId: "w3", status: "error" }]), "2 workers done: w1 complete, w3 failed");
+	assert.equal(formatWorkersTerminalToast([{ workerId: "w3", status: "error" }, { workerId: "w1", status: "completed" }]), "2 workers done: w1 complete, w3 failed");
 	assert.equal(formatRelayToast({ workerId: "w4", profileName: "reviewer" }, "Should I proceed?"), "Reply to w4 (reviewer): Should I proceed?");
 	assert.equal(formatCommandWarning("Unknown worker: w99"), "Warning — Unknown worker: w99");
 });

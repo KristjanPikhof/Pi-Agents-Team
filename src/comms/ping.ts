@@ -28,12 +28,12 @@ export function buildPassivePing(worker: WorkerRuntimeState): WorkerPingSnapshot
 }
 
 export function formatPingSnapshot(snapshot: WorkerPingSnapshot): string {
-	const parts = [`${snapshot.workerId} (${snapshot.profileName})`, `status=${snapshot.status}`];
+	const parts = [`${snapshot.workerId} (${snapshot.profileName})`, snapshot.status];
 	const contextBudget = formatContextBudget(snapshot.usage);
 	if (contextBudget) parts.push(contextBudget);
-	if (snapshot.taskTitle) parts.push(`task=${snapshot.taskTitle}`);
-	if (snapshot.lastToolName) parts.push(`tool=${snapshot.lastToolName}`);
-	if (snapshot.lastSummary) parts.push(`summary=${snapshot.lastSummary}`);
-	if (snapshot.relayQuestions.length > 0) parts.push(`relays=${snapshot.relayQuestions.length}`);
+	if (snapshot.taskTitle) parts.push(snapshot.taskTitle);
+	if (snapshot.lastToolName) parts.push(`tool ${snapshot.lastToolName}`);
+	if (snapshot.lastSummary) parts.push(snapshot.lastSummary);
+	if (snapshot.relayQuestions.length > 0) parts.push(`${snapshot.relayQuestions.length} relay${snapshot.relayQuestions.length === 1 ? "" : "s"}`);
 	return parts.join(" · ");
 }

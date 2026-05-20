@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
+import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
 import { bold } from "./theme";
@@ -44,8 +44,8 @@ export function getTeamStatusTip(index: number): string {
 	return TEAM_STATUS_TIPS[normalized]!;
 }
 
-export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team", tip?: string): string {
-	const activity = hasActiveOrchestratorWork(state) ? "Working..." : "Idle";
+export function buildTeamStatusLine(state: PersistedTeamState, routingMode: "team" | "solo" = "team", tip?: string, orchestratorWorking = false): string {
+	const activity = orchestratorWorking || hasActiveOrchestratorWork(state) ? "Working..." : "Idle";
 	const status = routingMode === "solo" ? `Orchestrator · Solo · ${activity}` : `Orchestrator · ${activity}`;
 	return truncateToWidth(tip ? `${status} · Tip: ${tip}` : status, HEADER_WIDTH);
 }
@@ -196,7 +196,7 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	const routingMode = options.routingMode ?? "team";
 	const displayCost = options.displayCost !== false;
 	const now = options.now ?? Date.now();
-	const allWorkers = Object.values(state.activeWorkers);
+	const allWorkers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	const workers = allWorkers.filter((worker) => shouldRenderWorker(worker, now));
 	if (routingMode === "solo") {
 		// In solo mode the status line already says "Pi Agents Team — solo".

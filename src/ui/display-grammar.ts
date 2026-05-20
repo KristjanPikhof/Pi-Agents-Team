@@ -1,4 +1,4 @@
-import type { WorkerRuntimeState, WorkerStatus } from "../types";
+import { compareWorkerIds, type WorkerRuntimeState, type WorkerStatus } from "../types";
 
 export type WorkerAttentionPriority = "needs_reply" | "needs_recovery" | "in_progress" | "completed_or_idle";
 
@@ -51,7 +51,7 @@ export function formatProfileLabel(profileName: string): string {
 }
 
 export function formatWorkerIdList(workerIds: readonly string[]): string {
-	return workerIds.map((workerId) => workerId.trim()).filter(Boolean).join(", ");
+	return workerIds.map((workerId) => workerId.trim()).filter(Boolean).sort(compareWorkerIds).join(", ");
 }
 
 export function formatWorkerIdListSuffix(workerIds: readonly string[]): string {
@@ -72,8 +72,8 @@ export function buildAgentToolCallTitle(toolName: AgentToolName, args: AgentTool
 	switch (toolName) {
 		case "delegate_task":
 			return args.reuseWorkerId
-				? `Reusing ${formatProfileLabel(args.profileName ?? "")} ${formatWorkerDisplayId(args.reuseWorkerId)}`
-				: `Creating ${formatProfileLabel(args.profileName ?? "")} agent`;
+				? `Reusing ${formatProfileLabel(args.profileName ?? "")} agent ${formatWorkerDisplayId(args.reuseWorkerId)}`
+				: `Launching ${formatProfileLabel(args.profileName ?? "")} agent`;
 		case "agent_result":
 			return `Reading agent result${formatWorkerIdListSuffix(args.workerId ? [args.workerId] : [])}`;
 		case "wait_for_agents":
@@ -155,7 +155,10 @@ export function formatWorkerTerminalToast(worker: Pick<WorkerRuntimeState, "work
 }
 
 export function formatWorkersTerminalToast(workers: readonly Pick<WorkerRuntimeState, "workerId" | "status">[]): string {
-	const items = workers.map((worker) => `${worker.workerId} ${formatTerminalStatusAction(worker.status)}`);
+	const items = workers
+		.slice()
+		.sort((left, right) => compareWorkerIds(left.workerId, right.workerId))
+		.map((worker) => `${worker.workerId} ${formatTerminalStatusAction(worker.status)}`);
 	return `${workers.length} workers done: ${items.join(", ")}`;
 }
 

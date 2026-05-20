@@ -1,5 +1,6 @@
+import { truncateToWidth, visibleWidth as measureVisibleWidth } from "@earendil-works/pi-tui";
 import type { DelegatedTaskInput, WorkerRuntimeState, WorkerStatus } from "../types";
-import { formatProfileLabel, formatWorkerDisplayId, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
+import { formatProfileLabel, formatWorkerDisplayId, formatWorkerIdList, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
 import { formatContextBudget } from "./usage-format";
 
 export const TOOL_SECTION_LABELS = {
@@ -14,19 +15,72 @@ export const TOOL_SECTION_LABELS = {
 	wait: "Wait",
 	relayQuestions: "Pending relay questions",
 	summary: "Headline",
-	readFiles: "Read files (readFiles/files_read)",
-	changedFiles: "Changed files (changedFiles/files_changed)",
+	readFiles: "Read files",
+	changedFiles: "Changed files",
 	risks: "Risks",
 	nextAction: "Next",
 	usage: "Usage",
 	context: "Context",
 	error: "Error",
+	warning: "Warning",
 	finalAnswerNote: "Result note",
 	finalAnswer: "Result",
 	latestAssistantText: "Latest assistant text",
 } as const;
 
-const FINAL_ANSWER_MISSING_MESSAGE = "No <final_answer> block extracted yet.";
+const FINAL_ANSWER_MISSING_MESSAGE = "No final answer block extracted yet.";
+const ANSI_PATTERN = /(?:\x1B\][\s\S]*?(?:\x07|\x1B\\)|\x1BP[\s\S]*?\x1B\\|\x1B[\^_][\s\S]*?\x1B\\|\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]))/g;
+const DEFAULT_TRUNCATE_WIDTH = 120;
+const SUMMARY_ITEM_LIMIT = 5;
+
+export const TOOL_SECTION_ORDER = [
+	TOOL_SECTION_LABELS.lifecycle,
+	TOOL_SECTION_LABELS.status,
+	TOOL_SECTION_LABELS.relayQuestions,
+	TOOL_SECTION_LABELS.summary,
+	TOOL_SECTION_LABELS.readFiles,
+	TOOL_SECTION_LABELS.changedFiles,
+	TOOL_SECTION_LABELS.risks,
+	TOOL_SECTION_LABELS.nextAction,
+	TOOL_SECTION_LABELS.finalAnswerNote,
+	TOOL_SECTION_LABELS.finalAnswer,
+] as const;
+
+export const WORKER_STATUS_SCAN_ORDER: readonly WorkerStatus[] = [
+	"error",
+	"aborted",
+	"exited",
+	"waiting_followup",
+	"running",
+	"starting",
+	"created",
+	"completed",
+	"idle",
+];
+
+export const FINAL_ANSWER_METADATA_LABELS = {
+	headline: TOOL_SECTION_LABELS.summary,
+	filesRead: TOOL_SECTION_LABELS.readFiles,
+	filesChanged: TOOL_SECTION_LABELS.changedFiles,
+	risks: TOOL_SECTION_LABELS.risks,
+	nextRecommendation: TOOL_SECTION_LABELS.nextAction,
+	relayQuestions: TOOL_SECTION_LABELS.relayQuestions,
+	resultNote: TOOL_SECTION_LABELS.finalAnswerNote,
+	result: TOOL_SECTION_LABELS.finalAnswer,
+} as const;
+
+export interface ScanFriendlyTextOptions {
+	maxWidth?: number;
+	placeholder?: string;
+}
+
+export interface ScanSectionInput {
+	label: string;
+	value?: string | number | boolean | null;
+	items?: readonly (string | number | boolean | null | undefined)[];
+	maxWidth?: number;
+	empty?: string;
+}
 
 export interface WaitForAgentsFormatInput {
 	reason: "all_terminal" | "timeout" | "aborted" | "relay_raised" | "no_workers";
@@ -38,6 +92,29 @@ export interface FormatWorkerDetailOptions {
 	transcript?: string;
 	compactUsage?: boolean;
 	includeProfileLine?: boolean;
+}
+
+export function visibleWidth(text: string): number {
+	return measureVisibleWidth(text);
+}
+
+export function truncateScanValue(value: string, options: ScanFriendlyTextOptions = {}): string {
+	const maxWidth = options.maxWidth ?? DEFAULT_TRUNCATE_WIDTH;
+	const placeholder = options.placeholder ?? "";
+	const normalized = value.replace(/\s+/g, " ").trim() || placeholder;
+	const plain = normalized.replace(ANSI_PATTERN, "");
+	if (maxWidth <= 0 || measureVisibleWidth(plain) <= maxWidth) return plain;
+	return truncateToWidth(plain, maxWidth, "…").replace(ANSI_PATTERN, "").trimEnd();
+}
+
+export function formatScanSection(section: ScanSectionInput): string | undefined {
+	const maxWidth = section.maxWidth ?? DEFAULT_TRUNCATE_WIDTH;
+	const values = section.items
+		? section.items.map((item) => truncateScanValue(String(item ?? ""), { maxWidth })).filter(Boolean)
+		: [truncateScanValue(String(section.value ?? ""), { maxWidth, placeholder: section.empty })].filter(Boolean);
+	if (values.length === 0) return undefined;
+	if (section.items) return [`${section.label}:`, ...values.map((value) => `- ${value}`)].join("\n");
+	return `${section.label}: ${values[0]}`;
 }
 
 export function truncateList(items: readonly string[], max: number): string {
@@ -60,6 +137,37 @@ function appendWorkerResultHeader(lines: string[], worker: WorkerRuntimeState): 
 	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
 }
 
+function appendWorkerCompactHeader(lines: string[], worker: WorkerRuntimeState): void {
+	lines.push(formatWorkerResultTitle(worker));
+	if (worker.currentTask?.title) lines.push(`${TOOL_SECTION_LABELS.task}: ${worker.currentTask.title}`);
+	lines.push(`${TOOL_SECTION_LABELS.status}: ${worker.status} (${formatWorkerStatusLabel(worker)})`);
+	if (worker.error) lines.push(`${TOOL_SECTION_LABELS.error}: ${worker.error}`);
+}
+
+function coerceSummaryItems(items: unknown): string[] {
+	return Array.isArray(items) ? items.map((item) => String(item)).filter(Boolean) : [];
+}
+
+function compactSummaryItems(items: unknown): string[] {
+	const normalized = coerceSummaryItems(items);
+	const visible = normalized.slice(0, SUMMARY_ITEM_LIMIT);
+	if (normalized.length > SUMMARY_ITEM_LIMIT) return [...visible, `+${normalized.length - SUMMARY_ITEM_LIMIT} more`];
+	return [...visible];
+}
+
+function appendWorkerSummary(lines: string[], worker: WorkerRuntimeState): void {
+	const summary = worker.lastSummary;
+	if (!summary) return;
+	const sections = [
+		formatScanSection({ label: TOOL_SECTION_LABELS.summary, value: summary.headline }),
+		formatScanSection({ label: TOOL_SECTION_LABELS.readFiles, items: compactSummaryItems(summary.readFiles) }),
+		formatScanSection({ label: TOOL_SECTION_LABELS.changedFiles, items: compactSummaryItems(summary.changedFiles) }),
+		formatScanSection({ label: TOOL_SECTION_LABELS.risks, items: compactSummaryItems(summary.risks) }),
+		formatScanSection({ label: TOOL_SECTION_LABELS.nextAction, value: summary.nextRecommendation }),
+	].filter((section): section is string => Boolean(section));
+	if (sections.length > 0) lines.push("", ...sections);
+}
+
 function appendRelayQuestions(lines: string[], worker: WorkerRuntimeState): void {
 	if (worker.pendingRelayQuestions.length === 0) return;
 	lines.push("", `${TOOL_SECTION_LABELS.relayQuestions}:`);
@@ -69,21 +177,23 @@ function appendRelayQuestions(lines: string[], worker: WorkerRuntimeState): void
 	}
 }
 
-function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState): void {
+function appendFinalAnswer(lines: string[], worker: WorkerRuntimeState, options: { includeResultNotes?: boolean } = {}): void {
 	const finalAnswer = worker.finalAnswer?.trim();
 	if (!finalAnswer) {
+		if (options.includeResultNotes) lines.push("", `${TOOL_SECTION_LABELS.finalAnswerNote}: ${FINAL_ANSWER_MISSING_MESSAGE}`);
 		lines.push("", `${TOOL_SECTION_LABELS.finalAnswer}:`, FINAL_ANSWER_MISSING_MESSAGE);
 		return;
 	}
+	if (options.includeResultNotes && visibleWidth(finalAnswer) < 20) lines.push("", `${TOOL_SECTION_LABELS.finalAnswerNote}: final answer is very short; verify it is complete.`);
 	lines.push("", `${TOOL_SECTION_LABELS.finalAnswer}:`, finalAnswer);
 }
 
 export function formatWorkerListItem(worker: WorkerRuntimeState): string {
-	const parts = [formatWorkerToolLabel(worker), `status=${worker.status} (${formatWorkerStatusLabel(worker)})`];
-	if (worker.currentTask?.title) parts.push(`task=${worker.currentTask.title}`);
+	const parts = [formatWorkerToolLabel(worker), formatWorkerStatusLabel(worker)];
+	if (worker.currentTask?.title) parts.push(worker.currentTask.title);
 	const contextBudget = formatContextBudget(worker.usage);
 	if (contextBudget) parts.push(contextBudget);
-	if (worker.pendingRelayQuestions.length > 0) parts.push(`relays=${worker.pendingRelayQuestions.length}`);
+	if (worker.pendingRelayQuestions.length > 0) parts.push(`${worker.pendingRelayQuestions.length} relay${worker.pendingRelayQuestions.length === 1 ? "" : "s"}`);
 	return parts.join(" · ");
 }
 
@@ -96,16 +206,17 @@ export interface DelegateTaskFormatInput {
 	worker: Pick<WorkerRuntimeState, "workerId" | "profileName" | "status" | "currentTask">;
 	task?: DelegatedTaskInput;
 	reuseWorkerId?: string;
+	warnings?: readonly string[];
 }
 
 export function formatDelegateTaskResult(result: DelegateTaskFormatInput): string {
 	const task = result.task ?? result.worker.currentTask;
 	const title = task?.title ?? "delegated task";
 	const taskLabel = task?.taskId ? `${title} (${task.taskId})` : title;
-	const action = result.reuseWorkerId ? "Reusing" : "Created";
-	const lines = [`${action} ${formatWorkerResultTitle(result.worker)}`, `${TOOL_SECTION_LABELS.task}: ${taskLabel}`];
-	if (task?.cwd) lines.push(`Path: ${task.cwd}`);
-	return lines.join("\n");
+	const lines = [`${result.worker.workerId} · ${taskLabel}`];
+	const warnings = result.warnings ?? [];
+	if (warnings.length > 0) lines.push(formatScanSection({ label: TOOL_SECTION_LABELS.warning, items: warnings }) ?? "");
+	return lines.filter(Boolean).join("\n");
 }
 
 export interface AgentMessageFormatInput {
@@ -125,7 +236,14 @@ export function formatAgentMessageResult(result: AgentMessageFormatInput): strin
 }
 
 function formatWaitWorkerIds(workers: readonly WorkerRuntimeState[]): string {
-	return `[${workers.map((worker) => JSON.stringify(worker.workerId)).join(",")}]`;
+	return formatWorkerIdList(workers.map((worker) => worker.workerId));
+}
+
+function formatWaitReason(reason: WaitForAgentsFormatInput["reason"]): string {
+	if (reason === "all_terminal") return "all agents finished";
+	if (reason === "relay_raised") return "relay question raised";
+	if (reason === "no_workers") return "no agents";
+	return reason;
 }
 
 function appendWaitWorkers(lines: string[], workers: readonly WorkerRuntimeState[]): void {
@@ -137,28 +255,42 @@ function appendWaitRelayGuidance(lines: string[], result: WaitForAgentsFormatInp
 	if (relays.length === 0) return;
 	lines.push("", `${TOOL_SECTION_LABELS.relayQuestions}:`);
 	for (const [index, relay] of relays.entries()) {
-		lines.push(`${index + 1}. ${relay.profileName} ${formatWorkerDisplayId(relay.workerId)} [${relay.urgency}]`);
-		lines.push(`   ${relay.question}`);
+		lines.push(`${index + 1}. ${formatProfileLabel(relay.profileName)} ${formatWorkerDisplayId(relay.workerId)} [${relay.urgency}]`);
+		lines.push(`   question: ${relay.question}`);
+		lines.push(`   reply: send answer to ${relay.workerId}`);
 	}
-	lines.push(`${TOOL_SECTION_LABELS.nextAction}: answer with agent_message, then wait again for ${formatWaitWorkerIds(result.workers)}.`);
 }
 
 export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): string {
 	if (result.reason === "no_workers") {
-		return ["No agents to wait for.", `${TOOL_SECTION_LABELS.nextAction}: delegate a task first.`].join("\n");
+		return [
+			`${TOOL_SECTION_LABELS.wait}: ${formatWaitReason(result.reason)}`,
+			`${TOOL_SECTION_LABELS.status}: no agents tracked`,
+			`${TOOL_SECTION_LABELS.nextAction}: delegate a task first.`,
+		].join("\n");
 	}
 
-	const lines: string[] = [];
+	const lines: string[] = [`${TOOL_SECTION_LABELS.wait}: ${formatWaitReason(result.reason)}`];
 	if (result.reason === "all_terminal") {
-		lines.push(`Done: ${result.workers.length} agent(s) finished or stopped.`, `${TOOL_SECTION_LABELS.nextAction}: read results with agent_result.`);
+		lines.push(
+			`${TOOL_SECTION_LABELS.status}: ${result.workers.length} agent(s) finished or stopped`,
+			`${TOOL_SECTION_LABELS.nextAction}: read results for ${formatWaitWorkerIds(result.workers)}.`,
+		);
 	} else if (result.reason === "relay_raised") {
 		const count = result.newRelays?.length ?? 0;
-		lines.push(`Needs reply: ${count} relay question(s).`);
+		lines.push(`${TOOL_SECTION_LABELS.status}: ${count} relay question(s) need reply`);
 		appendWaitRelayGuidance(lines, result);
+		lines.push(`${TOOL_SECTION_LABELS.nextAction}: answer relay(s), then wait for ${formatWaitWorkerIds(result.workers)}.`);
 	} else if (result.reason === "timeout") {
-		lines.push("Still waiting: some agents are still running.", `${TOOL_SECTION_LABELS.nextAction}: wait again or inspect status.`);
+		lines.push(
+			`${TOOL_SECTION_LABELS.status}: still waiting for active agent(s)`,
+			`${TOOL_SECTION_LABELS.nextAction}: wait again for ${formatWaitWorkerIds(result.workers)} or inspect status.`,
+		);
 	} else {
-		lines.push("Wait cancelled: stopped before all agents finished.", `${TOOL_SECTION_LABELS.nextAction}: inspect status or cancel unwanted agents.`);
+		lines.push(
+			`${TOOL_SECTION_LABELS.status}: wait cancelled before all agents finished`,
+			`${TOOL_SECTION_LABELS.nextAction}: inspect status or cancel unwanted agents.`,
+		);
 	}
 	appendWaitWorkers(lines, result.workers);
 	return lines.join("\n");
@@ -166,10 +298,10 @@ export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): str
 
 export function formatWorkerCompact(worker: WorkerRuntimeState): string {
 	const lines: string[] = [];
-	appendWorkerResultHeader(lines, worker);
-
+	appendWorkerCompactHeader(lines, worker);
 	appendRelayQuestions(lines, worker);
-	appendFinalAnswer(lines, worker);
+	appendWorkerSummary(lines, worker);
+	appendFinalAnswer(lines, worker, { includeResultNotes: true });
 	return lines.join("\n");
 }
 

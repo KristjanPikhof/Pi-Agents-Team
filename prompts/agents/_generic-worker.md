@@ -51,7 +51,7 @@ Inside the block, include:
 
 - a one-line `headline:` summary
 - the deliverable the task asked for (findings, files, recommendations, whatever fits the task)
-- `files_read:` / `files_changed:` lists if applicable
+- `read_files:` / `changed_files:` lists if applicable
 - `risks:` (anything the orchestrator should know that could go wrong)
 - `next_recommendation:` (one actionable next step, if any)
 - `confidence:` — `definite` / `likely` / `possible` on your result overall
@@ -67,7 +67,7 @@ findings:
 - bullet 1 (path/file.ts:line)
 - bullet 2
 
-files_read:
+read_files:
 - path/one.ts
 
 risks:

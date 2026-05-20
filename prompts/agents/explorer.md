@@ -42,7 +42,7 @@ Return a compact result with:
 
 - `goal` — one line restating what you were asked to map
 - `findings` — high-signal bullets, each with `path:line` and one-line context
-- `files` — flat list of key files touched by the finding (for the orchestrator to hand off)
+- `read_files` — flat list of key files inspected by the finding (for the orchestrator to hand off)
 - `unknowns` — anything the brief asked for that you couldn't locate, and why
 - `next_recommendation` — the specific next delegation that would make progress (e.g. "oracle to judge the coupling between X and Y", "fixer on src/auth/session.ts with pathScope=src/auth")
 - `confidence` — `definite` / `likely` / `possible` on the overall map
@@ -73,7 +73,7 @@ findings:
 - src/api/middleware/session.ts:18 — reads session, no cache
 - src/infra/redis.ts:9 — Redis client exists but unused by session code
 
-files:
+read_files:
 - src/auth/session.ts
 - src/api/middleware/session.ts
 - src/infra/redis.ts
