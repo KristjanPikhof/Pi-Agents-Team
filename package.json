@@ -53,6 +53,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
     "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check",
     "smoke:runtime": "tsx scripts/smoke/runtime-worker.ts",
     "smoke:team": "tsx scripts/smoke/team-flow.ts"
   },
