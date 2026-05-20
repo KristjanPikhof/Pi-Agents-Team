@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Value } from "typebox/value";
 import { TeamProjectConfigSchema } from "../config";
-import { getProjectConfigPathForScope } from "../project-config/loader";
+import { findNearestProjectConfigPath, getProjectConfigPathForScope } from "../project-config/loader";
 import { formatCommandWarning } from "../ui/display-grammar";
 import type { LoadedTeamProjectConfig } from "../types";
 import { TEAM_PROJECT_SCHEMA_VERSION } from "../types";
@@ -86,7 +86,7 @@ export function persistRoutingMode(
 	const internalScope = scope === "local" ? "project" : "global";
 	const path = getProjectConfigPathForScope(internalScope, cwd);
 	if (!path) {
-		return { error: `Global agents-team.json is disabled (PI_AGENT_TEAM_GLOBAL_CONFIG_PATH=none). Cannot --persist global.` };
+		return { error: `Global agents-team.json is disabled (PI_AGENT_TEAM_GLOBAL_CONFIG_PATH=none). Cannot persist globally.` };
 	}
 
 	let raw: unknown = {};
@@ -94,10 +94,10 @@ export function persistRoutingMode(
 		try {
 			raw = JSON.parse(readFileSync(path, "utf8"));
 		} catch (error) {
-			return { error: `Cannot --persist: ${path} is unparsable (${error instanceof Error ? error.message : String(error)}). Fix the file or back it up first.` };
+			return { error: `Cannot persist: ${path} is unparsable (${error instanceof Error ? error.message : String(error)}). Fix the file or back it up first.` };
 		}
 		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-			return { error: `Cannot --persist: ${path} top-level value is not an object.` };
+			return { error: `Cannot persist: ${path} top-level value is not an object.` };
 		}
 	}
 
@@ -113,8 +113,8 @@ export function persistRoutingMode(
 		warnings.push(`Note: ${path} does not match the current schema (${errors[0]?.message ?? "unknown error"}). The routingMode field was patched but the rest of the file was left untouched.`);
 	}
 	if (scope === "global") {
-		const localPath = getProjectConfigPathForScope("project", cwd);
-		if (localPath && existsSync(localPath)) {
+		const localPath = findNearestProjectConfigPath(cwd);
+		if (localPath) {
 			warnings.push(`Warning: project-local config exists at ${localPath} and shadows this global routingMode in this project.`);
 		}
 	}
@@ -160,11 +160,9 @@ export function runSetRoutingMode(
 
 	const manager = deps.getTeamManager();
 	const previousMode = manager.routingMode;
-	manager.setRoutingMode(mode);
 
-	const lines: string[] = [
-		`${mode === "team" ? "Team enabled" : "Team disabled"} — routing mode: ${previousMode} → ${mode}.`,
-	];
+	const lines: string[] = [];
+	let shouldApplyLiveMode = true;
 
 	if (persist) {
 		if (options.persistAliasDeprecated) {
@@ -172,7 +170,9 @@ export function runSetRoutingMode(
 		}
 		const result = persistRoutingMode(persist, mode, ctx.cwd);
 		if ("error" in result) {
+			shouldApplyLiveMode = false;
 			lines.push(`Persistence failed: ${result.error}`);
+			lines.push(`Routing mode remains ${previousMode}.`);
 		} else {
 			lines.push(`Persisted routingMode=${mode} to ${result.path}.`);
 			if (result.warning) lines.push(result.warning);
@@ -181,7 +181,12 @@ export function runSetRoutingMode(
 		lines.push("Session-only change; resets on /reload or restart. Use --local or --global to persist.");
 	}
 
-	if (mode === "solo") {
+	if (shouldApplyLiveMode) {
+		manager.setRoutingMode(mode);
+		lines.unshift(`${mode === "team" ? "Team enabled" : "Team disabled"} — routing mode: ${previousMode} → ${mode}.`);
+	}
+
+	if (shouldApplyLiveMode && mode === "solo") {
 		lines.push("delegate_task is gated off; agent_status, agent_result, agent_message, ping_agents, wait_for_agents, agent_cancel remain callable.");
 	}
 
