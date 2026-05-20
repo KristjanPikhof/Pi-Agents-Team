@@ -18,6 +18,10 @@ function findScalar(text: string, label: string): string | undefined {
 	return match?.[1]?.trim();
 }
 
+function isSectionHeaderLine(line: string): boolean {
+	return /^[a-z][a-z0-9 _-]*:\s*/i.test(line.trim()) && !/^[-*]\s*/.test(line.trim());
+}
+
 function findList(text: string, label: string): string[] {
 	const lines = text.split("\n");
 	const values: string[] = [];
@@ -33,7 +37,7 @@ function findList(text: string, label: string): string[] {
 		}
 
 		if (!line.trim()) break;
-		if (/^[a-z_ ]+:\s*/i.test(line) && !/^[-*]\s*/.test(line)) break;
+		if (isSectionHeaderLine(line)) break;
 		values.push(trimLine(line));
 	}
 

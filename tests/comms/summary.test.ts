@@ -90,6 +90,28 @@ test("buildWorkerSummaryFromText accepts mixed file-list labels", () => {
 	assert.deepEqual(summary.changedFiles, ["tests/comms/summary.test.ts"]);
 });
 
+test("buildWorkerSummaryFromText stops lists at adjacent hyphenated section headers", () => {
+	const worker = createWorker();
+	const summary = buildWorkerSummaryFromText(
+		[
+			"headline: Hyphenated headers are parsed",
+			"read-files:",
+			"- src/comms/summary.ts",
+			"changed-files:",
+			"- tests/comms/summary.test.ts",
+			"risks:",
+			"- parser regression could absorb following fields",
+			"next-recommendation: reviewer to verify summary extraction",
+		].join("\n"),
+		worker,
+	);
+
+	assert.deepEqual(summary.readFiles, ["src/comms/summary.ts"]);
+	assert.deepEqual(summary.changedFiles, ["tests/comms/summary.test.ts"]);
+	assert.deepEqual(summary.risks, ["parser regression could absorb following fields"]);
+	assert.equal(summary.nextRecommendation, "reviewer to verify summary extraction");
+});
+
 test("buildWorkerSummaryFromText accepts formatter section labels", () => {
 	const worker = createWorker();
 	const summary = buildWorkerSummaryFromText(

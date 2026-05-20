@@ -83,13 +83,15 @@ Every worker prompt (see `prompts/agents/*.md`) assumes:
 
 Each role uses short, machine-friendly fields:
 
+- `headline`
 - `goal`
 - `findings` or `changed_files`
+- `read_files` and/or `changed_files` when file lists matter
 - `risks`
 - `next_recommendation`
 - `relay_question` plus `assumption` **only when** orchestrator input is genuinely needed
 
-Exact field names vary by role. The compact-reporting principle stays the same.
+Canonical file-list labels are `read_files` and `changed_files`. The summary parser still accepts legacy aliases such as `files_read`, `files_changed`, and display labels like `Read files`, but new prompts and examples should use the canonical labels.
 
 ### Placeholder relays are filtered
 
@@ -109,7 +111,7 @@ findings:
 - bullet 1
 - bullet 2
 
-files:
+read_files:
 - path/one.ts
 - path/two.ts
 
