@@ -107,10 +107,16 @@ export function buildWorkerProcessArgs(options: WorkerProcessOptions): string[] 
 export function spawnWorkerProcess(options: WorkerProcessOptions): WorkerProcessHandle {
 	const command = options.command ?? "pi";
 	const args = buildWorkerProcessArgs(options);
+	const isWindows = process.platform === "win32";
 	const child = spawn(command, args, {
 		cwd: options.cwd,
 		env: options.env,
 		stdio: ["pipe", "pipe", "pipe"],
+		// On Windows the `pi` CLI is installed as a `.cmd` batch wrapper.
+		// Node's spawn without shell:true cannot resolve .cmd files via
+		// PATH/PATHEXT, resulting in ENOENT. Enable shell so the OS handles
+		// command resolution on Windows; no-op on other platforms.
+		...(isWindows ? { shell: true } : {}),
 	}) as ChildProcessWithoutNullStreams;
 
 	return new NodeWorkerProcessHandle(child as unknown as WorkerTransport);

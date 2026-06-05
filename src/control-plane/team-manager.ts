@@ -267,6 +267,8 @@ export class TeamManager {
 			// the task prompt's requested-skill instructions are impossible to
 			// satisfy.
 			allowSkills: task.skills !== undefined && task.skills.length > 0,
+			command: this.config.rpc.command,
+			baseArgs: this.config.rpc.args,
 		});
 
 		this.registry.upsertWorker(worker.state);
