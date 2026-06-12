@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
-import type { ThinkingLevel, WorkerExtensionMode } from "../types";
+import type { ThinkingLevel, WorkerExtensionMode, WorkerProjectTrustOverride } from "../types";
 
 export interface WorkerProcessOptions {
 	cwd: string;
@@ -12,6 +12,7 @@ export interface WorkerProcessOptions {
 	tools?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
+	projectTrust?: WorkerProjectTrustOverride;
 	/**
 	 * When true, do NOT pass `--no-skills` to the worker Pi session. Needed when
 	 * the delegated task requested `skills: [...]`: without this, Pi's skill
@@ -91,6 +92,8 @@ class NodeWorkerProcessHandle extends EventEmitter implements WorkerProcessHandl
 export function buildWorkerProcessArgs(options: WorkerProcessOptions): string[] {
 	const args = [...(options.baseArgs ?? ["--mode", "rpc", "--no-session"])];
 
+	if (options.projectTrust === "approve") args.push("--approve");
+	if (options.projectTrust === "no-approve") args.push("--no-approve");
 	if (options.model) args.push("--model", options.model);
 	if (options.thinkingLevel) args.push("--thinking", options.thinkingLevel);
 	if (options.tools && options.tools.length > 0) args.push("--tools", options.tools.join(","));
