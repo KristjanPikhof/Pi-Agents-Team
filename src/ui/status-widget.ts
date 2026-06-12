@@ -3,7 +3,7 @@ import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, typ
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
 import { bold } from "./theme";
-import { formatCompactTokenCount } from "./usage-format";
+import { formatCacheUsage, formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 export const TEAM_STATUS_TIPS = [
@@ -62,10 +62,11 @@ function statusGlyph(worker: WorkerRuntimeState, frame: number): string {
 function buildUsageLine(state: PersistedTeamState): string | undefined {
 	const usage = aggregateWorkerUsage(Object.values(state.activeWorkers), state.prunedWorkerUsageTotals);
 	if (!hasWorkerUsage(usage)) return undefined;
-	return truncateToWidth(
-		`Σ turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · $${usage.costUsd.toFixed(4)}`,
-		HEADER_WIDTH,
-	);
+	const base = `Σ turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · $${usage.costUsd.toFixed(4)}`;
+	const cache = formatCacheUsage(usage);
+	if (!cache) return truncateToWidth(base, HEADER_WIDTH);
+	const withCache = `Σ turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · ${cache} · $${usage.costUsd.toFixed(4)}`;
+	return truncateToWidth(visibleWidth(withCache) <= HEADER_WIDTH ? withCache : base, HEADER_WIDTH);
 }
 
 function buildStatusRow(state: PersistedTeamState): { row: string; includesUsage: boolean } {
