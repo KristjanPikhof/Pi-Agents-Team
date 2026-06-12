@@ -54,6 +54,15 @@ Examples:
 /team <worker-id>
 ```
 
+In TUI sessions with Pi's autocomplete provider API, the editor also understands natural team references:
+
+| Trigger | Suggests | Example |
+|---|---|---|
+| `@` | tracked workers by id, role, status, or task title | `@w1` |
+| `$` | configured worker roles | `$reviewer` |
+
+Suggestions appear at the start of a token after whitespace. File completion is suppressed inside those `@` / `$` tokens so paths and team references do not fight each other. Older Pi versions without the provider API simply skip this enhancement; command-specific completions still work.
+
 - `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact dashboard summary in print mode. Treat it as the full live worker registry: running, queued, idle/reusable, recent terminal, error, and retained-cost state are all reachable there rather than through separate status commands.
 - Top tabs (`1` Workers · `2` Inspect · `3` Console · `4` Cost) are jumped with the number row, or `tab` / `shift+tab` to cycle. The overlay is a single right-anchored stack panel; switch to `Workers` to change selection, then use `Inspect` or `Console` for the selected worker.
 - `/team <worker-id>` skips the roster and opens the overlay on that worker's Inspect tab (tab completion suggests live worker ids).
@@ -417,9 +426,21 @@ Pass `wakeOnRelay: false` if you explicitly want the old "wait for everyone" beh
 
 Expected. Project role config is discovered once on session start, then treated as session-frozen runtime state. Reload/restart the Pi session after editing `agents-team.json` or any project prompt file it references.
 
+### Project-local config is ignored in an untrusted project
+
+On Pi versions that expose Project Trust, Pi Agents Team does not read `<project>/.pi/agent/agents-team.json` until `ctx.isProjectTrusted()` says the project is trusted. This prevents an untrusted repo from changing worker roles, prompt paths, tool access, or path scopes before the operator approves it.
+
+What you see:
+
+- The session uses global config or built-in roles instead of the local file.
+- Delegation still works if global/built-in config is otherwise active.
+- After trusting the project, reload/restart the Pi session so the local config is read and frozen for the session.
+
+Older Pi versions do not expose the trust API; the extension preserves the previous behavior and reads project config at session start.
+
 ### Delegation is disabled because `agents-team.json` is invalid
 
-Expected when the project role config hits a hard error. The extension warns on session start, adds a prompt note telling the orchestrator delegation is disabled, and rejects `delegate_task` until the file is fixed.
+Expected when the winning role config hits a hard error. Project-local files win by presence once the project is trusted: a local file that exists but is invalid does not fall back to global roles, because that could silently broaden a repo-specific role set. The extension warns on session start, adds a prompt note telling the orchestrator delegation is disabled, and rejects `delegate_task` until the file is fixed.
 
 Common causes (hard errors):
 
