@@ -257,23 +257,25 @@ export const _testing = {
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
 	getOrchestratorThinkingLevel,
+	isProjectConfigTrustedForContext,
 	thinkingClampToastKey,
 	thinkingLevelWarningToastKey,
 };
 
 export default function (pi: ExtensionAPI): void {
-	let activeProjectConfig = loadActiveTeamConfig({ cwd: process.cwd(), baseConfig: DEFAULT_TEAM_CONFIG });
+	let activeProjectConfig = loadActiveTeamConfig({
+		cwd: process.cwd(),
+		baseConfig: DEFAULT_TEAM_CONFIG,
+		projectConfigTrusted: false,
+	});
 
 	// Mutate the profileName description to surface the current role list right
 	// in the tool schema. Pi's ToolDefinition.parameters is frozen at
 	// registerTool time with no dynamic-enum seam, but the `description` string
 	// is read by the orchestrator LLM every turn; seeding it here gives the
-	// model a schema-level hint of which names are valid. On /reload the
-	// plugin re-initializes and the description refreshes.
-	const profileListSnapshot = activeProjectConfig.config.profiles.map((profile) => profile.name);
-	const profileListSummary = profileListSnapshot.length > 0 ? profileListSnapshot.join(", ") : "(none declared)";
-	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
-		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
+	// model a schema-level hint of which names are valid. On session_start and
+	// /reload the active config may change, so refresh it after trust-aware load.
+	updateDelegateTaskProfileDescription(activeProjectConfig.config);
 
 	const deriveInitialRoutingMode = (loaded: LoadedTeamProjectConfig): "team" | "solo" => {
 		if (!loaded.enabled || !loaded.delegationEnabled) return "solo";
@@ -740,7 +742,12 @@ export default function (pi: ExtensionAPI): void {
 		activeContext = ctx;
 		reloading = true;
 		try {
-			activeProjectConfig = loadActiveTeamConfig({ cwd: ctx.cwd, baseConfig: DEFAULT_TEAM_CONFIG });
+			activeProjectConfig = loadActiveTeamConfig({
+				cwd: ctx.cwd,
+				baseConfig: DEFAULT_TEAM_CONFIG,
+				projectConfigTrusted: isProjectConfigTrustedForContext(ctx),
+			});
+			updateDelegateTaskProfileDescription(activeProjectConfig.config);
 			await replaceTeamManager(activeProjectConfig.config);
 			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
