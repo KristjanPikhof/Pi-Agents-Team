@@ -60,6 +60,52 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(events.includes("before_agent_start"));
 });
 
+test("extension registers natural autocomplete provider when UI API is available", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const autocompleteFactories: Array<(current: any) => any> = [];
+
+	extension({
+		registerTool() {},
+		registerCommand() {},
+		on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) {
+			handlers.set(event, handler);
+		},
+		appendEntry() {},
+		sendMessage() {},
+	} as any);
+
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-autocomplete-"));
+	const ctx = {
+		cwd,
+		hasUI: true,
+		ui: {
+			notify() {},
+			setStatus() {},
+			setWidget() {},
+			setTitle() {},
+			addAutocompleteProvider(factory: (current: any) => any) {
+				autocompleteFactories.push(factory);
+			},
+		},
+		sessionManager: {
+			getEntries() {
+				return [];
+			},
+		},
+	} as any;
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+	assert.equal(autocompleteFactories.length, 1);
+	const provider = autocompleteFactories[0]!({
+		async getSuggestions() {
+			return null;
+		},
+		applyCompletion() {},
+	} as any);
+	assert.deepEqual(provider.triggerCharacters, ["@", "$"]);
+});
+
 test("extension handles direct agent_start lifecycle without prompt injection hook", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const statusLines: Array<string | undefined> = [];
