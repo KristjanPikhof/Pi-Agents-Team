@@ -248,11 +248,13 @@ Slash commands are supervision controls, not alternate chat channels:
 
 The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. It remains the source of active/relay/worker counts; static command tips live in the bottom status line instead of the top widget. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
+Package-level prompt templates are deliberately separate from internal worker prompts. `package.json` points `pi.prompts` at `./prompt-templates` only, so `/team-review`, `/team-map`, and `/team-fix` are exposed as user slash templates while `prompts/orchestrator.md` and `prompts/agents/*.md` remain internal runtime inputs.
+
 ### Widget layout rules
 
 `buildTeamWidgetLines` (`src/ui/status-widget.ts`):
 
-- **Hidden when empty.** Returns `[]` if no workers are tracked and no retained-pruned usage exists; the extension then clears the widget via `setWidget(key, undefined)`. Retained usage can still render the compact `Σ` line after worker rows are pruned. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
+- **Hidden when empty.** Returns `[]` if no workers are tracked and no retained-pruned usage exists; the extension then clears the widget via `setWidget(key, undefined)`. Retained usage can still render the compact `Σ` line after worker rows are pruned. Non-zero cache counters render as `cache=r…/w…` only when the line still fits; zero-cache workers omit the field. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
 - **Single column with bounded retention.** Per-worker rows are one glyph + id + profile + title/detail + status/elapsed, capped at 8 visible workers. Active rows (`starting`/`running` or workers with relay questions) stay visible; terminal rows (`idle`, `completed`, `aborted`, `error`, `exited`) are retained for five minutes, then summarized as old hidden rows until pruned.
 - **Elapsed display.** Active rows display elapsed time from the current task's `createdAt` when present, falling back to worker `startedAt`. This keeps reused workers from showing worker age as task age without changing reuse or lifecycle semantics.
 - **Full registry handoff.** The compact widget filters old/overflow rows for display only and always points to `/team`; the `/team` overlay is the full live registry for inspecting currently tracked workers.
