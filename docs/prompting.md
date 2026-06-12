@@ -137,7 +137,7 @@ next_recommendation:
 
 Prompt files live under [`../prompts/agents/`](../prompts/agents/) and are loaded by `src/prompts/contracts.ts`. The built-in profile names are a fallback; the active role list comes from the runtime config. The orchestrator prompt is at [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
-User-facing slash prompt templates live separately under [`../prompt-templates/`](../prompt-templates/). `package.json` exposes only that directory through `pi.prompts`, so internal orchestrator/worker prompts are not registered as user templates. The shipped templates (`/team-review`, `/team-map`, `/team-fix`) expand into normal orchestrator requests and still rely on the same direct/delegate/wait/result contract described above.
+Internal orchestrator/worker prompts are runtime inputs only and are not registered as user slash templates.
 
 ## Prompt path resolution
 

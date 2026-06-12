@@ -248,7 +248,7 @@ Slash commands are supervision controls, not alternate chat channels:
 
 The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. It remains the source of active/relay/worker counts; static command tips live in the bottom status line instead of the top widget. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
-Package-level prompt templates are deliberately separate from internal worker prompts. `package.json` points `pi.prompts` at `./prompt-templates` only, so `/team-review`, `/team-map`, and `/team-fix` are exposed as user slash templates while `prompts/orchestrator.md` and `prompts/agents/*.md` remain internal runtime inputs.
+Internal worker prompts are packaged for runtime use only: `prompts/orchestrator.md` and `prompts/agents/*.md` remain internal runtime inputs and are not registered as user slash templates.
 
 ### Widget layout rules
 
