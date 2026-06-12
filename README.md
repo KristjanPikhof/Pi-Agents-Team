@@ -70,6 +70,18 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 | `/team-enable on\|off [--local\|--global]` | Flip routing between **team** and **solo** live for this session. With no flag, the change is session-only and resets on `/reload` or restart. In solo mode the orchestrator answers directly; `delegate_task` rejects with a routing-off error. Other `agent_*` tools stay live so workers spawned earlier remain reachable. The widget collapses to a single `Pi Agents Team — solo` line while workers are tracked, and disappears entirely when none are; the bottom status line shows solo explicitly (`Orchestrator · Solo · Idle` / `Orchestrator · Solo · Working...`) plus a rotating tip such as `Tip: Use /team to view workers`. Pass `--local` or `--global` to persist `routingMode` to that config scope. Legacy `--persist local\|global` still works but is deprecated. `/team-enable on` errors with an "enable first" hint when `enabled: false`. |
 | `/team-init [global\|local] [--force]` | Scaffold `agents-team.json` with every built-in role stamped in place, including each role's default `thinkingLevel`, plus the current `schemaVersion` + `scaffoldVersion` markers, the default `routingMode: "team"`, and top-level worker access defaults like `allowPathsOutsideProject: true`. Refuses existing files without `--force`; on `--force` the previous file is backed up first. |
 
+## Prompt templates
+
+The package exposes three optional slash prompt templates without registering the internal worker/system prompts as user templates:
+
+| Template | Use |
+|---|---|
+| `/team-review [scope]` | Review a change with a reviewer-led team flow. Defaults to `the current change`. |
+| `/team-map [area]` | Map files, data flow, invariants, and risks for an area. Defaults to `the relevant code area`. |
+| `/team-fix [issue]` | Investigate, implement, and verify a fix. Defaults to `the current issue`. |
+
+Examples: `/team-review staged changes`, `/team-map src/runtime`, `/team-fix failing worker reuse test`.
+
 ## How it works (in a nutshell)
 
 The orchestrator may answer trivial, already-known or tiny bounded asks directly; substantial investigation, review, mapping, tests, and multi-file work goes to background workers. 
