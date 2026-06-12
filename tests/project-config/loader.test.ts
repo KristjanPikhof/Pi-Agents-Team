@@ -109,6 +109,34 @@ test("loadActiveTeamConfig active freshness follows project precedence over glob
 	}
 });
 
+test("loadActiveTeamConfig skips project config when project trust is false", () => {
+	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-untrusted-project-"));
+	mkdirSync(join(projectRoot, "app"), { recursive: true });
+	writeProjectConfig(projectRoot, {
+		schemaVersion: 4,
+		enabled: false,
+		roles: {
+			"project-only": { access: { tools: ["read"], write: false } } as any,
+		},
+	});
+	const globalPath = writeGlobalConfig({ schemaVersion: 4, scaffoldVersion: TEAM_SCAFFOLD_VERSION, roles: { reviewer: { prompt: "default" } } });
+
+	const result = loadActiveTeamConfig({
+		cwd: join(projectRoot, "app"),
+		globalConfigPath: globalPath,
+		projectConfigTrusted: false,
+	});
+
+	assert.equal(result.status, "project", "global config still loads through the existing project status shape");
+	assert.equal(result.sourcePath, globalPath);
+	assert.equal(result.enabled, true, "untrusted project enabled:false must not disable delegation");
+	assert.equal(result.delegationEnabled, true);
+	assert.equal(result.layers.length, 1);
+	assert.equal(result.layers[0]?.scope, "global");
+	assert.ok(!result.config.profiles.find((profile) => profile.name === "project-only"), "untrusted project roles must not be injected");
+	assert.ok(result.config.profiles.find((profile) => profile.name === "reviewer"));
+});
+
 test("loadActiveTeamConfig active freshness reports schema-mismatched project with stale scaffold while preserving sourcePath", () => {
 	const projectRoot = mkdtempSync(join(tmpdir(), "pi-agent-team-active-mismatch-"));
 	mkdirSync(join(projectRoot, "app"), { recursive: true });
