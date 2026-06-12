@@ -39,7 +39,6 @@
     "extensions/",
     "src/",
     "prompts/",
-    "prompt-templates/",
     "profiles/",
     "README.md",
     "LICENSE"
@@ -61,9 +60,6 @@
   "pi": {
     "extensions": [
       "./extensions/index.ts"
-    ],
-    "prompts": [
-      "./prompt-templates"
     ]
   },
   "dependencies": {
