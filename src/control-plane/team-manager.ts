@@ -6,6 +6,7 @@ import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
 import { WorkerManager, type AssistantChunk, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
+import { isPathWithinProjectRoot } from "../safety/path-scope";
 import { aggregateWorkerUsage } from "../usage";
 import type {
 	DelegatedTaskInput,
@@ -14,6 +15,7 @@ import type {
 	TeamPathScope,
 	ThinkingLevel,
 	WorkerExtensionMode,
+	WorkerProjectTrustOverride,
 	WorkerRuntimeState,
 	WorkerStatus,
 	WorkerUsageAggregate,
@@ -60,6 +62,14 @@ export interface DelegateTaskRequest {
 	model?: string;
 	orchestratorModel?: string;
 	orchestratorThinkingLevel?: ThinkingLevel;
+	/**
+	 * Trust decision for the visible orchestrator's current project. Undefined
+	 * means the Pi runtime did not expose a trust decision (older Pi), so worker
+	 * launches must not receive new trust override flags.
+	 */
+	projectTrusted?: boolean;
+	/** Root that the orchestrator trust decision applies to. */
+	projectTrustRoot?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
 	systemPromptPath?: string;
