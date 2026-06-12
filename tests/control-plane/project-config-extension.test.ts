@@ -81,6 +81,13 @@ function createExtensionHarness(notifications: Array<{ message: string; level?: 
 	return { tools, handlers, notifications };
 }
 
+function getDelegateTaskProfileDescription(tools: RegisteredTool[]): string {
+	const delegateTask = tools.find((tool) => tool.name === "delegate_task") as RegisteredTool & {
+		parameters?: { properties?: { profileName?: { description?: string } } };
+	};
+	return delegateTask?.parameters?.properties?.profileName?.description ?? "";
+}
+
 function createSessionContext(cwd: string, notifications: Array<{ message: string; level?: string }>) {
 	return {
 		cwd,
@@ -206,6 +213,94 @@ test("valid project config announces the session-frozen handoff and injects a pr
 	const beforeStart = await handlers.get("before_agent_start")?.({ systemPrompt: "base system prompt" }, ctx) as { systemPrompt: string };
 	assert.match(beforeStart.systemPrompt, /Session-frozen project role config loaded from/i);
 	assert.ok(tools.find((tool) => tool.name === "delegate_task"));
+});
+
+test("initial factory config does not read project files before session trust", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-factory-safe-"));
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			"project-only": { access: { tools: ["read"], write: false } } as any,
+		},
+		coordinationMode: "not-a-schema-field",
+	} as any);
+	const previousCwd = process.cwd();
+	process.chdir(root);
+	try {
+		const { tools, handlers, notifications } = createExtensionHarness();
+		const ctx = createSessionContext(root, notifications);
+
+		const beforeStart = await handlers.get("before_agent_start")?.({ systemPrompt: "base system prompt" }, ctx) as { systemPrompt: string };
+
+		assert.doesNotMatch(beforeStart.systemPrompt, /Pi Agents Team is disabled|Delegation is disabled/i);
+		assert.doesNotMatch(getDelegateTaskProfileDescription(tools), /project-only|disabled/i);
+	} finally {
+		process.chdir(previousCwd);
+	}
+});
+
+test("untrusted project config is ignored and cannot disable or inject roles", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-untrusted-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		enabled: false,
+		roles: {
+			"project-only": {
+				whenToUse: "Use for untrusted project role injection.",
+				access: { tools: ["read"], write: false },
+			},
+		},
+	});
+
+	const { tools, handlers, notifications } = createExtensionHarness();
+	const ctx = {
+		...createSessionContext(cwd, notifications),
+		isProjectTrusted() {
+			return false;
+		},
+	} as any;
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	const beforeStart = await handlers.get("before_agent_start")?.({ systemPrompt: "base system prompt" }, ctx) as { systemPrompt: string };
+	const profileDescription = getDelegateTaskProfileDescription(tools);
+
+	assert.ok(!notifications.some(({ message }) => /disabled|invalid agents-team\.json/i.test(message)));
+	assert.doesNotMatch(beforeStart.systemPrompt, /project-only|Pi Agents Team is disabled|Delegation is disabled/i);
+	assert.doesNotMatch(profileDescription, /project-only/);
+	assert.match(profileDescription, /reviewer/);
+});
+
+test("trusted project config loads when ctx.isProjectTrusted returns true", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-trusted-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		scaffoldVersion: TEAM_SCAFFOLD_VERSION,
+		roles: {
+			"trusted-only": {
+				whenToUse: "Use only when the trusted project config is loaded.",
+				access: { tools: ["read"], write: false },
+			},
+		},
+	});
+
+	const { tools, handlers, notifications } = createExtensionHarness();
+	const ctx = {
+		...createSessionContext(cwd, notifications),
+		isProjectTrusted() {
+			return true;
+		},
+	} as any;
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	const beforeStart = await handlers.get("before_agent_start")?.({ systemPrompt: "base system prompt" }, ctx) as { systemPrompt: string };
+
+	assert.ok(notifications.some(({ message }) => /loaded session-frozen project config/i.test(message)));
+	assert.match(beforeStart.systemPrompt, /trusted-only/);
+	assert.match(getDelegateTaskProfileDescription(tools), /trusted-only/);
 });
 
 test("invalid project config warns on session start and blocks delegate_task", async () => {

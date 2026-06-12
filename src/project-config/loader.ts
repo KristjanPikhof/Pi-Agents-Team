@@ -660,6 +660,12 @@ export interface LoadActiveTeamConfigOptions {
 	cwd: string;
 	baseConfig?: TeamConfig;
 	/**
+	 * Whether to consider the nearest project-local `.pi/agent/agents-team.json`.
+	 * Defaults to true for direct loader callers. The extension passes false until
+	 * Pi's project-trust decision says project-local resources are trusted.
+	 */
+	projectConfigTrusted?: boolean;
+	/**
 	 * Override the global config lookup.
 	 * - `undefined` (default): probe `~/.pi/agent/agents-team.json`.
 	 * - `null`: skip the global probe entirely (used by tests for isolation).
@@ -679,7 +685,9 @@ export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cw
 	} else {
 		globalPath = findGlobalProjectConfigPath();
 	}
-	const projectPath = findNearestProjectConfigPath(options.cwd);
+	const projectPath = options.projectConfigTrusted === false
+		? undefined
+		: findNearestProjectConfigPath(options.cwd);
 
 	const layers: TeamProjectConfigLayer[] = [];
 	const diagnostics: ProjectConfigDiagnostic[] = [];

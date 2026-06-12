@@ -137,6 +137,8 @@ next_recommendation:
 
 Prompt files live under [`../prompts/agents/`](../prompts/agents/) and are loaded by `src/prompts/contracts.ts`. The built-in profile names are a fallback; the active role list comes from the runtime config. The orchestrator prompt is at [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
+Internal orchestrator/worker prompts are runtime inputs only and are not registered as user slash templates.
+
 ## Prompt path resolution
 
 Worker prompt lookup follows the active runtime config, not the packaged profile loader alone:

@@ -47,6 +47,7 @@ Package entrypoint (extensions/index.ts)
       ├─ Footer status          (buildTeamStatusLine)
       ├─ Widget                 (buildTeamWidgetLines)
       ├─ Dashboard overlay      (Workers/Inspect/Console/Cost tab bar with action bar + inline modal)
+      ├─ Natural autocomplete   (@worker and $role suggestions when Pi exposes the provider API)
       ├─ Terminal-status toasts (debounced batch per wake)
       └─ Slash commands         (/team, /team-steer, /team-stop, /team-copy, /team-result, /team-enable, /team-init)
 ```
@@ -78,7 +79,8 @@ delegate_task (tool, with reuseWorkerId)
           → profile match          (same profileName)
           → applyLaunchPolicy      (compute would-be plan)
           → launch-snapshot diff   (model, tools, cwd, systemPromptPath,
-                                    extensionMode, thinkingLevel, allowSkills)
+                                    extensionMode, thinkingLevel, allowSkills,
+                                    projectTrust)
           → refreshStats           (pull current context budget)
           → context budget guard   (reject >=80% or <=32768 remaining tokens)
           → registerTask           (fresh taskId)
@@ -89,7 +91,7 @@ delegate_task (tool, with reuseWorkerId)
   ← returns { worker, task }
 ```
 
-Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, skill discovery) are baked at spawn and can't change between tasks. `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error, so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason: different role means different prompt path.
+Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, skill discovery, and project-trust override) are baked at spawn and can't change between tasks. `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error, so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason: different role means different prompt path.
 
 After launch-setting checks, reuse refreshes worker stats and rejects saturated context before registering the new task or sending the prompt. The hard guard rejects `contextPercent >= 80` or `contextRemainingTokens <= 32768`, with an error that includes known budget values and says to delegate fresh. Unknown/null context does not hard-reject; the orchestrator prompt instead biases long, exploratory, or multi-lane work toward fresh workers. There is intentionally no auto-compact fallback.
 
@@ -110,11 +112,22 @@ sets `skills`. When requested skills are present, `TeamManager` passes
 `allowSkills` to the worker process so Pi loads available skill context and the
 worker can apply the requested installed skill names.
 
-### Project role config is discovered once, then frozen
+With Project Trust, `delegate_task` passes the orchestrator's current
+trust decision into `TeamManager` along with the active project root. If the
+worker launch cwd is inside that root, `spawnWorkerProcess` adds `--approve` for
+trusted projects or `--no-approve` for untrusted projects. Launches outside the
+trusted root receive no override. If a host unexpectedly provides no trust
+decision, no trust flag is passed. Because the trust override is a
+process-launch setting, reuse rejects a worker whose stored launch snapshot
+differs on `projectTrust`.
 
-On session start the extension calls `loadActiveTeamConfig({ cwd })`. If it finds the nearest ancestor `agents-team.json`, it resolves project prompt paths and scope roots relative to that file's directory, merges the result onto the built-in profiles, and hands the merged config to `TeamManager`. That merged config is the active runtime authority for the session.
+### Project role config is trust-gated, discovered once, then frozen
 
-The runtime does **not** hot-reload `agents-team.json` mid-session. This avoids a class of bugs where active workers were launched under one role definition and later supervision/tooling reads a different one. If the WINNING config layer is invalid, the extension keeps packaged defaults available for display but marks delegation disabled until the next fixed session start. A fatal parse on a NON-WINNING layer (e.g. a typo in `~/.pi/agent/agents-team.json` while a valid project-local config exists) is diagnostic-only — project wins by file presence, and the broken global surfaces as a warning rather than disabling delegation.
+At extension factory time the package intentionally calls `loadActiveTeamConfig` with `projectConfigTrusted: false`. That gives tool schemas and defaults a safe built-in/global baseline without reading repo-controlled project config before Pi has made a Project Trust decision.
+
+On `session_start`, the extension calls `ctx.isProjectTrusted()`. If the project is trusted, `loadActiveTeamConfig({ cwd, projectConfigTrusted: true })` may read the nearest ancestor `.pi/agent/agents-team.json`; if untrusted, project-local config is skipped and global/built-in config is used. The package now declares Pi `>=0.79.0`; compatibility guards still treat a missing trust API as trusted so tests and unexpected host shapes fail open like older releases rather than crashing. When a project file is loaded, prompt paths and scope roots resolve relative to the config file's project root, then the merged config is handed to `TeamManager`. That merged config is the active runtime authority for the session.
+
+The runtime does **not** hot-reload `agents-team.json` mid-session. This avoids a class of bugs where active workers were launched under one role definition and later supervision/tooling reads a different one. If the WINNING config layer is invalid, the extension keeps packaged defaults available for display but marks delegation disabled until the next fixed session start. A fatal parse on a NON-WINNING layer (e.g. a typo in `~/.pi/agent/agents-team.json` while a valid trusted project-local config exists) is diagnostic-only — project wins by file presence, and the broken global surfaces as a warning rather than disabling delegation.
 
 Boot freshness warnings read `LoadedTeamProjectConfig.activeConfigFreshness`, so only the active layer participates: project-local wins by presence, otherwise global, otherwise none. A stale `scaffoldVersion` or a missing active `scaffoldVersion` on a current-schema file is a soft freshness warning; schema mismatch and fatal parse remain separate warning/error paths. Stale non-winning layers do not toast by default. Freshness toasts are de-duped per process by active scope plus the active version value, or `unknown` when the active file omits `scaffoldVersion`.
 
@@ -236,11 +249,13 @@ Slash commands are supervision controls, not alternate chat channels:
 
 The always-visible widget (glyph + id + profile + short detail, counts bar) replaces the old `/team-status`, `/agents`, and `/ping-agents` commands. It remains the source of active/relay/worker counts; static command tips live in the bottom status line instead of the top widget. Fresh RPC state is pulled when `/team` opens and whenever the operator presses `r` inside the overlay.
 
+Internal worker prompts are packaged for runtime use only: `prompts/orchestrator.md` and `prompts/agents/*.md` remain internal runtime inputs and are not registered as user slash templates.
+
 ### Widget layout rules
 
 `buildTeamWidgetLines` (`src/ui/status-widget.ts`):
 
-- **Hidden when empty.** Returns `[]` if no workers are tracked and no retained-pruned usage exists; the extension then clears the widget via `setWidget(key, undefined)`. Retained usage can still render the compact `Σ` line after worker rows are pruned. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
+- **Hidden when empty.** Returns `[]` if no workers are tracked and no retained-pruned usage exists; the extension then clears the widget via `setWidget(key, undefined)`. Retained usage can still render the compact `Σ` line after worker rows are pruned. Non-zero cache counters render as `cache=r…/w…` only when the line still fits; zero-cache workers omit the field. The extension title bar still shows "Pi Agents Team (mode)" via `titleTemplate`.
 - **Single column with bounded retention.** Per-worker rows are one glyph + id + profile + title/detail + status/elapsed, capped at 8 visible workers. Active rows (`starting`/`running` or workers with relay questions) stay visible; terminal rows (`idle`, `completed`, `aborted`, `error`, `exited`) are retained for five minutes, then summarized as old hidden rows until pruned.
 - **Elapsed display.** Active rows display elapsed time from the current task's `createdAt` when present, falling back to worker `startedAt`. This keeps reused workers from showing worker age as task age without changing reuse or lifecycle semantics.
 - **Full registry handoff.** The compact widget filters old/overflow rows for display only and always points to `/team`; the `/team` overlay is the full live registry for inspecting currently tracked workers.

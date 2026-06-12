@@ -349,6 +349,28 @@ test("widget usage line uses compact token formatter and stays within header wid
 	assert.ok(visibleWidth(usageLine) <= 78, `usage line exceeds 78 cols (${visibleWidth(usageLine)}): ${usageLine}`);
 });
 
+test("widget usage line includes cache metrics when width allows", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = makeWorker({
+		workerId: "w1",
+		status: "running",
+		usage: {
+			turns: 2,
+			inputTokens: 1_000,
+			outputTokens: 2_000,
+			cacheReadTokens: 12_345,
+			cacheWriteTokens: 600,
+			costUsd: 0.1,
+		},
+	});
+
+	const lines = buildTeamWidgetLines(state, { frame: 0, displayCost: true });
+	const usageLine = lines.find((line) => line.includes("Σ turns=2"));
+	assert.ok(usageLine, `expected usage line; got:\n${lines.join("\n")}`);
+	assert.match(usageLine, /cache=r12\.3k\/w600/);
+	assert.ok(visibleWidth(usageLine) <= 100, `usage line exceeds width (${visibleWidth(usageLine)}): ${usageLine}`);
+});
+
 test("widget usage line includes retained pruned totals", () => {
 	const state = createDefaultTeamState();
 	state.prunedWorkerUsageTotals = {

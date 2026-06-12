@@ -4,6 +4,8 @@ Thanks for helping out. This guide covers local setup, the test discipline, and 
 
 ## Local setup
 
+Use Node `>=22.19.0` and Pi `>=0.79.0`.
+
 ```bash
 git clone git@github.com:KristjanPikhof/pi-agents-team.git
 cd pi-agents-team

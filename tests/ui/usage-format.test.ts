@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatCompactTokenCount } from "../../src/ui/usage-format";
+import { formatCacheUsage, formatCompactTokenCount, hasCacheUsage } from "../../src/ui/usage-format";
 
 test("formatCompactTokenCount keeps sub-1000 values raw", () => {
 	assert.equal(formatCompactTokenCount(0), "0");
@@ -21,4 +21,11 @@ test("formatCompactTokenCount keeps six-digit values concise", () => {
 test("formatCompactTokenCount uses lowercase m at million scale", () => {
 	assert.equal(formatCompactTokenCount(1_000_000), "1m");
 	assert.equal(formatCompactTokenCount(1_250_000), "1.3m");
+});
+
+test("formatCacheUsage suppresses zero cache and compacts read/write tokens", () => {
+	assert.equal(hasCacheUsage({ cacheReadTokens: 0, cacheWriteTokens: 0 }), false);
+	assert.equal(formatCacheUsage({ cacheReadTokens: 0, cacheWriteTokens: 0 }), undefined);
+	assert.equal(hasCacheUsage({ cacheReadTokens: 12_345, cacheWriteTokens: 600 }), true);
+	assert.equal(formatCacheUsage({ cacheReadTokens: 12_345, cacheWriteTokens: 600 }), "cache=r12.3k/w600");
 });

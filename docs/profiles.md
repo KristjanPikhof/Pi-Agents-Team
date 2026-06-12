@@ -188,6 +188,8 @@ Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-co
 | `access.extensionMode` | string | `"worker-minimal"` | `"worker-minimal"` or `"disable"`. `"inherit"` is rejected to prevent recursive orchestrators. |
 | `access.canSpawnWorkers` | boolean | `false` | Reserved for role metadata. Workers still run as background RPC peers, not nested user-facing agents. |
 
+Project Trust is not a role field. Worker launches inside the active project root get `--approve` or `--no-approve` from the orchestrator's current session trust. Launches outside that root, or host contexts that unexpectedly provide no trust decision, get no trust override.
+
 ### Writing a good `whenToUse`
 
 This one matters more than the others. The orchestrator picks roles by matching `whenToUse` sentences against whatever the user asked for, so the phrasing directly controls delegation quality.
@@ -301,7 +303,9 @@ Two optional files, in precedence order:
 2. Global: `~/.pi/agent/agents-team.json` (respects `PI_AGENT_TEAM_GLOBAL_CONFIG_PATH` env override — set to `""`/`"none"`/`"null"` to skip, or a path to redirect)
 3. Built-in seven (when neither file is present).
 
-**Project replaces global outright.** If both files exist, only the project file's roles are used. Nothing from global leaks through. This is deliberate. Role-level merging across layers is confusing and makes per-repo role sets hard to reason about.
+On Pi versions with Project Trust, the project-local file is only considered after the session context reports the project as trusted. Until then, the loader skips `.pi/agent/agents-team.json` and uses the global file or built-ins. Older Pi versions do not expose that API, so the extension keeps the previous behavior and reads project config at session start.
+
+**Project replaces global outright once it is trusted and present.** If both files exist, only the project file's roles are used. Nothing from global leaks through. This is deliberate. Role-level merging across layers is confusing and makes per-repo role sets hard to reason about.
 
 **Precedence is by file presence, not validity.** If a project file exists — valid, schema-mismatched, or fatal-parse — project wins outright. A broken global config does NOT disable a valid project config (a typo in `~/.pi/agent/agents-team.json` used to break delegation machine-wide; the loader now only returns `status: "invalid"` when the WINNING layer's parse fails). A non-winning fatal parse becomes a diagnostic warning.
 

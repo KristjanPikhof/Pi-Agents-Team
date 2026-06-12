@@ -1,5 +1,6 @@
 import type { WorkerConsoleEvent } from "../runtime/worker-manager";
 import type { WorkerRuntimeState } from "../types";
+import { hasCacheUsage } from "./usage-format";
 
 function formatTs(ts: number): string {
 	const date = new Date(ts);
@@ -63,10 +64,20 @@ export function buildCopyPayload(
 		}
 	}
 
+	const usageParts = [
+		`turns=${worker.usage.turns}`,
+		`input=${worker.usage.inputTokens}`,
+		`output=${worker.usage.outputTokens}`,
+		...(hasCacheUsage(worker.usage) ? [
+			`cache_read=${worker.usage.cacheReadTokens}`,
+			`cache_write=${worker.usage.cacheWriteTokens}`,
+		] : []),
+		`cost_usd=${worker.usage.costUsd.toFixed(4)}`,
+	];
 	lines.push(
 		"",
 		"## Usage",
-		`turns=${worker.usage.turns}  input=${worker.usage.inputTokens}  output=${worker.usage.outputTokens}  cache_read=${worker.usage.cacheReadTokens}  cache_write=${worker.usage.cacheWriteTokens}  cost_usd=${worker.usage.costUsd.toFixed(4)}`,
+		usageParts.join("  "),
 	);
 
 	if (worker.error) {

@@ -2,6 +2,8 @@
 
 ## Quick start
 
+Requires Node `>=22.19.0` and Pi `>=0.79.0`.
+
 Install dependencies and run the checks:
 
 ```bash
@@ -35,6 +37,15 @@ tsx --test tests/runtime/worker-manager.test.ts
 /team
 /team <worker-id>
 ```
+
+In TUI sessions with Pi's autocomplete provider API, the editor also understands natural team references:
+
+| Trigger | Suggests | Example |
+|---|---|---|
+| `@` | tracked workers by id, role, status, or task title | `@w1` |
+| `$` | configured worker roles | `$reviewer` |
+
+Suggestions appear at the start of a token after whitespace. File completion is suppressed inside those `@` / `$` tokens so paths and team references do not fight each other. Older Pi versions without the provider API simply skip this enhancement; command-specific completions still work.
 
 - `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact dashboard summary in print mode. Treat it as the full live worker registry: running, queued, idle/reusable, recent terminal, error, and retained-cost state are all reachable there rather than through separate status commands.
 - Top tabs (`1` Workers · `2` Inspect · `3` Console · `4` Cost) are jumped with the number row, or `tab` / `shift+tab` to cycle. The overlay is a single right-anchored stack panel; switch to `Workers` to change selection, then use `Inspect` or `Console` for the selected worker.
@@ -73,7 +84,7 @@ Inspect renders status, task, operator-needs, summary, the worker's `<final_answ
 
 Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, then the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. When both streams are present, the assistant group appears first under `— assistant —`; routine event metadata is dimmed, while errors and recovery/queue events are highlighted. Console content is isolated per selected worker.
 
-Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused f/G]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cost. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
+Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused f/G]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cache / cost when cache counters are non-zero. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
 
 ## Inspect a worker's result
 
@@ -131,6 +142,8 @@ To clear every worker row: `/team-stop all` to stop every live worker, then `p` 
 Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per currently tracked worker (turns, input/output tokens, cost) plus a `Σ` aggregate row. The `Σ` row includes active workers and retained usage from workers that were later pruned; when retained usage exists, the Cost tab adds a concise `retained/pruned` note so the aggregate is not confused with the visible per-worker rows. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
 
 Large token counts are abbreviated to keep the overlay and footer readable: `k` means thousands (1,000), and `m` means millions (1,000,000). For example, `in=143.5k` is about 143,500 input tokens and `out=1.3m` is about 1,300,000 output tokens.
+
+When Pi reports cache tokens, non-zero cache counters appear as `cache=r<read>/w<write>` in the Cost tab, copy payloads, and the footer `Σ` line when it fits. Workers with no cache activity omit the cache field so narrow displays stay clean.
 
 The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any active or retained-pruned worker usage is non-zero, so you don't have to open the overlay for the running total. If all workers have been pruned but retained usage exists, the widget can still show the aggregate `Σ` line without per-worker rows.
 
@@ -258,6 +271,8 @@ The orchestrator-facing tool is `delegate_task`. In normal use you do not type t
 The orchestrator may answer directly for trivial, already-known, or tiny bounded checks. It should delegate investigation, review, mapping, tests, and multi-file work to background workers.
 
 If a profile can write files (today, only `fixer`), provide an explicit writable path scope. Launch policy rejects write-capable tasks without one.
+
+When Pi exposes Project Trust, workers launched inside the trusted project root inherit the orchestrator's current trust decision as an explicit Pi CLI override: trusted projects launch with `--approve`, untrusted projects launch with `--no-approve`, and unrelated worker cwd values receive no override. Older Pi versions do not expose a trust decision, so no trust flag is passed and behavior matches older releases. Reuse treats this as a launch setting; a worker spawned with one trust mode cannot be reused for a task that would require the other.
 
 By default, delegated path scopes may include `/tmp`, sibling repos, or other absolute paths. If you need to restrict delegated worker scopes to the discovered project root / current cwd, opt out via `agents-team.json`:
 
@@ -397,9 +412,21 @@ Pass `wakeOnRelay: false` if you explicitly want the old "wait for everyone" beh
 
 Expected. Project role config is discovered once on session start, then treated as session-frozen runtime state. Reload/restart the Pi session after editing `agents-team.json` or any project prompt file it references.
 
+### Project-local config is ignored in an untrusted project
+
+On Pi versions that expose Project Trust, Pi Agents Team does not read `<project>/.pi/agent/agents-team.json` until `ctx.isProjectTrusted()` says the project is trusted. This prevents an untrusted repo from changing worker roles, prompt paths, tool access, or path scopes before the operator approves it.
+
+What you see:
+
+- The session uses global config or built-in roles instead of the local file.
+- Delegation still works if global/built-in config is otherwise active.
+- After trusting the project, reload/restart the Pi session so the local config is read and frozen for the session.
+
+Older Pi versions do not expose the trust API; the extension preserves the previous behavior and reads project config at session start.
+
 ### Delegation is disabled because `agents-team.json` is invalid
 
-Expected when the project role config hits a hard error. The extension warns on session start, adds a prompt note telling the orchestrator delegation is disabled, and rejects `delegate_task` until the file is fixed.
+Expected when the winning role config hits a hard error. Project-local files win by presence once the project is trusted: a local file that exists but is invalid does not fall back to global roles, because that could silently broaden a repo-specific role set. The extension warns on session start, adds a prompt note telling the orchestrator delegation is disabled, and rejects `delegate_task` until the file is fixed.
 
 Common causes (hard errors):
 

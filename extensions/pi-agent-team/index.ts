@@ -16,6 +16,7 @@ import { registerTeamInitCommand } from "../../src/commands/team-init";
 import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
+import { registerTeamAutocomplete } from "../../src/ui/autocomplete";
 import { buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import { formatRelayToast, formatWorkerLabel, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar";
 import { formatAgentMessageResult, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
@@ -75,6 +76,10 @@ type ExtensionContextWithThinkingLevel = ExtensionContext & {
 	getThinkingLevel?: () => ThinkingLevel;
 };
 
+type ExtensionContextWithProjectTrust = ExtensionContext & {
+	isProjectTrusted?: () => boolean;
+};
+
 const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshnessToasts");
 
 function getProcessStableScaffoldFreshnessToasts(): Set<string> {
@@ -90,6 +95,23 @@ function getProcessStableScaffoldFreshnessToasts(): Set<string> {
 function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
 	return (pi as ExtensionAPIWithThinkingLevel).getThinkingLevel?.()
 		?? (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
+}
+
+function getProjectTrustDecisionForContext(ctx: ExtensionContext): boolean | undefined {
+	const isProjectTrusted = (ctx as ExtensionContextWithProjectTrust).isProjectTrusted;
+	if (typeof isProjectTrusted !== "function") return undefined;
+	return isProjectTrusted.call(ctx) === true;
+}
+
+function isProjectConfigTrustedForContext(ctx: ExtensionContext): boolean {
+	return getProjectTrustDecisionForContext(ctx) ?? true;
+}
+
+function updateDelegateTaskProfileDescription(config: TeamConfig): void {
+	const profileListSnapshot = config.profiles.map((profile) => profile.name);
+	const profileListSummary = profileListSnapshot.length > 0 ? profileListSnapshot.join(", ") : "(none declared)";
+	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
+		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
 }
 
 function restoreLatestState(
@@ -240,23 +262,26 @@ export const _testing = {
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
 	getOrchestratorThinkingLevel,
+	getProjectTrustDecisionForContext,
+	isProjectConfigTrustedForContext,
 	thinkingClampToastKey,
 	thinkingLevelWarningToastKey,
 };
 
 export default function (pi: ExtensionAPI): void {
-	let activeProjectConfig = loadActiveTeamConfig({ cwd: process.cwd(), baseConfig: DEFAULT_TEAM_CONFIG });
+	let activeProjectConfig = loadActiveTeamConfig({
+		cwd: process.cwd(),
+		baseConfig: DEFAULT_TEAM_CONFIG,
+		projectConfigTrusted: false,
+	});
 
 	// Mutate the profileName description to surface the current role list right
 	// in the tool schema. Pi's ToolDefinition.parameters is frozen at
 	// registerTool time with no dynamic-enum seam, but the `description` string
 	// is read by the orchestrator LLM every turn; seeding it here gives the
-	// model a schema-level hint of which names are valid. On /reload the
-	// plugin re-initializes and the description refreshes.
-	const profileListSnapshot = activeProjectConfig.config.profiles.map((profile) => profile.name);
-	const profileListSummary = profileListSnapshot.length > 0 ? profileListSnapshot.join(", ") : "(none declared)";
-	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
-		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
+	// model a schema-level hint of which names are valid. On session_start and
+	// /reload the active config may change, so refresh it after trust-aware load.
+	updateDelegateTaskProfileDescription(activeProjectConfig.config);
 
 	const deriveInitialRoutingMode = (loaded: LoadedTeamProjectConfig): "team" | "solo" => {
 		if (!loaded.enabled || !loaded.delegationEnabled) return "solo";
@@ -556,9 +581,10 @@ export default function (pi: ExtensionAPI): void {
 					allowWrite: params.pathScopeAllowWrite === true,
 				}
 				: undefined;
-				const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-				const orchestratorThinkingLevel = getOrchestratorThinkingLevel(pi, ctx);
-				const result = await teamManager.delegateTask({
+			const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+			const orchestratorThinkingLevel = getOrchestratorThinkingLevel(pi, ctx);
+			const projectTrusted = getProjectTrustDecisionForContext(ctx);
+			const result = await teamManager.delegateTask({
 				title: params.title,
 				goal: params.goal,
 				profileName: params.profileName,
@@ -567,11 +593,13 @@ export default function (pi: ExtensionAPI): void {
 				expectedOutput: params.expectedOutput,
 				pathScope,
 				skills: params.skills,
-					model: params.model,
-					orchestratorModel,
-					orchestratorThinkingLevel,
-					reuseWorkerId: params.reuseWorkerId,
-				});
+				model: params.model,
+				orchestratorModel,
+				orchestratorThinkingLevel,
+				projectTrusted,
+				projectTrustRoot: projectTrusted === undefined ? undefined : activeProjectConfig.projectRoot ?? ctx.cwd,
+				reuseWorkerId: params.reuseWorkerId,
+			});
 			teamState = teamManager.snapshot();
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			return {
@@ -723,11 +751,20 @@ export default function (pi: ExtensionAPI): void {
 		activeContext = ctx;
 		reloading = true;
 		try {
-			activeProjectConfig = loadActiveTeamConfig({ cwd: ctx.cwd, baseConfig: DEFAULT_TEAM_CONFIG });
+			activeProjectConfig = loadActiveTeamConfig({
+				cwd: ctx.cwd,
+				baseConfig: DEFAULT_TEAM_CONFIG,
+				projectConfigTrusted: isProjectConfigTrustedForContext(ctx),
+			});
+			updateDelegateTaskProfileDescription(activeProjectConfig.config);
 			await replaceTeamManager(activeProjectConfig.config);
 			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
 			teamManager.restore(teamState);
+			registerTeamAutocomplete(ctx, {
+				getWorkers: () => teamManager.listWorkers(),
+				getProfiles: () => activeProjectConfig.config.profiles,
+			});
 			renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
 

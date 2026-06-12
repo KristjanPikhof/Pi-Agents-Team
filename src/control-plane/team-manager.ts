@@ -6,6 +6,7 @@ import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
 import { WorkerManager, type AssistantChunk, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
+import { isPathWithinProjectRoot } from "../safety/path-scope";
 import { aggregateWorkerUsage } from "../usage";
 import type {
 	DelegatedTaskInput,
@@ -14,6 +15,7 @@ import type {
 	TeamPathScope,
 	ThinkingLevel,
 	WorkerExtensionMode,
+	WorkerProjectTrustOverride,
 	WorkerRuntimeState,
 	WorkerStatus,
 	WorkerUsageAggregate,
@@ -60,6 +62,14 @@ export interface DelegateTaskRequest {
 	model?: string;
 	orchestratorModel?: string;
 	orchestratorThinkingLevel?: ThinkingLevel;
+	/**
+	 * Trust decision for the visible orchestrator's current project. Undefined
+	 * means the Pi runtime did not expose a trust decision (older Pi), so worker
+	 * launches must not receive new trust override flags.
+	 */
+	projectTrusted?: boolean;
+	/** Root that the orchestrator trust decision applies to. */
+	projectTrustRoot?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
 	systemPromptPath?: string;
@@ -94,6 +104,13 @@ function rejectSaturatedReuse(worker: WorkerRuntimeState): void {
 	throw new Error(
 		`Cannot reuse worker ${worker.workerId}: context budget is saturated${details.length > 0 ? ` (${details.join(", ")})` : ""}. Delegate fresh (omit reuseWorkerId).`,
 	);
+}
+
+function resolveWorkerProjectTrustOverride(request: DelegateTaskRequest, launchCwd: string): WorkerProjectTrustOverride | undefined {
+	if (request.projectTrusted === undefined) return undefined;
+	const projectRoot = request.projectTrustRoot ?? request.cwd;
+	if (!isPathWithinProjectRoot(launchCwd, projectRoot, projectRoot)) return undefined;
+	return request.projectTrusted ? "approve" : "no-approve";
 }
 
 export interface AgentResult {
@@ -231,6 +248,7 @@ export class TeamManager {
 			},
 			this.config,
 		);
+		const projectTrust = resolveWorkerProjectTrustOverride(request, launchPlan.cwd);
 		const taskId = this.nextTaskId();
 		const workerId = this.nextWorkerId();
 		const skills = request.skills?.map((name) => name.trim()).filter((name) => name.length > 0);
@@ -261,6 +279,7 @@ export class TeamManager {
 			tools: launchPlan.tools,
 			systemPromptPath: launchPlan.systemPromptPath,
 			extensionMode: launchPlan.extensionMode,
+			projectTrust,
 			// Only enable Pi's skill discovery when the task actually requested
 			// skills. Without this the worker launches with `--no-skills` (set in
 			// buildWorkerProcessArgs), the available skill context is omitted, and
@@ -444,6 +463,7 @@ export class TeamManager {
 			this.config,
 		);
 
+		const projectTrust = resolveWorkerProjectTrustOverride(request, launchPlan.cwd);
 		const skills = request.skills?.map((name) => name.trim()).filter((name) => name.length > 0);
 		const newAllowSkills = skills !== undefined && skills.length > 0;
 		const existing = this.workerManager.getLaunchSnapshot(resolvedId);
@@ -456,6 +476,9 @@ export class TeamManager {
 		if (existing.thinkingLevel !== launchPlan.thinkingLevel) mismatches.push(`thinkingLevel`);
 		if (existing.systemPromptPath !== launchPlan.systemPromptPath) mismatches.push(`systemPromptPath`);
 		if (existing.extensionMode !== launchPlan.extensionMode) mismatches.push(`extensionMode`);
+		if (existing.projectTrust !== projectTrust) {
+			mismatches.push(`projectTrust (${existing.projectTrust ?? "none"} → ${projectTrust ?? "none"})`);
+		}
 		if (!toolsetEqual(existing.tools, launchPlan.tools)) mismatches.push(`tools`);
 		if (existing.allowSkills !== newAllowSkills) {
 			mismatches.push(`skills (worker launched with allowSkills=${existing.allowSkills}, request needs ${newAllowSkills})`);

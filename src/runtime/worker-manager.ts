@@ -19,6 +19,7 @@ import type {
 	DelegatedTaskInput,
 	ThinkingLevel,
 	WorkerExtensionMode,
+	WorkerProjectTrustOverride,
 	WorkerRuntimeState,
 	WorkerStatus,
 	WorkerSummary,
@@ -37,6 +38,7 @@ export interface LaunchWorkerOptions {
 	tools?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
+	projectTrust?: WorkerProjectTrustOverride;
 	allowSkills?: boolean;
 	command?: string;
 	baseArgs?: string[];
@@ -87,6 +89,7 @@ export interface WorkerLaunchSnapshot {
 	tools?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
+	projectTrust?: WorkerProjectTrustOverride;
 	allowSkills: boolean;
 }
 
@@ -216,6 +219,7 @@ function createWorkerProcessOptions(options: LaunchWorkerOptions): WorkerProcess
 		tools: options.tools,
 		systemPromptPath: options.systemPromptPath,
 		extensionMode: options.extensionMode,
+		projectTrust: options.projectTrust,
 		allowSkills: options.allowSkills,
 		extraArgs: options.extraArgs,
 		env: options.env,
@@ -264,6 +268,7 @@ export class WorkerManager {
 				tools: options.tools ? [...options.tools] : undefined,
 				systemPromptPath: options.systemPromptPath,
 				extensionMode: options.extensionMode,
+				projectTrust: options.projectTrust,
 				allowSkills: options.allowSkills === true,
 			},
 		};

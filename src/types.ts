@@ -34,6 +34,9 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 export const WORKER_EXTENSION_MODES = ["inherit", "disable", "worker-minimal"] as const;
 export type WorkerExtensionMode = (typeof WORKER_EXTENSION_MODES)[number];
 
+export const WORKER_PROJECT_TRUST_OVERRIDES = ["approve", "no-approve"] as const;
+export type WorkerProjectTrustOverride = (typeof WORKER_PROJECT_TRUST_OVERRIDES)[number];
+
 export const WORKER_WRITE_POLICIES = ["read-only", "scoped-write"] as const;
 export type WorkerWritePolicy = (typeof WORKER_WRITE_POLICIES)[number];
 

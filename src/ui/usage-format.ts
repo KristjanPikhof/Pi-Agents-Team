@@ -1,4 +1,4 @@
-import type { WorkerUsageStats } from "../types";
+import type { WorkerUsageAggregate, WorkerUsageStats } from "../types";
 
 /**
  * Format token counts for narrow status surfaces.
@@ -11,6 +11,17 @@ export function formatCompactTokenCount(value: number): string {
 	if (value >= 1_000_000) return `${formatScaled(value / 1_000_000)}m`;
 	if (value >= 1_000) return `${formatScaled(value / 1_000)}k`;
 	return `${value}`;
+}
+
+type CacheUsageLike = Pick<WorkerUsageStats | WorkerUsageAggregate, "cacheReadTokens" | "cacheWriteTokens">;
+
+export function hasCacheUsage(usage: CacheUsageLike): boolean {
+	return usage.cacheReadTokens !== 0 || usage.cacheWriteTokens !== 0;
+}
+
+export function formatCacheUsage(usage: CacheUsageLike): string | undefined {
+	if (!hasCacheUsage(usage)) return undefined;
+	return `cache=r${formatCompactTokenCount(usage.cacheReadTokens)}/w${formatCompactTokenCount(usage.cacheWriteTokens)}`;
 }
 
 export function formatContextBudget(usage: WorkerUsageStats): string | undefined {

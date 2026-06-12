@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createDefaultTeamState, normalizePersistedTeamState } from "../../src/config";
-import { addWorkerUsageToAggregate, aggregateWorkerUsage, createZeroWorkerUsageAggregate } from "../../src/usage";
+import { addWorkerUsageToAggregate, aggregateWorkerUsage, createZeroWorkerUsageAggregate, hasWorkerUsage } from "../../src/usage";
 import type { WorkerRuntimeState } from "../../src/types";
 
 function worker(workerId: string, usage: WorkerRuntimeState["usage"]): WorkerRuntimeState {
@@ -44,6 +44,12 @@ test("normalizePersistedTeamState fills missing and partial pruned usage totals"
 		costUsd: 0.5,
 		contextTokens: 0,
 	});
+});
+
+test("hasWorkerUsage treats cache-only aggregates as visible usage", () => {
+	assert.equal(hasWorkerUsage(createZeroWorkerUsageAggregate()), false);
+	assert.equal(hasWorkerUsage({ ...createZeroWorkerUsageAggregate(), cacheReadTokens: 42 }), true);
+	assert.equal(hasWorkerUsage({ ...createZeroWorkerUsageAggregate(), cacheWriteTokens: 7 }), true);
 });
 
 test("usage helpers add active workers to retained totals without mutating inputs", () => {
