@@ -217,7 +217,13 @@ test("valid project config announces the session-frozen handoff and injects a pr
 
 test("initial factory config does not read project files before session trust", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-factory-safe-"));
-	writeProjectConfig(root, buildConfig({}, { enabled: false }));
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			"project-only": { access: { tools: ["read"], write: false } } as any,
+		},
+		coordinationMode: "not-a-schema-field",
+	} as any);
 	const previousCwd = process.cwd();
 	process.chdir(root);
 	try {
