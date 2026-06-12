@@ -1,6 +1,6 @@
 {
   "name": "pi-agents-team",
-  "version": "2026.5.21",
+  "version": "2026.6.13",
   "description": "Pi extension that turns one coding session into a multi-agent team with background RPC worker agents.",
   "license": "MIT",
   "type": "module",
@@ -67,8 +67,8 @@
     "typebox": "^1.0.56"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.74.0",
-    "@earendil-works/pi-tui": ">=0.74.0"
+    "@earendil-works/pi-coding-agent": ">=0.79.0",
+    "@earendil-works/pi-tui": ">=0.79.0"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.74.0",
