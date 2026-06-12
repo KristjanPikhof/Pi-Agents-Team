@@ -580,9 +580,10 @@ export default function (pi: ExtensionAPI): void {
 					allowWrite: params.pathScopeAllowWrite === true,
 				}
 				: undefined;
-				const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-				const orchestratorThinkingLevel = getOrchestratorThinkingLevel(pi, ctx);
-				const result = await teamManager.delegateTask({
+			const orchestratorModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+			const orchestratorThinkingLevel = getOrchestratorThinkingLevel(pi, ctx);
+			const projectTrusted = getProjectTrustDecisionForContext(ctx);
+			const result = await teamManager.delegateTask({
 				title: params.title,
 				goal: params.goal,
 				profileName: params.profileName,
@@ -591,11 +592,13 @@ export default function (pi: ExtensionAPI): void {
 				expectedOutput: params.expectedOutput,
 				pathScope,
 				skills: params.skills,
-					model: params.model,
-					orchestratorModel,
-					orchestratorThinkingLevel,
-					reuseWorkerId: params.reuseWorkerId,
-				});
+				model: params.model,
+				orchestratorModel,
+				orchestratorThinkingLevel,
+				projectTrusted,
+				projectTrustRoot: projectTrusted === undefined ? undefined : activeProjectConfig.projectRoot ?? ctx.cwd,
+				reuseWorkerId: params.reuseWorkerId,
+			});
 			teamState = teamManager.snapshot();
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			return {
