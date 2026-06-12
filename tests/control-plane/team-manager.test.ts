@@ -562,6 +562,52 @@ test("TeamManager applies thinking level precedence: tool param, role level, orc
 	assert.equal(captures[3]?.thinkingLevel, "medium");
 });
 
+test("TeamManager maps same-project trust decisions to worker launch overrides", async () => {
+	const captures: Array<{ projectTrust?: string }> = [];
+	const workerManager = new WorkerManager((options) => {
+		captures.push({ projectTrust: options.projectTrust });
+		return new MockWorkerHandle(new MockWorkerTransport());
+	});
+	const teamManager = new TeamManager({ workerManager });
+	const projectRoot = process.cwd();
+
+	await teamManager.delegateTask({
+		title: "Trusted worker",
+		goal: "same project gets approve",
+		profileName: "reviewer",
+		cwd: projectRoot,
+		projectTrusted: true,
+		projectTrustRoot: projectRoot,
+	});
+	await teamManager.delegateTask({
+		title: "Untrusted worker",
+		goal: "same project gets no-approve",
+		profileName: "reviewer",
+		cwd: projectRoot,
+		projectTrusted: false,
+		projectTrustRoot: projectRoot,
+	});
+	await teamManager.delegateTask({
+		title: "Unknown worker",
+		goal: "old Pi gets no trust flag",
+		profileName: "reviewer",
+		cwd: projectRoot,
+	});
+	await teamManager.delegateTask({
+		title: "Outside project worker",
+		goal: "do not approve unrelated cwd",
+		profileName: "reviewer",
+		cwd: join(projectRoot, "..", "outside-project"),
+		projectTrusted: true,
+		projectTrustRoot: projectRoot,
+	});
+
+	assert.equal(captures[0]?.projectTrust, "approve");
+	assert.equal(captures[1]?.projectTrust, "no-approve");
+	assert.equal(captures[2]?.projectTrust, undefined);
+	assert.equal(captures[3]?.projectTrust, undefined);
+});
+
 async function createIdleReusableTeam(sessionStats?: Record<string, unknown> | (() => Record<string, unknown>), rejectSessionStats?: string) {
 	const transports: MockWorkerTransport[] = [];
 	const workerManager = new WorkerManager(() => {
@@ -868,6 +914,37 @@ test("delegateTask with reuseWorkerId rejects when launch-affecting fields diffe
 				reuseWorkerId: first.worker.workerId,
 			}),
 		/launch settings differ.*model/,
+	);
+});
+
+test("delegateTask with reuseWorkerId rejects when project trust launch override differs", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const teamManager = new TeamManager({ workerManager });
+	const projectRoot = process.cwd();
+
+	const first = await teamManager.delegateTask({
+		title: "Trusted first",
+		goal: "launch with project trust approve",
+		profileName: "reviewer",
+		cwd: projectRoot,
+		projectTrusted: true,
+		projectTrustRoot: projectRoot,
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Untrusted reuse",
+				goal: "should reject because --approve vs --no-approve differs",
+				profileName: "reviewer",
+				cwd: projectRoot,
+				projectTrusted: false,
+				projectTrustRoot: projectRoot,
+				reuseWorkerId: first.worker.workerId,
+			}),
+		/launch settings differ.*projectTrust.*approve.*no-approve/,
 	);
 });
 
