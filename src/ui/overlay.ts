@@ -8,7 +8,7 @@ import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
 import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
-import { formatCompactTokenCount, formatContextBudget } from "./usage-format";
+import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
 import { formatAgentMessageResult } from "./tool-formatters";
 import {
@@ -127,9 +127,15 @@ function inspectField(label: string, value: string): string {
 }
 
 function formatUsage(worker: WorkerRuntimeState): string {
-	const base = `turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}  cost=$${worker.usage.costUsd.toFixed(4)}`;
-	const contextBudget = formatContextBudget(worker.usage);
-	return contextBudget ? `${base}  ${contextBudget}` : base;
+	const parts = [
+		`turns=${worker.usage.turns}`,
+		`in=${formatCompactTokenCount(worker.usage.inputTokens)}`,
+		`out=${formatCompactTokenCount(worker.usage.outputTokens)}`,
+		formatCacheUsage(worker.usage),
+		`cost=$${worker.usage.costUsd.toFixed(4)}`,
+		formatContextBudget(worker.usage),
+	].filter((part): part is string => Boolean(part));
+	return parts.join("  ");
 }
 
 function hasClampedThinking(worker: WorkerRuntimeState): boolean {
@@ -242,6 +248,11 @@ function buildConsoleLines(
 	return lines;
 }
 
+function formatCachePart(usage: { cacheReadTokens: number; cacheWriteTokens: number }): string {
+	const cache = formatCacheUsage(usage);
+	return cache ? `  ${cache}` : "";
+}
+
 function buildCostLines(state: PersistedTeamState): string[] {
 	const workers = Object.values(state.activeWorkers);
 	const total = aggregateWorkerUsage(workers, state.prunedWorkerUsageTotals);
@@ -250,16 +261,16 @@ function buildCostLines(state: PersistedTeamState): string[] {
 	const rows: string[] = [];
 	if (hasWorkerUsage(retained)) {
 		rows.push(
-			`retained/pruned: workers=${retained.workers}  turns=${retained.turns}  in=${formatCompactTokenCount(retained.inputTokens)}  out=${formatCompactTokenCount(retained.outputTokens)}  cost=$${retained.costUsd.toFixed(4)}`,
+			`retained/pruned: workers=${retained.workers}  turns=${retained.turns}  in=${formatCompactTokenCount(retained.inputTokens)}  out=${formatCompactTokenCount(retained.outputTokens)}${formatCachePart(retained)}  cost=$${retained.costUsd.toFixed(4)}`,
 		);
 	}
 	for (const worker of workers) {
 		rows.push(
-			`  ${worker.workerId.padEnd(6)} ${worker.profileName.padEnd(12)} turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}  cost=$${worker.usage.costUsd.toFixed(4)}`,
+			`  ${worker.workerId.padEnd(6)} ${worker.profileName.padEnd(12)} turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}${formatCachePart(worker.usage)}  cost=$${worker.usage.costUsd.toFixed(4)}`,
 		);
 	}
 	return [
-		`Σ workers=${total.workers}  turns=${total.turns}  in=${formatCompactTokenCount(total.inputTokens)}  out=${formatCompactTokenCount(total.outputTokens)}  cost=$${total.costUsd.toFixed(4)}`,
+		`Σ workers=${total.workers}  turns=${total.turns}  in=${formatCompactTokenCount(total.inputTokens)}  out=${formatCompactTokenCount(total.outputTokens)}${formatCachePart(total)}  cost=$${total.costUsd.toFixed(4)}`,
 		"",
 		...(rows.length > 0 ? rows : ["(no tracked workers)"]),
 	];
