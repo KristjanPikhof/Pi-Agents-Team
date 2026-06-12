@@ -188,7 +188,7 @@ Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-co
 | `access.extensionMode` | string | `"worker-minimal"` | `"worker-minimal"` or `"disable"`. `"inherit"` is rejected to prevent recursive orchestrators. |
 | `access.canSpawnWorkers` | boolean | `false` | Reserved for role metadata. Workers still run as background RPC peers, not nested user-facing agents. |
 
-Project Trust is not a role field. On Pi versions that expose a trust decision, worker launches inside the active project root get `--approve` or `--no-approve` from the orchestrator's current session trust. Launches outside that root and older Pi versions get no trust override.
+Project Trust is not a role field. Worker launches inside the active project root get `--approve` or `--no-approve` from the orchestrator's current session trust. Launches outside that root, or host contexts that unexpectedly provide no trust decision, get no trust override.
 
 ### Writing a good `whenToUse`
 
