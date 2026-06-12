@@ -75,6 +75,10 @@ type ExtensionContextWithThinkingLevel = ExtensionContext & {
 	getThinkingLevel?: () => ThinkingLevel;
 };
 
+type ExtensionContextWithProjectTrust = ExtensionContext & {
+	isProjectTrusted?: () => boolean;
+};
+
 const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshnessToasts");
 
 function getProcessStableScaffoldFreshnessToasts(): Set<string> {
@@ -90,6 +94,19 @@ function getProcessStableScaffoldFreshnessToasts(): Set<string> {
 function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
 	return (pi as ExtensionAPIWithThinkingLevel).getThinkingLevel?.()
 		?? (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
+}
+
+function isProjectConfigTrustedForContext(ctx: ExtensionContext): boolean {
+	const isProjectTrusted = (ctx as ExtensionContextWithProjectTrust).isProjectTrusted;
+	if (typeof isProjectTrusted !== "function") return true;
+	return isProjectTrusted.call(ctx) === true;
+}
+
+function updateDelegateTaskProfileDescription(config: TeamConfig): void {
+	const profileListSnapshot = config.profiles.map((profile) => profile.name);
+	const profileListSummary = profileListSnapshot.length > 0 ? profileListSnapshot.join(", ") : "(none declared)";
+	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
+		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
 }
 
 function restoreLatestState(
