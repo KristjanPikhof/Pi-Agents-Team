@@ -96,10 +96,14 @@ function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): 
 		?? (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
 }
 
-function isProjectConfigTrustedForContext(ctx: ExtensionContext): boolean {
+function getProjectTrustDecisionForContext(ctx: ExtensionContext): boolean | undefined {
 	const isProjectTrusted = (ctx as ExtensionContextWithProjectTrust).isProjectTrusted;
-	if (typeof isProjectTrusted !== "function") return true;
+	if (typeof isProjectTrusted !== "function") return undefined;
 	return isProjectTrusted.call(ctx) === true;
+}
+
+function isProjectConfigTrustedForContext(ctx: ExtensionContext): boolean {
+	return getProjectTrustDecisionForContext(ctx) ?? true;
 }
 
 function updateDelegateTaskProfileDescription(config: TeamConfig): void {
@@ -257,6 +261,7 @@ export const _testing = {
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
 	getOrchestratorThinkingLevel,
+	getProjectTrustDecisionForContext,
 	isProjectConfigTrustedForContext,
 	thinkingClampToastKey,
 	thinkingLevelWarningToastKey,

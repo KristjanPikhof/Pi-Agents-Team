@@ -463,6 +463,7 @@ export class TeamManager {
 			this.config,
 		);
 
+		const projectTrust = resolveWorkerProjectTrustOverride(request, launchPlan.cwd);
 		const skills = request.skills?.map((name) => name.trim()).filter((name) => name.length > 0);
 		const newAllowSkills = skills !== undefined && skills.length > 0;
 		const existing = this.workerManager.getLaunchSnapshot(resolvedId);
@@ -475,6 +476,9 @@ export class TeamManager {
 		if (existing.thinkingLevel !== launchPlan.thinkingLevel) mismatches.push(`thinkingLevel`);
 		if (existing.systemPromptPath !== launchPlan.systemPromptPath) mismatches.push(`systemPromptPath`);
 		if (existing.extensionMode !== launchPlan.extensionMode) mismatches.push(`extensionMode`);
+		if (existing.projectTrust !== projectTrust) {
+			mismatches.push(`projectTrust (${existing.projectTrust ?? "none"} → ${projectTrust ?? "none"})`);
+		}
 		if (!toolsetEqual(existing.tools, launchPlan.tools)) mismatches.push(`tools`);
 		if (existing.allowSkills !== newAllowSkills) {
 			mismatches.push(`skills (worker launched with allowSkills=${existing.allowSkills}, request needs ${newAllowSkills})`);
