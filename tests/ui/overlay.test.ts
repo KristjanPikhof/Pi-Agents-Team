@@ -862,13 +862,15 @@ test("cost tab shows retained-only aggregate after all workers are pruned", () =
 	assert.ok(!lines.some((line) => /\bw\d+\b/.test(line)), "expected no per-worker rows");
 });
 
-test("inspect tab usage line uses compact tokens and context budget", () => {
+test("inspect tab usage line uses compact tokens, cache metrics, and context budget", () => {
 	const state = makeState(1);
 	state.activeWorkers.w1!.usage = {
 		...state.activeWorkers.w1!.usage,
 		turns: 7,
 		inputTokens: 1_250_000,
 		outputTokens: 12_345,
+		cacheReadTokens: 12_345,
+		cacheWriteTokens: 600,
 		costUsd: 1.2345,
 		contextTokens: 128_000,
 		contextWindow: 200_000,
@@ -881,6 +883,7 @@ test("inspect tab usage line uses compact tokens and context budget", () => {
 	assert.ok(usageLine, "expected usage line in Inspect tab");
 	assert.ok(usageLine.includes("in=1.3m"), usageLine);
 	assert.ok(usageLine.includes("out=12.3k"), usageLine);
+	assert.ok(usageLine.includes("cache=r12.3k/w600"), usageLine);
 	assert.ok(usageLine.includes("cost=$1.2345"), usageLine);
 	assert.ok(usageLine.includes("ctx=64%/200k rem=72k"), usageLine);
 });

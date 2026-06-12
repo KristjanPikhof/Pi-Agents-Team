@@ -75,3 +75,12 @@ test("buildCopyPayload handles absent final answer and transcript cleanly", () =
 	assert.match(payload, /\(no assistant text captured\)/);
 	assert.doesNotMatch(payload, /## Console timeline/);
 });
+
+test("buildCopyPayload omits cache fields when both cache counters are zero", () => {
+	const worker = makeWorker();
+	worker.usage.cacheReadTokens = 0;
+	worker.usage.cacheWriteTokens = 0;
+	const payload = buildCopyPayload(worker, undefined, undefined);
+	assert.match(payload, /turns=3\s+input=1200\s+output=430\s+cost_usd=0\.0210/);
+	assert.doesNotMatch(payload, /cache_read|cache_write/);
+});
