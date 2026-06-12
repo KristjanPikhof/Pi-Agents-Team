@@ -112,19 +112,20 @@ sets `skills`. When requested skills are present, `TeamManager` passes
 `allowSkills` to the worker process so Pi loads available skill context and the
 worker can apply the requested installed skill names.
 
-When Pi exposes Project Trust, `delegate_task` passes the orchestrator's current
+With Project Trust, `delegate_task` passes the orchestrator's current
 trust decision into `TeamManager` along with the active project root. If the
 worker launch cwd is inside that root, `spawnWorkerProcess` adds `--approve` for
 trusted projects or `--no-approve` for untrusted projects. Launches outside the
-trusted root receive no override, and older Pi versions pass no trust flag at
-all. Because the trust override is a process-launch setting, reuse rejects a
-worker whose stored launch snapshot differs on `projectTrust`.
+trusted root receive no override. If a host unexpectedly provides no trust
+decision, no trust flag is passed. Because the trust override is a
+process-launch setting, reuse rejects a worker whose stored launch snapshot
+differs on `projectTrust`.
 
 ### Project role config is trust-gated, discovered once, then frozen
 
 At extension factory time the package intentionally calls `loadActiveTeamConfig` with `projectConfigTrusted: false`. That gives tool schemas and defaults a safe built-in/global baseline without reading repo-controlled project config before Pi has made a Project Trust decision.
 
-On `session_start`, the extension calls `ctx.isProjectTrusted()` when Pi exposes it. If the project is trusted, `loadActiveTeamConfig({ cwd, projectConfigTrusted: true })` may read the nearest ancestor `.pi/agent/agents-team.json`; if untrusted, project-local config is skipped and global/built-in config is used. Older Pi versions do not expose `isProjectTrusted`, so the loader preserves pre-0.79 behavior and treats project config as trusted. When a project file is loaded, prompt paths and scope roots resolve relative to the config file's project root, then the merged config is handed to `TeamManager`. That merged config is the active runtime authority for the session.
+On `session_start`, the extension calls `ctx.isProjectTrusted()`. If the project is trusted, `loadActiveTeamConfig({ cwd, projectConfigTrusted: true })` may read the nearest ancestor `.pi/agent/agents-team.json`; if untrusted, project-local config is skipped and global/built-in config is used. The package now declares Pi `>=0.79.0`; compatibility guards still treat a missing trust API as trusted so tests and unexpected host shapes fail open like older releases rather than crashing. When a project file is loaded, prompt paths and scope roots resolve relative to the config file's project root, then the merged config is handed to `TeamManager`. That merged config is the active runtime authority for the session.
 
 The runtime does **not** hot-reload `agents-team.json` mid-session. This avoids a class of bugs where active workers were launched under one role definition and later supervision/tooling reads a different one. If the WINNING config layer is invalid, the extension keeps packaged defaults available for display but marks delegation disabled until the next fixed session start. A fatal parse on a NON-WINNING layer (e.g. a typo in `~/.pi/agent/agents-team.json` while a valid trusted project-local config exists) is diagnostic-only — project wins by file presence, and the broken global surfaces as a warning rather than disabling delegation.
 
