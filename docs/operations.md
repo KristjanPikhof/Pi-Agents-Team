@@ -288,6 +288,8 @@ The orchestrator may answer directly for trivial, already-known, or tiny bounded
 
 If a profile can write files (today, only `fixer`), provide an explicit writable path scope. Launch policy rejects write-capable tasks without one.
 
+When Pi exposes Project Trust, workers launched inside the trusted project root inherit the orchestrator's current trust decision as an explicit Pi CLI override: trusted projects launch with `--approve`, untrusted projects launch with `--no-approve`, and unrelated worker cwd values receive no override. Older Pi versions do not expose a trust decision, so no trust flag is passed and behavior matches older releases. Reuse treats this as a launch setting; a worker spawned with one trust mode cannot be reused for a task that would require the other.
+
 By default, delegated path scopes may include `/tmp`, sibling repos, or other absolute paths. If you need to restrict delegated worker scopes to the discovered project root / current cwd, opt out via `agents-team.json`:
 
 ```json
