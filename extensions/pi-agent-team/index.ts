@@ -16,6 +16,7 @@ import { registerTeamInitCommand } from "../../src/commands/team-init";
 import { registerTeamResultCommand } from "../../src/commands/team-result";
 import { registerTeamSteerCommand } from "../../src/commands/team-steer";
 import { registerTeamStopCommand } from "../../src/commands/team-stop";
+import { registerTeamAutocomplete } from "../../src/ui/autocomplete";
 import { buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import { formatRelayToast, formatWorkerLabel, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar";
 import { formatAgentMessageResult, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
@@ -760,6 +761,10 @@ export default function (pi: ExtensionAPI): void {
 			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
 			teamManager.restore(teamState);
+			registerTeamAutocomplete(ctx, {
+				getWorkers: () => teamManager.listWorkers(),
+				getProfiles: () => activeProjectConfig.config.profiles,
+			});
 			renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			persistSnapshot(pi, teamState, activeProjectConfig.config);
 
