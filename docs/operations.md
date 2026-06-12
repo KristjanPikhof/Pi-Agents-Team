@@ -29,6 +29,24 @@ Run one test file:
 tsx --test tests/runtime/worker-manager.test.ts
 ```
 
+## Prompt templates
+
+Installed packages expose three user prompt templates from `prompt-templates/` only; internal role prompts under `prompts/` are packaged for the extension but are not registered as slash templates.
+
+| Template | Expands to |
+|---|---|
+| `/team-review [scope]` | Review `${1:-the current change}` with a reviewer-led team flow. |
+| `/team-map [area]` | Map `${1:-the relevant code area}` with bounded read-only workers. |
+| `/team-fix [issue]` | Fix `${1:-the current issue}` with investigation, scoped implementation, and verification. |
+
+Examples:
+
+```text
+/team-review staged changes
+/team-map src/runtime worker lifecycle
+/team-fix failing reuse guard test
+```
+
 ## Inspect the team
 
 ```text
@@ -73,7 +91,7 @@ Inspect renders status, task, operator-needs, summary, the worker's `<final_answ
 
 Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, then the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. When both streams are present, the assistant group appears first under `— assistant —`; routine event metadata is dimmed, while errors and recovery/queue events are highlighted. Console content is isolated per selected worker.
 
-Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused f/G]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cost. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
+Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused f/G]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cache / cost when cache counters are non-zero. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
 
 ## Inspect a worker's result
 
@@ -131,6 +149,8 @@ To clear every worker row: `/team-stop all` to stop every live worker, then `p` 
 Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per currently tracked worker (turns, input/output tokens, cost) plus a `Σ` aggregate row. The `Σ` row includes active workers and retained usage from workers that were later pruned; when retained usage exists, the Cost tab adds a concise `retained/pruned` note so the aggregate is not confused with the visible per-worker rows. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
 
 Large token counts are abbreviated to keep the overlay and footer readable: `k` means thousands (1,000), and `m` means millions (1,000,000). For example, `in=143.5k` is about 143,500 input tokens and `out=1.3m` is about 1,300,000 output tokens.
+
+When Pi reports cache tokens, non-zero cache counters appear as `cache=r<read>/w<write>` in the Cost tab, copy payloads, and the footer `Σ` line when it fits. Workers with no cache activity omit the cache field so narrow displays stay clean.
 
 The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any active or retained-pruned worker usage is non-zero, so you don't have to open the overlay for the running total. If all workers have been pruned but retained usage exists, the widget can still show the aggregate `Σ` line without per-worker rows.
 
