@@ -106,6 +106,13 @@ function rejectSaturatedReuse(worker: WorkerRuntimeState): void {
 	);
 }
 
+function resolveWorkerProjectTrustOverride(request: DelegateTaskRequest, launchCwd: string): WorkerProjectTrustOverride | undefined {
+	if (request.projectTrusted === undefined) return undefined;
+	const projectRoot = request.projectTrustRoot ?? request.cwd;
+	if (!isPathWithinProjectRoot(launchCwd, projectRoot, projectRoot)) return undefined;
+	return request.projectTrusted ? "approve" : "no-approve";
+}
+
 export interface AgentResult {
 	worker: WorkerRuntimeState;
 	task?: DelegatedTaskInput;
@@ -241,6 +248,7 @@ export class TeamManager {
 			},
 			this.config,
 		);
+		const projectTrust = resolveWorkerProjectTrustOverride(request, launchPlan.cwd);
 		const taskId = this.nextTaskId();
 		const workerId = this.nextWorkerId();
 		const skills = request.skills?.map((name) => name.trim()).filter((name) => name.length > 0);
@@ -271,6 +279,7 @@ export class TeamManager {
 			tools: launchPlan.tools,
 			systemPromptPath: launchPlan.systemPromptPath,
 			extensionMode: launchPlan.extensionMode,
+			projectTrust,
 			// Only enable Pi's skill discovery when the task actually requested
 			// skills. Without this the worker launches with `--no-skills` (set in
 			// buildWorkerProcessArgs), the available skill context is omitted, and
