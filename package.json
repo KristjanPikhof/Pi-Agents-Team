@@ -60,7 +60,8 @@
   "pi": {
     "extensions": [
       "./extensions/index.ts"
-    ]
+    ],
+    "prompts": []
   },
   "dependencies": {
     "typebox": "^1.0.56"

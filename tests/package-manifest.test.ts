@@ -7,9 +7,9 @@ const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
 	pi?: { extensions?: string[]; prompts?: string[] };
 };
 
-test("package manifest registers the extension without exposing prompt templates", () => {
+test("package manifest packages internal prompts without exposing prompt resources", () => {
 	assert.deepEqual(packageJson.pi?.extensions, ["./extensions/index.ts"]);
-	assert.equal(packageJson.pi?.prompts, undefined, "package must not expose user prompt templates");
+	assert.deepEqual(packageJson.pi?.prompts, [], "explicit empty prompts list prevents Pi from exposing packaged prompt resources");
 	assert.ok(!packageJson.files?.includes("prompt-templates/"), "prompt templates must not be included in npm package files");
 	assert.ok(packageJson.files?.includes("prompts/"), "internal prompts still need to ship for worker roles");
 });
