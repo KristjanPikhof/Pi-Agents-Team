@@ -29,24 +29,6 @@ Run one test file:
 tsx --test tests/runtime/worker-manager.test.ts
 ```
 
-## Prompt templates
-
-Installed packages expose three user prompt templates from `prompt-templates/` only; internal role prompts under `prompts/` are packaged for the extension but are not registered as slash templates.
-
-| Template | Expands to |
-|---|---|
-| `/team-review [scope]` | Review `${1:-the current change}` with a reviewer-led team flow. |
-| `/team-map [area]` | Map `${1:-the relevant code area}` with bounded read-only workers. |
-| `/team-fix [issue]` | Fix `${1:-the current issue}` with investigation, scoped implementation, and verification. |
-
-Examples:
-
-```text
-/team-review staged changes
-/team-map src/runtime worker lifecycle
-/team-fix failing reuse guard test
-```
-
 ## Inspect the team
 
 ```text

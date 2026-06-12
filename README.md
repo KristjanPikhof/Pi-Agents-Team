@@ -72,18 +72,6 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 
 In TUI sessions that support editor autocomplete, type `@` to complete tracked workers (`@w1`) and `$` to complete configured roles (`$reviewer`) while writing prompts or command arguments.
 
-## Prompt templates
-
-The package exposes three optional slash prompt templates without registering the internal worker/system prompts as user templates:
-
-| Template | Use |
-|---|---|
-| `/team-review [scope]` | Review a change with a reviewer-led team flow. Defaults to `the current change`. |
-| `/team-map [area]` | Map files, data flow, invariants, and risks for an area. Defaults to `the relevant code area`. |
-| `/team-fix [issue]` | Investigate, implement, and verify a fix. Defaults to `the current issue`. |
-
-Examples: `/team-review staged changes`, `/team-map src/runtime`, `/team-fix failing worker reuse test`.
-
 ## How it works (in a nutshell)
 
 The orchestrator may answer trivial, already-known or tiny bounded asks directly; substantial investigation, review, mapping, tests, and multi-file work goes to background workers. 
