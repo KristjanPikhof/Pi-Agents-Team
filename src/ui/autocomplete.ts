@@ -85,7 +85,7 @@ export function createTeamAutocompleteProvider(
 	current: AutocompleteProvider,
 	sources: TeamAutocompleteSources,
 ): AutocompleteProvider {
-	return {
+	const provider: AutocompleteProvider & { triggerCharacters?: string[] } = {
 		triggerCharacters: ["@", "$"],
 		async getSuggestions(lines, cursorLine, cursorCol, options): Promise<AutocompleteSuggestions | null> {
 			const line = lines[cursorLine] ?? "";
@@ -107,6 +107,7 @@ export function createTeamAutocompleteProvider(
 			return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
 		},
 	};
+	return provider;
 }
 
 export function registerTeamAutocomplete(host: TeamAutocompleteHost, sources: TeamAutocompleteSources): boolean {
