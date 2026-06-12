@@ -74,7 +74,7 @@
     "@earendil-works/pi-coding-agent": "^0.79.2",
     "@earendil-works/pi-tui": "^0.79.2",
     "@types/node": "^25.6.0",
-    "tsx": "^4.21.0",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }
 }
