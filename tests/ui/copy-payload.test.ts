@@ -67,8 +67,8 @@ test("buildCopyPayload includes task, summary, final answer, transcript, activit
 	assert.match(payload, /## Latest assistant text[\s\S]*Here is the complete report/);
 	assert.match(payload, /## Activity[\s\S]*• Ran read src\/runtime\/rpc-client\.ts[\s\S]*export function buildCopyPayload\(\)[\s\S]*… \+4 lines hidden/);
 	assert.match(payload, /• Final answer[\s\S]*Headline: all good/);
-	assert.match(payload, /## Raw console timeline[\s\S]*\[2023-11-14T22:13:20\.000Z\] \[tool_start\] read src\/runtime\/rpc-client\.ts/);
-	assert.match(payload, /## Raw console timeline[\s\S]*\[tool_end\] read → export function buildCopyPayload\(\)\n… \+4 lines hidden/);
+	assert.match(payload, /## Console timeline \(Raw\)[\s\S]*\[2023-11-14T22:13:20\.000Z\] \[tool_start\] read src\/runtime\/rpc-client\.ts/);
+	assert.match(payload, /## Console timeline \(Raw\)[\s\S]*\[tool_end\] read → export function buildCopyPayload\(\)\n… \+4 lines hidden/);
 });
 
 test("buildCopyPayload handles absent final answer and transcript cleanly", () => {
@@ -78,7 +78,7 @@ test("buildCopyPayload handles absent final answer and transcript cleanly", () =
 	assert.match(payload, /\(no <final_answer> block produced\)/);
 	assert.match(payload, /\(no assistant text captured\)/);
 	assert.match(payload, /## Activity\n\(no activity captured\)/);
-	assert.doesNotMatch(payload, /## Raw console timeline/);
+	assert.doesNotMatch(payload, /## Console timeline \(Raw\)/);
 });
 
 test("buildCopyPayload uses provided worker activity events before raw diagnostics", () => {
@@ -103,8 +103,8 @@ test("buildCopyPayload uses provided worker activity events before raw diagnosti
 	]);
 
 	assert.match(payload, /## Activity[\s\S]*• Ran npm test[\s\S]*12\/12 passing[\s\S]*… \+8 lines hidden/);
-	assert.match(payload, /## Raw console timeline[\s\S]*\[tool_start\] bash/);
-	assert.ok(payload.indexOf("## Activity") < payload.indexOf("## Raw console timeline"));
+	assert.match(payload, /## Console timeline \(Raw\)[\s\S]*\[tool_start\] bash/);
+	assert.ok(payload.indexOf("## Activity") < payload.indexOf("## Console timeline (Raw)"));
 });
 
 test("buildCopyPayload omits cache fields when both cache counters are zero", () => {

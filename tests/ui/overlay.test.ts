@@ -475,7 +475,7 @@ test("inspect tab visually separates final answer from latest assistant text and
 	});
 
 	const lines = renderPlain(component, 58);
-	const finalIndex = lines.findIndex((line) => line.includes("Final answer"));
+	const finalIndex = lines.findIndex((line) => line.includes("── Final answer ──"));
 	const latestIndex = lines.findIndex((line) => line.includes("Latest assistant text"));
 	assert.ok(finalIndex >= 0, "expected Final answer header");
 	assert.ok(latestIndex > finalIndex, "expected Latest assistant text after Final answer");
