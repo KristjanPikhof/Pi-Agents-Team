@@ -60,8 +60,8 @@ type ModalKind = "steer" | "message" | "new_task";
 interface ModalState {
 	kind: ModalKind;
 	label: string;
-	buffer: string;
 	workerId?: string;
+	input: LabeledInput;
 }
 
 interface DashboardState {
@@ -830,12 +830,12 @@ export function createTeamDashboardOverlayComponent(
 				setStatus(`Worker ${workerId} is ${worker.status} — RPC disposed; delegate fresh`);
 				return;
 			}
-			state.modal = {
-				kind,
-				label: kind === "steer" ? `Steer ${workerId}: ` : `Message ${workerId}: `,
-				buffer: "",
-				workerId,
-			};
+			const steerLabel = kind === "steer" ? `Steer ${workerId}: ` : `Message ${workerId}: `;
+			const input = new LabeledInput(steerLabel);
+			input.focused = true;
+			input.onSubmit = () => { void submitModal(); };
+			input.onEscape = () => { state.modal = undefined; setStatus("(cancelled)"); };
+			state.modal = { kind, label: steerLabel, workerId, input };
 			return;
 		}
 		// new_task
@@ -852,12 +852,12 @@ export function createTeamDashboardOverlayComponent(
 			setStatus("No profile available for new task");
 			return;
 		}
-		state.modal = {
-			kind: "new_task",
-			label: `New task (${profile}): `,
-			buffer: "",
-			workerId: currentWorker()?.workerId,
-		};
+		const newTaskLabel = `New task (${profile}): `;
+		const newTaskInput = new LabeledInput(newTaskLabel);
+		newTaskInput.focused = true;
+		newTaskInput.onSubmit = () => { void submitModal(); };
+		newTaskInput.onEscape = () => { state.modal = undefined; setStatus("(cancelled)"); };
+		state.modal = { kind: "new_task", label: newTaskLabel, workerId: currentWorker()?.workerId, input: newTaskInput };
 	};
 
 	const submitModal = async () => {
