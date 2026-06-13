@@ -209,77 +209,111 @@ function compactActivityLine(event: WorkerActivityEvent): string | undefined {
 	return undefined;
 }
 
-function buildRecentActivityLines(
+function buildRecentActivityRows(
 	worker: WorkerRuntimeState,
 	transcript: string | undefined,
 	consoleEvents: WorkerConsoleEvent[] | undefined,
 	activityEvents: WorkerActivityEvent[] | undefined,
 ): string[] {
-	const lines: string[] = [inspectSection("Recent activity")];
-	const compact = (activityEvents && activityEvents.length > 0 ? activityEvents : synthesizeActivity([], consoleEvents ?? []))
+	const rows = (activityEvents && activityEvents.length > 0 ? activityEvents : synthesizeActivity([], consoleEvents ?? []))
 		.map(compactActivityLine)
 		.filter((line): line is string => Boolean(line))
 		.filter((line, index, all) => all.indexOf(line) === index)
 		.slice(-4);
-	lines.push(...compact);
 	const transcriptLines = transcript?.trim().split("\n").filter(Boolean) ?? [];
 	const latestThinking = transcriptLines.length <= 3 ? transcriptLines.slice(-1)[0] : undefined;
-	if (latestThinking && !lines.some((line) => line.includes(latestThinking))) lines.push(`• Thinking: ${latestThinking}`);
-	if (worker.finalAnswer && !lines.includes("• Final answer produced")) lines.push("• Final answer produced");
-	return lines.length > 1 ? lines : [];
+	if (latestThinking && !rows.some((line) => line.includes(latestThinking))) rows.push(`• Thinking: ${latestThinking}`);
+	if (worker.finalAnswer && !rows.includes("• Final answer produced")) rows.push("• Final answer produced");
+	return rows;
+}
+
+function formatInspectStatus(worker: WorkerRuntimeState, palette: ThemedPalette): string {
+	const label = worker.status;
+	if (worker.status === "completed" || worker.status === "idle") return palette.successBold(label);
+	if (worker.status === "error" || worker.status === "aborted") return palette.dangerBold(label);
+	if (worker.status === "waiting_followup" || worker.status === "starting" || worker.status === "running") return palette.warningBold(label);
+	return palette.muted(label);
+}
+
+function inspectBlockHeader(label: string, palette: ThemedPalette, badge?: string): string {
+	const suffix = badge ? ` [${badge}]` : "";
+	return `${palette.accent(`${FRAME.topLeft}${FRAME.horizontal} `)}${palette.accentBold(label)}${suffix}${palette.accent(` ${FRAME.horizontal}`)}`;
+}
+
+function inspectBlockFooter(palette: ThemedPalette): string {
+	return palette.accent(`${FRAME.bottomLeft}${FRAME.horizontal}`);
+}
+
+function inspectBlockLine(line: string, palette: ThemedPalette, options: { structured?: boolean } = {}): string {
+	const content = options.structured ? formatStructuredLine(line, classifyTextLine(line).kind) : line;
+	return `${palette.accent(FRAME.vertical)} ${content}`;
+}
+
+function pushInspectBlock(lines: string[], label: string, body: string[], palette: ThemedPalette, badge?: string, options: { structured?: boolean } = {}): void {
+	if (lines.length > 0) lines.push("");
+	lines.push(inspectBlockHeader(label, palette, badge));
+	for (const line of body.length > 0 ? body : ["(none)"]) lines.push(inspectBlockLine(line, palette, options));
+	lines.push(inspectBlockFooter(palette));
+}
+
+function pushInspectList(body: string[], label: string, values: string[], palette: ThemedPalette): void {
+	if (values.length === 0) return;
+	body.push(palette.dim(label));
+	for (const value of values) body.push(`  ${value}`);
 }
 
 function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined, activityEvents: WorkerActivityEvent[] | undefined, palette: ThemedPalette): string {
-	const lines = [
-		`${worker.workerId} · ${worker.profileName} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : ""}`,
-		"",
-		inspectSection("Status", palette),
-		inspectField("Usage:", formatUsage(worker), palette),
-		inspectField("Thinking:", formatThinking(worker, palette), palette),
+	const lines: string[] = [];
+	const reusable = REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : "";
+	const statusBody = [
+		`${worker.workerId} · ${worker.profileName} · ${formatInspectStatus(worker, palette)}${reusable}`,
+		`${palette.dim("Usage:")} ${formatUsage(worker)}`,
+		`${palette.dim("Thinking:")} ${formatThinking(worker, palette)}`,
 	];
-	if (worker.lastToolName) lines.push(inspectField("Last tool:", worker.lastToolName, palette));
-	if (worker.error) lines.push(inspectField("Error:", palette.danger(worker.error), palette));
+	if (worker.lastToolName) statusBody.push(`${palette.dim("Last tool:")} ${worker.lastToolName}`);
+	if (worker.error) statusBody.push(`${palette.dim("Error:")} ${palette.danger(worker.error)}`);
+	pushInspectBlock(lines, "Status", statusBody, palette, formatInspectStatus(worker, palette));
 
-	const recentActivity = buildRecentActivityLines(worker, transcript, consoleEvents, activityEvents);
-	if (recentActivity.length > 0) lines.push("", ...recentActivity);
+	const recentActivity = buildRecentActivityRows(worker, transcript, consoleEvents, activityEvents);
+	if (recentActivity.length > 0) pushInspectBlock(lines, "Recent activity", recentActivity, palette);
 
-	lines.push("", inspectSection("Task"));
+	const taskBody: string[] = [];
 	if (worker.currentTask) {
-		lines.push(`  ${worker.currentTask.title}`);
-		if (worker.currentTask.goal) lines.push(inspectField("Goal:", worker.currentTask.goal));
-		if (worker.currentTask.expectedOutput) lines.push(inspectField("Expected:", worker.currentTask.expectedOutput));
-		appendList(lines, "  Context:", worker.currentTask.contextHints);
-		if (worker.currentTask.pathScope) appendList(lines, "  Path scope:", worker.currentTask.pathScope.roots);
+		taskBody.push(worker.currentTask.title);
+		if (worker.currentTask.goal) taskBody.push(`${palette.dim("Goal:")} ${worker.currentTask.goal}`);
+		if (worker.currentTask.expectedOutput) taskBody.push(`${palette.dim("Expected:")} ${worker.currentTask.expectedOutput}`);
+		pushInspectList(taskBody, "Context:", worker.currentTask.contextHints, palette);
+		if (worker.currentTask.pathScope) pushInspectList(taskBody, "Path scope:", worker.currentTask.pathScope.roots, palette);
 	} else {
-		lines.push("  (none)");
+		taskBody.push("(none)");
 	}
+	pushInspectBlock(lines, "Task", taskBody, palette);
 
-	lines.push("", inspectSection("Needs operator"));
+	const operatorBody: string[] = [];
 	if (worker.pendingRelayQuestions.length === 0) {
-		lines.push("  (none)");
+		operatorBody.push("(none)");
 	} else {
 		for (const relay of worker.pendingRelayQuestions) {
-			lines.push(`  ${warningBold(`[${relay.urgency}]`)} ${relay.question}`);
-			lines.push(inspectField("Assumption:", relay.assumption));
+			operatorBody.push(`${warningBold(`[${relay.urgency}]`)} ${relay.question}`);
+			operatorBody.push(`${palette.dim("Assumption:")} ${relay.assumption}`);
 		}
 	}
+	pushInspectBlock(lines, "Needs operator", operatorBody, palette, worker.pendingRelayQuestions.length > 0 ? "attention" : undefined);
 
-	lines.push("", inspectSection("Summary"));
+	const summaryBody: string[] = [];
 	if (worker.lastSummary) {
-		lines.push(inspectField("Headline:", worker.lastSummary.headline));
-		appendList(lines, "  Read files:", worker.lastSummary.readFiles);
-		appendList(lines, "  Changed files:", worker.lastSummary.changedFiles);
-		appendList(lines, "  Risks:", worker.lastSummary.risks);
-		if (worker.lastSummary.nextRecommendation) lines.push(inspectField("Next:", worker.lastSummary.nextRecommendation));
+		summaryBody.push(`${palette.dim("Headline:")} ${worker.lastSummary.headline}`);
+		pushInspectList(summaryBody, "Read files:", worker.lastSummary.readFiles, palette);
+		pushInspectList(summaryBody, "Changed files:", worker.lastSummary.changedFiles, palette);
+		pushInspectList(summaryBody, "Risks:", worker.lastSummary.risks, palette);
+		if (worker.lastSummary.nextRecommendation) summaryBody.push(`${palette.dim("Next:")} ${worker.lastSummary.nextRecommendation}`);
 	} else {
-		lines.push("  (no summary captured yet)");
+		summaryBody.push("(no summary captured yet)");
 	}
+	pushInspectBlock(lines, "Summary", summaryBody, palette);
 
-	lines.push("", inspectDivider("Final answer"));
-	lines.push(worker.finalAnswer?.trim() || "  (no <final_answer> block produced)");
-
-	lines.push("", inspectDivider("Latest assistant text"));
-	lines.push(transcript?.trim() || "  (no assistant text captured)");
+	pushInspectBlock(lines, "Final answer", (worker.finalAnswer?.trim() || "(no <final_answer> block produced)").split("\n"), palette, worker.finalAnswer ? "ok" : undefined, { structured: true });
+	pushInspectBlock(lines, "Latest assistant text", (transcript?.trim() || "(no assistant text captured)").split("\n"), palette, transcript?.trim() ? "tail" : undefined, { structured: true });
 	return lines.join("\n");
 }
 
