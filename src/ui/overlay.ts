@@ -1394,7 +1394,7 @@ export function createTeamDashboardOverlayComponent(
 				`${workerCount} workers · ${snapshot.relayQueue.length} relays`,
 			]);
 			const selectedHeader = buildSelectedWorkerHeader(worker, innerWidth);
-			const snippet = worker ? buildWorkerPrioritySnippet(worker) : "no worker selected";
+			const snippet = sanitizeTerminalText(worker ? buildWorkerPrioritySnippet(worker) : "no worker selected");
 			const selectedSnippet = firstFitting(innerWidth, [
 				`focus: ${snippet}`,
 				snippet,
