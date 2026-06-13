@@ -434,6 +434,8 @@ Common causes (hard errors):
 - A prompt path escapes the project root.
 - A `pathScope` root escapes the project root while `workerAccess.allowPathsOutsideProject` is explicitly `false`.
 - A role declares `access.extensionMode: "inherit"` (recursion guard).
+- A role combines `access.extensionMode: "disable"` with `access.extensions`.
+- A role declares `access.extensions` that would load `pi-agents-team` itself.
 
 Soft warnings don't disable delegation (the config keeps working):
 
@@ -453,6 +455,32 @@ To fix it, either set that role's `thinkingLevel` to a supported value or pick a
 ### A worker fails immediately with an API-key error
 
 The worker inherits your Pi auth setup. Fix the missing provider key first, then relaunch.
+
+### Windows worker launch fails with `spawn pi ENOENT`
+
+Current builds use `cross-spawn` for worker processes on Windows, so `pi --mode rpc --no-session` should resolve through the same command lookup behavior operators expect from a shell. If you still see `spawn pi ENOENT`, first confirm the Pi CLI is on `PATH` for the process that launched the orchestrator:
+
+```bash
+pi --version
+```
+
+Then restart the terminal or host app, reload Pi, and try delegation again. If the CLI command works in a separate shell but workers still fail, capture the worker error from `/team-result <id>` or `/team-copy <id>` and include the Windows shell/host app, Node version, and extension version; that is a launch bug rather than a role-config problem.
+
+### A custom provider model is unavailable
+
+Expected when the worker model is set to something like `myAnthropic/claude-opus-4-7` but the worker did not load the extension that registers `myAnthropic`. Provider/model extensions must run before Pi resolves the worker model, so put the provider source in that role's `access.extensions` and keep `access.extensionMode: "worker-minimal"`:
+
+```json
+"oracle": {
+  "model": "myAnthropic/claude-opus-4-7",
+  "access": {
+    "extensionMode": "worker-minimal",
+    "extensions": ["./extensions/myAnthropic-provider.ts"]
+  }
+}
+```
+
+The provider extension should call `pi.registerProvider("myAnthropic", ...)` during extension load. Worker-minimal still passes `--no-extensions`, then adds one Pi `--extension`/`-e` source for each `access.extensions` entry. Do not switch to `inherit`, and do not list `pi-agents-team` itself; both are blocked to prevent recursive orchestrators.
 
 ### A worker is restored after reload but not actually running
 
