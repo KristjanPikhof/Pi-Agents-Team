@@ -1,6 +1,7 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_TEAM_CONFIG } from "../config";
 import { getWorkerPromptPath, loadWorkerPrompt } from "../prompts/contracts";
 import { GENERIC_WORKER_PROMPT_SENTINEL } from "../project-config/loader";
@@ -69,6 +70,60 @@ function isExtensionModeNarrowerOrEqual(candidate: WorkerExtensionMode, baseline
  * "bash as escape hatch" for the full rationale.
  */
 const WRITE_CAPABLE_TOOLS: ReadonlySet<string> = new Set(["edit", "write"]);
+const SELF_EXTENSION_PACKAGE_NAME = "pi-agents-team";
+const SELF_EXTENSION_ENTRYPOINTS = [
+	"extensions/index.ts",
+	"extensions/pi-agent-team/index.ts",
+] as const;
+const SELF_EXTENSION_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const SELF_EXTENSION_PATHS: ReadonlySet<string> = new Set(
+	SELF_EXTENSION_ENTRYPOINTS.flatMap((entrypoint) => {
+		const path = resolve(SELF_EXTENSION_PACKAGE_ROOT, entrypoint);
+		const realPath = realpathOrSelf(path);
+		return realPath === path ? [path] : [path, realPath];
+	}),
+);
+
+function realpathOrSelf(path: string): string {
+	try {
+		return realpathSync.native(path);
+	} catch {
+		return path;
+	}
+}
+
+function isSelfPackageExtensionSource(source: string): boolean {
+	const spec = source.startsWith("npm:") ? source.slice("npm:".length) : source;
+	const escapedName = SELF_EXTENSION_PACKAGE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec);
+}
+
+function isPathLikeExtensionSource(source: string): boolean {
+	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return true;
+	if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) return true;
+	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
+	if (source.startsWith("@")) return false;
+	return /[\\/]/.test(source);
+}
+
+export function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
+	const trimmed = source.trim();
+	if (trimmed.length === 0) return false;
+	if (isSelfPackageExtensionSource(trimmed)) return true;
+	if (!isPathLikeExtensionSource(trimmed)) return false;
+
+	const resolved = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed);
+	const realResolved = realpathOrSelf(resolved);
+	return SELF_EXTENSION_PATHS.has(resolved) || SELF_EXTENSION_PATHS.has(realResolved);
+}
+
+function rejectRecursiveOrchestratorExtensions(sources: readonly string[] | undefined, baseDir: string): void {
+	const blockedSource = sources?.find((source) => isRecursiveOrchestratorExtensionSource(source, baseDir));
+	if (!blockedSource) return;
+	throw new Error(
+		`Recursive orchestrator extension source "${blockedSource}" is blocked. Do not load pi-agents-team as a worker extension; use a third-party provider extension instead.`,
+	);
+}
 
 function hasWriteTools(tools: string[]): boolean {
 	return tools.some((tool) => WRITE_CAPABLE_TOOLS.has(tool));
@@ -147,6 +202,7 @@ export function applyLaunchPolicy(
 	if (!isExtensionModeNarrowerOrEqual(extensionMode, request.profile.extensionMode)) {
 		throw new Error("Launch-time extension mode cannot broaden the role's configured extension mode.");
 	}
+	rejectRecursiveOrchestratorExtensions(request.profile.extensions, request.cwd);
 
 	const tools = request.tools ?? request.profile.tools;
 	if (tools.some((tool) => !request.profile.tools.includes(tool))) {

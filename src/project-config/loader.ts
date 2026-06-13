@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Value } from "typebox/value";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
 import {
@@ -141,6 +142,45 @@ function realpathOrSelf(path: string): string {
 	}
 }
 
+const SELF_EXTENSION_PACKAGE_NAME = "pi-agents-team";
+const SELF_EXTENSION_ENTRYPOINTS = [
+	"extensions/index.ts",
+	"extensions/pi-agent-team/index.ts",
+] as const;
+const SELF_EXTENSION_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const SELF_EXTENSION_PATHS: ReadonlySet<string> = new Set(
+	SELF_EXTENSION_ENTRYPOINTS.flatMap((entrypoint) => {
+		const path = resolve(SELF_EXTENSION_PACKAGE_ROOT, entrypoint);
+		const realPath = realpathOrSelf(path);
+		return realPath === path ? [path] : [path, realPath];
+	}),
+);
+
+function isSelfPackageExtensionSource(source: string): boolean {
+	const spec = source.startsWith("npm:") ? source.slice("npm:".length) : source;
+	const escapedName = SELF_EXTENSION_PACKAGE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec);
+}
+
+function isPathLikeExtensionSource(source: string): boolean {
+	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return true;
+	if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) return true;
+	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
+	if (source.startsWith("@")) return false;
+	return /[\\/]/.test(source);
+}
+
+function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
+	const trimmed = source.trim();
+	if (trimmed.length === 0) return false;
+	if (isSelfPackageExtensionSource(trimmed)) return true;
+	if (!isPathLikeExtensionSource(trimmed)) return false;
+
+	const resolved = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed);
+	const realResolved = realpathOrSelf(resolved);
+	return SELF_EXTENSION_PATHS.has(resolved) || SELF_EXTENSION_PATHS.has(realResolved);
+}
+
 interface ResolvedPath {
 	path?: string;
 	diagnostic?: ProjectConfigDiagnostic;
@@ -268,6 +308,17 @@ function normalizeExtensionSources(
 					"error",
 					"extension_source_empty",
 					`Role extension source at ${entryPath} must be a non-empty string.`,
+					entryPath,
+				),
+			);
+			continue;
+		}
+		if (isRecursiveOrchestratorExtensionSource(trimmed, layerRoot)) {
+			diagnostics.push(
+				makeDiagnostic(
+					"error",
+					"recursive_orchestrator_extension_forbidden",
+					`Role extension source at ${entryPath} would load pi-agents-team recursively as a worker extension: ${trimmed}. Use a third-party provider extension instead.`,
 					entryPath,
 				),
 			);
