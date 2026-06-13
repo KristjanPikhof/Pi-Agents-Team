@@ -549,7 +549,7 @@ function materializeRoleProfile(
 		model: normalized.model ?? undefined,
 		thinkingLevel: normalized.thinkingLevel,
 		tools: permissions.tools ? [...permissions.tools] : [...DEFAULT_READ_ONLY_TOOLS],
-		extensions: resolvedExtensions.extensions.length > 0 ? resolvedExtensions.extensions : undefined,
+		...(resolvedExtensions.extensions.length > 0 ? { extensions: resolvedExtensions.extensions } : {}),
 		promptPath: prompt.promptPath,
 		promptInline: prompt.promptInline,
 		extensionMode,
