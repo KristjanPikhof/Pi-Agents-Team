@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TEAM_PROFILE_NAMES, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE, TEAM_SCAFFOLD_VERSION, type TeamProjectConfigFile } from "../../src/types";
@@ -41,6 +41,15 @@ function buildConfig(overrides: Partial<TeamProjectConfigFile["roles"]> = {}): T
 			...overrides,
 		},
 	};
+}
+
+function linkSelfExtensionEntrypoint(root: string, source: string): void {
+	const relativeSource = source.replace(/^\.\//, "");
+	if (!relativeSource.startsWith("extensions/")) return;
+	const linkPath = join(root, relativeSource);
+	const targetPath = resolve(process.cwd(), relativeSource);
+	mkdirSync(resolve(linkPath, ".."), { recursive: true });
+	symlinkSync(targetPath, linkPath);
 }
 
 test("loadActiveTeamConfig exposes project active freshness metadata", () => {
@@ -407,6 +416,47 @@ test("loadActiveTeamConfig v4: extensionMode 'inherit' in role access block is r
 	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "extension_mode_inherit_forbidden"));
 });
 
+test("loadActiveTeamConfig v4: recursive self-extension sources are rejected", () => {
+	const sources = [
+		"pi-agents-team",
+		"npm:pi-agents-team",
+		"./extensions/index.ts",
+		"extensions/index.ts",
+		"./extensions/pi-agent-team/index.ts",
+		resolve(process.cwd(), "extensions/index.ts"),
+		resolve(process.cwd(), "extensions/pi-agent-team/index.ts"),
+	];
+
+	for (const source of sources) {
+		const root = mkdtempSync(join(tmpdir(), "pi-agent-team-self-extension-"));
+		mkdirSync(join(root, "app"), { recursive: true });
+		linkSelfExtensionEntrypoint(root, source);
+		writeProjectConfig(root, {
+			schemaVersion: 4,
+			roles: {
+				reviewer: {
+					access: {
+						extensions: [source],
+					},
+				} as any,
+			},
+		});
+
+		const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+		assert.equal(result.status, "invalid", source);
+		assert.equal(result.delegationEnabled, false, source);
+		assert.ok(
+			result.diagnostics.some(
+				(diagnostic) =>
+					diagnostic.code === "recursive_orchestrator_extension_forbidden" &&
+					diagnostic.fieldPath === "roles.reviewer.access.extensions[0]" &&
+					diagnostic.message.includes(source),
+			),
+			source,
+		);
+	}
+});
+
 test("loadActiveTeamConfig accepts a partial roles map (no required role keys)", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-partial-"));
 	mkdirSync(join(root, "app"), { recursive: true });
@@ -563,6 +613,8 @@ test("loadActiveTeamConfig v4: access.extensions are normalized onto profiles", 
 						"npm:@org/pi-provider",
 						"git:github.com/org/pi-provider@v1",
 						"@org/package-provider",
+						"pi-agents-team-provider",
+						"npm:pi-agents-team-provider",
 						absoluteExtension,
 					],
 				},
@@ -581,6 +633,8 @@ test("loadActiveTeamConfig v4: access.extensions are normalized onto profiles", 
 		"npm:@org/pi-provider",
 		"git:github.com/org/pi-provider@v1",
 		"@org/package-provider",
+		"pi-agents-team-provider",
+		"npm:pi-agents-team-provider",
 		absoluteExtension,
 	]);
 });

@@ -21,6 +21,49 @@ test("applyLaunchPolicy blocks recursive orchestrator inheritance", () => {
 	);
 });
 
+test("applyLaunchPolicy blocks explicit recursive orchestrator extension sources", () => {
+	const sources = [
+		"pi-agents-team",
+		"npm:pi-agents-team",
+		resolve(process.cwd(), "extensions/index.ts"),
+		resolve(process.cwd(), "extensions/pi-agent-team/index.ts"),
+	];
+
+	for (const source of sources) {
+		assert.throws(
+			() =>
+				applyLaunchPolicy({
+					cwd: process.cwd(),
+					profile: {
+						...resolveProfile("reviewer"),
+						extensions: [source],
+					},
+				}),
+			/Recursive orchestrator extension source/,
+			source,
+		);
+	}
+});
+
+test("applyLaunchPolicy allows third-party and local provider extension sources", () => {
+	assert.doesNotThrow(() =>
+		applyLaunchPolicy({
+			cwd: process.cwd(),
+			profile: {
+				...resolveProfile("reviewer"),
+				extensions: [
+					"npm:@org/pi-provider",
+					"git:github.com/org/pi-provider@v1",
+					"@org/package-provider",
+					"./extensions/provider.ts",
+					"pi-agents-team-provider",
+					"npm:pi-agents-team-provider",
+				],
+			},
+		}),
+	);
+});
+
 test("applyLaunchPolicy requires writable path scope for fixer", () => {
 	assert.throws(
 		() =>
