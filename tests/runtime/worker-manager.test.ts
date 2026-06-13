@@ -890,6 +890,118 @@ test("assistant ring buffer caps line and byte budget", async () => {
 	assert.ok(last.index >= 299, `expected monotonic indexes preserved across cap, last=${last.index}`);
 });
 
+test("activity stream pairs tool start and end into bounded command entries while preserving raw console", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-activity-tool",
+		profileName: "reviewer",
+		task: taskInput("task-activity-tool", "Activity tool"),
+		cwd: process.cwd(),
+		tools: ["bash"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-activity-tool", "run command");
+	await waitForMicrotasks();
+
+	transport.writeEvent({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: { command: "npm test" } });
+	transport.writeEvent({
+		type: "tool_execution_end",
+		toolCallId: "call-1",
+		toolName: "bash",
+		result: { content: [{ type: "text", text: "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight" }] },
+		isError: false,
+	});
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-activity-tool") ?? [];
+	const command = activity.find((event) => event.toolCallId === "call-1");
+	assert.ok(command);
+	assert.equal(command.actionKind, "command");
+	assert.equal(command.status, "completed");
+	assert.equal(command.label, "Ran npm test");
+	assert.equal(command.command, "npm test");
+	assert.match(command.outputSnippet ?? "", /one\ntwo/);
+	assert.doesNotMatch(command.outputSnippet ?? "", /seven/);
+	assert.equal(command.hiddenLineCount, 2);
+	assert.equal(command.sourceEvent, "worker_tool_finished");
+
+	const consoleEvents = manager.getWorkerConsole("worker-activity-tool") ?? [];
+	assert.ok(consoleEvents.some((event) => event.kind === "tool_start" && event.text.includes("npm test")));
+	assert.ok(consoleEvents.some((event) => event.kind === "tool_end" && event.text.includes("one")));
+});
+
+test("activity stream extracts process and final-answer summaries without adding persisted fields", async () => {
+	const finalAnswerBody = [
+		"headline: implemented activity lane",
+		"risks:",
+		"- overlay wiring remains separate",
+		"next_recommendation: hand off to UI lane",
+	].join("\n");
+	const transport = new MockWorkerTransport({
+		promptText: `mapping runtime state\n<final_answer>\n${finalAnswerBody}\n</final_answer>`,
+	});
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+	const observed: string[] = [];
+	const off = manager.onActivityEvent((workerId, event) => observed.push(`${workerId}:${event.actionKind}:${event.label}`));
+
+	await manager.launchWorker({
+		workerId: "worker-activity-final",
+		profileName: "reviewer",
+		task: taskInput("task-activity-final", "Activity final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-activity-final", "summarize");
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	manager.getWorkerActivity("worker-activity-final");
+	const worker = manager.getWorker("worker-activity-final");
+	const activity = manager.getWorkerActivity("worker-activity-final") ?? [];
+	const processEntry = activity.find((event) => event.actionKind === "process");
+	const finalEntry = activity.find((event) => event.actionKind === "final_summary");
+	assert.ok(processEntry);
+	assert.match(processEntry.summary ?? "", /Working on:/);
+	assert.ok(finalEntry);
+	assert.equal(finalEntry.label, "Final answer");
+	assert.equal(finalEntry.finalSummaryFields?.headline, "implemented activity lane");
+	assert.deepEqual(finalEntry.finalSummaryFields?.risks, ["overlay wiring remains separate"]);
+	assert.equal(finalEntry.finalSummaryFields?.nextRecommendation, "hand off to UI lane");
+	assert.match(finalEntry.summary ?? "", /implemented activity lane/);
+	assert.equal((worker?.state as Record<string, unknown>).activity, undefined);
+	assert.ok(observed.some((event) => event.includes("worker-activity-final:final_summary:Final answer")));
+	off();
+});
+
+test("activity stream remains bounded independently from console events", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-activity-cap",
+		profileName: "reviewer",
+		task: taskInput("task-activity-cap", "Activity cap"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-activity-cap", "many events");
+	await waitForMicrotasks();
+	for (let i = 0; i < 620; i += 1) {
+		transport.writeEvent({ type: "tool_execution_start", toolCallId: `call-${i}`, toolName: "read", args: { path: `file-${i}.ts` } });
+	}
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-activity-cap") ?? [];
+	const consoleEvents = manager.getWorkerConsole("worker-activity-cap") ?? [];
+	assert.ok(activity.length <= 500, `activity buffer should be capped, got ${activity.length}`);
+	assert.ok(consoleEvents.length <= 500, `console buffer should be capped, got ${consoleEvents.length}`);
+	assert.ok(activity.at(-1)?.summary?.includes("file-619.ts"));
+	assert.ok(consoleEvents.at(-1)?.text.includes("file-619.ts"));
+});
+
 test("applyNormalizedEvent captures <final_answer> contents on message_end", async () => {
 	const finalAnswerBody = "headline: guard regression verified\nfiles:\n- src/runtime/worker-manager.ts";
 	const transport = new MockWorkerTransport({

@@ -4,7 +4,7 @@ import { TaskRegistry } from "./task-registry";
 import { resolveWorkerMessageDelivery, type WorkerMessageDeliveryResolved } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
-import { WorkerManager, type AssistantChunk, type ManagedWorkerRecord, type WorkerConsoleEvent } from "../runtime/worker-manager";
+import { WorkerManager, type AssistantChunk, type ManagedWorkerRecord, type WorkerActivityEvent, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
 import { isPathWithinProjectRoot } from "../safety/path-scope";
 import { aggregateWorkerUsage } from "../usage";
@@ -341,12 +341,20 @@ export class TeamManager {
 		return this.workerManager.getWorkerConsole(workerId);
 	}
 
+	getWorkerActivity(workerId: string): WorkerActivityEvent[] | undefined {
+		return this.workerManager.getWorkerActivity(workerId);
+	}
+
 	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[] {
 		return this.workerManager.getAssistantTail(workerId, fromIndex);
 	}
 
 	onAssistantChunk(listener: (workerId: string, chunk: AssistantChunk) => void): () => void {
 		return this.workerManager.onAssistantChunk(listener);
+	}
+
+	onActivityEvent(listener: (workerId: string, event: WorkerActivityEvent) => void): () => void {
+		return this.workerManager.onActivityEvent(listener);
 	}
 
 	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult> {
