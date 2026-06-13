@@ -34,6 +34,7 @@ export interface LaunchPolicyResult {
 	model?: string;
 	thinkingLevel: ThinkingLevel;
 	tools: string[];
+	workerExtensions?: string[];
 	extensionMode: WorkerExtensionMode;
 	systemPromptPath: string;
 }
@@ -203,6 +204,9 @@ export function applyLaunchPolicy(
 		throw new Error("Launch-time extension mode cannot broaden the role's configured extension mode.");
 	}
 	rejectRecursiveOrchestratorExtensions(request.profile.extensions, request.cwd);
+	if (extensionMode === "disable" && request.profile.extensions && request.profile.extensions.length > 0) {
+		throw new Error("Worker extension sources cannot be configured when extensionMode is disable.");
+	}
 
 	const tools = request.tools ?? request.profile.tools;
 	if (tools.some((tool) => !request.profile.tools.includes(tool))) {
@@ -221,6 +225,7 @@ export function applyLaunchPolicy(
 		model: request.model ?? request.profile.model ?? request.orchestratorModel,
 		thinkingLevel: request.thinkingLevel ?? request.profile.thinkingLevel ?? request.orchestratorThinkingLevel ?? "medium",
 		tools,
+		workerExtensions: request.profile.extensions ? [...request.profile.extensions] : undefined,
 		extensionMode,
 		systemPromptPath: resolveSystemPromptPath(request, config),
 	};

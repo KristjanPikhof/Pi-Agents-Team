@@ -284,6 +284,7 @@ export class TeamManager {
 			model: launchPlan.model,
 			thinkingLevel: launchPlan.thinkingLevel,
 			tools: launchPlan.tools,
+			workerExtensions: launchPlan.workerExtensions,
 			systemPromptPath: launchPlan.systemPromptPath,
 			extensionMode: launchPlan.extensionMode,
 			projectTrust,
@@ -489,6 +490,7 @@ export class TeamManager {
 		if (existing.thinkingLevel !== launchPlan.thinkingLevel) mismatches.push(`thinkingLevel`);
 		if (existing.systemPromptPath !== launchPlan.systemPromptPath) mismatches.push(`systemPromptPath`);
 		if (existing.extensionMode !== launchPlan.extensionMode) mismatches.push(`extensionMode`);
+		if (!orderedArrayEqual(existing.workerExtensions, launchPlan.workerExtensions)) mismatches.push(`workerExtensions`);
 		if (existing.projectTrust !== projectTrust) {
 			mismatches.push(`projectTrust (${existing.projectTrust ?? "none"} → ${projectTrust ?? "none"})`);
 		}

@@ -36,6 +36,7 @@ export interface LaunchWorkerOptions {
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
+	workerExtensions?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
 	projectTrust?: WorkerProjectTrustOverride;
@@ -89,6 +90,7 @@ export interface WorkerLaunchSnapshot {
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
+	workerExtensions?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
 	projectTrust?: WorkerProjectTrustOverride;
@@ -219,6 +221,7 @@ function createWorkerProcessOptions(options: LaunchWorkerOptions): WorkerProcess
 		model: options.model,
 		thinkingLevel: options.thinkingLevel,
 		tools: options.tools,
+		workerExtensions: options.workerExtensions,
 		systemPromptPath: options.systemPromptPath,
 		extensionMode: options.extensionMode,
 		projectTrust: options.projectTrust,
@@ -270,6 +273,7 @@ export class WorkerManager {
 				model: options.model,
 				thinkingLevel: options.thinkingLevel,
 				tools: options.tools ? [...options.tools] : undefined,
+				workerExtensions: options.workerExtensions ? [...options.workerExtensions] : undefined,
 				systemPromptPath: options.systemPromptPath,
 				extensionMode: options.extensionMode,
 				projectTrust: options.projectTrust,
@@ -316,6 +320,7 @@ export class WorkerManager {
 			...record.launchSnapshot,
 			baseArgs: record.launchSnapshot.baseArgs ? [...record.launchSnapshot.baseArgs] : undefined,
 			tools: record.launchSnapshot.tools ? [...record.launchSnapshot.tools] : undefined,
+			workerExtensions: record.launchSnapshot.workerExtensions ? [...record.launchSnapshot.workerExtensions] : undefined,
 		} : undefined;
 	}
 
