@@ -26,6 +26,31 @@ import { FRAME, stripAnsi, fallbackPalette, themedPalette, type ThemedPalette } 
 // standalone helper signature.
 let currentPalette: ThemedPalette = fallbackPalette;
 
+const fallbackTheme = {
+	fg(role: string, text: string): string {
+		if (!text) return text;
+		if (role === "accent") return fallbackPalette.accent(text);
+		if (role === "success") return fallbackPalette.success(text);
+		if (role === "warning") return fallbackPalette.warning(text);
+		if (role === "error") return fallbackPalette.danger(text);
+		if (role === "dim" || role === "muted" || role === "border") return fallbackPalette.muted(text);
+		return text;
+	},
+	bold: fallbackPalette.bold,
+	inverse: fallbackPalette.inverse,
+} as Theme;
+
+function isUsableTheme(theme?: Theme): theme is Theme {
+	return !!theme
+		&& typeof (theme as Theme).fg === "function"
+		&& typeof (theme as Theme).bold === "function"
+		&& typeof (theme as Theme).inverse === "function";
+}
+
+function resolveTheme(theme?: Theme): Theme {
+	return isUsableTheme(theme) ? theme : fallbackTheme;
+}
+
 const bold = (text: string): string => currentPalette.bold(text);
 const dim = (text: string): string => currentPalette.dim(text);
 const muted = (text: string): string => currentPalette.muted(text);
@@ -42,7 +67,7 @@ const inverse = (text: string): string => currentPalette.inverse(text);
 function setPalette(theme?: Theme): void {
 	// The factory may hand us an empty object in tests; only switch to a real
 	// Pi Theme when the expected callbacks are present so styling never breaks.
-	if (theme && typeof (theme as Theme).fg === "function" && typeof (theme as Theme).bold === "function") {
+	if (isUsableTheme(theme)) {
 		currentPalette = themedPalette(theme);
 	} else {
 		currentPalette = fallbackPalette;
