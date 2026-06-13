@@ -684,11 +684,14 @@ interface OverlayTeamManager {
 	displayCost?: boolean;
 }
 
+export const TEAM_DASHBOARD_INITIAL_REFRESH_TIMEOUT_MS = 5_000;
+
 export interface OpenTeamDashboardOptions {
 	initialWorkerId?: string;
 	cwd?: string;
 	displayCost?: boolean;
 	theme?: Theme;
+	initialRefreshTimeoutMs?: number;
 }
 
 export function createTeamDashboardOverlayComponent(
@@ -1313,10 +1316,26 @@ export async function openTeamDashboardOverlay(
 
 	class DashboardLoader implements Component {
 		private child: Component & { dispose?(): void; handleInput?(data: string): void };
+		private disposed = false;
+		private disposeHandlers: Array<() => void> = [];
 		constructor(child: Component & { dispose?(): void; handleInput?(data: string): void }) {
 			this.child = child;
 		}
+		onDispose(handler: () => void): void {
+			if (this.disposed) {
+				handler();
+				return;
+			}
+			this.disposeHandlers.push(handler);
+		}
+		isDisposed(): boolean {
+			return this.disposed;
+		}
 		replace(child: Component & { dispose?(): void; handleInput?(data: string): void }): void {
+			if (this.disposed) {
+				child.dispose?.();
+				return;
+			}
 			this.child.dispose?.();
 			this.child = child;
 		}
@@ -1330,6 +1349,9 @@ export async function openTeamDashboardOverlay(
 			this.child.handleInput?.(data);
 		}
 		dispose(): void {
+			if (this.disposed) return;
+			this.disposed = true;
+			for (const handler of this.disposeHandlers.splice(0)) handler();
 			this.child.dispose?.();
 		}
 	}
@@ -1338,21 +1360,31 @@ export async function openTeamDashboardOverlay(
 		(tui, theme, _keybindings, done) => {
 			const loader = new BorderedLoader(tui, theme as Theme, "Loading team dashboard…", { cancellable: false });
 			const wrapper = new DashboardLoader(loader);
+			const timeoutMs = Math.max(0, options.initialRefreshTimeoutMs ?? TEAM_DASHBOARD_INITIAL_REFRESH_TIMEOUT_MS);
+			let dashboardShown = false;
+			const showDashboard = () => {
+				if (dashboardShown || wrapper.isDisposed()) return;
+				dashboardShown = true;
+				const state = teamManager.snapshot();
+				const resolvedFocusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
+					? options.initialWorkerId
+					: focusWorkerId;
+				wrapper.replace(createTeamDashboardOverlayComponent(
+					tui as TUI,
+					teamManager as unknown as OverlayTeamManager,
+					state,
+					done,
+					{ initialWorkerId: resolvedFocusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme },
+				));
+				tui.requestRender();
+			};
+			const timer = setTimeout(showDashboard, timeoutMs);
+			wrapper.onDispose(() => clearTimeout(timer));
 			teamManager.pingWorkers({ mode: "active" })
 				.catch(() => {})
 				.then(() => {
-					const state = teamManager.snapshot();
-					const resolvedFocusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
-						? options.initialWorkerId
-						: focusWorkerId;
-					wrapper.replace(createTeamDashboardOverlayComponent(
-						tui as TUI,
-						teamManager as unknown as OverlayTeamManager,
-						state,
-						done,
-						{ initialWorkerId: resolvedFocusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme },
-					));
-					tui.requestRender();
+					clearTimeout(timer);
+					showDashboard();
 				});
 			return wrapper;
 		},

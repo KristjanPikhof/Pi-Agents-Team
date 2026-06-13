@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { createDefaultTeamState } from "../../src/config";
 import type { TeamManager } from "../../src/control-plane/team-manager";
 import {
@@ -8,6 +9,7 @@ import {
 	createTeamDashboardOverlayComponent,
 	openTeamDashboardOverlay,
 	sanitizeText,
+	TEAM_DASHBOARD_INITIAL_REFRESH_TIMEOUT_MS,
 	TEAM_DASHBOARD_OVERLAY_OPTIONS,
 } from "../../src/ui/overlay";
 import { stripAnsi } from "../../src/ui/theme";
@@ -24,6 +26,22 @@ interface OverlayComponent {
 
 function renderPlain(component: OverlayComponent, width: number): string[] {
 	return (component as { render(w: number): string[] }).render(width).map(stripAnsi);
+}
+
+function makeFakeTheme(): Theme {
+	const roleCodes: Record<string, string> = {
+		accent: "38;5;201",
+		dim: "38;5;244",
+		muted: "38;5;245",
+		success: "38;5;120",
+		warning: "38;5;214",
+		error: "38;5;196",
+	};
+	return {
+		fg: (role: string, text: string) => `\x1b[${roleCodes[role] ?? "39"}m${text}\x1b[0m`,
+		bold: (text: string) => `\x1b[1m${text}\x1b[0m`,
+		inverse: (text: string) => `\x1b[7m${text}\x1b[0m`,
+	} as unknown as Theme;
 }
 import type { AssistantChunk, WorkerConsoleEvent } from "../../src/runtime/worker-manager";
 import type { PersistedTeamState, WorkerRuntimeState, WorkerStatus } from "../../src/types";
@@ -94,6 +112,7 @@ interface FakeManagerOptions {
 	displayCost?: boolean;
 	profiles?: string[];
 	calls?: FakeManagerCalls;
+	pingWorkers?: () => Promise<unknown>;
 }
 
 interface FakeManagerCalls {
@@ -119,6 +138,7 @@ function makeFakeManager(options: FakeManagerOptions): TeamManager {
 		snapshot: () => options.state,
 		pingWorkers: async () => {
 			calls.pings += 1;
+			return options.pingWorkers?.();
 		},
 		getWorkerTranscript: (workerId: string) => options.transcripts?.[workerId],
 		getWorkerConsole: (workerId: string) => options.consoles?.[workerId] ?? [],
@@ -160,6 +180,7 @@ function makeComponent(opts: {
 	chunks?: Record<string, AssistantChunk[]>;
 	routingMode?: "team" | "solo";
 	displayCost?: boolean;
+	theme?: Theme;
 }) {
 	const state = opts.state ?? makeState();
 	const tui = {
@@ -177,6 +198,7 @@ function makeComponent(opts: {
 	const manager = makeFakeManager(managerOpts);
 	const component = createTeamDashboardOverlayComponent(tui, manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1], state, () => {}, {
 		initialWorkerId: opts.initialWorkerId,
+		theme: opts.theme,
 	});
 	return { component, state, tui, manager, calls: managerOpts.calls! };
 }
@@ -185,7 +207,7 @@ test("openTeamDashboardOverlay uses the widened responsive overlay options", asy
 	const state = makeState();
 	const manager = makeFakeManager({ state });
 	let capturedOptions: unknown;
-	const fakeTheme = { fg: (_role: string, text: string) => text };
+	const fakeTheme = makeFakeTheme();
 	const ctx = {
 		mode: "tui",
 		hasUI: true,
@@ -203,6 +225,43 @@ test("openTeamDashboardOverlay uses the widened responsive overlay options", asy
 	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.width, "50%");
 	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight, "90%");
 	assert.equal(TEAM_DASHBOARD_OVERLAY_OPTIONS.anchor, "top-right");
+	assert.equal(TEAM_DASHBOARD_INITIAL_REFRESH_TIMEOUT_MS, 5_000);
+});
+
+test("openTeamDashboardOverlay falls back from the loading spinner when active ping hangs", async () => {
+	const state = makeState();
+	const manager = makeFakeManager({ state, pingWorkers: () => new Promise(() => {}) });
+	let component: OverlayComponent | undefined;
+	let renders = 0;
+	const ctx = {
+		mode: "tui",
+		hasUI: true,
+		cwd: process.cwd(),
+		ui: {
+			custom: async (factory: (...args: unknown[]) => unknown) => {
+				component = factory({ terminal: { rows: 30, columns: 120 }, requestRender: () => { renders += 1; } }, makeFakeTheme(), {}, () => {}) as OverlayComponent;
+			},
+		},
+	} as any;
+
+	await openTeamDashboardOverlay(ctx, manager, { initialRefreshTimeoutMs: 1 });
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	assert.ok(component, "expected overlay component");
+	const lines = renderPlain(component!, 100);
+	assert.ok(lines.some((line) => line.includes("Pi Agents Team · /team")), `expected dashboard after ping timeout; got:\n${lines.join("\n")}`);
+	assert.ok(!lines.some((line) => line.includes("Loading team dashboard")), `expected loading spinner to be replaced; got:\n${lines.join("\n")}`);
+	assert.equal((manager as unknown as { snapshot(): PersistedTeamState }).snapshot(), state);
+	assert.ok(renders > 0, "expected fallback to request a render");
+	component!.dispose?.();
+});
+
+test("overlay rendering uses the supplied Theme palette roles", () => {
+	const { component } = makeComponent({ theme: makeFakeTheme(), rows: 30, cols: 120 });
+	const lines = component.render(120);
+	assert.ok(lines.some((line) => line.includes("\x1b[38;5;201m")), `expected themed accent role; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("\x1b[38;5;244m")), `expected themed dim role; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("\x1b[1m")), `expected themed bold role; got:\n${lines.join("\n")}`);
+	assert.ok(!lines.some((line) => line.includes("\x1b[38;5;75m")), "expected no legacy accent fallback when a full Theme is supplied");
 });
 
 test("buildTabBar marks the active tab and shows solo badge when routingMode=solo", () => {
