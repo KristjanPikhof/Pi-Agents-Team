@@ -32,6 +32,41 @@ test("buildWorkerProcessArgs preserves configured base args before launch flags"
 	assert.deepEqual(args.slice(5), ["--approve", "--model", "provider/model"]);
 });
 
+test("buildWorkerProcessArgs keeps worker-minimal resources reduced while loading explicit extensions", () => {
+	const args = buildWorkerProcessArgs({
+		cwd: process.cwd(),
+		extensionMode: "worker-minimal",
+		workerExtensions: ["npm:@org/pi-provider", "/tmp/provider.ts"],
+	});
+
+	assert.deepEqual(args, [
+		"--mode",
+		"rpc",
+		"--no-session",
+		"--no-extensions",
+		"--extension",
+		"npm:@org/pi-provider",
+		"--extension",
+		"/tmp/provider.ts",
+		"--no-prompt-templates",
+		"--no-themes",
+		"--no-context-files",
+		"--no-skills",
+	]);
+});
+
+test("buildWorkerProcessArgs ignores explicit extensions in disable mode", () => {
+	const args = buildWorkerProcessArgs({
+		cwd: process.cwd(),
+		extensionMode: "disable",
+		workerExtensions: ["npm:@org/pi-provider"],
+	});
+
+	assert.ok(args.includes("--no-extensions"));
+	assert.ok(!args.includes("--extension"));
+	assert.ok(args.includes("--no-skills"));
+});
+
 test("resolveWorkerSpawnImplementation uses cross-spawn on Windows", () => {
 	assert.equal(resolveWorkerSpawnImplementation("win32"), "cross-spawn");
 	assert.equal(resolveWorkerSpawnImplementation("darwin"), "node:child_process");

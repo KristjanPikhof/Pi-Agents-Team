@@ -91,6 +91,37 @@ test("TeamManager passes configured rpc command and args to fresh worker launch"
 	assert.equal(launches[0]?.projectTrust, "approve");
 });
 
+test("TeamManager passes configured profile extensions to fresh worker launch", async () => {
+	const launches: WorkerProcessOptions[] = [];
+	const workerManager = new WorkerManager((options) => {
+		launches.push(options);
+		return new MockWorkerHandle(new MockWorkerTransport());
+	});
+	const teamManager = new TeamManager({
+		workerManager,
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) =>
+				profile.name === "reviewer"
+					? {
+						...profile,
+						extensions: ["npm:@org/pi-provider", "/tmp/provider.ts"],
+					}
+					: profile,
+			),
+		},
+	});
+
+	await teamManager.delegateTask({
+		title: "Provider extension launch",
+		goal: "Use configured provider extensions",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+
+	assert.deepEqual(launches[0]?.workerExtensions, ["npm:@org/pi-provider", "/tmp/provider.ts"]);
+});
+
 test("TeamManager delegates using configured profile overrides instead of packaged defaults", async () => {
 	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
 	const reviewer = resolveProfile("reviewer");
@@ -1015,6 +1046,47 @@ test("delegateTask with reuseWorkerId rejects when rpc command or args differ", 
 				reuseWorkerId: first.worker.workerId,
 			}),
 		/launch settings differ.*command.*baseArgs/,
+	);
+});
+
+test("delegateTask with reuseWorkerId rejects when worker extensions differ", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const config = {
+		...DEFAULT_TEAM_CONFIG,
+		profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) =>
+			profile.name === "reviewer"
+				? {
+					...profile,
+					extensions: ["npm:@org/provider-a"],
+				}
+				: profile,
+		),
+	};
+	const teamManager = new TeamManager({ workerManager, config });
+
+	const first = await teamManager.delegateTask({
+		title: "First provider launch",
+		goal: "capture initial provider extensions",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	const reviewer = config.profiles.find((profile) => profile.name === "reviewer");
+	assert.ok(reviewer);
+	reviewer.extensions = ["npm:@org/provider-b"];
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Reuse with changed provider extension",
+				goal: "should reject because provider extension set changed",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				reuseWorkerId: first.worker.workerId,
+			}),
+		/launch settings differ.*workerExtensions/,
 	);
 });
 
