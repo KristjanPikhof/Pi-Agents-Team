@@ -1,6 +1,10 @@
-// ANSI styling helpers for the /team overlay. Pi-tui's `visibleWidth` strips
-// these escape sequences before measuring, so wrapping content in any of these
-// helpers does not affect width math. Always close with RESET.
+import type { Theme } from "@earendil-works/pi-coding-agent";
+
+// ANSI styling helpers for the /team overlay. When a Pi Theme object is
+// available (from ctx.ui.custom / ctx.ui.theme / widget factory callbacks) we
+// style through theme.fg/theme.bold so colors track the active terminal theme.
+// When no theme is supplied we fall back to the legacy 256-color palette so
+// standalone callers and tests keep stable output.
 
 const ESC = "\x1b[";
 const RESET = `${ESC}0m`;
@@ -10,18 +14,55 @@ function wrap(open: string, text: string): string {
 	return `${ESC}${open}m${text}${RESET}`;
 }
 
-export const bold = (text: string): string => wrap("1", text);
-export const dim = (text: string): string => wrap("2", text);
-export const muted = (text: string): string => wrap("38;5;244", text); // soft gray
-export const accent = (text: string): string => wrap("38;5;75", text); // cyan-blue
-export const accentBold = (text: string): string => wrap("1;38;5;75", text);
-export const success = (text: string): string => wrap("38;5;114", text); // green
-export const successBold = (text: string): string => wrap("1;38;5;114", text);
-export const warning = (text: string): string => wrap("38;5;179", text); // amber
-export const warningBold = (text: string): string => wrap("1;38;5;179", text);
-export const danger = (text: string): string => wrap("38;5;167", text); // red
-export const dangerBold = (text: string): string => wrap("1;38;5;167", text);
-export const inverse = (text: string): string => wrap("7", text);
+const legacy = {
+	bold: (text: string): string => wrap("1", text),
+	dim: (text: string): string => wrap("2", text),
+	muted: (text: string): string => wrap("38;5;244", text),
+	accent: (text: string): string => wrap("38;5;75", text),
+	accentBold: (text: string): string => wrap("1;38;5;75", text),
+	success: (text: string): string => wrap("38;5;114", text),
+	successBold: (text: string): string => wrap("1;38;5;114", text),
+	warning: (text: string): string => wrap("38;5;179", text),
+	warningBold: (text: string): string => wrap("1;38;5;179", text),
+	danger: (text: string): string => wrap("38;5;167", text),
+	dangerBold: (text: string): string => wrap("1;38;5;167", text),
+	inverse: (text: string): string => wrap("7", text),
+} as const;
+
+export interface ThemedPalette {
+	bold: (text: string) => string;
+	dim: (text: string) => string;
+	muted: (text: string) => string;
+	accent: (text: string) => string;
+	accentBold: (text: string) => string;
+	success: (text: string) => string;
+	successBold: (text: string) => string;
+	warning: (text: string) => string;
+	warningBold: (text: string) => string;
+	danger: (text: string) => string;
+	dangerBold: (text: string) => string;
+	inverse: (text: string) => string;
+}
+
+export const fallbackPalette: ThemedPalette = legacy;
+
+export function themedPalette(theme?: Theme): ThemedPalette {
+	if (!theme) return legacy;
+	return {
+		bold: (text) => (text ? theme.bold(text) : text),
+		dim: (text) => (text ? theme.fg("dim", text) : text),
+		muted: (text) => (text ? theme.fg("muted", text) : text),
+		accent: (text) => (text ? theme.fg("accent", text) : text),
+		accentBold: (text) => (text ? theme.bold(theme.fg("accent", text)) : text),
+		success: (text) => (text ? theme.fg("success", text) : text),
+		successBold: (text) => (text ? theme.bold(theme.fg("success", text)) : text),
+		warning: (text) => (text ? theme.fg("warning", text) : text),
+		warningBold: (text) => (text ? theme.bold(theme.fg("warning", text)) : text),
+		danger: (text) => (text ? theme.fg("error", text) : text),
+		dangerBold: (text) => (text ? theme.bold(theme.fg("error", text)) : text),
+		inverse: (text) => (text ? theme.inverse(text) : text),
+	};
+}
 
 // Box-drawing characters (each 1 cell wide). Use these instead of full borders
 // where possible to keep width math simple.
