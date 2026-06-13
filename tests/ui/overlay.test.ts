@@ -255,6 +255,30 @@ test("openTeamDashboardOverlay falls back from the loading spinner when active p
 	component!.dispose?.();
 });
 
+test("openTeamDashboardOverlay tolerates a partial theme while showing the loader", async () => {
+	const state = makeState();
+	const manager = makeFakeManager({ state });
+	let component: OverlayComponent | undefined;
+	const ctx = {
+		mode: "tui",
+		hasUI: true,
+		cwd: process.cwd(),
+		ui: {
+			custom: async (factory: (...args: unknown[]) => unknown) => {
+				component = factory({ terminal: { rows: 30, columns: 120 }, requestRender: () => {} }, {}, {}, () => {}) as OverlayComponent;
+			},
+		},
+	} as any;
+
+	await openTeamDashboardOverlay(ctx, manager, { initialRefreshTimeoutMs: 1 });
+	await new Promise((resolve) => setImmediate(resolve));
+
+	assert.ok(component, "expected overlay component");
+	const lines = renderPlain(component!, 100);
+	assert.ok(lines.some((line) => line.includes("Pi Agents Team · /team")), `expected dashboard after partial-theme loader; got:\n${lines.join("\n")}`);
+	component!.dispose?.();
+});
+
 test("overlay rendering uses the supplied Theme palette roles", () => {
 	const { component } = makeComponent({ theme: makeFakeTheme(), rows: 30, cols: 120 });
 	const lines = component.render(120);
@@ -321,6 +345,17 @@ test("workers tab renders roster sections, reuse tag for idle workers, and suppo
 	lines = renderPlain(component, 100);
 	const selectedRow = lines.find((line) => line.includes("▶"));
 	assert.ok(selectedRow, "expected selection arrow on a row");
+});
+
+test("workers tab keeps the selected worker visible on short overlays", () => {
+	const state = makeState(35);
+	const { component } = makeComponent({ state, rows: 20, cols: 100, initialWorkerId: "w30" });
+
+	component.handleInput("1");
+	const lines = renderPlain(component, 100);
+	const selectedRow = lines.find((line) => line.includes("▶"));
+	assert.ok(selectedRow, `expected selected row to be visible; got:\n${lines.join("\n")}`);
+	assert.match(selectedRow, /w30/);
 });
 
 test("workers tab shows compact summary, selected mini header, and state-specific action hint", () => {
