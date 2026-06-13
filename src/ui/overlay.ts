@@ -33,7 +33,13 @@ const dangerBold = (text: string): string => currentPalette.dangerBold(text);
 const inverse = (text: string): string => currentPalette.inverse(text);
 
 function setPalette(theme?: Theme): void {
-	currentPalette = themedPalette(theme);
+	// The factory may hand us an empty object in tests; only switch to a real
+	// Pi Theme when the expected callbacks are present so styling never breaks.
+	if (theme && typeof (theme as Theme).fg === "function" && typeof (theme as Theme).bold === "function") {
+		currentPalette = themedPalette(theme);
+	} else {
+		currentPalette = fallbackPalette;
+	}
 }
 
 type OverlayTab = "workers" | "inspect" | "console" | "cost";
@@ -817,7 +823,7 @@ export function createTeamDashboardOverlayComponent(
 		if (!worker) {
 			return enforceWidth(["No worker selected. Switch to Workers (1) to pick one."], width).slice(0, rows);
 		}
-		const body = wrapLines(buildInspectText(worker, teamManager.getWorkerTranscript(worker.workerId)), width);
+		const body = wrapLines(buildInspectText(worker, teamManager.getWorkerTranscript(worker.workerId), currentPalette), width);
 		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
 		const visible = Math.max(1, rows - 1);
 		const maxTop = Math.max(0, body.length - visible);
