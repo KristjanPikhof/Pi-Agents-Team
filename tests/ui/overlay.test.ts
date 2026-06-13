@@ -7,6 +7,7 @@ import {
 	buildTabBar,
 	createTeamDashboardOverlayComponent,
 	openTeamDashboardOverlay,
+	sanitizeText,
 	TEAM_DASHBOARD_OVERLAY_OPTIONS,
 } from "../../src/ui/overlay";
 import { stripAnsi } from "../../src/ui/theme";
@@ -1103,4 +1104,10 @@ test("tiny terminals surface a 'terminal too small' hint instead of silently bla
 		lines.some((line) => line.includes("(terminal too small)")),
 		`expected tiny-terminal hint, got:\n${lines.join("\n")}`,
 	);
+});
+
+test("sanitizeText strips BEL and backspace but preserves ESC", () => {
+	assert.equal(sanitizeText("a\x07b"), "ab");
+	assert.equal(sanitizeText("a\x08b"), "ab");
+	assert.ok(sanitizeText("\x1b[31mred\x1b[0m").includes("\x1b"), "expected ESC sequences to survive");
 });
