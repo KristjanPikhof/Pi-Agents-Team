@@ -1,17 +1,13 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
-	Container,
-	CURSOR_MARKER,
 	Input,
 	matchesKey,
 	SelectList,
-	Spacer,
-	Text,
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { Component, Focusable, OverlayOptions, SelectItem, SelectListTheme, TUI } from "@earendil-works/pi-tui";
-import { BorderedLoader, DynamicBorder } from "@earendil-works/pi-coding-agent";
+import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager";
 import type { AssistantChunk, WorkerConsoleEvent } from "../runtime/worker-manager";
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
@@ -313,7 +309,7 @@ function getAttentionOrderedWorkerIds(state: PersistedTeamState): string[] {
 function sanitizeText(text: string): string {
 	return text
 		.replace(/\t/g, "    ")
-		.replace(/[\x00-\x06\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, "");
+		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, "");
 }
 
 type TextLineKind = "heading" | "list" | "table" | "separator" | "code" | "stack" | "plain";
