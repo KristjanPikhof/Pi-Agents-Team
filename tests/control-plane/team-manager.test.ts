@@ -531,7 +531,7 @@ test("active ping refreshes live workers when restored stale workers are registr
 	assert.equal(refreshed?.worker.usage.outputTokens, 22);
 });
 
-test("active ping times out stuck refreshes, surfaces warning in snapshots, and evicts stale dedupe", async () => {
+test("active ping times out stuck refreshes, surfaces warning in snapshots, and reuses in-flight refresh", async () => {
 	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
 	const teamManager = new TeamManager({ workerManager, activePingTimeoutMs: 5 });
 	const delegated = await teamManager.delegateTask({
@@ -549,12 +549,16 @@ test("active ping times out stuck refreshes, surfaces warning in snapshots, and 
 	const first = await teamManager.pingWorkers({ workerIds: [delegated.worker.workerId], mode: "active" });
 	const snapshotAfterFirst = teamManager.snapshot().activeWorkers[delegated.worker.workerId];
 	const second = await teamManager.pingWorkers({ workerIds: [delegated.worker.workerId], mode: "active" });
+	const third = await teamManager.pingWorkers({ workerIds: [delegated.worker.workerId], mode: "active" });
+	const snapshotAfterThird = teamManager.snapshot().activeWorkers[delegated.worker.workerId];
 
-	assert.equal(refreshCalls, 2);
+	assert.equal(refreshCalls, 1);
 	assert.match(first[0]?.worker.error ?? "", /timed out/i);
 	assert.match(snapshotAfterFirst?.error ?? "", /timed out/i);
 	assert.match(snapshotAfterFirst?.lastSummary?.headline ?? "", /timed out/i);
 	assert.match(second[0]?.worker.error ?? "", /timed out/i);
+	assert.match(third[0]?.worker.error ?? "", /timed out/i);
+	assert.match(snapshotAfterThird?.lastSummary?.headline ?? "", /timed out/i);
 });
 
 test("active ping does not make stale terminal workers reappear in the widget", async () => {

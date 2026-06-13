@@ -500,16 +500,15 @@ export class TeamManager {
 			});
 		}
 
-		// Bound each active ping call without spawning duplicate refreshes while a worker is still
-		// inside the timeout window. Timed-out refreshes are evicted so later operator refreshes
-		// can try a fresh RPC instead of deduping forever against a stuck promise.
+		// Bound each active ping call without spawning duplicate refreshes for the same worker.
+		// If the RPC never resolves, later calls reuse the same in-flight promise instead of
+		// accumulating more stuck get_state/get_session_stats requests.
 		let timeout: NodeJS.Timeout | undefined;
 		try {
 			return await Promise.race([
 				refresh,
 				new Promise<ActiveRefreshOutcome>((resolve) => {
 					timeout = setTimeout(() => {
-						if (this.activeRefreshes.get(workerId) === refresh) this.activeRefreshes.delete(workerId);
 						resolve({
 							status: "timeout",
 							message: `Active ping refresh timed out for ${workerId} after ${this.activePingTimeoutMs}ms; returned latest registry snapshot.`,
