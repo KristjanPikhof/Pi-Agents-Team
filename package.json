@@ -1,6 +1,6 @@
 {
   "name": "pi-agents-team",
-  "version": "2026.6.13",
+  "version": "2026.6.14",
   "description": "Pi extension that turns one coding session into a multi-agent team with background RPC worker agents.",
   "license": "MIT",
   "type": "module",
