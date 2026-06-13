@@ -582,6 +582,8 @@ export function createTeamDashboardOverlayComponent(
 	const displayCost = (options.displayCost ?? teamManager.displayCost) !== false;
 	const visibleTabOrder: OverlayTab[] = displayCost ? TAB_ORDER : TAB_ORDER.filter((tab) => tab !== "cost");
 
+	setPalette(options.theme);
+
 	let snapshot = initialSnapshot;
 	const initialWorker = options.initialWorkerId && initialSnapshot.activeWorkers[options.initialWorkerId]
 		? options.initialWorkerId
@@ -1016,25 +1018,36 @@ export function createTeamDashboardOverlayComponent(
 			const tinyHint = totalFrameRows > totalRows ? frameRow(dim("(terminal too small)"), innerWidth) : undefined;
 			return clampFramedRows([top, ...framedRows, bottom], totalRows, tinyHint);
 		},
-		invalidate() {},
+		invalidate() {
+			setPalette(options.theme);
+			requestRender();
+		},
 		dispose() {
 			dispose();
 		},
 		handleInput(data: string) {
-			if (handleModalInput(data)) return;
+			if (handleModalInput(data)) {
+				requestRender();
+				return;
+			}
 
 			if (data === "q") return finish();
 			if (matchesKey(data, "escape")) return finish();
 
-			if (handleNumberKey(data)) return;
+			if (handleNumberKey(data)) {
+				requestRender();
+				return;
+			}
 			if (matchesKey(data, "tab")) {
 				const idx = visibleTabOrder.indexOf(state.tab);
 				state.tab = visibleTabOrder[(idx + 1) % visibleTabOrder.length]!;
+				requestRender();
 				return;
 			}
 			if (matchesKey(data, "shift+tab")) {
 				const idx = visibleTabOrder.indexOf(state.tab);
 				state.tab = visibleTabOrder[(idx - 1 + visibleTabOrder.length) % visibleTabOrder.length]!;
+				requestRender();
 				return;
 			}
 
@@ -1042,97 +1055,140 @@ export function createTeamDashboardOverlayComponent(
 			// `c` is no longer the Console alias — it's the action-bar close hotkey.
 			if (data === "o" || data === "d") {
 				state.tab = "inspect";
+				requestRender();
 				return;
 			}
 
 			// Action bar hotkeys.
-			if (data === "s") return openModal("steer", state.selectedWorkerId);
-			if (data === "m") return openModal("message", state.selectedWorkerId);
-			if (data === "n") return openModal("new_task");
-			if (data === "c") return void closeSelected();
-			if (data === "x") return void cancelSelected();
-			if (data === "p") return void pruneTerminal();
-			if (data === "r") return refreshActive();
-			if (data === "y") return copyCurrent();
+			if (data === "s") {
+				openModal("steer", state.selectedWorkerId);
+				requestRender();
+				return;
+			}
+			if (data === "m") {
+				openModal("message", state.selectedWorkerId);
+				requestRender();
+				return;
+			}
+			if (data === "n") {
+				openModal("new_task");
+				requestRender();
+				return;
+			}
+			if (data === "c") {
+				void closeSelected();
+				requestRender();
+				return;
+			}
+			if (data === "x") {
+				void cancelSelected();
+				requestRender();
+				return;
+			}
+			if (data === "p") {
+				void pruneTerminal();
+				requestRender();
+				return;
+			}
+			if (data === "r") {
+				refreshActive();
+				requestRender();
+				return;
+			}
+			if (data === "y") {
+				copyCurrent();
+				requestRender();
+				return;
+			}
 
 			// List/scroll navigation per tab.
 			if (state.tab === "workers") {
-				if (data === "j" || matchesKey(data, "down")) return moveSelection(1);
-				if (data === "k" || matchesKey(data, "up")) return moveSelection(-1);
-				if (isPageDownKey(data)) return moveSelection(lastRenderMetrics.listPageSize);
-				if (isPageUpKey(data)) return moveSelection(-lastRenderMetrics.listPageSize);
+				if (data === "j" || matchesKey(data, "down")) { moveSelection(1); requestRender(); return; }
+				if (data === "k" || matchesKey(data, "up")) { moveSelection(-1); requestRender(); return; }
+				if (isPageDownKey(data)) { moveSelection(lastRenderMetrics.listPageSize); requestRender(); return; }
+				if (isPageUpKey(data)) { moveSelection(-lastRenderMetrics.listPageSize); requestRender(); return; }
 				if (matchesKey(data, "enter")) {
 					if (state.selectedWorkerId) state.tab = "inspect";
+					requestRender();
 					return;
 				}
 				if (isTopKey(data)) {
 					const ids = getAttentionOrderedWorkerIds(snapshot);
 					if (ids.length > 0) state.selectedWorkerId = ids[0];
+					requestRender();
 					return;
 				}
 				if (isBottomKey(data)) {
 					const ids = getAttentionOrderedWorkerIds(snapshot);
 					if (ids.length > 0) state.selectedWorkerId = ids[ids.length - 1];
+					requestRender();
 					return;
 				}
 				return;
 			}
 
 			if (state.tab === "inspect") {
-				if (isFollowToggleKey(data)) { state.inspectFollow = !state.inspectFollow; return; }
-				if (data === "j" || matchesKey(data, "down")) { state.inspectScroll += 1; state.inspectFollow = false; return; }
-				if (data === "k" || matchesKey(data, "up")) { state.inspectScroll = Math.max(0, state.inspectScroll - 1); state.inspectFollow = false; return; }
-				if (isPageDownKey(data)) { state.inspectScroll += lastRenderMetrics.bodyPageSize; state.inspectFollow = false; return; }
-				if (isPageUpKey(data)) { state.inspectScroll = Math.max(0, state.inspectScroll - lastRenderMetrics.bodyPageSize); state.inspectFollow = false; return; }
-				if (isTopKey(data)) { state.inspectScroll = 0; state.inspectFollow = false; return; }
-				if (isBottomKey(data)) { state.inspectFollow = true; return; }
+				if (isFollowToggleKey(data)) { state.inspectFollow = !state.inspectFollow; requestRender(); return; }
+				if (data === "j" || matchesKey(data, "down")) { state.inspectScroll += 1; state.inspectFollow = false; requestRender(); return; }
+				if (data === "k" || matchesKey(data, "up")) { state.inspectScroll = Math.max(0, state.inspectScroll - 1); state.inspectFollow = false; requestRender(); return; }
+				if (isPageDownKey(data)) { state.inspectScroll += lastRenderMetrics.bodyPageSize; state.inspectFollow = false; requestRender(); return; }
+				if (isPageUpKey(data)) { state.inspectScroll = Math.max(0, state.inspectScroll - lastRenderMetrics.bodyPageSize); state.inspectFollow = false; requestRender(); return; }
+				if (isTopKey(data)) { state.inspectScroll = 0; state.inspectFollow = false; requestRender(); return; }
+				if (isBottomKey(data)) { state.inspectFollow = true; requestRender(); return; }
 				return;
 			}
 
 			if (state.tab === "console") {
 				if (isFollowToggleKey(data)) {
 					state.consoleFollow = !state.consoleFollow;
+					requestRender();
 					return;
 				}
 				if (data === "j" || matchesKey(data, "down")) {
 					state.consoleScroll += 1;
 					state.consoleFollow = false;
+					requestRender();
 					return;
 				}
 				if (data === "k" || matchesKey(data, "up")) {
 					state.consoleScroll = Math.max(0, state.consoleScroll - 1);
 					state.consoleFollow = false;
+					requestRender();
 					return;
 				}
 				if (isPageUpKey(data)) {
 					state.consoleScroll = Math.max(0, state.consoleScroll - lastRenderMetrics.bodyPageSize);
 					state.consoleFollow = false;
+					requestRender();
 					return;
 				}
 				if (isPageDownKey(data)) {
 					state.consoleScroll += lastRenderMetrics.bodyPageSize;
 					state.consoleFollow = false;
+					requestRender();
 					return;
 				}
 				if (isBottomKey(data)) {
 					state.consoleFollow = true;
+					requestRender();
 					return;
 				}
 				if (isTopKey(data)) {
 					state.consoleScroll = 0;
 					state.consoleFollow = false;
+					requestRender();
 					return;
 				}
 				return;
 			}
 
 			if (state.tab === "cost") {
-				if (data === "j" || matchesKey(data, "down")) { state.costScroll += 1; return; }
-				if (data === "k" || matchesKey(data, "up")) { state.costScroll = Math.max(0, state.costScroll - 1); return; }
-				if (isPageDownKey(data)) { state.costScroll += lastRenderMetrics.bodyPageSize; return; }
-				if (isPageUpKey(data)) { state.costScroll = Math.max(0, state.costScroll - lastRenderMetrics.bodyPageSize); return; }
-				if (isTopKey(data)) { state.costScroll = 0; return; }
-				if (isBottomKey(data)) { state.costScroll = Number.MAX_SAFE_INTEGER; return; }
+				if (data === "j" || matchesKey(data, "down")) { state.costScroll += 1; requestRender(); return; }
+				if (data === "k" || matchesKey(data, "up")) { state.costScroll = Math.max(0, state.costScroll - 1); requestRender(); return; }
+				if (isPageDownKey(data)) { state.costScroll += lastRenderMetrics.bodyPageSize; requestRender(); return; }
+				if (isPageUpKey(data)) { state.costScroll = Math.max(0, state.costScroll - lastRenderMetrics.bodyPageSize); requestRender(); return; }
+				if (isTopKey(data)) { state.costScroll = 0; requestRender(); return; }
+				if (isBottomKey(data)) { state.costScroll = Number.MAX_SAFE_INTEGER; requestRender(); return; }
 			}
 		},
 	};
