@@ -493,7 +493,7 @@ test("inspect tab marks oversized assistant transcript as truncated", () => {
 	assert.match(body, /Latest assistant text \[tail\]/);
 	assert.match(body, /\[transcript truncated: showing retained tail; omitted /);
 	assert.match(body, /tail line/);
-	assert.ok(body.length < transcript.length, "inspect output should not include the full oversized transcript");
+	assert.ok((body.match(/older line/g)?.length ?? 0) < 40_000, "inspect output should not include the full oversized transcript");
 });
 
 test("inspect tab visually separates final answer from latest assistant text and remains width-safe", () => {
