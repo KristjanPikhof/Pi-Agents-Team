@@ -455,7 +455,7 @@ class LabeledInput implements Component, Focusable {
 		this.input.handleInput(data);
 	}
 
-	render(width: number, rowBudget = ROSTER_PAGE_SIZE): string[] {
+	render(width: number): string[] {
 		this.input.focused = this.focused;
 		const labelWidth = visibleWidth(this.label);
 		if (width <= labelWidth) {
@@ -484,7 +484,7 @@ class RosterSelectList implements Component {
 
 	invalidate(): void {}
 
-	render(width: number): string[] {
+	render(width: number, rowBudget = ROSTER_PAGE_SIZE): string[] {
 		const items: SelectItem[] = [];
 		for (const section of buildRosterSections(this.snapshot)) {
 			if (section.workers.length === 0) continue;
