@@ -3,7 +3,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
-import { fallbackPalette, themedPalette, type ThemedPalette } from "./theme";
+import { themedPalette, type ThemedPalette } from "./theme";
 import { formatCacheUsage, formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -53,10 +53,13 @@ export function buildTeamStatusLine(
 	orchestratorWorking = false,
 	theme?: Theme,
 ): string {
+	const activityPlain = orchestratorWorking || hasActiveOrchestratorWork(state) ? "Working..." : "Idle";
+	const status = routingMode === "solo" ? `Orchestrator · Solo · ${activityPlain}` : `Orchestrator · ${activityPlain}`;
+	if (!theme) return truncateToWidth(tip ? `${status} · Tip: ${tip}` : status, HEADER_WIDTH);
 	const palette = themedPalette(theme);
 	const activity = orchestratorWorking || hasActiveOrchestratorWork(state) ? palette.warning("Working...") : palette.success("Idle");
-	const status = routingMode === "solo" ? `Orchestrator · Solo · ${activity}` : `Orchestrator · ${activity}`;
-	const line = tip ? `${status} · ${palette.dim("Tip:")} ${tip}` : status;
+	const themedStatus = routingMode === "solo" ? `Orchestrator · Solo · ${activity}` : `Orchestrator · ${activity}`;
+	const line = tip ? `${themedStatus} · ${palette.dim("Tip:")} ${tip}` : themedStatus;
 	return truncateToWidth(line, HEADER_WIDTH);
 }
 
@@ -69,19 +72,19 @@ function statusGlyph(worker: WorkerRuntimeState, frame: number): string {
 	return getWorkerStatusGlyph(worker);
 }
 
-function buildUsageLine(state: PersistedTeamState): string | undefined {
+function buildUsageLine(state: PersistedTeamState, palette: ThemedPalette): string | undefined {
 	const usage = aggregateWorkerUsage(Object.values(state.activeWorkers), state.prunedWorkerUsageTotals);
 	if (!hasWorkerUsage(usage)) return undefined;
-	const base = `Σ turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · $${usage.costUsd.toFixed(4)}`;
+	const base = `${palette.accent("Σ")} turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · $${usage.costUsd.toFixed(4)}`;
 	const cache = formatCacheUsage(usage);
 	if (!cache) return truncateToWidth(base, HEADER_WIDTH);
-	const withCache = `Σ turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · ${cache} · $${usage.costUsd.toFixed(4)}`;
+	const withCache = `${palette.accent("Σ")} turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · ${cache} · $${usage.costUsd.toFixed(4)}`;
 	return truncateToWidth(visibleWidth(withCache) <= HEADER_WIDTH ? withCache : base, HEADER_WIDTH);
 }
 
-function buildStatusRow(state: PersistedTeamState): { row: string; includesUsage: boolean } {
-	const counts = buildCountsLine(state);
-	const usage = buildUsageLine(state);
+function buildStatusRow(state: PersistedTeamState, palette: ThemedPalette): { row: string; includesUsage: boolean } {
+	const counts = buildCountsLine(state, palette);
+	const usage = buildUsageLine(state, palette);
 	if (!usage) return { row: counts, includesUsage: false };
 	const combined = `${counts} · ${usage}`;
 	return visibleWidth(combined) <= HEADER_WIDTH
@@ -89,7 +92,7 @@ function buildStatusRow(state: PersistedTeamState): { row: string; includesUsage
 		: { row: counts, includesUsage: false };
 }
 
-function buildCountsLine(state: PersistedTeamState): string {
+function buildCountsLine(state: PersistedTeamState, palette: ThemedPalette): string {
 	const counts = { relay: 0, running: 0, starting: 0, queued: 0, idle: 0, done: 0, ended: 0 };
 	for (const worker of Object.values(state.activeWorkers)) {
 		if (worker.pendingRelayQuestions.length > 0) counts.relay += 1;
@@ -121,14 +124,14 @@ function buildCountsLine(state: PersistedTeamState): string {
 	}
 
 	const parts: string[] = [];
-	if (counts.relay || state.relayQueue.length) parts.push(`? ${Math.max(counts.relay, state.relayQueue.length)} relay${Math.max(counts.relay, state.relayQueue.length) === 1 ? "" : "s"}`);
-	if (counts.running) parts.push(`▶ ${counts.running} running`);
-	if (counts.starting) parts.push(`◌ ${counts.starting} starting`);
-	if (counts.queued) parts.push(`▸ ${counts.queued} queued`);
-	if (counts.idle) parts.push(`○ ${counts.idle} idle`);
-	if (counts.done) parts.push(`✓ ${counts.done} done`);
-	if (counts.ended) parts.push(`✗ ${counts.ended} ended`);
-	return truncateToWidth(parts.length === 0 ? "no workers tracked" : parts.join("  "), HEADER_WIDTH);
+	if (counts.relay || state.relayQueue.length) parts.push(`${palette.warning("?")} ${palette.warning(String(Math.max(counts.relay, state.relayQueue.length)))} relay${Math.max(counts.relay, state.relayQueue.length) === 1 ? "" : "s"}`);
+	if (counts.running) parts.push(`${palette.accent("▶")} ${palette.accent(String(counts.running))} running`);
+	if (counts.starting) parts.push(`${palette.dim("◌")} ${palette.dim(String(counts.starting))} starting`);
+	if (counts.queued) parts.push(`${palette.warning("▸")} ${palette.warning(String(counts.queued))} queued`);
+	if (counts.idle) parts.push(`${palette.dim("○")} ${palette.dim(String(counts.idle))} idle`);
+	if (counts.done) parts.push(`${palette.success("✓")} ${palette.success(String(counts.done))} done`);
+	if (counts.ended) parts.push(`${palette.danger("✗")} ${palette.danger(String(counts.ended))} ended`);
+	return truncateToWidth(parts.length === 0 ? palette.dim("no workers tracked") : parts.join("  "), HEADER_WIDTH);
 }
 
 function isActiveSurfaceWorker(worker: WorkerRuntimeState): boolean {
