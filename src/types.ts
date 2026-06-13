@@ -119,6 +119,7 @@ export interface TeamProfileSpec {
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools: string[];
+	extensions?: string[];
 	/**
 	 * Path to the worker prompt markdown. May be the literal string
 	 * "<generic-worker>" — a sentinel that tells the prompt loader to use the
@@ -140,6 +141,7 @@ export interface TeamProfileSpec {
 
 export interface ProjectRolePermissions {
 	tools?: string[] | null;
+	extensions?: string[] | null;
 	extensionMode?: WorkerExtensionMode;
 	writePolicy?: WorkerWritePolicy;
 	pathScope?: TeamPathScope;
@@ -161,6 +163,7 @@ export interface ProjectRoleConfig {
 
 export interface ProjectRoleAccessConfig {
 	tools?: string[];
+	extensions?: string[];
 	write?: boolean;
 	extensionMode?: WorkerExtensionMode;
 	canSpawnWorkers?: boolean;

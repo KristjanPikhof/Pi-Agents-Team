@@ -45,6 +45,7 @@ export const TeamProfileSpecSchema = Type.Object({
 	model: Type.Optional(Type.String()),
 	thinkingLevel: Type.Optional(enumSchema(THINKING_LEVELS)),
 	tools: Type.Array(Type.String()),
+	extensions: Type.Optional(Type.Array(Type.String())),
 	promptPath: Type.String(),
 	promptInline: Type.Optional(Type.String()),
 	extensionMode: enumSchema(WORKER_EXTENSION_MODES),
@@ -62,6 +63,7 @@ export const ProjectRolePromptSchema = Type.Object({
 
 export const ProjectRoleAccessSchema = Type.Object({
 	tools: Type.Optional(Type.Array(Type.String())),
+	extensions: Type.Optional(Type.Array(Type.String())),
 	write: Type.Optional(Type.Boolean()),
 	extensionMode: Type.Optional(enumSchema(WORKER_EXTENSION_MODES)),
 	canSpawnWorkers: Type.Optional(Type.Boolean()),
