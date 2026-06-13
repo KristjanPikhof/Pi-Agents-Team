@@ -1085,9 +1085,9 @@ export function createTeamDashboardOverlayComponent(
 				const hint = dim("  (enter submit · esc cancel)");
 				if (inputLines.length > 0) {
 					const lastIndex = inputLines.length - 1;
-					inputLines[lastIndex] = truncateToWidth(inputLines[lastIndex] + hint, innerWidth, "…");
+					inputLines[lastIndex] = accent(inputLines[lastIndex]) + hint;
 				}
-				footerLines.push(...inputLines.map((line) => accent(line)));
+				footerLines.push(...inputLines);
 			}
 			footerLines.push(buildActionBar());
 			if (status) footerLines.push(accent(`» ${status}`));

@@ -184,13 +184,14 @@ test("openTeamDashboardOverlay uses the widened responsive overlay options", asy
 	const state = makeState();
 	const manager = makeFakeManager({ state });
 	let capturedOptions: unknown;
+	const fakeTheme = { fg: (_role: string, text: string) => text };
 	const ctx = {
 		hasUI: true,
 		cwd: process.cwd(),
 		ui: {
 			custom: async (factory: (...args: unknown[]) => unknown, customOptions: unknown) => {
 				capturedOptions = customOptions;
-				factory({ terminal: { rows: 30, columns: 120 }, requestRender: () => {} }, {}, {}, () => {});
+				factory({ terminal: { rows: 30, columns: 120 }, requestRender: () => {} }, fakeTheme, {}, () => {});
 			},
 		},
 	} as any;
