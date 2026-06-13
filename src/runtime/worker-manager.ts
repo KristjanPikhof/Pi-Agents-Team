@@ -338,7 +338,7 @@ export class WorkerManager {
 			console: [],
 			activity: [],
 			pendingToolActivityByCallId: new Map(),
-			pendingTextDelta: ""
+			pendingTextDelta: "",
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
 			closing: false,
