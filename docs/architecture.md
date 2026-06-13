@@ -79,8 +79,8 @@ delegate_task (tool, with reuseWorkerId)
           → profile match          (same profileName)
           → applyLaunchPolicy      (compute would-be plan)
           → launch-snapshot diff   (model, tools, cwd, systemPromptPath,
-                                    extensionMode, thinkingLevel, allowSkills,
-                                    projectTrust)
+                                    extensionMode, workerExtensions,
+                                    thinkingLevel, allowSkills, projectTrust)
           → refreshStats           (pull current context budget)
           → context budget guard   (reject >=80% or <=32768 remaining tokens)
           → registerTask           (fresh taskId)
@@ -91,7 +91,7 @@ delegate_task (tool, with reuseWorkerId)
   ← returns { worker, task }
 ```
 
-Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, skill discovery, and project-trust override) are baked at spawn and can't change between tasks. `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error, so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason: different role means different prompt path.
+Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, explicit worker extension sources, skill discovery, and project-trust override) are baked at spawn and can't change between tasks. `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error, so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason: different role means different prompt path.
 
 After launch-setting checks, reuse refreshes worker stats and rejects saturated context before registering the new task or sending the prompt. The hard guard rejects `contextPercent >= 80` or `contextRemainingTokens <= 32768`, with an error that includes known budget values and says to delegate fresh. Unknown/null context does not hard-reject; the orchestrator prompt instead biases long, exploratory, or multi-lane work toward fresh workers. There is intentionally no auto-compact fallback.
 
@@ -105,7 +105,18 @@ Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, f
 
 ### Workers launch with reduced discovery
 
-The default launch mode is `worker-minimal`. That disables recursive extension discovery and keeps workers from accidentally booting the full orchestrator package again. `preventRecursiveOrchestrator: true` in the safety config hard-rejects any attempt to launch with `extensionMode: "inherit"`.
+The default launch mode is `worker-minimal`. `spawnWorkerProcess` passes
+`--no-extensions` to disable ambient extension discovery, then adds one
+`--extension` argument for each role-level `access.extensions` source. That
+keeps workers from accidentally booting the full orchestrator package again
+while still allowing explicitly listed provider/model extensions, including
+extensions that call `pi.registerProvider`, to load for that worker.
+
+`preventRecursiveOrchestrator: true` in the safety config hard-rejects any
+attempt to launch with `extensionMode: "inherit"`. The loader and launch policy
+also reject extension sources that would self-load `pi-agents-team`, including
+the package name and this package's extension entrypoints, to prevent recursive
+orchestrator workers.
 
 Worker-minimal mode also disables Pi skill discovery unless the delegated task
 sets `skills`. When requested skills are present, `TeamManager` passes
