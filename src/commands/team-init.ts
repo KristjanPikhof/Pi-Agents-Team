@@ -1,0 +1,151 @@
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { atomicWriteFileSync, backupExisting, formatBackupTimestamp } from "../util/backup";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG } from "../config";
+import { formatCommandWarning } from "../ui/display-grammar";
+import { getProjectConfigPathForScope } from "../project-config/loader";
+import {
+	DEFAULT_MODEL_SENTINEL,
+	DEFAULT_PROMPT_SENTINEL,
+	TEAM_PROJECT_SCHEMA_VERSION,
+	type PartialRawProjectRoleConfigMap,
+	type ProjectRoleFlatConfig,
+	type TeamConfigScope,
+	type TeamProfileSpec,
+	type TeamProjectConfigFile,
+} from "../types";
+
+interface InitCommandDependencies {
+	emitText: (ctx: ExtensionContext, text: string) => void;
+}
+
+type InitScope = "global" | "local";
+
+function parseInitArgs(args: string): { scope?: InitScope; force: boolean; error?: string } {
+	const tokens = args.trim().split(/\s+/).filter(Boolean);
+	let scope: InitScope | undefined;
+	let force = false;
+	for (const token of tokens) {
+		if (token === "--force" || token === "-f") {
+			force = true;
+			continue;
+		}
+		if (token === "global" || token === "local") {
+			if (scope) {
+				return { force, error: `Specify the scope only once (got "${scope}" and "${token}").` };
+			}
+			scope = token;
+			continue;
+		}
+		return { force, error: `Unknown argument: ${token}. Expected "global", "local", or --force.` };
+	}
+	return { scope, force };
+}
+
+function scaffoldRole(profile: TeamProfileSpec): ProjectRoleFlatConfig {
+	const role: ProjectRoleFlatConfig = {
+		whenToUse: profile.description,
+		model: DEFAULT_MODEL_SENTINEL,
+		thinkingLevel: profile.thinkingLevel,
+		access: {
+			tools: [...profile.tools],
+			write: profile.writePolicy === "scoped-write",
+			...(profile.pathScope ? { pathScope: profile.pathScope } : {}),
+		},
+		prompt: DEFAULT_PROMPT_SENTINEL,
+	};
+	return role;
+}
+
+function buildFullScaffold(): TeamProjectConfigFile {
+	const roles: PartialRawProjectRoleConfigMap = {};
+	for (const profile of DEFAULT_TEAM_CONFIG.profiles) {
+		roles[profile.name] = scaffoldRole(profile);
+	}
+	return {
+		schemaVersion: TEAM_PROJECT_SCHEMA_VERSION,
+		scaffoldVersion: CURRENT_SCAFFOLD_VERSION,
+		enabled: true,
+		routingMode: "team",
+		workerAccess: {
+			allowPathsOutsideProject: true,
+		},
+		display: {
+			cost: true,
+		},
+		roles,
+	};
+}
+
+function scopeToInternal(scope: InitScope): TeamConfigScope {
+	return scope === "local" ? "project" : "global";
+}
+
+export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitCommandDependencies): void {
+	pi.registerCommand("team-init", {
+		description: "Scaffold a full agents-team.json with default roles: /team-init [global|local] [--force]",
+		getArgumentCompletions: (prefix) => {
+			if (/\s/.test(prefix)) return [];
+			return ["global", "local"]
+				.filter((value) => value.startsWith(prefix))
+				.map((value) => ({ value, label: value, description: value === "global" ? "~/.pi/agent/agents-team.json" : "./.pi/agent/agents-team.json" }));
+		},
+		handler: async (args, ctx) => {
+			const parsed = parseInitArgs(args);
+			if (parsed.error) {
+				ctx.ui.notify(formatCommandWarning(parsed.error), "warning");
+				return;
+			}
+			const scope = parsed.scope ?? "local";
+
+			const internalScope = scopeToInternal(scope);
+			const targetPath = getProjectConfigPathForScope(internalScope, ctx.cwd);
+			if (!targetPath) {
+				// Global scope with PI_AGENT_TEAM_GLOBAL_CONFIG_PATH set to
+				// "none"/""/"null" — writing would be ambiguous. Refuse cleanly.
+				ctx.ui.notify(
+					formatCommandWarning("Global agents-team.json is disabled (PI_AGENT_TEAM_GLOBAL_CONFIG_PATH=none). Unset the env var or point it at a path to scaffold a global config."),
+					"warning",
+				);
+				return;
+			}
+			const exists = existsSync(targetPath);
+
+			if (exists && !parsed.force) {
+				dependencies.emitText(
+					ctx,
+					`${targetPath} already exists. Re-run with \`/team-init ${scope} --force\` to overwrite (the current file will be backed up first).`,
+				);
+				return;
+			}
+
+			// mode 0o700 on the directory so only the running user can read/list
+			// role config; 0o600 on the file below. Noop on Windows, tightens
+			// POSIX. The config doesn't currently carry secrets, but it sits
+			// next to Pi state that can — and listing someone else's role/tool
+			// topology is useful reconnaissance.
+			mkdirSync(dirname(targetPath), { recursive: true, mode: 0o700 });
+			let backupPath: string | undefined;
+			if (exists) {
+				backupPath = backupExisting(targetPath);
+			}
+			atomicWriteFileSync(targetPath, `${JSON.stringify(buildFullScaffold(), null, 2)}\n`, { mode: 0o600 });
+
+			const lines: string[] = [];
+			if (backupPath) {
+				lines.push(`Backed up previous config to ${backupPath}.`);
+			}
+			lines.push(
+				`Wrote ${scope} agents-team.json scaffold (schemaVersion ${TEAM_PROJECT_SCHEMA_VERSION}, scaffoldVersion ${CURRENT_SCAFFOLD_VERSION}) to ${targetPath}.`,
+				"Global worker access policy lives under `workerAccess`. Set `allowPathsOutsideProject: false` to restrict delegated worker path scopes to the project root/current cwd.",
+				`Per-role knobs: whenToUse (a trigger sentence, "Use when...", shown to the orchestrator so it picks the right role), model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel (optional; inherits orchestrator level when omitted; valid values: off, minimal, low, medium, high, xhigh; Pi may clamp unsupported levels), access (tools, write, pathScope, extensionMode, extensions for explicit Pi provider/model extension sources), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md, or the prompt text inline).`,
+				"Rename, remove, or add roles freely — the orchestrator sees exactly what you declare. Delete a role block to fall back to the built-in defaults for that name.",
+				"Run /reload to apply changes in this session.",
+			);
+			dependencies.emitText(ctx, lines.join("\n"));
+		},
+	});
+}
+
+export const _testing = { parseInitArgs, buildFullScaffold, scaffoldRole, scopeToInternal, formatBackupTimestamp, backupExisting };
