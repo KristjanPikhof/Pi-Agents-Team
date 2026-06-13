@@ -767,7 +767,45 @@ test("inspect Recent activity contract renders compact recent commands, thinking
 		},
 	});
 
-	assertRenderedSubsequence(renderPlain(component, 100), INSPECT_RECENT_ACTIVITY_GOLDEN_LINES, "Inspect Recent activity golden example");
+	const lines = renderPlain(component, 100);
+	assertRenderedSubsequence(lines, INSPECT_RECENT_ACTIVITY_GOLDEN_LINES, "Inspect Recent activity golden example");
+	const statusIndex = lines.findIndex((line) => line.includes("Status"));
+	const recentIndex = lines.findIndex((line) => line.includes("Recent activity"));
+	const taskIndex = lines.findIndex((line) => line.includes("Task"));
+	assert.ok(statusIndex >= 0 && recentIndex > statusIndex && taskIndex > recentIndex, `expected Recent activity near top between Status and Task; got:\n${lines.join("\n")}`);
+});
+
+test("inspect Recent activity stays compact at narrow width and does not duplicate dense transcripts", () => {
+	const state = makeState(1);
+	const denseTranscript = [
+		"Assigned Task",
+		"Goal: render every detail from a deliberately verbose prompt that should not be copied into Recent activity",
+		"Context: alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
+		"Expected output: lots of details that belong only in Latest assistant text",
+	].join("\n");
+	const { component } = makeComponent({
+		state,
+		rows: 54,
+		cols: 52,
+		initialWorkerId: "w1",
+		transcripts: { w1: denseTranscript },
+		consoles: {
+			w1: [
+				{ ts: 1_700_000_000_000, kind: "tool_start", text: "grep \"buildConsoleLines\" src/ui/overlay.ts" },
+				{ ts: 1_700_000_001_000, kind: "tool_start", text: "npm exec tsx -- --test tests/ui/overlay.test.ts" },
+			],
+		},
+	});
+
+	const lines = renderPlain(component, 52);
+	const recentIndex = lines.findIndex((line) => line.includes("Recent activity"));
+	const taskIndex = lines.findIndex((line) => line.includes("Task"));
+	assert.ok(recentIndex >= 0 && taskIndex > recentIndex, `expected Recent activity before Task; got:\n${lines.join("\n")}`);
+	const recentBlock = lines.slice(recentIndex, taskIndex).join("\n");
+	assert.ok(recentBlock.includes("• Ran grep"), recentBlock);
+	assert.ok(!recentBlock.includes("Assigned Task"), "Recent activity must not duplicate dense transcript/task prompt text");
+	assert.ok(!recentBlock.includes("Goal: render every detail"), "Recent activity must stay compact");
+	for (const line of lines) assert.ok(visibleWidth(line) <= 52, `line exceeds width: ${visibleWidth(line)} ${line}`);
 });
 
 test("console Activity contract stays ANSI-width-safe and wraps nested output at narrow width", () => {
