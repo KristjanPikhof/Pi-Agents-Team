@@ -3,7 +3,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
-import { themedPalette, type ThemedPalette } from "./theme";
+import { bold as legacyBold, themedPalette, type ThemedPalette } from "./theme";
 import { formatCacheUsage, formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -206,12 +206,31 @@ function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: num
 	return lines;
 }
 
+function widgetPalette(theme?: Theme): ThemedPalette {
+	if (theme) return themedPalette(theme);
+	const identity = (text: string) => text;
+	return {
+		bold: legacyBold,
+		dim: identity,
+		muted: identity,
+		accent: identity,
+		accentBold: identity,
+		success: identity,
+		successBold: identity,
+		warning: identity,
+		warningBold: identity,
+		danger: identity,
+		dangerBold: identity,
+		inverse: identity,
+	};
+}
+
 export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetRenderOptions = {}): string[] {
 	const frame = options.frame ?? 0;
 	const routingMode = options.routingMode ?? "team";
 	const displayCost = options.displayCost !== false;
 	const now = options.now ?? Date.now();
-	const palette = themedPalette(options.theme);
+	const palette = widgetPalette(options.theme);
 	const allWorkers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	const workers = allWorkers.filter((worker) => shouldRenderWorker(worker, now));
 	if (routingMode === "solo") {

@@ -14,20 +14,18 @@ function wrap(open: string, text: string): string {
 	return `${ESC}${open}m${text}${RESET}`;
 }
 
-const legacy = {
-	bold: (text: string): string => wrap("1", text),
-	dim: (text: string): string => wrap("2", text),
-	muted: (text: string): string => wrap("38;5;244", text),
-	accent: (text: string): string => wrap("38;5;75", text),
-	accentBold: (text: string): string => wrap("1;38;5;75", text),
-	success: (text: string): string => wrap("38;5;114", text),
-	successBold: (text: string): string => wrap("1;38;5;114", text),
-	warning: (text: string): string => wrap("38;5;179", text),
-	warningBold: (text: string): string => wrap("1;38;5;179", text),
-	danger: (text: string): string => wrap("38;5;167", text),
-	dangerBold: (text: string): string => wrap("1;38;5;167", text),
-	inverse: (text: string): string => wrap("7", text),
-} as const;
+export const bold = (text: string): string => wrap("1", text);
+export const dim = (text: string): string => wrap("2", text);
+export const muted = (text: string): string => wrap("38;5;244", text);
+export const accent = (text: string): string => wrap("38;5;75", text);
+export const accentBold = (text: string): string => wrap("1;38;5;75", text);
+export const success = (text: string): string => wrap("38;5;114", text);
+export const successBold = (text: string): string => wrap("1;38;5;114", text);
+export const warning = (text: string): string => wrap("38;5;179", text);
+export const warningBold = (text: string): string => wrap("1;38;5;179", text);
+export const danger = (text: string): string => wrap("38;5;167", text);
+export const dangerBold = (text: string): string => wrap("1;38;5;167", text);
+export const inverse = (text: string): string => wrap("7", text);
 
 export interface ThemedPalette {
 	bold: (text: string) => string;
@@ -43,6 +41,8 @@ export interface ThemedPalette {
 	dangerBold: (text: string) => string;
 	inverse: (text: string) => string;
 }
+
+const legacy: ThemedPalette = { bold, dim, muted, accent, accentBold, success, successBold, warning, warningBold, danger, dangerBold, inverse };
 
 export const fallbackPalette: ThemedPalette = legacy;
 
