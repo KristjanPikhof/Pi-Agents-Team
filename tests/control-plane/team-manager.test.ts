@@ -59,6 +59,34 @@ test("TeamManager delegates, tracks, pings, and cancels workers", async () => {
 	assert.equal(cancelled.worker.status, "exited");
 });
 
+test("TeamManager rolls back worker and task registry when configured rpc command fails to launch", async () => {
+	const teamManager = new TeamManager({
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			rpc: {
+				...DEFAULT_TEAM_CONFIG.rpc,
+				command: "pi-agent-team-definitely-missing-command-for-test",
+			},
+		},
+	});
+
+	await assert.rejects(
+		teamManager.delegateTask({
+			title: "Broken launch",
+			goal: "Verify failed worker launch cleanup",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+		}),
+		/Worker launch failed/,
+	);
+	await waitForMicrotasks();
+
+	assert.deepEqual(teamManager.listWorkers(), []);
+	const snapshot = teamManager.snapshot();
+	assert.deepEqual(Object.keys(snapshot.activeWorkers), []);
+	assert.deepEqual(Object.keys(snapshot.taskRegistry), []);
+});
+
 test("TeamManager passes configured rpc command and args to fresh worker launch", async () => {
 	const launches: WorkerProcessOptions[] = [];
 	const workerManager = new WorkerManager((options) => {

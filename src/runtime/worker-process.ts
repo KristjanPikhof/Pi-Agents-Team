@@ -43,6 +43,7 @@ export interface WorkerProcessOptions {
 export interface ExitInfo {
 	code: number | null;
 	signal: NodeJS.Signals | null;
+	error?: Error;
 }
 
 export interface WorkerTransport {
@@ -52,8 +53,10 @@ export interface WorkerTransport {
 	stderr: Readable;
 	kill(signal?: NodeJS.Signals): boolean;
 	on(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+	on(event: "error", listener: (error: Error) => void): this;
 	on(event: string, listener: (...args: unknown[]) => void): this;
 	off(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+	off(event: "error", listener: (error: Error) => void): this;
 	off(event: string, listener: (...args: unknown[]) => void): this;
 }
 
@@ -77,8 +80,15 @@ class NodeWorkerProcessHandle extends EventEmitter implements WorkerProcessHandl
 		this.transport.stderr.on("data", (chunk) => {
 			this.stderr += chunk.toString();
 		});
+		this.transport.stdin.on("error", () => {
+			// Child process launch failures are reported through the process "error" event below.
+		});
 		this.exitPromise = new Promise<ExitInfo>((resolve) => {
 			this.transport.on("exit", (code, signal) => resolve({ code, signal }));
+			this.transport.on("error", (error) => {
+				this.stderr += `${error.message}\n`;
+				resolve({ code: null, signal: null, error });
+			});
 		});
 	}
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWorkerProcessArgs, resolveWorkerSpawnImplementation } from "../../src/runtime/worker-process";
+import { buildWorkerProcessArgs, resolveWorkerSpawnImplementation, spawnWorkerProcess } from "../../src/runtime/worker-process";
 
 test("buildWorkerProcessArgs maps trusted project decision to --approve", () => {
 	const args = buildWorkerProcessArgs({ cwd: process.cwd(), projectTrust: "approve" });
@@ -113,4 +113,18 @@ test("resolveWorkerSpawnImplementation uses cross-spawn on Windows", () => {
 	assert.equal(resolveWorkerSpawnImplementation("win32"), "cross-spawn");
 	assert.equal(resolveWorkerSpawnImplementation("darwin"), "node:child_process");
 	assert.equal(resolveWorkerSpawnImplementation("linux"), "node:child_process");
+});
+
+test("spawnWorkerProcess converts child_process spawn errors into waitForExit failure info", async () => {
+	const handle = spawnWorkerProcess({
+		cwd: process.cwd(),
+		command: "pi-agent-team-definitely-missing-command-for-test",
+	});
+
+	const exitInfo = await handle.waitForExit();
+	assert.equal(exitInfo.code, null);
+	assert.equal(exitInfo.signal, null);
+	assert.ok(exitInfo.error);
+	assert.match(exitInfo.error.message, /ENOENT|not found/i);
+	assert.match(handle.stderrBuffer, /ENOENT|not found/i);
 });

@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { PassThrough, Writable } from "node:stream";
 import { WorkerManager } from "../../src/runtime/worker-manager";
+import type { ExitInfo, WorkerProcessHandle, WorkerTransport } from "../../src/runtime/worker-process";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "./test-helpers";
 
 function taskInput(taskId: string, title: string, profileName = "reviewer") {
@@ -14,6 +17,54 @@ function taskInput(taskId: string, title: string, profileName = "reviewer") {
 		contextHints: [],
 		createdAt: Date.now(),
 	};
+}
+
+class FailingLaunchTransport extends EventEmitter implements WorkerTransport {
+	readonly stdin = new Writable({
+		write(_chunk, _encoding, callback) {
+			callback(new Error("spawn ENOENT"));
+		},
+	});
+	readonly stdout = new PassThrough();
+	readonly stderr = new PassThrough();
+	readonly pid = undefined;
+
+	constructor() {
+		super();
+		this.stdin.on("error", () => {
+			// Expected for this launch-failure test double.
+		});
+	}
+
+	kill(): boolean {
+		queueMicrotask(() => this.emit("exit", null, null));
+		return false;
+	}
+}
+
+class FailingLaunchHandle implements WorkerProcessHandle {
+	readonly transport = new FailingLaunchTransport();
+	readonly pid = undefined;
+	readonly stderrBuffer = "spawn ENOENT";
+	private readonly spawnError = new Error("spawn ENOENT");
+	private readonly exitPromise: Promise<ExitInfo> = Promise.resolve({
+		code: null,
+		signal: null,
+		error: this.spawnError,
+	});
+
+	waitForExit(): Promise<ExitInfo> {
+		return this.exitPromise;
+	}
+
+	kill(): boolean {
+		return this.transport.kill();
+	}
+
+	dispose(): Promise<ExitInfo> {
+		this.kill();
+		return this.exitPromise;
+	}
 }
 
 test("WorkerManager launches a worker, prompts it, and tracks compact state", async () => {
@@ -78,6 +129,22 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	await manager.abortWorker("worker-1");
 	const abortedWorker = manager.getWorker("worker-1");
 	assert.equal(abortedWorker?.state.status, "aborted");
+});
+
+test("launchWorker rejects controlled spawn failures and removes the broken worker", async () => {
+	const manager = new WorkerManager(() => new FailingLaunchHandle());
+
+	await assert.rejects(
+		manager.launchWorker({
+			workerId: "worker-spawn-fail",
+			profileName: "fixer",
+			task: taskInput("task-spawn-fail", "Spawn fail", "fixer"),
+			cwd: process.cwd(),
+			command: "missing-pi-command",
+		}),
+		/Worker launch failed for worker-spawn-fail: spawn ENOENT/,
+	);
+	assert.equal(manager.hasWorker("worker-spawn-fail"), false);
 });
 
 test("refreshStats clears nullable context percent and remaining after compaction", async () => {
