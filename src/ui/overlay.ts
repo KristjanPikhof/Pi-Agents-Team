@@ -301,30 +301,83 @@ function formatConsoleEvent(event: WorkerConsoleEvent): string {
 }
 
 function formatFinalAnswerFields(fields: WorkerActivityEvent["finalSummaryFields"] | undefined, summary?: string): string[] {
-	if (!fields || Object.keys(fields).length === 0) return summary ? [`  ${summary}`] : [];
+	if (!fields || Object.keys(fields).length === 0) return summary ? [summary] : [];
 	const lines: string[] = [];
-	if (fields.headline) lines.push(`  ${bold("Headline:")} ${fields.headline}`);
-	for (const risk of fields.risks ?? []) lines.push(`  ${bold("Risks:")} ${risk}`);
-	if (fields.nextRecommendation) lines.push(`  ${bold("Next:")} ${fields.nextRecommendation}`);
+	if (fields.headline) lines.push(`${bold("Headline:")} ${fields.headline}`);
+	for (const risk of fields.risks ?? []) lines.push(`${bold("Risks:")} ${risk}`);
+	if (fields.nextRecommendation) lines.push(`${bold("Next:")} ${fields.nextRecommendation}`);
 	return lines;
 }
 
+function formatActivityStatus(status: WorkerActivityEvent["status"]): string {
+	switch (status) {
+		case "completed":
+			return successBold("ok");
+		case "error":
+			return dangerBold("error");
+		case "started":
+			return warningBold("running");
+		case "info":
+			return muted("info");
+	}
+}
+
+function formatActivityHeaderLabel(event: WorkerActivityEvent): string {
+	if (event.actionKind === "command") return `tool ${event.toolName ?? "command"}`;
+	if (event.actionKind === "tool") return `tool ${event.toolName ?? event.label.replace(/^Used\s+/, "")}`;
+	if (event.actionKind === "process") return `process ${event.label.toLowerCase()}`;
+	if (event.actionKind === "final_summary") return "final-answer";
+	return event.label.toLowerCase().replace(/\s+/g, "-");
+}
+
+function formatActivityFooter(event: WorkerActivityEvent): string {
+	const parts: string[] = [];
+	if (event.updatedAt > event.ts) {
+		const seconds = (event.updatedAt - event.ts) / 1000;
+		parts.push(`took ${seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0)}s`);
+	}
+	parts.push("raw:r");
+	return parts.join(" · ");
+}
+
+function styleDiffStatLine(line: string): string {
+	let styled = "";
+	for (const char of line) {
+		if (char === "+") styled += success(char);
+		else if (char === "-") styled += danger(char);
+		else styled += char;
+	}
+	return styled
+		.replace(/(\d+\s+insertions?\(\+\))/g, (match) => success(match))
+		.replace(/(\d+\s+deletions?\(-\))/g, (match) => danger(match));
+}
+
+function styleActivityOutputLine(line: string): string {
+	const plain = stripAnsi(line);
+	if (/^(diff --git|@@\s|index\s|\+\+\+\s|---\s)/.test(plain)) return accent(line);
+	if (/^\+(?!\+\+)/.test(plain)) return success(line);
+	if (/^-(?!---)/.test(plain)) return danger(line);
+	if (/\|\s*\d+\s+[+\-]+\s*$/.test(plain) || /\b\d+ files? changed\b/.test(plain)) return styleDiffStatLine(line);
+	return line;
+}
+
 function formatActivityEvent(event: WorkerActivityEvent): string[] {
-	const bulletLabel = event.actionKind === "command"
-		? `• Ran ${event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "")}`
-		: event.actionKind === "tool"
-			? `• ${event.label.startsWith("Used ") ? event.label : `Used ${event.toolName ?? event.label}`}`
-			: `• ${event.label}`;
-	const lines = [event.status === "error" ? dangerBold(bulletLabel) : bulletLabel];
-	if (event.actionKind === "final_summary") {
-		lines.push(...formatFinalAnswerFields(event.finalSummaryFields, event.summary));
-	} else if (event.summary && event.actionKind !== "command") {
-		lines.push(`  ${event.summary}`);
+	const header = `${FRAME.topLeft}${FRAME.horizontal} ${formatActivityHeaderLabel(event)} [${formatActivityStatus(event.status)}] ${muted(formatTimestamp(event.ts))} ${FRAME.horizontal}`;
+	const lines = [event.status === "error" ? dangerBold(header) : accent(header)];
+	const pushBody = (line: string): void => lines.push(`${accent(FRAME.vertical)} ${line}`);
+	if (event.actionKind === "command") {
+		pushBody(`${accentBold("$")} ${event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "")}`);
+		if (event.summary && event.summary !== event.command) pushBody(`${dim("detail:")} ${event.summary}`);
+	} else if (event.actionKind === "final_summary") {
+		for (const line of formatFinalAnswerFields(event.finalSummaryFields, event.summary)) pushBody(line);
+	} else if (event.summary) {
+		pushBody(event.summary);
 	}
 	if (event.outputSnippet) {
-		for (const line of event.outputSnippet.replace(/\r/g, "").split("\n")) lines.push(`  ${line}`);
+		for (const line of event.outputSnippet.replace(/\r/g, "").split("\n")) pushBody(styleActivityOutputLine(line));
 	}
-	if ((event.hiddenLineCount ?? 0) > 0) lines.push(`  … +${event.hiddenLineCount} lines hidden`);
+	if ((event.hiddenLineCount ?? 0) > 0) pushBody(muted(`… +${event.hiddenLineCount} lines hidden`));
+	lines.push(accent(`${FRAME.bottomLeft}${FRAME.horizontal} ${formatActivityFooter(event)}`));
 	return lines;
 }
 
