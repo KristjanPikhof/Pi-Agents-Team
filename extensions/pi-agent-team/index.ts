@@ -147,13 +147,20 @@ function applyUi(
 
 	const theme = ctx.ui.theme;
 	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip, orchestratorWorking, theme));
-	ctx.ui.setWidget(
-		config.ui.widgetKey,
-		(_tui, widgetTheme) => ({
-			render: (width) => buildTeamWidgetLines(state, { frame, routingMode, displayCost, theme: widgetTheme, width }),
-			invalidate: () => {},
-		}),
-	);
+	if (ctx.mode === "tui") {
+		ctx.ui.setWidget(
+			config.ui.widgetKey,
+			(_tui, widgetTheme) => ({
+				render: (width) => buildTeamWidgetLines(state, { frame, routingMode, displayCost, theme: widgetTheme, width }),
+				invalidate: () => {},
+			}),
+		);
+	} else {
+		ctx.ui.setWidget(
+			config.ui.widgetKey,
+			buildTeamWidgetLines(state, { frame, routingMode, displayCost, theme, width: 80 }),
+		);
+	}
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
 

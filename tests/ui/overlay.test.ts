@@ -187,6 +187,7 @@ test("openTeamDashboardOverlay uses the widened responsive overlay options", asy
 	let capturedOptions: unknown;
 	const fakeTheme = { fg: (_role: string, text: string) => text };
 	const ctx = {
+		mode: "tui",
 		hasUI: true,
 		cwd: process.cwd(),
 		ui: {

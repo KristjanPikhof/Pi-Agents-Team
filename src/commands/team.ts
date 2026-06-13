@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { openTeamDashboardOverlay } from "../ui/overlay";
+import { buildTeamDashboardText } from "../ui/dashboard";
 import { formatCommandWarning } from "../ui/display-grammar";
 import type { TeamManager } from "../control-plane/team-manager";
 import { formatUnknownWorker, suggestTargets } from "../util/suggest";
@@ -25,17 +26,25 @@ export function registerTeamCommand(pi: ExtensionAPI, dependencies: CommandRegis
 		},
 		handler: async (args, ctx) => {
 			const input = args.trim();
+			const emitDashboardText = async () => {
+				await dependencies.teamManager.pingWorkers({ mode: "active" }).catch(() => {});
+				dependencies.emitText(ctx, buildTeamDashboardText(dependencies.teamManager.snapshot()));
+			};
 			if (!input) {
-				await openTeamDashboardOverlay(ctx, dependencies.teamManager);
+				if (ctx.mode === "tui") await openTeamDashboardOverlay(ctx, dependencies.teamManager);
+				else await emitDashboardText();
 				return;
 			}
 			const workerId = dependencies.teamManager.resolveWorkerId(input);
 			if (!workerId) {
 				const candidates = dependencies.teamManager.listWorkers().map((worker) => worker.workerId);
-				ctx.ui.notify(formatCommandWarning(formatUnknownWorker(input, suggestTargets(input, candidates))), "warning");
+				const warning = formatCommandWarning(formatUnknownWorker(input, suggestTargets(input, candidates)));
+				if (ctx.mode === "tui") ctx.ui.notify(warning, "warning");
+				else dependencies.emitText(ctx, warning);
 				return;
 			}
-			await openTeamDashboardOverlay(ctx, dependencies.teamManager, { initialWorkerId: workerId });
+			if (ctx.mode === "tui") await openTeamDashboardOverlay(ctx, dependencies.teamManager, { initialWorkerId: workerId });
+			else await emitDashboardText();
 		},
 	});
 }

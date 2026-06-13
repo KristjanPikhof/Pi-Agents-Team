@@ -106,6 +106,53 @@ test("extension registers natural autocomplete provider when UI API is available
 	assert.deepEqual(provider.triggerCharacters, ["@", "$"]);
 });
 
+test("extension emits plain widget lines in RPC mode even when hasUI=true", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const widgets: unknown[] = [];
+
+	extension({
+		registerTool() {},
+		registerCommand() {},
+		on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) {
+			handlers.set(event, handler);
+		},
+		appendEntry() {},
+		sendMessage() {},
+	} as any);
+
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-rpc-widget-"));
+	const ctx = {
+		mode: "rpc",
+		cwd,
+		hasUI: true,
+		ui: {
+			theme: undefined,
+			notify() {},
+			setStatus() {},
+			setWidget(_key: string, value: unknown) {
+				widgets.push(value);
+			},
+			setTitle() {},
+			addAutocompleteProvider() {},
+		},
+		sessionManager: {
+			getEntries() {
+				return [];
+			},
+		},
+	} as any;
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+	const definedWidgets = widgets.filter((value) => value !== undefined);
+	assert.ok(definedWidgets.length > 0, "expected at least one widget update");
+	assert.ok(definedWidgets.every((value) => Array.isArray(value)), "RPC widget updates must be string arrays");
+	assert.ok(definedWidgets.flat().every((line) => typeof line === "string"), "RPC widget lines must be strings");
+	assert.ok(definedWidgets.every((value) => typeof value !== "function"), "RPC widget updates must not be component factories");
+
+	await handlers.get("session_shutdown")?.({}, ctx);
+});
+
 test("extension handles direct agent_start lifecycle without prompt injection hook", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const statusLines: Array<string | undefined> = [];
