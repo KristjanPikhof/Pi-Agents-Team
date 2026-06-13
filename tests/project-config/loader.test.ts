@@ -45,11 +45,11 @@ function buildConfig(overrides: Partial<TeamProjectConfigFile["roles"]> = {}): T
 
 function linkSelfExtensionEntrypoint(root: string, source: string): void {
 	const relativeSource = source.replace(/^\.\//, "");
-	if (!relativeSource.startsWith("extensions/")) return;
+	if (relativeSource !== "extensions" && !relativeSource.startsWith("extensions/")) return;
 	const linkPath = join(root, relativeSource);
 	const targetPath = resolve(process.cwd(), relativeSource);
 	mkdirSync(resolve(linkPath, ".."), { recursive: true });
-	symlinkSync(targetPath, linkPath);
+	symlinkSync(targetPath, linkPath, /\.(?:[cm]?[jt]s)$/.test(targetPath) ? "file" : "dir");
 }
 
 test("loadActiveTeamConfig exposes project active freshness metadata", () => {
@@ -424,6 +424,9 @@ test("loadActiveTeamConfig v4: recursive self-extension sources are rejected", (
 		"git+https://github.com/KristjanPikhof/pi-agents-team.git",
 		"https://github.com/KristjanPikhof/pi-agents-team",
 		"git@github.com:KristjanPikhof/pi-agents-team.git",
+		"./extensions",
+		"extensions",
+		"./extensions/pi-agent-team",
 		"./extensions/index.ts",
 		"extensions/index.ts",
 		"./extensions/pi-agent-team/index.ts",

@@ -29,6 +29,9 @@ test("applyLaunchPolicy blocks explicit recursive orchestrator extension sources
 		"git+https://github.com/KristjanPikhof/pi-agents-team.git",
 		"https://github.com/KristjanPikhof/pi-agents-team",
 		"git@github.com:KristjanPikhof/pi-agents-team.git",
+		"./extensions",
+		"extensions",
+		"./extensions/pi-agent-team",
 		resolve(process.cwd(), "extensions/index.ts"),
 		resolve(process.cwd(), "extensions/pi-agent-team/index.ts"),
 	];
