@@ -1,5 +1,6 @@
 import type { WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager";
 import type { WorkerRuntimeState } from "../types";
+import { sanitizeTerminalText } from "./theme";
 import { hasCacheUsage } from "./usage-format";
 
 function formatTs(ts: number): string {
@@ -8,13 +9,14 @@ function formatTs(ts: number): string {
 }
 
 function formatConsoleEvent(event: WorkerConsoleEvent): string {
-	return `[${formatTs(event.ts)}] [${event.kind}] ${event.text}`;
+	return `[${formatTs(event.ts)}] [${event.kind}] ${sanitizeTerminalText(event.text)}`;
 }
 
 function parseFinalAnswerFields(text: string): WorkerActivityEvent["finalSummaryFields"] {
-	const headline = /^headline:\s*(.+)$/im.exec(text)?.[1]?.trim();
-	const nextRecommendation = /^next_recommendation:\s*(.+)$/im.exec(text)?.[1]?.trim();
-	const risksBlock = /^risks:\s*$(?<body>(?:\s*[-*]\s+.+\n?)*)/im.exec(text)?.groups?.body ?? "";
+	const safeText = sanitizeTerminalText(text);
+	const headline = /^headline:\s*(.+)$/im.exec(safeText)?.[1]?.trim();
+	const nextRecommendation = /^next_recommendation:\s*(.+)$/im.exec(safeText)?.[1]?.trim();
+	const risksBlock = /^risks:\s*$(?<body>(?:\s*[-*]\s+.+\n?)*)/im.exec(safeText)?.groups?.body ?? "";
 	const risks = risksBlock
 		.split("\n")
 		.map((line) => /^\s*[-*]\s+(.+)$/.exec(line)?.[1]?.trim())
@@ -29,27 +31,29 @@ function parseFinalAnswerFields(text: string): WorkerActivityEvent["finalSummary
 function formatFinalAnswerFields(fields: WorkerActivityEvent["finalSummaryFields"] | undefined, summary?: string): string[] {
 	if (!fields || Object.keys(fields).length === 0) return summary ? [`  ${summary}`] : [];
 	const lines: string[] = [];
-	if (fields.headline) lines.push(`  Headline: ${fields.headline}`);
-	for (const risk of fields.risks ?? []) lines.push(`  Risks: ${risk}`);
-	if (fields.nextRecommendation) lines.push(`  Next: ${fields.nextRecommendation}`);
+	if (fields.headline) lines.push(`  Headline: ${sanitizeTerminalText(fields.headline)}`);
+	for (const risk of fields.risks ?? []) lines.push(`  Risks: ${sanitizeTerminalText(risk)}`);
+	if (fields.nextRecommendation) lines.push(`  Next: ${sanitizeTerminalText(fields.nextRecommendation)}`);
 	return lines;
 }
 
 function formatActivityEvent(event: WorkerActivityEvent): string[] {
-	const commandText = event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "");
+	const label = sanitizeTerminalText(event.label);
+	const commandText = sanitizeTerminalText(event.command ?? event.summary ?? label.replace(/^Ran\s+/, ""));
+	const toolName = event.toolName ? sanitizeTerminalText(event.toolName) : undefined;
 	const bulletLabel = event.actionKind === "command"
 		? `• Ran ${commandText.replace(/^Ran\s+/, "")}`
 		: event.actionKind === "tool"
-			? `• ${event.label.startsWith("Used ") ? event.label : `Used ${event.toolName ?? event.label}`}`
-			: `• ${event.label}`;
+			? `• ${label.startsWith("Used ") ? label : `Used ${toolName ?? label}`}`
+			: `• ${label}`;
 	const lines = [bulletLabel];
 	if (event.actionKind === "final_summary") {
 		lines.push(...formatFinalAnswerFields(event.finalSummaryFields, event.summary));
 	} else if (event.summary && event.actionKind !== "command") {
-		lines.push(`  ${event.summary}`);
+		lines.push(`  ${sanitizeTerminalText(event.summary)}`);
 	}
 	if (event.outputSnippet) {
-		for (const line of event.outputSnippet.replace(/\r/g, "").split("\n")) lines.push(`  ${line}`);
+		for (const line of sanitizeTerminalText(event.outputSnippet).split("\n")) lines.push(`  ${line}`);
 	}
 	if ((event.hiddenLineCount ?? 0) > 0) lines.push(`  … +${event.hiddenLineCount} lines hidden`);
 	return lines;
@@ -87,9 +91,9 @@ function synthesizeActivity(
 				updatedAt: next?.ts ?? event.ts,
 				actionKind: "command",
 				status: next ? "completed" : "started",
-				label: `Ran ${event.text}`,
-				summary: event.text,
-				command: event.text,
+				label: `Ran ${sanitizeTerminalText(event.text)}`,
+				summary: sanitizeTerminalText(event.text),
+				command: sanitizeTerminalText(event.text),
 				...(next ? { outputSnippet: extractToolOutput(next.text) } : {}),
 				...(next ? { hiddenLineCount: extractHiddenLineCount(next.text) } : {}),
 				sourceEvent: "worker_text_flush",
@@ -102,7 +106,7 @@ function synthesizeActivity(
 				actionKind: event.kind,
 				status: event.kind === "error" ? "error" : "info",
 				label: event.kind === "error" ? "Worker error" : event.kind === "exit" ? "Worker exited" : "Messages queued",
-				summary: event.text,
+				summary: sanitizeTerminalText(event.text),
 				sourceEvent: "worker_text_flush",
 			});
 		}
@@ -116,7 +120,7 @@ function synthesizeActivity(
 			actionKind: "final_summary",
 			status: "completed",
 			label: "Final answer",
-			summary: worker.finalAnswer.replace(/\s+/g, " ").trim(),
+			summary: sanitizeTerminalText(worker.finalAnswer).replace(/\s+/g, " ").trim(),
 			sourceEvent: "worker_text_flush",
 			finalSummaryFields: fields,
 		});
@@ -150,31 +154,31 @@ export function buildCopyPayload(
 	}
 
 	lines.push("", "## Final answer");
-	lines.push(worker.finalAnswer?.trim() ?? "(no <final_answer> block produced)");
+	lines.push(sanitizeTerminalText(worker.finalAnswer ?? "").trim() || "(no <final_answer> block produced)");
 
 	if (worker.lastSummary) {
 		lines.push("", "## Supporting artifacts");
-		if (worker.lastSummary.headline) lines.push(`headline: ${worker.lastSummary.headline}`);
+		if (worker.lastSummary.headline) lines.push(`headline: ${sanitizeTerminalText(worker.lastSummary.headline)}`);
 		if (worker.lastSummary.changedFiles.length) {
 			lines.push("changed_files:");
-			for (const f of worker.lastSummary.changedFiles) lines.push(`  - ${f}`);
+			for (const f of worker.lastSummary.changedFiles) lines.push(`  - ${sanitizeTerminalText(f)}`);
 		}
 		if (worker.lastSummary.readFiles.length) {
 			lines.push("read_files:");
-			for (const f of worker.lastSummary.readFiles) lines.push(`  - ${f}`);
+			for (const f of worker.lastSummary.readFiles) lines.push(`  - ${sanitizeTerminalText(f)}`);
 		}
 		if (worker.lastSummary.risks.length) {
 			lines.push("risks:");
-			for (const r of worker.lastSummary.risks) lines.push(`  - ${r}`);
+			for (const r of worker.lastSummary.risks) lines.push(`  - ${sanitizeTerminalText(r)}`);
 		}
-		if (worker.lastSummary.nextRecommendation) lines.push(`next_recommendation: ${worker.lastSummary.nextRecommendation}`);
+		if (worker.lastSummary.nextRecommendation) lines.push(`next_recommendation: ${sanitizeTerminalText(worker.lastSummary.nextRecommendation)}`);
 	}
 
 	if (worker.pendingRelayQuestions.length > 0) {
 		lines.push("", "## Pending relay questions");
 		for (const relay of worker.pendingRelayQuestions) {
-			lines.push(`- [${relay.urgency}] ${relay.question}`);
-			lines.push(`  assumption: ${relay.assumption}`);
+			lines.push(`- [${relay.urgency}] ${sanitizeTerminalText(relay.question)}`);
+			lines.push(`  assumption: ${sanitizeTerminalText(relay.assumption)}`);
 		}
 	}
 
@@ -195,11 +199,11 @@ export function buildCopyPayload(
 	);
 
 	if (worker.error) {
-		lines.push("", "## Error", worker.error);
+		lines.push("", "## Error", sanitizeTerminalText(worker.error));
 	}
 
 	lines.push("", "## Latest assistant text");
-	lines.push(transcript?.trim() ?? "(no assistant text captured)");
+	lines.push(sanitizeTerminalText(transcript ?? "").trim() || "(no assistant text captured)");
 
 	const activity = activityEvents && activityEvents.length > 0 ? activityEvents : synthesizeActivity(worker, consoleEvents);
 	lines.push("", "## Activity");
