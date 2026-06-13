@@ -1305,8 +1305,9 @@ export async function openTeamDashboardOverlay(
 		? options.initialWorkerId
 		: undefined;
 
-	if (!ctx.hasUI) {
-		console.log(buildTeamDashboardText(initialState));
+	if (ctx.mode !== "tui") {
+		await teamManager.pingWorkers({ mode: "active" }).catch(() => {});
+		console.log(buildTeamDashboardText(teamManager.snapshot()));
 		return;
 	}
 

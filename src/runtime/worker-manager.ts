@@ -27,6 +27,12 @@ import type {
 } from "../types";
 
 const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
+const UNREACHABLE_TERMINAL_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
+	"completed",
+	"aborted",
+	"error",
+	"exited",
+]);
 
 export interface LaunchWorkerOptions {
 	workerId: string;
@@ -452,7 +458,6 @@ export class WorkerManager {
 		const record = this.requireWorker(workerId);
 		const stats = await record.client.getSessionStats();
 		record.state.usage = this.updateUsage(record.state.usage, stats);
-		record.state.lastEventAt = Date.now();
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 		return stats;
 	}
@@ -540,7 +545,9 @@ export class WorkerManager {
 	}
 
 	private applyNormalizedEvent(record: WorkerRuntimeRecord, event: NormalizedWorkerEvent): void {
-		record.state.lastEventAt = event.timestamp;
+		if (event.type !== "worker_state") {
+			record.state.lastEventAt = event.timestamp;
+		}
 
 		switch (event.type) {
 			case "worker_started":
@@ -633,16 +640,24 @@ export class WorkerManager {
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
 				break;
-			case "worker_state":
+			case "worker_state": {
 				if (isThinkingLevel(event.state.thinkingLevel)) {
 					record.state.effectiveThinkingLevel = event.state.thinkingLevel;
 				}
 				if (record.state.status === "starting" && !event.state.isStreaming) {
 					break;
 				}
+				if (UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) {
+					break;
+				}
+				const previousStatus = record.state.status;
 				record.state.status = deriveStatusFromSessionState(event.state);
+				if (record.state.status !== previousStatus) {
+					record.state.lastEventAt = event.timestamp;
+				}
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				break;
+			}
 			case "thinking_clamped":
 				break;
 			case "worker_exit":

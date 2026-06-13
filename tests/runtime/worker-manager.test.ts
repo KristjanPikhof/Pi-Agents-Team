@@ -4,7 +4,26 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import type { ExitInfo, WorkerProcessHandle, WorkerTransport } from "../../src/runtime/worker-process";
+import { createDefaultTeamState } from "../../src/config";
+import { buildTeamWidgetLines } from "../../src/ui/status-widget";
+import { stripAnsi } from "../../src/ui/theme";
+import type { WorkerStatus } from "../../src/types";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "./test-helpers";
+
+function setRuntimeStatus(
+	manager: WorkerManager,
+	workerId: string,
+	status: WorkerStatus,
+	lastEventAt: number,
+): void {
+	const record = (manager as unknown as {
+		workers: Map<string, { state: { status: WorkerStatus; lastEventAt: number; error?: string } }>;
+	}).workers.get(workerId);
+	assert.ok(record, `expected runtime record for ${workerId}`);
+	record.state.status = status;
+	record.state.lastEventAt = lastEventAt;
+	if (status === "error") record.state.error = "stale failure";
+}
 
 function taskInput(taskId: string, title: string, profileName = "reviewer") {
 	return {
@@ -145,6 +164,137 @@ test("launchWorker rejects controlled spawn failures and removes the broken work
 		/Worker launch failed for worker-spawn-fail: spawn ENOENT/,
 	);
 	assert.equal(manager.hasWorker("worker-spawn-fail"), false);
+});
+
+test("refreshStats does not advance worker activity recency", async () => {
+	const originalDateNow = Date.now;
+	let now = 1_000;
+	Date.now = () => now;
+	try {
+		const manager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+
+		await manager.launchWorker({
+			workerId: "worker-recency",
+			profileName: "reviewer",
+			task: taskInput("task-recency", "Recency check"),
+			cwd: process.cwd(),
+			tools: ["read"],
+			extensionMode: "worker-minimal",
+		});
+		await manager.promptWorker("worker-recency", "finish quietly");
+		await waitForMicrotasks();
+		await waitForMicrotasks();
+
+		const before = manager.getWorker("worker-recency")?.state;
+		assert.equal(before?.status, "idle");
+		assert.equal(before?.lastEventAt, 1_000);
+
+		now += 10 * 60 * 1_000;
+		await manager.refreshStats("worker-recency");
+		const after = manager.getWorker("worker-recency")?.state;
+		assert.equal(after?.usage.inputTokens, 10);
+		assert.equal(after?.lastEventAt, before?.lastEventAt);
+	} finally {
+		Date.now = originalDateNow;
+	}
+});
+
+test("refreshState preserves stale unreachable terminal statuses without advancing recency", async () => {
+	const originalDateNow = Date.now;
+	let now = 1_000;
+	Date.now = () => now;
+	try {
+		const transports = new Map<string, MockWorkerTransport>();
+		const manager = new WorkerManager(() => {
+			const transport = new MockWorkerTransport({ initialState: { isStreaming: true } });
+			transports.set(`worker-terminal-${transports.size + 1}`, transport);
+			return new MockWorkerHandle(transport);
+		});
+		const terminalStatuses: WorkerStatus[] = ["error", "aborted", "exited"];
+
+		for (const [index, status] of terminalStatuses.entries()) {
+			const workerId = `worker-terminal-${index + 1}`;
+			await manager.launchWorker({
+				workerId,
+				profileName: "reviewer",
+				task: taskInput(`task-terminal-${index + 1}`, `Terminal ${status}`),
+				cwd: process.cwd(),
+				tools: ["read"],
+				extensionMode: "worker-minimal",
+			});
+			setRuntimeStatus(manager, workerId, status, now);
+		}
+
+		now += 10 * 60 * 1_000;
+		for (const [index, status] of terminalStatuses.entries()) {
+			const workerId = `worker-terminal-${index + 1}`;
+			await manager.refreshState(workerId);
+			const after = manager.getWorker(workerId)?.state;
+			assert.equal(after?.status, status);
+			assert.equal(after?.lastEventAt, 1_000);
+		}
+
+		const teamState = createDefaultTeamState();
+		for (const worker of manager.listWorkers()) {
+			teamState.activeWorkers[worker.workerId] = worker.state;
+		}
+		const plainLines = buildTeamWidgetLines(teamState, { now }).map(stripAnsi);
+		assert.ok(
+			!plainLines.some((line) => terminalStatuses.some((status) => line.includes(`Terminal ${status}`))),
+			`stale terminal workers should remain hidden; got:\n${plainLines.join("\n")}`,
+		);
+		assert.ok(plainLines.some((line) => line.includes("3 old hidden")), `expected hidden summary; got:\n${plainLines.join("\n")}`);
+	} finally {
+		Date.now = originalDateNow;
+	}
+});
+
+test("refreshState advances recency only on live worker_state status changes", async () => {
+	const originalDateNow = Date.now;
+	let now = 1_000;
+	Date.now = () => now;
+	try {
+		const transport = new MockWorkerTransport();
+		const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+		await manager.launchWorker({
+			workerId: "worker-state-recency",
+			profileName: "reviewer",
+			task: taskInput("task-state-recency", "State recency"),
+			cwd: process.cwd(),
+			tools: ["read"],
+			extensionMode: "worker-minimal",
+		});
+		await manager.promptWorker("worker-state-recency", "finish quietly");
+		await waitForMicrotasks();
+		await waitForMicrotasks();
+
+		const afterComplete = manager.getWorker("worker-state-recency")?.state;
+		assert.equal(afterComplete?.status, "idle");
+		assert.equal(afterComplete?.lastEventAt, 1_000);
+
+		now = 2_000;
+		transport.setState({ isStreaming: true });
+		await manager.refreshState("worker-state-recency");
+		const afterRunning = manager.getWorker("worker-state-recency")?.state;
+		assert.equal(afterRunning?.status, "running");
+		assert.equal(afterRunning?.lastEventAt, 2_000);
+
+		now = 3_000;
+		transport.setState({ isStreaming: false });
+		await manager.refreshState("worker-state-recency");
+		const afterIdle = manager.getWorker("worker-state-recency")?.state;
+		assert.equal(afterIdle?.status, "idle");
+		assert.equal(afterIdle?.lastEventAt, 3_000);
+
+		now = 4_000;
+		await manager.refreshState("worker-state-recency");
+		const afterSameStatus = manager.getWorker("worker-state-recency")?.state;
+		assert.equal(afterSameStatus?.status, "idle");
+		assert.equal(afterSameStatus?.lastEventAt, 3_000);
+	} finally {
+		Date.now = originalDateNow;
+	}
 });
 
 test("refreshStats clears nullable context percent and remaining after compaction", async () => {

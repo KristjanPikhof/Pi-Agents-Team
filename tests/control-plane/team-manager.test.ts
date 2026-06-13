@@ -7,6 +7,7 @@ import { WorkerManager } from "../../src/runtime/worker-manager";
 import type { WorkerProcessOptions } from "../../src/runtime/worker-process";
 import { resolveProfile } from "../../src/profiles/loader";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "../runtime/test-helpers";
+import { buildTeamWidgetLines } from "../../src/ui/status-widget";
 import type { WorkerRuntimeState } from "../../src/types";
 
 function workerSnapshot(workerId: string, status: WorkerRuntimeState["status"], usage: WorkerRuntimeState["usage"]): WorkerRuntimeState {
@@ -458,6 +459,40 @@ test("aggregateUsage sums token and cost fields across every tracked worker", as
 	assert.equal(agg.workers, 2);
 	assert.ok(agg.inputTokens >= 20);
 	assert.ok(agg.costUsd >= 0.02);
+});
+
+test("active ping does not make stale terminal workers reappear in the widget", async () => {
+	const originalDateNow = Date.now;
+	let now = 1_000;
+	Date.now = () => now;
+	try {
+		const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+		const teamManager = new TeamManager({ workerManager });
+
+		await teamManager.delegateTask({
+			title: "Old finished task",
+			goal: "finish before the overlay opens",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+		});
+		await waitForMicrotasks();
+		await waitForMicrotasks();
+
+		const beforePing = teamManager.getWorkerStatus("w1");
+		assert.equal(beforePing?.status, "idle");
+		assert.equal(beforePing?.lastEventAt, 1_000);
+
+		now += 10 * 60 * 1_000;
+		await teamManager.pingWorkers({ mode: "active" });
+
+		const afterPing = teamManager.getWorkerStatus("w1");
+		assert.equal(afterPing?.lastEventAt, beforePing?.lastEventAt);
+		const plainLines = buildTeamWidgetLines(teamManager.snapshot(), { now }).join("\n");
+		assert.ok(!plainLines.includes("(w1)"), `stale terminal worker should stay hidden after active ping; got:\n${plainLines}`);
+		assert.match(plainLines, /1 old hidden/);
+	} finally {
+		Date.now = originalDateNow;
+	}
 });
 
 test("cancelAllWorkers aborts only non-terminal workers and skips the rest", async () => {
