@@ -200,7 +200,21 @@ function formatRosterProfileName(worker: WorkerRuntimeState): string {
 	return `${worker.profileName}${hasClampedThinking(worker) ? " (clamped)" : ""}`;
 }
 
-function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, palette: ThemedPalette): string {
+function buildRecentActivityLines(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined): string[] {
+	const lines: string[] = [inspectSection("Recent activity")];
+	const recentCommands = (consoleEvents ?? [])
+		.filter((event) => event.kind === "tool_start")
+		.slice(-3)
+		.map((event) => `• Ran ${event.text}`);
+	lines.push(...recentCommands);
+	const latestThinking = transcript?.trim().split("\n").filter(Boolean).slice(-1)[0];
+	if (latestThinking) lines.push(`• Thinking: ${latestThinking}`);
+	if (worker.finalAnswer) lines.push("• Final answer produced");
+	if (lines.length === 1) lines.push(dim("(none yet)"));
+	return lines;
+}
+
+function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined, palette: ThemedPalette): string {
 	const lines = [
 		`${worker.workerId} · ${worker.profileName} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : ""}`,
 		"",
@@ -231,6 +245,8 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 			lines.push(inspectField("Assumption:", relay.assumption));
 		}
 	}
+
+	lines.push("", ...buildRecentActivityLines(worker, transcript, consoleEvents));
 
 	lines.push("", inspectSection("Summary"));
 	if (worker.lastSummary) {
@@ -738,8 +754,8 @@ const ACTION_BAR_KEYS: Array<{ key: string; label: string }> = [
 	{ key: "q", label: "uit" },
 ];
 
-function buildActionBar(): string {
-	return ACTION_BAR_KEYS.map(({ key, label }) => `[${accentBold(key)}]${dim(label)}`).join(" ");
+function buildActionBar(overrides: Partial<Record<string, string>> = {}): string {
+	return ACTION_BAR_KEYS.map(({ key, label }) => `[${accentBold(key)}]${dim(overrides[key] ?? label)}`).join(" ");
 }
 
 function firstFitting(width: number, candidates: string[]): string {
@@ -877,7 +893,7 @@ export function createTeamDashboardOverlayComponent(
 		consoleScroll: 0,
 		consoleFollow: true,
 		consoleMode: "activity",
-		costScroll: 0;
+		costScroll: 0,
 	};
 	let statusMessage: string | undefined;
 	let statusExpires = 0;
@@ -1105,7 +1121,7 @@ export function createTeamDashboardOverlayComponent(
 		if (!worker) {
 			return enforceWidth(["No worker selected. Switch to Workers (1) to pick one."], width).slice(0, rows);
 		}
-		const body = wrapLines(buildInspectText(worker, teamManager.getWorkerTranscript(worker.workerId), currentPalette), width);
+		const body = wrapLines(buildInspectText(worker, teamManager.getWorkerTranscript(worker.workerId), teamManager.getWorkerConsole(worker.workerId), currentPalette), width);
 		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
 		const visible = Math.max(1, rows - 1);
 		const maxTop = Math.max(0, body.length - visible);
