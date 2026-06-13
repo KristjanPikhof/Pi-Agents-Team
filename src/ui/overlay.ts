@@ -863,7 +863,7 @@ export function createTeamDashboardOverlayComponent(
 	const submitModal = async () => {
 		const modal = state.modal;
 		if (!modal) return;
-		const trimmed = modal.buffer.trim();
+		const trimmed = modal.input.getValue().trim();
 		state.modal = undefined;
 		if (!trimmed) {
 			setStatus("(empty input — cancelled)");
@@ -1020,26 +1020,7 @@ export function createTeamDashboardOverlayComponent(
 
 	const handleModalInput = (data: string): boolean => {
 		if (!state.modal) return false;
-		if (matchesKey(data, "escape")) {
-			state.modal = undefined;
-			setStatus("(cancelled)");
-			return true;
-		}
-		if (matchesKey(data, "enter") || data === "\r" || data === "\n") {
-			void submitModal();
-			return true;
-		}
-		if (matchesKey(data, "backspace") || data === "\x7f" || data === "\b") {
-			state.modal.buffer = state.modal.buffer.slice(0, -1);
-			return true;
-		}
-		// Reject control sequences other than printable ASCII / unicode.
-		if (data.length === 1 && data.charCodeAt(0) < 0x20) return true;
-		if (data.startsWith("\x1b")) return true;
-		const printable = data
-			.replace(/[\r\n]+/g, " ")
-			.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-		if (printable.length > 0) state.modal.buffer += printable;
+		state.modal.input.handleInput(data);
 		return true;
 	};
 
