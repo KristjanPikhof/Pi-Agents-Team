@@ -900,6 +900,74 @@ test("console Activity fallback parses final-answer blocks split across assistan
 	assert.match(rawBody, /<\/final_answer>/, "Raw diagnostics must retain original closing tag text");
 });
 
+test("console Activity fallback parses final-answer opening marker split across chunks", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const chunks: AssistantChunk[] = [
+		{ index: 0, ts: now, text: "Preamble before split marker.\n<fi" },
+		{ index: 1, ts: now + 1_000, text: "nal_" },
+		{ index: 2, ts: now + 2_000, text: "answer>\nheadline: split-open headline\nrisks:\n- open marker risk\n</final_answer>" },
+	];
+	const { component } = makeComponent({ state, rows: 70, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+
+	const body = renderPlain(component, 100).join("\n");
+	assert.match(body, /final-answer \[ok\]/);
+	assert.match(body, /Headline: split-open headline/);
+	assert.match(body, /Risks: open marker risk/);
+	assert.doesNotMatch(body, /process thinking \[info\][\s\S]*headline: split-open headline/);
+
+	component.handleInput("r");
+	const rawBody = renderPlain(component, 100).join("\n");
+	assert.match(rawBody, /\[raw\] assistant chunk #0/);
+	assert.match(rawBody, /<fi/);
+	assert.match(rawBody, /nal_/);
+	assert.match(rawBody, /answer>/);
+});
+
+test("console Activity fallback parses final-answer closing marker split across chunks", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const chunks: AssistantChunk[] = [
+		{ index: 0, ts: now, text: "<final_answer>\nheadline: split-close headline\nrisks:\n- close marker risk\n</fi" },
+		{ index: 1, ts: now + 1_000, text: "nal_" },
+		{ index: 2, ts: now + 2_000, text: "answer>\nTrailing after close." },
+	];
+	const { component } = makeComponent({ state, rows: 70, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+
+	const body = renderPlain(component, 100).join("\n");
+	assert.match(body, /final-answer \[ok\]/);
+	assert.match(body, /Headline: split-close headline/);
+	assert.match(body, /Risks: close marker risk/);
+	assert.match(body, /Trailing after close\./);
+	assert.doesNotMatch(body, /process thinking \[info\][\s\S]*headline: split-close headline/);
+});
+
+test("console Activity fallback parses character-by-character final-answer streaming", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const streamed = [
+		"<final_answer>",
+		"headline: char streamed headline",
+		"risks:",
+		"- char stream marker risk",
+		"next_recommendation: keep char scanner",
+		"</final_answer>",
+	].join("\n");
+	const chunks: AssistantChunk[] = Array.from(streamed).map((text, index) => ({ index, ts: now + index, text }));
+	const { component } = makeComponent({ state, rows: 90, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+
+	const body = renderPlain(component, 100).join("\n");
+	assert.match(body, /activity=1/);
+	assert.match(body, /final-answer \[ok\]/);
+	assert.match(body, /Headline: char streamed headline/);
+	assert.match(body, /Risks: char stream marker risk/);
+	assert.match(body, /Next: keep char scanner/);
+	assert.doesNotMatch(body, /process thinking \[info\][\s\S]*headline: char streamed headline/);
+});
+
 test("console Activity fallback keeps unclosed final-answer tags visible as process text", () => {
 	const state = makeState(1);
 	const now = 1_700_000_000_000;

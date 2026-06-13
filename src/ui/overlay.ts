@@ -450,11 +450,35 @@ function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConso
 		pendingStart = undefined;
 		pendingEndTs = 0;
 	};
-	const openTagPattern = /<final[_\s-]?answer>/i;
-	const closeTagPattern = /<\/final[_\s-]?answer>/i;
+	const separatorVariants = ["", "_", "-", " ", "\t", "\n"];
+	const openTags = separatorVariants.map((separator) => `<final${separator}answer>`);
+	const closeTags = separatorVariants.map((separator) => `</final${separator}answer>`);
+	const findFirstTag = (text: string, tags: string[]): { index: number; tag: string } | undefined => {
+		const lowerText = text.toLowerCase();
+		let first: { index: number; tag: string } | undefined;
+		for (const tag of tags) {
+			const index = lowerText.indexOf(tag.toLowerCase());
+			if (index >= 0 && (!first || index < first.index)) first = { index, tag: text.slice(index, index + tag.length) };
+		}
+		return first;
+	};
+	const longestTagPrefixSuffix = (text: string, tags: string[]): string => {
+		const lowerText = text.toLowerCase();
+		let longest = "";
+		for (const tag of tags) {
+			const lowerTag = tag.toLowerCase();
+			for (let length = 1; length < lowerTag.length && length <= lowerText.length; length += 1) {
+				if (length > longest.length && lowerText.endsWith(lowerTag.slice(0, length))) longest = text.slice(text.length - length);
+			}
+		}
+		return longest;
+	};
+	let normalCarry = "";
+	let normalCarryStart: AssistantChunk | undefined;
 	let finalAnswerStart: AssistantChunk | undefined;
 	let finalAnswerRaw = "";
 	let finalAnswerEndTs = 0;
+	let closeCarry = "";
 	const appendPendingText = (text: string, chunk: AssistantChunk | undefined) => {
 		if (!text || !chunk) return;
 		pendingStart ??= chunk;
@@ -482,42 +506,57 @@ function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConso
 		finalAnswerStart = undefined;
 		finalAnswerRaw = "";
 		finalAnswerEndTs = 0;
+		closeCarry = "";
 	};
 	for (const chunk of chunks) {
 		let chunkText = sanitizeTerminalText(chunk.text);
-		while (chunkText.length > 0) {
+		let chunkStart: AssistantChunk | undefined = chunk;
+		while (chunkText.length > 0 || normalCarry || closeCarry) {
 			if (finalAnswerStart) {
-				const closeMatch = closeTagPattern.exec(chunkText);
-				if (!closeMatch) {
-					finalAnswerRaw += chunkText;
+				const text = closeCarry + chunkText;
+				const closeMatch = findFirstTag(text, closeTags);
+				if (closeMatch) {
+					finalAnswerRaw += text.slice(0, closeMatch.index) + closeMatch.tag;
 					finalAnswerEndTs = chunk.ts;
-					break;
+					emitFinalAnswer();
+					chunkText = text.slice(closeMatch.index + closeMatch.tag.length);
+					closeCarry = "";
+					chunkStart = chunk;
+					continue;
 				}
-				const closeIndex = closeMatch.index;
-				const closeTag = closeMatch[0];
-				finalAnswerRaw += chunkText.slice(0, closeIndex) + closeTag;
-				finalAnswerEndTs = chunk.ts;
-				emitFinalAnswer();
-				chunkText = chunkText.slice(closeIndex + closeTag.length);
-				continue;
-			}
-
-			const openMatch = openTagPattern.exec(chunkText);
-			if (!openMatch) {
-				appendPendingText(chunkText, chunk);
+				const suffix = longestTagPrefixSuffix(text, closeTags);
+				const safeText = suffix ? text.slice(0, -suffix.length) : text;
+				finalAnswerRaw += safeText;
+				if (safeText || suffix) finalAnswerEndTs = chunk.ts;
+				closeCarry = suffix;
 				break;
 			}
-			const openIndex = openMatch.index;
-			const openTag = openMatch[0];
-			appendPendingText(chunkText.slice(0, openIndex), chunk);
-			flushPendingText();
-			finalAnswerStart = chunk;
-			finalAnswerRaw = openTag;
-			finalAnswerEndTs = chunk.ts;
-			chunkText = chunkText.slice(openIndex + openTag.length);
+
+			const text = normalCarry + chunkText;
+			const textStart = normalCarry ? normalCarryStart : chunkStart;
+			const openMatch = findFirstTag(text, openTags);
+			if (openMatch) {
+				appendPendingText(text.slice(0, openMatch.index), textStart);
+				flushPendingText();
+				finalAnswerStart = textStart ?? chunk;
+				finalAnswerRaw = openMatch.tag;
+				finalAnswerEndTs = chunk.ts;
+				chunkText = text.slice(openMatch.index + openMatch.tag.length);
+				normalCarry = "";
+				normalCarryStart = undefined;
+				chunkStart = chunk;
+				continue;
+			}
+			const suffix = longestTagPrefixSuffix(text, openTags);
+			const safeText = suffix ? text.slice(0, -suffix.length) : text;
+			appendPendingText(safeText, textStart);
+			normalCarry = suffix;
+			normalCarryStart = suffix ? (textStart ?? chunk) : undefined;
+			break;
 		}
 	}
-	if (finalAnswerStart) appendPendingText(finalAnswerRaw, finalAnswerStart);
+	if (finalAnswerStart) appendPendingText(finalAnswerRaw + closeCarry, finalAnswerStart);
+	else appendPendingText(normalCarry, normalCarryStart);
 	flushPendingText();
 	for (let index = 0; index < consoleEvents.length; index += 1) {
 		const event = consoleEvents[index]!;
