@@ -478,6 +478,24 @@ test("inspect tab renders structured readable sections with styled headers", () 
 	assert.ok(rawLines.some((line) => line.includes("\x1b[2mThinking:\x1b[0m")), "expected dimmed metadata label");
 });
 
+test("inspect tab marks oversized assistant transcript as truncated", () => {
+	const state = makeState(1);
+	const transcript = `${"older line\n".repeat(40_000)}tail line`;
+	const { component } = makeComponent({
+		state,
+		rows: 10_000,
+		cols: 100,
+		initialWorkerId: "w1",
+		transcripts: { w1: transcript },
+	});
+
+	const body = renderPlain(component, 100).join("\n");
+	assert.match(body, /Latest assistant text \[tail\]/);
+	assert.match(body, /\[transcript truncated: showing retained tail; omitted /);
+	assert.match(body, /tail line/);
+	assert.ok(body.length < transcript.length, "inspect output should not include the full oversized transcript");
+});
+
 test("inspect tab visually separates final answer from latest assistant text and remains width-safe", () => {
 	const state = makeState(1);
 	state.activeWorkers.w1!.finalAnswer = `Final answer ${"alpha beta ".repeat(18)}`;
@@ -805,6 +823,30 @@ function makeActivityContractInputs(now = 1_700_000_000_000): { chunks: Assistan
 		],
 	};
 }
+
+test("console Activity contract renders final-answer fields through the shared parser", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const chunks: AssistantChunk[] = [{
+		index: 0,
+		ts: now,
+		text: [
+			"<final_answer>",
+			"headline: shared overlay headline",
+			"risks:",
+			"- overlay drift risk",
+			"next_recommendation: keep parser shared",
+			"</final_answer>",
+		].join("\n"),
+	}];
+	const { component } = makeComponent({ state, rows: 48, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+
+	const body = renderPlain(component, 100).join("\n");
+	assert.match(body, /Headline: shared overlay headline/);
+	assert.match(body, /Risks: overlay drift risk/);
+	assert.match(body, /Next: keep parser shared/);
+});
 
 test("console Activity contract renders the golden command, output elision, process note, and final-answer fields", () => {
 	const state = makeState(1);

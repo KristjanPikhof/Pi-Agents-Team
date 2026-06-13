@@ -81,6 +81,31 @@ test("buildCopyPayload handles absent final answer and transcript cleanly", () =
 	assert.doesNotMatch(payload, /## Console timeline \(Raw\)/);
 });
 
+test("buildCopyPayload caps oversized assistant transcript and makes truncation visible", () => {
+	const worker = makeWorker();
+	const transcript = `${"older line\n".repeat(40_000)}tail line`;
+	const payload = buildCopyPayload(worker, transcript, undefined);
+
+	assert.match(payload, /## Latest assistant text[\s\S]*\[transcript truncated: showing retained tail; omitted /);
+	assert.match(payload, /tail line/);
+	assert.ok(payload.length < transcript.length, "payload should not include the full oversized transcript");
+});
+
+test("buildCopyPayload synthesizes final-answer fields through the shared parser", () => {
+	const worker = makeWorker();
+	worker.finalAnswer = [
+		"headline: shared parser headline",
+		"risks:",
+		"- parser drift risk",
+		"next_recommendation: keep one parser",
+	].join("\n");
+	const payload = buildCopyPayload(worker, undefined, undefined);
+
+	assert.match(payload, /• Final answer[\s\S]*Headline: shared parser headline/);
+	assert.match(payload, /Risks: parser drift risk/);
+	assert.match(payload, /Next: keep one parser/);
+});
+
 test("buildCopyPayload uses provided worker activity events before raw diagnostics", () => {
 	const worker = makeWorker();
 	worker.finalAnswer = undefined;
