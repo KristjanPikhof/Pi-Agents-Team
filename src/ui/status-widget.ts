@@ -73,27 +73,27 @@ function statusGlyph(worker: WorkerRuntimeState, frame: number): string {
 	return getWorkerStatusGlyph(worker);
 }
 
-function buildUsageLine(state: PersistedTeamState, palette: ThemedPalette): string | undefined {
+function buildUsageLine(state: PersistedTeamState, palette: ThemedPalette, width: number): string | undefined {
 	const usage = aggregateWorkerUsage(Object.values(state.activeWorkers), state.prunedWorkerUsageTotals);
 	if (!hasWorkerUsage(usage)) return undefined;
 	const base = `${palette.accent("Σ")} turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · $${usage.costUsd.toFixed(4)}`;
 	const cache = formatCacheUsage(usage);
-	if (!cache) return truncateToWidth(base, HEADER_WIDTH);
+	if (!cache) return truncateToWidth(base, width);
 	const withCache = `${palette.accent("Σ")} turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · ${cache} · $${usage.costUsd.toFixed(4)}`;
-	return truncateToWidth(visibleWidth(withCache) <= HEADER_WIDTH ? withCache : base, HEADER_WIDTH);
+	return truncateToWidth(visibleWidth(withCache) <= width ? withCache : base, width);
 }
 
-function buildStatusRow(state: PersistedTeamState, palette: ThemedPalette): { row: string; includesUsage: boolean } {
-	const counts = buildCountsLine(state, palette);
-	const usage = buildUsageLine(state, palette);
+function buildStatusRow(state: PersistedTeamState, palette: ThemedPalette, width: number): { row: string; includesUsage: boolean } {
+	const counts = buildCountsLine(state, palette, width);
+	const usage = buildUsageLine(state, palette, width);
 	if (!usage) return { row: counts, includesUsage: false };
 	const combined = `${counts} · ${usage}`;
-	return visibleWidth(combined) <= HEADER_WIDTH
+	return visibleWidth(combined) <= width
 		? { row: combined, includesUsage: true }
 		: { row: counts, includesUsage: false };
 }
 
-function buildCountsLine(state: PersistedTeamState, palette: ThemedPalette): string {
+function buildCountsLine(state: PersistedTeamState, palette: ThemedPalette, width: number): string {
 	const counts = { relay: 0, running: 0, starting: 0, queued: 0, idle: 0, done: 0, ended: 0 };
 	for (const worker of Object.values(state.activeWorkers)) {
 		if (worker.pendingRelayQuestions.length > 0) counts.relay += 1;
@@ -132,7 +132,7 @@ function buildCountsLine(state: PersistedTeamState, palette: ThemedPalette): str
 	if (counts.idle) parts.push(`${palette.dim("○")} ${palette.dim(String(counts.idle))} idle`);
 	if (counts.done) parts.push(`${palette.success("✓")} ${palette.success(String(counts.done))} done`);
 	if (counts.ended) parts.push(`${palette.danger("✗")} ${palette.danger(String(counts.ended))} ended`);
-	return truncateToWidth(parts.length === 0 ? palette.dim("no workers tracked") : parts.join("  "), HEADER_WIDTH);
+	return truncateToWidth(parts.length === 0 ? palette.dim("no workers tracked") : parts.join("  "), width);
 }
 
 function isActiveSurfaceWorker(worker: WorkerRuntimeState): boolean {
@@ -166,19 +166,19 @@ function getActiveElapsedStart(worker: WorkerRuntimeState): number {
 	return worker.currentTask?.createdAt ?? worker.startedAt;
 }
 
-function buildWorkerCell(worker: WorkerRuntimeState, frame: number, now: number, connector: "├" | "└", palette: ThemedPalette): string {
+function buildWorkerCell(worker: WorkerRuntimeState, frame: number, now: number, connector: "├" | "└", palette: ThemedPalette, width: number): string {
 	const glyph = statusGlyph(worker, frame);
 	const identity = `${palette.bold(formatProfileLabel(worker.profileName))} ${formatWorkerDisplayId(worker.workerId)}`;
 	if (getWorkerAttentionPriority(worker) === "completed_or_idle") {
-		return truncateToWidth(`${connector} ${glyph} ${identity} · ${palette.success("Done")}`, HEADER_WIDTH, "…");
+		return truncateToWidth(`${connector} ${glyph} ${identity} · ${palette.success("Done")}`, width, "…");
 	}
 	const title = buildWorkerTitle(worker);
 	const statusOrElapsed = isActiveSurfaceWorker(worker) ? formatElapsed(now - getActiveElapsedStart(worker)) : formatWorkerStatusLabel(worker);
 	const logical = `${connector} ${glyph} ${identity} · ${title} · ${statusOrElapsed}`;
-	return truncateToWidth(logical, HEADER_WIDTH, "…");
+	return truncateToWidth(logical, width, "…");
 }
 
-function buildWorkerActivityLine(worker: WorkerRuntimeState, hasFollowingRow: boolean, palette: ThemedPalette): string | undefined {
+function buildWorkerActivityLine(worker: WorkerRuntimeState, hasFollowingRow: boolean, palette: ThemedPalette, width: number): string | undefined {
 	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker));
 	if (attention.key === "completed_or_idle") return undefined;
 	const relay = worker.pendingRelayQuestions[0];
@@ -189,19 +189,19 @@ function buildWorkerActivityLine(worker: WorkerRuntimeState, hasFollowingRow: bo
 	if (!detail) return undefined;
 	const gutter = hasFollowingRow ? "│" : " ";
 	const coloredLabel = attention.key === "needs_reply" ? palette.warning(attention.label) : palette.accent(attention.label);
-	return truncateToWidth(`${gutter}  └ ${coloredLabel}: ${detail}`, HEADER_WIDTH, "…");
+	return truncateToWidth(`${gutter}  └ ${coloredLabel}: ${detail}`, width, "…");
 }
 
-function buildAgentsSummaryLine(summaryParts: string[], palette: ThemedPalette): string {
-	return truncateToWidth(`${palette.dim("└ +")} ${summaryParts.join(" · ")} ${palette.dim("· /team to view")}`, HEADER_WIDTH, "…");
+function buildAgentsSummaryLine(summaryParts: string[], palette: ThemedPalette, width: number): string {
+	return truncateToWidth(`${palette.dim("└ +")} ${summaryParts.join(" · ")} ${palette.dim("· /team to view")}`, width, "…");
 }
 
-function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number, hasSummaryRow: boolean, palette: ThemedPalette): string[] {
+function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number, hasSummaryRow: boolean, palette: ThemedPalette, width: number): string[] {
 	const lines: string[] = [];
 	workers.forEach((worker, index) => {
 		const hasFollowingRow = index < workers.length - 1 || hasSummaryRow;
-		lines.push(buildWorkerCell(worker, frame, now, hasFollowingRow ? "├" : "└", palette));
-		const activity = buildWorkerActivityLine(worker, hasFollowingRow, palette);
+		lines.push(buildWorkerCell(worker, frame, now, hasFollowingRow ? "├" : "└", palette, width));
+		const activity = buildWorkerActivityLine(worker, hasFollowingRow, palette, width);
 		if (activity) lines.push(activity);
 	});
 	return lines;
