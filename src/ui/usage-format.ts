@@ -14,6 +14,7 @@ export function formatCompactTokenCount(value: number): string {
 }
 
 type CacheUsageLike = Pick<WorkerUsageStats | WorkerUsageAggregate, "cacheReadTokens" | "cacheWriteTokens">;
+type CacheHitUsageLike = Pick<WorkerUsageStats | WorkerUsageAggregate, "inputTokens" | "cacheReadTokens" | "cacheWriteTokens">;
 
 export function hasCacheUsage(usage: CacheUsageLike): boolean {
 	return usage.cacheReadTokens !== 0 || usage.cacheWriteTokens !== 0;
@@ -22,6 +23,20 @@ export function hasCacheUsage(usage: CacheUsageLike): boolean {
 export function formatCacheUsage(usage: CacheUsageLike): string | undefined {
 	if (!hasCacheUsage(usage)) return undefined;
 	return `cache=r${formatCompactTokenCount(usage.cacheReadTokens)}/w${formatCompactTokenCount(usage.cacheWriteTokens)}`;
+}
+
+export function formatCacheHitPercent(usage: CacheHitUsageLike): string | undefined {
+	if (!hasCacheUsage(usage)) return undefined;
+	const denominator = usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+	if (denominator === 0) return undefined;
+	return `${((usage.cacheReadTokens / denominator) * 100).toFixed(1)}%`;
+}
+
+export function formatCacheUsageWithHit(usage: CacheHitUsageLike): string | undefined {
+	const cache = formatCacheUsage(usage);
+	if (!cache) return undefined;
+	const hit = formatCacheHitPercent(usage);
+	return hit ? `${cache} hit=${hit}` : cache;
 }
 
 export function formatContextBudget(usage: WorkerUsageStats): string | undefined {
