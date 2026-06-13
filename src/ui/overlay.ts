@@ -313,7 +313,7 @@ function getAttentionOrderedWorkerIds(state: PersistedTeamState): string[] {
 function sanitizeText(text: string): string {
 	return text
 		.replace(/\t/g, "    ")
-		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, "");
+		.replace(/[\x00-\x06\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, "");
 }
 
 type TextLineKind = "heading" | "list" | "table" | "separator" | "code" | "stack" | "plain";
@@ -512,26 +512,41 @@ function computeOverlayRows(termRows: number): number {
 	return Math.max(1, Math.floor(termRows * OVERLAY_HEIGHT_PCT));
 }
 
-function frameRow(content: string, innerWidth: number): string {
+function frameRow(content: string, totalWidth: number): string {
+	if (totalWidth <= 2) return accent(FRAME.vertical).repeat(totalWidth);
+	if (totalWidth <= 4) {
+		const innerWidth = Math.max(0, totalWidth - 2);
+		const truncated = innerWidth === 0 ? "" : truncateToWidth(content, innerWidth, "");
+		return `${accent(FRAME.vertical)}${truncated}${accent(FRAME.vertical)}`;
+	}
+	const innerWidth = totalWidth - 4;
 	const padded = padToWidth(content, innerWidth);
 	const sides = accent(FRAME.vertical);
 	return `${sides} ${padded} ${sides}`;
 }
 
 function frameTopWithTitle(titleStyled: string, totalWidth: number): string {
+	if (totalWidth <= 2) {
+		return accent(FRAME.topLeft) + accent(FRAME.horizontal.repeat(Math.max(0, totalWidth - 1)));
+	}
 	const titleVisible = visibleWidth(titleStyled);
-	const inner = Math.max(2, totalWidth - 2);
+	const inner = totalWidth - 2;
 	const titleFragment = ` ${titleStyled} `;
 	const titleVisibleWithPad = titleVisible + 2;
-	const remaining = Math.max(0, inner - titleVisibleWithPad);
+	if (titleVisibleWithPad >= inner) {
+		return accent(FRAME.topLeft) + truncateToWidth(titleFragment, inner, "…") + accent(FRAME.topRight);
+	}
+	const remaining = inner - titleVisibleWithPad;
 	const leftPad = Math.min(2, remaining);
-	const rightFill = Math.max(0, remaining - leftPad);
+	const rightFill = remaining - leftPad;
 	const top = `${accent(FRAME.topLeft)}${accent(FRAME.horizontal.repeat(leftPad))}${titleFragment}${accent(FRAME.horizontal.repeat(rightFill))}${accent(FRAME.topRight)}`;
 	return top;
 }
 
 function frameBottom(totalWidth: number): string {
-	const inner = Math.max(0, totalWidth - 2);
+	if (totalWidth <= 0) return "";
+	if (totalWidth === 1) return accent(FRAME.bottomLeft);
+	const inner = totalWidth - 2;
 	const bottom = `${accent(FRAME.bottomLeft)}${accent(FRAME.horizontal.repeat(inner))}${accent(FRAME.bottomRight)}`;
 	return bottom;
 }
@@ -1100,11 +1115,11 @@ export function createTeamDashboardOverlayComponent(
 			while (body.length < bodyRows) body.push("");
 
 			const innerLines = enforceWidth([...headerLines, "", ...body, "", ...footerLines], innerWidth);
-			const framedRows = innerLines.map((line) => frameRow(line, innerWidth));
+			const framedRows = innerLines.map((line) => frameRow(line, cap));
 			const top = frameTopWithTitle(titleStyled, cap);
 			const bottom = frameBottom(cap);
 			const totalFrameRows = framedRows.length + 2;
-			const tinyHint = totalFrameRows > totalRows ? frameRow(dim("(terminal too small)"), innerWidth) : undefined;
+			const tinyHint = totalFrameRows > totalRows ? frameRow(dim("(terminal too small)"), cap) : undefined;
 			return clampFramedRows([top, ...framedRows, bottom], totalRows, tinyHint);
 		},
 		invalidate() {
