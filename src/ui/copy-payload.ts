@@ -36,8 +36,9 @@ function formatFinalAnswerFields(fields: WorkerActivityEvent["finalSummaryFields
 }
 
 function formatActivityEvent(event: WorkerActivityEvent): string[] {
+	const commandText = event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "");
 	const bulletLabel = event.actionKind === "command"
-		? `• Ran ${event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "")}`
+		? `• Ran ${commandText.replace(/^Ran\s+/, "")}`
 		: event.actionKind === "tool"
 			? `• ${event.label.startsWith("Used ") ? event.label : `Used ${event.toolName ?? event.label}`}`
 			: `• ${event.label}`;
@@ -212,7 +213,7 @@ export function buildCopyPayload(
 	}
 
 	if (consoleEvents && consoleEvents.length > 0) {
-		lines.push("", "## Raw console timeline");
+		lines.push("", "## Console timeline (Raw)");
 		for (const event of consoleEvents) {
 			lines.push(formatConsoleEvent(event));
 		}

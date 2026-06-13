@@ -226,8 +226,7 @@ function buildRecentActivityLines(
 	const latestThinking = transcriptLines.length <= 3 ? transcriptLines.slice(-1)[0] : undefined;
 	if (latestThinking && !lines.some((line) => line.includes(latestThinking))) lines.push(`• Thinking: ${latestThinking}`);
 	if (worker.finalAnswer && !lines.includes("• Final answer produced")) lines.push("• Final answer produced");
-	if (lines.length === 1) lines.push(dim("(none yet)"));
-	return lines;
+	return lines.length > 1 ? lines : [];
 }
 
 function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined, activityEvents: WorkerActivityEvent[] | undefined, palette: ThemedPalette): string {
@@ -241,7 +240,8 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 	if (worker.lastToolName) lines.push(inspectField("Last tool:", worker.lastToolName, palette));
 	if (worker.error) lines.push(inspectField("Error:", palette.danger(worker.error), palette));
 
-	lines.push("", ...buildRecentActivityLines(worker, transcript, consoleEvents, activityEvents));
+	const recentActivity = buildRecentActivityLines(worker, transcript, consoleEvents, activityEvents);
+	if (recentActivity.length > 0) lines.push("", ...recentActivity);
 
 	lines.push("", inspectSection("Task"));
 	if (worker.currentTask) {
