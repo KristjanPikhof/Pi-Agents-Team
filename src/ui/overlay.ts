@@ -15,7 +15,7 @@ import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } f
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
-import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet } from "./dashboard";
+import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup } from "./dashboard";
 import { formatRetainedTranscript } from "./transcript-retention";
 import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
@@ -899,6 +899,19 @@ function formatFollowHeader(following: boolean, top: number, visible: number, to
 	const end = Math.min(total, top + visible);
 	const status = following ? "[follow]" : "[paused f/G]";
 	return `${status}  scroll ${start}-${end} / ${total}`;
+}
+
+function colorForGroupBold(group: WorkerAttentionGroup): (text: string) => string {
+	switch (group) {
+		case "needs_reply":
+			return warningBold;
+		case "needs_recovery":
+			return dangerBold;
+		case "in_progress":
+			return accentBold;
+		case "completed_or_idle":
+			return successBold;
+	}
 }
 
 function colorForWorker(worker: WorkerRuntimeState): (text: string) => string {
