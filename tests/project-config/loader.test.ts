@@ -420,6 +420,10 @@ test("loadActiveTeamConfig v4: recursive self-extension sources are rejected", (
 	const sources = [
 		"pi-agents-team",
 		"npm:pi-agents-team",
+		"git:github.com/KristjanPikhof/pi-agents-team.git",
+		"git+https://github.com/KristjanPikhof/pi-agents-team.git",
+		"https://github.com/KristjanPikhof/pi-agents-team",
+		"git@github.com:KristjanPikhof/pi-agents-team.git",
 		"./extensions/index.ts",
 		"extensions/index.ts",
 		"./extensions/pi-agent-team/index.ts",
@@ -610,6 +614,7 @@ test("loadActiveTeamConfig v4: access.extensions are normalized onto profiles", 
 					write: false,
 					extensions: [
 						"./extensions/custom-provider.ts",
+						"extensions/nodot-provider.ts",
 						"npm:@org/pi-provider",
 						"git:github.com/org/pi-provider@v1",
 						"@org/package-provider",
@@ -630,6 +635,7 @@ test("loadActiveTeamConfig v4: access.extensions are normalized onto profiles", 
 	assert.ok(explorer);
 	assert.deepEqual(explorer?.extensions, [
 		join(root, "extensions", "custom-provider.ts"),
+		join(root, "extensions", "nodot-provider.ts"),
 		"npm:@org/pi-provider",
 		"git:github.com/org/pi-provider@v1",
 		"@org/package-provider",
