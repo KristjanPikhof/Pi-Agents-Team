@@ -2,9 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDefaultTeamState } from "../../src/config";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { SPINNER_FRAMES, TEAM_STATUS_TIPS, buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget";
 import { stripAnsi } from "../../src/ui/theme";
 import type { WorkerRuntimeState, WorkerStatus } from "../../src/types";
+
+function makeFakeTheme(): Theme {
+	const roleCodes: Record<string, string> = {
+		accent: "38;5;201",
+		dim: "38;5;244",
+		muted: "38;5;245",
+		success: "38;5;120",
+		warning: "38;5;214",
+		error: "38;5;196",
+	};
+	return {
+		fg: (role: string, text: string) => `\x1b[${roleCodes[role] ?? "39"}m${text}\x1b[0m`,
+		bold: (text: string) => `\x1b[1m${text}\x1b[0m`,
+		inverse: (text: string) => `\x1b[7m${text}\x1b[0m`,
+	} as unknown as Theme;
+}
 
 function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string; status: WorkerStatus }): WorkerRuntimeState {
 	return {
@@ -60,6 +77,21 @@ test("status line shows routing mode, orchestrator state, and optional rotating 
 		createdAt: Date.now(),
 	}];
 	assert.equal(buildTeamStatusLine(state), "Orchestrator · Working...");
+});
+
+test("status line and widget use the supplied Theme palette roles", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", profileName: "reviewer", status: "running" });
+	const theme = makeFakeTheme();
+
+	const statusLine = buildTeamStatusLine(state, "team", getTeamStatusTip(0), false, theme);
+	assert.match(statusLine, /\x1b\[38;5;214mWorking\.\.\./, "expected warning role for working status");
+	assert.match(statusLine, /\x1b\[38;5;244mTip:/, "expected dim role for tip label");
+
+	const lines = buildTeamWidgetLines(state, { frame: 0, theme });
+	assert.ok(lines.some((line) => line.includes("\x1b[38;5;201mPi Agents Team")), `expected accent role in widget header; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("\x1b[1mreviewer\x1b[0m")), `expected bold role for worker profile; got:\n${lines.join("\n")}`);
+	assert.ok(!lines.some((line) => line.includes("\x1b[38;5;75m")), "expected no legacy accent fallback when a full Theme is supplied");
 });
 
 test("widget shows spinner frame for running workers and ✓ for finished idle workers", () => {
