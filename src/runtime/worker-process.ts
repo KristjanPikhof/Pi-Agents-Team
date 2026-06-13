@@ -1,7 +1,21 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
 import type { Readable, Writable } from "node:stream";
 import type { ThinkingLevel, WorkerExtensionMode, WorkerProjectTrustOverride } from "../types";
+
+const require = createRequire(import.meta.url);
+const crossSpawn = require("cross-spawn") as typeof nodeSpawn;
+
+export type WorkerSpawnImplementation = "node:child_process" | "cross-spawn";
+
+export function resolveWorkerSpawnImplementation(platform: NodeJS.Platform = process.platform): WorkerSpawnImplementation {
+	return platform === "win32" ? "cross-spawn" : "node:child_process";
+}
+
+function selectSpawn(platform: NodeJS.Platform = process.platform): typeof nodeSpawn {
+	return resolveWorkerSpawnImplementation(platform) === "cross-spawn" ? crossSpawn : nodeSpawn;
+}
 
 export interface WorkerProcessOptions {
 	cwd: string;
@@ -110,6 +124,7 @@ export function buildWorkerProcessArgs(options: WorkerProcessOptions): string[] 
 export function spawnWorkerProcess(options: WorkerProcessOptions): WorkerProcessHandle {
 	const command = options.command ?? "pi";
 	const args = buildWorkerProcessArgs(options);
+	const spawn = selectSpawn();
 	const child = spawn(command, args, {
 		cwd: options.cwd,
 		env: options.env,

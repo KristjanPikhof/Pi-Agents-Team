@@ -84,6 +84,8 @@ const ASSISTANT_BUFFER_BYTE_CAP = 256 * 1024;
 
 export interface WorkerLaunchSnapshot {
 	cwd: string;
+	command?: string;
+	baseArgs?: string[];
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
@@ -263,6 +265,8 @@ export class WorkerManager {
 			assistantNextIndex: 0,
 			launchSnapshot: {
 				cwd: options.cwd,
+				command: options.command,
+				baseArgs: options.baseArgs ? [...options.baseArgs] : undefined,
 				model: options.model,
 				thinkingLevel: options.thinkingLevel,
 				tools: options.tools ? [...options.tools] : undefined,
@@ -308,7 +312,11 @@ export class WorkerManager {
 
 	getLaunchSnapshot(workerId: string): WorkerLaunchSnapshot | undefined {
 		const record = this.workers.get(workerId);
-		return record ? { ...record.launchSnapshot, tools: record.launchSnapshot.tools ? [...record.launchSnapshot.tools] : undefined } : undefined;
+		return record ? {
+			...record.launchSnapshot,
+			baseArgs: record.launchSnapshot.baseArgs ? [...record.launchSnapshot.baseArgs] : undefined,
+			tools: record.launchSnapshot.tools ? [...record.launchSnapshot.tools] : undefined,
+		} : undefined;
 	}
 
 	async removeWorker(workerId: string): Promise<void> {
