@@ -364,7 +364,9 @@ function styleActivityOutputLine(line: string): string {
 function formatActivityEvent(event: WorkerActivityEvent): string[] {
 	const header = `${FRAME.topLeft}${FRAME.horizontal} ${formatActivityHeaderLabel(event)} [${formatActivityStatus(event.status)}] ${muted(formatTimestamp(event.ts))} ${FRAME.horizontal}`;
 	const lines = [event.status === "error" ? dangerBold(header) : accent(header)];
-	const pushBody = (line: string): void => lines.push(`${accent(FRAME.vertical)} ${line}`);
+	const pushBody = (line: string): void => {
+		lines.push(`${accent(FRAME.vertical)} ${line}`);
+	};
 	if (event.actionKind === "command") {
 		pushBody(`${accentBold("$")} ${event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "")}`);
 		if (event.summary && event.summary !== event.command) pushBody(`${dim("detail:")} ${event.summary}`);

@@ -822,6 +822,70 @@ test("console Raw fallback contract keeps timestamped diagnostic activity reacha
 	assertRenderedSubsequence(renderPlain(component, 100), CONSOLE_RAW_FALLBACK_GOLDEN_LINES, "Console Raw fallback golden example");
 });
 
+test("console Activity uses themed block color and semantic diff +/- styling", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const activities: WorkerActivityEvent[] = [{
+		id: "a1",
+		ts: now,
+		updatedAt: now + 300,
+		actionKind: "command",
+		status: "completed",
+		label: "Ran git diff --stat && git diff",
+		summary: "git diff --stat && git diff",
+		command: "git diff --stat && git diff",
+		toolName: "bash",
+		outputSnippet: [
+			"src/ui/overlay.ts | 3 ++-",
+			"1 file changed, 2 insertions(+), 1 deletion(-)",
+			"diff --git a/src/ui/overlay.ts b/src/ui/overlay.ts",
+			"--- a/src/ui/overlay.ts",
+			"+++ b/src/ui/overlay.ts",
+			"@@ -1,2 +1,3 @@",
+			"-old line",
+			"+new line",
+		].join("\n"),
+		sourceEvent: "worker_tool_finished",
+	}];
+	const { component } = makeComponent({ state, rows: 48, cols: 100, initialWorkerId: "w1", activities: { w1: activities } });
+	component.handleInput("3");
+
+	const rendered = component.render(100).join("\n");
+	const plain = stripAnsi(rendered);
+	assert.match(plain, /╭─ tool bash \[ok\]/, "expected Pi-style tool block header");
+	assert.match(plain, /│ \$ git diff --stat && git diff/, "expected command prefix separated from output");
+	assert.match(rendered, /\x1b\[[0-9;]*38;5;114m\+new line\x1b\[0m/, "expected addition line success styling");
+	assert.match(rendered, /\x1b\[[0-9;]*38;5;167m-old line\x1b\[0m/, "expected deletion line danger styling");
+	assert.match(rendered, /\x1b\[[0-9;]*38;5;75mdiff --git/, "expected diff headers to use accent styling");
+	assert.ok(plain.includes("+++ b/src/ui/overlay.ts"), "expected +++ file header prefix preserved");
+	assert.ok(plain.includes("--- a/src/ui/overlay.ts"), "expected --- file header prefix preserved");
+});
+
+test("console Activity blocks remain width-safe for long commands and output", () => {
+	const state = makeState(1);
+	const longCommand = `npm exec tsx -- --test ${"tests/ui/overlay.test.ts ".repeat(6)}`;
+	const activities: WorkerActivityEvent[] = [{
+		id: "a1",
+		ts: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_000,
+		actionKind: "command",
+		status: "started",
+		label: `Ran ${longCommand}`,
+		summary: longCommand,
+		command: longCommand,
+		toolName: "bash",
+		outputSnippet: "output ".repeat(40),
+		sourceEvent: "worker_tool_started",
+	}];
+	const { component } = makeComponent({ state, rows: 42, cols: 40, initialWorkerId: "w1", activities: { w1: activities } });
+	component.handleInput("3");
+
+	const lines = renderPlain(component, 40);
+	assert.ok(lines.some((line) => line.includes("╭─ tool bash [running]")), "expected running command block");
+	assert.ok(lines.some((line) => line.includes("│ $ npm exec tsx")), "expected command row");
+	for (const line of lines) assert.ok(visibleWidth(line) <= 40, `line exceeds width: ${visibleWidth(line)} ${line}`);
+});
+
 test("inspect Recent activity contract renders compact recent commands, thinking, and final-answer signal", () => {
 	const state = makeState(1);
 	state.activeWorkers.w1!.finalAnswer = "headline: APPROVE — no blocking issues found.";
