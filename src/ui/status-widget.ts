@@ -239,16 +239,16 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 		// In solo mode the status line already says "Pi Agents Team — solo".
 		// Only surface the widget when there is actual worker state worth showing.
 		if (allWorkers.length === 0) return [];
-		return [truncateToWidth(palette.dim("Pi Agents Team — solo"), HEADER_WIDTH)];
+		return [truncateToWidth(palette.dim("Pi Agents Team — solo"), width)];
 	}
-	if (allWorkers.length === 0 && (!displayCost || !buildUsageLine(state, palette))) return [];
+	if (allWorkers.length === 0 && (!displayCost || !buildUsageLine(state, palette, width))) return [];
 
-	const status = displayCost ? buildStatusRow(state, palette) : { row: buildCountsLine(state, palette), includesUsage: false };
+	const status = displayCost ? buildStatusRow(state, palette, width) : { row: buildCountsLine(state, palette, width), includesUsage: false };
 	const activeCount = allWorkers.filter((worker) => isActiveSurfaceWorker(worker)).length;
 	const header = `${palette.accent("Pi Agents Team")} ${palette.dim("·")} active=${palette.bold(String(activeCount))} ${palette.dim("·")} relays=${palette.bold(String(state.relayQueue.length))}`;
-	const lines = [truncateToWidth(header, HEADER_WIDTH), status.row];
+	const lines = [truncateToWidth(header, width), status.row];
 	if (displayCost && !status.includesUsage) {
-		const usageLine = buildUsageLine(state, palette);
+		const usageLine = buildUsageLine(state, palette, width);
 		if (usageLine) lines.push(usageLine);
 	}
 	const visibleWorkers = workers.slice(0, MAX_WIDGET_WORKERS);
@@ -259,9 +259,9 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	if (hiddenByRetention > 0) summaryParts.push(`${hiddenByRetention} old hidden`);
 	if (visibleWorkers.length > 0 || summaryParts.length > 0) {
 		const agentsHeader = `${palette.accent("● Agents")} ${palette.dim("·")} active=${palette.bold(String(activeCount))} ${palette.dim("·")} tracked=${palette.bold(String(allWorkers.length))}`;
-		lines.push(truncateToWidth(agentsHeader, HEADER_WIDTH, "…"));
-		lines.push(...buildWorkerLines(visibleWorkers, frame, now, summaryParts.length > 0, palette));
-		if (summaryParts.length > 0) lines.push(buildAgentsSummaryLine(summaryParts, palette));
+		lines.push(truncateToWidth(agentsHeader, width, "…"));
+		lines.push(...buildWorkerLines(visibleWorkers, frame, now, summaryParts.length > 0, palette, width));
+		if (summaryParts.length > 0) lines.push(buildAgentsSummaryLine(summaryParts, palette, width));
 	}
 	return lines.map((line) => truncateToWidth(line, width));
 }

@@ -145,9 +145,15 @@ function applyUi(
 		return;
 	}
 
-	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode, displayCost });
-	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip, orchestratorWorking));
-	ctx.ui.setWidget(config.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
+	const theme = ctx.ui.theme;
+	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip, orchestratorWorking, theme));
+	ctx.ui.setWidget(
+		config.ui.widgetKey,
+		(_tui, widgetTheme) => ({
+			render: (width) => buildTeamWidgetLines(state, { frame, routingMode, displayCost, theme: widgetTheme, width }),
+			invalidate: () => {},
+		}),
+	);
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
 
