@@ -1,0 +1,167 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { buildWorkerSummaryFromText, extractRelayQuestions } from "../../src/comms/summary";
+import { TOOL_SECTION_LABELS } from "../../src/ui/tool-formatters";
+import type { WorkerRuntimeState } from "../../src/types";
+
+function createWorker(status: WorkerRuntimeState["status"] = "idle"): WorkerRuntimeState {
+	return {
+		workerId: "worker-1",
+		profileName: "reviewer",
+		sessionMode: "worker",
+		status,
+		startedAt: Date.now(),
+		lastEventAt: Date.now(),
+		currentTask: {
+			taskId: "task-1",
+			title: "Review comms",
+			goal: "Inspect relay flows",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: Date.now(),
+		},
+		pendingRelayQuestions: [],
+		usage: {
+			turns: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0,
+		},
+	};
+}
+
+test("buildWorkerSummaryFromText extracts compact fields", () => {
+	const worker = createWorker();
+	const summary = buildWorkerSummaryFromText(
+		[
+			"headline: Ping flow is stable",
+			"read_files:",
+			"- src/comms/ping.ts",
+			"changed_files:",
+			"- src/comms/summary.ts",
+			"risks:",
+			"- Active ping still depends on fresh RPC state",
+			"next_recommendation: add a UI surface for relay questions",
+		].join("\n"),
+		worker,
+	);
+
+	assert.equal(summary.headline, "Ping flow is stable");
+	assert.deepEqual(summary.readFiles, ["src/comms/ping.ts"]);
+	assert.deepEqual(summary.changedFiles, ["src/comms/summary.ts"]);
+	assert.equal(summary.nextRecommendation, "add a UI surface for relay questions");
+});
+
+test("buildWorkerSummaryFromText accepts file-list label aliases", () => {
+	const worker = createWorker();
+	const summary = buildWorkerSummaryFromText(
+		[
+			"headline: Alias labels are parsed",
+			"files_read:",
+			"- src/runtime/worker-manager.ts",
+			"files_changed:",
+			"- tests/runtime/worker-manager.test.ts",
+		].join("\n"),
+		worker,
+	);
+
+	assert.deepEqual(summary.readFiles, ["src/runtime/worker-manager.ts"]);
+	assert.deepEqual(summary.changedFiles, ["tests/runtime/worker-manager.test.ts"]);
+});
+
+test("buildWorkerSummaryFromText accepts mixed file-list labels", () => {
+	const worker = createWorker();
+	const summary = buildWorkerSummaryFromText(
+		[
+			"headline: Mixed labels are parsed",
+			"files_read:",
+			"- src/comms/summary.ts",
+			"changed_files:",
+			"- tests/comms/summary.test.ts",
+		].join("\n"),
+		worker,
+	);
+
+	assert.deepEqual(summary.readFiles, ["src/comms/summary.ts"]);
+	assert.deepEqual(summary.changedFiles, ["tests/comms/summary.test.ts"]);
+});
+
+test("buildWorkerSummaryFromText stops lists at adjacent hyphenated section headers", () => {
+	const worker = createWorker();
+	const summary = buildWorkerSummaryFromText(
+		[
+			"headline: Hyphenated headers are parsed",
+			"read-files:",
+			"- src/comms/summary.ts",
+			"changed-files:",
+			"- tests/comms/summary.test.ts",
+			"risks:",
+			"- parser regression could absorb following fields",
+			"next-recommendation: reviewer to verify summary extraction",
+		].join("\n"),
+		worker,
+	);
+
+	assert.deepEqual(summary.readFiles, ["src/comms/summary.ts"]);
+	assert.deepEqual(summary.changedFiles, ["tests/comms/summary.test.ts"]);
+	assert.deepEqual(summary.risks, ["parser regression could absorb following fields"]);
+	assert.equal(summary.nextRecommendation, "reviewer to verify summary extraction");
+});
+
+test("buildWorkerSummaryFromText accepts formatter section labels", () => {
+	const worker = createWorker();
+	const summary = buildWorkerSummaryFromText(
+		[
+			`${TOOL_SECTION_LABELS.summary}: Formatter labels are parsed`,
+			`${TOOL_SECTION_LABELS.readFiles}:`,
+			"- src/ui/tool-formatters.ts",
+			`${TOOL_SECTION_LABELS.changedFiles}:`,
+			"- tests/comms/summary.test.ts",
+			`${TOOL_SECTION_LABELS.nextAction}: reviewer to spot-check parser coverage`,
+		].join("\n"),
+		worker,
+	);
+
+	assert.equal(summary.headline, "Formatter labels are parsed");
+	assert.deepEqual(summary.readFiles, ["src/ui/tool-formatters.ts"]);
+	assert.deepEqual(summary.changedFiles, ["tests/comms/summary.test.ts"]);
+	assert.equal(summary.nextRecommendation, "reviewer to spot-check parser coverage");
+});
+
+test("extractRelayQuestions ignores placeholder values like 'none' or 'n/a'", () => {
+	const worker = createWorker("idle");
+	for (const placeholder of ["none", "None.", "N/A", "no", "nope", "-", "—", "no question", "not needed"]) {
+		const relays = extractRelayQuestions(`relay_question: ${placeholder}\nassumption: whatever`, worker);
+		assert.equal(relays.length, 0, `expected no relay for placeholder "${placeholder}"`);
+	}
+
+	const realRelay = extractRelayQuestions(
+		"relay_question: Should I keep going?\nassumption: yes",
+		worker,
+	);
+	assert.equal(realRelay.length, 1);
+});
+
+test("extractRelayQuestions parses ask-orchestrator style output", () => {
+	const worker = createWorker("running");
+	const relays = extractRelayQuestions(
+		[
+			"relay_question: Should I keep passive ping only or add an active refresh too?",
+			"assumption: I will keep passive ping as the default.",
+			"urgency: high",
+			"choices:",
+			"- passive only",
+			"- passive plus active",
+		].join("\n"),
+		worker,
+	);
+
+	assert.equal(relays.length, 1);
+	assert.equal(relays[0]?.urgency, "high");
+	assert.match(relays[0]?.assumption ?? "", /passive ping/);
+	assert.deepEqual(relays[0]?.choices, ["passive only", "passive plus active"]);
+});
