@@ -595,14 +595,13 @@ export class WorkerManager {
 	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined {
 		const record = this.workers.get(workerId);
 		if (!record) return undefined;
-		this.flushPendingText(record);
 		return record.console.slice();
 	}
 
 	getWorkerActivity(workerId: string): WorkerActivityEvent[] | undefined {
 		const record = this.workers.get(workerId);
 		if (!record) return undefined;
-		this.flushPendingText(record);
+		this.discoverFinalAnswer(record, "worker_text_flush", Date.now());
 		return structuredClone(record.activity);
 	}
 
@@ -653,16 +652,21 @@ export class WorkerManager {
 	private appendActivity(record: WorkerRuntimeRecord, event: WorkerActivityEvent): void {
 		record.activity.push(event);
 		if (record.activity.length > ACTIVITY_BUFFER_LIMIT) {
-			record.activity.splice(0, record.activity.length - ACTIVITY_BUFFER_LIMIT);
+			const pruned = record.activity.splice(0, record.activity.length - ACTIVITY_BUFFER_LIMIT);
+			const prunedIds = new Set(pruned.map((item) => item.id));
+			for (const [callId, activityId] of record.pendingToolActivityByCallId.entries()) {
+				if (prunedIds.has(activityId)) record.pendingToolActivityByCallId.delete(callId);
+			}
 		}
 		this.emitter.emit("activity_event", record.workerId, structuredClone(event));
 	}
 
-	private updateActivity(record: WorkerRuntimeRecord, activityId: string, patch: Partial<WorkerActivityEvent>): void {
+	private updateActivity(record: WorkerRuntimeRecord, activityId: string, patch: Partial<WorkerActivityEvent>): boolean {
 		const activity = record.activity.find((item) => item.id === activityId);
-		if (!activity) return;
+		if (!activity) return false;
 		Object.assign(activity, patch);
 		this.emitter.emit("activity_event", record.workerId, structuredClone(activity));
+		return true;
 	}
 
 	private nextActivityId(record: WorkerRuntimeRecord, sourceEvent: WorkerActivityEvent["sourceEvent"], timestamp: number): string {
@@ -695,6 +699,13 @@ export class WorkerManager {
 		});
 	}
 
+	private discoverFinalAnswer(record: WorkerRuntimeRecord, sourceEvent: WorkerActivityEvent["sourceEvent"], ts: number): string | undefined {
+		const finalAnswer = extractFinalAnswer(record.pendingTextDelta) ?? extractFinalAnswer(record.textBuffer);
+		if (!finalAnswer) return undefined;
+		this.appendFinalSummaryActivity(record, sourceEvent, ts, finalAnswer);
+		return finalAnswer;
+	}
+
 	private flushPendingText(record: WorkerRuntimeRecord): void {
 		if (!record.pendingTextDelta) return;
 		const ts = record.pendingTextFlushAt || Date.now();
@@ -705,9 +716,8 @@ export class WorkerManager {
 			kind: "assistant_text",
 			text,
 		});
-		const finalAnswer = extractFinalAnswer(pendingText) ?? extractFinalAnswer(record.textBuffer);
+		const finalAnswer = this.discoverFinalAnswer(record, "worker_text_flush", ts);
 		if (finalAnswer) {
-			this.appendFinalSummaryActivity(record, "worker_text_flush", ts, finalAnswer);
 		} else if (!/<final[_\s-]?answer\b|<\/final[_\s-]?answer>/i.test(pendingText)) {
 			this.appendActivity(record, {
 				id: this.nextActivityId(record, "worker_text_flush", ts),
@@ -857,7 +867,7 @@ export class WorkerManager {
 				const pendingId = event.toolCallId ? record.pendingToolActivityByCallId.get(event.toolCallId) : undefined;
 				if (pendingId) {
 					record.pendingToolActivityByCallId.delete(event.toolCallId);
-					this.updateActivity(record, pendingId, {
+					const patched = this.updateActivity(record, pendingId, {
 						updatedAt: event.timestamp,
 						status: event.isError ? "error" : "completed",
 						toolName: event.toolName,
@@ -865,7 +875,9 @@ export class WorkerManager {
 						...(output.hiddenLineCount > 0 ? { hiddenLineCount: output.hiddenLineCount } : {}),
 						sourceEvent: event.type,
 					});
-				} else {
+					if (patched) break;
+				}
+				{
 					this.appendActivity(record, {
 						id: this.nextActivityId(record, event.type, event.timestamp),
 						ts: event.timestamp,

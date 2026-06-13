@@ -435,10 +435,36 @@ function formatActivityEvent(event: WorkerActivityEvent): string[] {
 function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConsoleEvent[]): WorkerActivityEvent[] {
 	const activity: WorkerActivityEvent[] = [];
 	let id = 0;
+	let pendingText = "";
+	let pendingStart: AssistantChunk | undefined;
+	let pendingEndTs = 0;
+	const flushPendingText = () => {
+		const summary = pendingText.trim();
+		if (!summary || !pendingStart) {
+			pendingText = "";
+			pendingStart = undefined;
+			pendingEndTs = 0;
+			return;
+		}
+		activity.push({
+			id: `chunk:${id++}`,
+			ts: pendingStart.ts,
+			updatedAt: pendingEndTs || pendingStart.ts,
+			actionKind: "process",
+			status: "info",
+			label: "Thinking",
+			summary,
+			sourceEvent: "worker_text_flush",
+		});
+		pendingText = "";
+		pendingStart = undefined;
+		pendingEndTs = 0;
+	};
 	for (const chunk of chunks) {
 		const chunkText = sanitizeTerminalText(chunk.text);
 		const finalAnswer = extractFinalAnswer(chunkText);
 		if (finalAnswer) {
+			flushPendingText();
 			activity.push({
 				id: `chunk:${id++}`,
 				ts: chunk.ts,
@@ -451,18 +477,12 @@ function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConso
 				finalSummaryFields: parseFinalAnswerSummaryFields(finalAnswer),
 			});
 		} else if (chunkText.trim()) {
-			activity.push({
-				id: `chunk:${id++}`,
-				ts: chunk.ts,
-				updatedAt: chunk.ts,
-				actionKind: "process",
-				status: "info",
-				label: "Thinking",
-				summary: chunkText.trim(),
-				sourceEvent: "worker_text_flush",
-			});
+			pendingStart ??= chunk;
+			pendingEndTs = chunk.ts;
+			pendingText += chunkText;
 		}
 	}
+	flushPendingText();
 	for (let index = 0; index < consoleEvents.length; index += 1) {
 		const event = consoleEvents[index]!;
 		if (event.kind === "tool_start") {
