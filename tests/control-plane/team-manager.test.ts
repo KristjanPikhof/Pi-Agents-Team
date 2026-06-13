@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
+import type { WorkerProcessOptions } from "../../src/runtime/worker-process";
 import { resolveProfile } from "../../src/profiles/loader";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "../runtime/test-helpers";
 import type { WorkerRuntimeState } from "../../src/types";
@@ -56,6 +57,38 @@ test("TeamManager delegates, tracks, pings, and cancels workers", async () => {
 
 	const cancelled = await teamManager.cancelWorker(worker.workerId);
 	assert.equal(cancelled.worker.status, "exited");
+});
+
+test("TeamManager passes configured rpc command and args to fresh worker launch", async () => {
+	const launches: WorkerProcessOptions[] = [];
+	const workerManager = new WorkerManager((options) => {
+		launches.push(options);
+		return new MockWorkerHandle(new MockWorkerTransport());
+	});
+	const teamManager = new TeamManager({
+		workerManager,
+		config: {
+			...DEFAULT_TEAM_CONFIG,
+			rpc: {
+				...DEFAULT_TEAM_CONFIG.rpc,
+				command: "node",
+				args: ["dist/cli.js", "--mode", "rpc", "--no-session"],
+			},
+		},
+	});
+
+	await teamManager.delegateTask({
+		title: "Custom RPC launch",
+		goal: "Use configured rpc command",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		projectTrusted: true,
+		projectTrustRoot: process.cwd(),
+	});
+
+	assert.equal(launches[0]?.command, "node");
+	assert.deepEqual(launches[0]?.baseArgs, ["dist/cli.js", "--mode", "rpc", "--no-session"]);
+	assert.equal(launches[0]?.projectTrust, "approve");
 });
 
 test("TeamManager delegates using configured profile overrides instead of packaged defaults", async () => {
@@ -945,6 +978,43 @@ test("delegateTask with reuseWorkerId rejects when project trust launch override
 				reuseWorkerId: first.worker.workerId,
 			}),
 		/launch settings differ.*projectTrust.*approve.*no-approve/,
+	);
+});
+
+test("delegateTask with reuseWorkerId rejects when rpc command or args differ", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const config = {
+		...DEFAULT_TEAM_CONFIG,
+		rpc: {
+			...DEFAULT_TEAM_CONFIG.rpc,
+			command: "pi-a",
+			args: ["--mode", "rpc", "--no-session"],
+		},
+	};
+	const teamManager = new TeamManager({ workerManager, config });
+
+	const first = await teamManager.delegateTask({
+		title: "First launch",
+		goal: "capture initial rpc settings",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	config.rpc.command = "pi-b";
+	config.rpc.args = ["--mode", "rpc", "--no-session", "--custom"];
+
+	await assert.rejects(
+		() =>
+			teamManager.delegateTask({
+				title: "Reuse with changed rpc settings",
+				goal: "should reject because process launch args changed",
+				profileName: "reviewer",
+				cwd: process.cwd(),
+				reuseWorkerId: first.worker.workerId,
+			}),
+		/launch settings differ.*command.*baseArgs/,
 	);
 });
 
