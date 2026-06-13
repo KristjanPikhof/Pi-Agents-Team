@@ -115,3 +115,42 @@ test("buildCopyPayload omits cache fields when both cache counters are zero", ()
 	assert.match(payload, /turns=3\s+input=1200\s+output=430\s+cost_usd=0\.0210/);
 	assert.doesNotMatch(payload, /cache_read|cache_write/);
 });
+
+test("buildCopyPayload sanitizes worker-controlled terminal escapes in copied text", () => {
+	const worker = makeWorker();
+	const hostile = "safe \x1b]52;c;Y2xpcA==\x07clip \x1b]0;owned\x1b\\title \x1b[2Jclear \x1b[10;5Hmove \x1b[31mred\x1b[0m end\x07";
+	worker.finalAnswer = `headline: ${hostile}`;
+	worker.lastSummary!.headline = hostile;
+	worker.lastSummary!.risks = [hostile];
+	worker.lastSummary!.nextRecommendation = hostile;
+	worker.pendingRelayQuestions = [{
+		relayId: "relay-1",
+		workerId: "w3",
+		taskId: "t1",
+		question: hostile,
+		assumption: hostile,
+		urgency: "high",
+		createdAt: 0,
+	}];
+	worker.error = hostile;
+
+	const payload = buildCopyPayload(worker, hostile, [
+		{ ts: 1_700_000_000_000, kind: "tool_start", text: hostile },
+		{ ts: 1_700_000_001_000, kind: "tool_end", text: `tool → ${hostile}` },
+	], [{
+		id: "a1",
+		ts: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_500,
+		actionKind: "command",
+		status: "completed",
+		label: `Ran ${hostile}`,
+		summary: hostile,
+		command: hostile,
+		outputSnippet: hostile,
+		sourceEvent: "worker_tool_finished",
+	}]);
+
+	assert.doesNotMatch(payload, /\x1b|\x07|\x9b|\x9d/);
+	assert.match(payload, /safe clip title clear move red end/);
+	assert.match(payload, /## Console timeline \(Raw\)[\s\S]*\[tool_end\] tool → safe clip title clear move red end/);
+});

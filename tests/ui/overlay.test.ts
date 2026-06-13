@@ -12,7 +12,7 @@ import {
 	TEAM_DASHBOARD_INITIAL_REFRESH_TIMEOUT_MS,
 	TEAM_DASHBOARD_OVERLAY_OPTIONS,
 } from "../../src/ui/overlay";
-import { stripAnsi } from "../../src/ui/theme";
+import { sanitizeTerminalText, stripAnsi } from "../../src/ui/theme";
 import {
 	CONSOLE_ACTIVITY_GOLDEN_LINES,
 	CONSOLE_RAW_FALLBACK_GOLDEN_LINES,
@@ -1449,7 +1449,7 @@ test("inspect wraps non-breakable long tokens on narrow panels without dropping 
 	assert.ok(totalXVisible >= 200, `expected most of the long token to remain visible across wrap chunks, saw ${totalXVisible}`);
 });
 
-test("classifier matches structural patterns even when worker text is ANSI-styled", () => {
+test("classifier matches structural patterns after worker ANSI has been sanitized", () => {
 	const state = makeState(1);
 	const styledHeading = "\x1b[32m# Heading from tool\x1b[0m";
 	state.activeWorkers.w1!.finalAnswer = styledHeading;
@@ -1458,8 +1458,9 @@ test("classifier matches structural patterns even when worker text is ANSI-style
 	const rawLines = component.render(60);
 	assert.ok(
 		rawLines.some((line) => line.includes("\x1b[1;38;5;75m") && line.includes("# Heading from tool")),
-		"expected accentBold styling to wrap an ANSI-prefixed heading",
+		"expected trusted accentBold styling to wrap a sanitized heading",
 	);
+	assert.ok(!rawLines.map(stripAnsi).join("\n").includes("\x1b"), "expected worker ANSI escapes to be removed after trusted styling is stripped");
 });
 
 test("tiny terminals surface a 'terminal too small' hint instead of silently blank chrome", () => {
@@ -1475,8 +1476,66 @@ test("tiny terminals surface a 'terminal too small' hint instead of silently bla
 	);
 });
 
-test("sanitizeText strips BEL and backspace but preserves ESC", () => {
+test("sanitizeText strips BEL and backspace but preserves ESC for trusted styling", () => {
 	assert.equal(sanitizeText("a\x07b"), "ab");
 	assert.equal(sanitizeText("a\x08b"), "ab");
 	assert.ok(sanitizeText("\x1b[31mred\x1b[0m").includes("\x1b"), "expected ESC sequences to survive");
+});
+
+test("sanitizeTerminalText strips hostile OSC, CSI, ESC, and control sequences from worker text", () => {
+	const hostile = "start\x1b]52;c;Y2xpcA==\x07clip\x1b]0;owned\x1b\\title\x1b[2Jclear\x1b[10;5Hmove\x1b[31mred\x1b[0m\x07end";
+	assert.equal(sanitizeTerminalText(hostile), "startcliptitleclearmoveredend");
+});
+
+test("inspect and console render worker terminal escapes inertly while preserving trusted theme styling", () => {
+	const state = makeState(1);
+	const hostile = "safe \x1b]52;c;Y2xpcA==\x07clip \x1b]0;owned\x1b\\title \x1b[2Jclear \x1b[10;5Hmove \x1b[31mred\x1b[0m end";
+	state.activeWorkers.w1!.finalAnswer = `# Report\n${hostile}`;
+	state.activeWorkers.w1!.lastSummary = {
+		...state.activeWorkers.w1!.lastSummary!,
+		headline: hostile,
+		risks: [hostile],
+		nextRecommendation: hostile,
+	};
+	const activities: WorkerActivityEvent[] = [{
+		id: "hostile-activity",
+		ts: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_500,
+		actionKind: "command",
+		status: "completed",
+		label: `Ran ${hostile}`,
+		summary: hostile,
+		command: hostile,
+		outputSnippet: hostile,
+		sourceEvent: "worker_tool_finished",
+	}];
+	const events: WorkerConsoleEvent[] = [
+		{ ts: 1_700_000_000_000, kind: "tool_start", text: hostile },
+		{ ts: 1_700_000_000_500, kind: "tool_end", text: hostile },
+	];
+	const { component } = makeComponent({
+		state,
+		rows: 120,
+		cols: 100,
+		initialWorkerId: "w1",
+		transcripts: { w1: hostile },
+		chunks: { w1: [{ index: 0, ts: 1_700_000_000_000, text: hostile }] },
+		consoles: { w1: events },
+		activities: { w1: activities },
+		theme: makeFakeTheme(),
+	});
+
+	let rendered = component.render(100).join("\n");
+	assert.ok(rendered.includes("\x1b[38;5;201m"), "expected trusted theme accent styling to remain");
+	assert.ok(!stripAnsi(rendered).includes("\x1b"), `expected no untrusted terminal escapes in inspect render:\n${stripAnsi(rendered)}`);
+	assert.ok(stripAnsi(rendered).includes("clip title clear move red end"), "expected sanitized worker text content to remain");
+
+	component.handleInput("3");
+	rendered = component.render(100).join("\n");
+	assert.ok(rendered.includes("\x1b[38;5;201m"), "expected trusted theme accent styling to remain in console activity");
+	assert.ok(!stripAnsi(rendered).includes("\x1b"), `expected no untrusted terminal escapes in console activity:\n${stripAnsi(rendered)}`);
+
+	component.handleInput("r");
+	rendered = component.render(100).join("\n");
+	assert.ok(!stripAnsi(rendered).includes("\x1b"), `expected no untrusted terminal escapes in console raw:\n${stripAnsi(rendered)}`);
 });
