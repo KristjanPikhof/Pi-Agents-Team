@@ -20,7 +20,7 @@ export function formatRetainedTranscript(text: string | undefined): string {
 	}
 	const droppedBytes = start > 0 ? Buffer.byteLength(retained.slice(0, start), "utf8") : 0;
 	if (start > 0) retained = retained.slice(start);
-	if (alreadyNoted || (droppedBytes === 0 && droppedLines === 0)) return retained;
+	if ((alreadyNoted && /^\[transcript truncated:/i.test(retained)) || (droppedBytes === 0 && droppedLines === 0)) return retained;
 	const parts = [
 		droppedBytes > 0 ? `${droppedBytes.toLocaleString()} bytes` : undefined,
 		droppedLines > 0 ? `${droppedLines.toLocaleString()} lines` : undefined,

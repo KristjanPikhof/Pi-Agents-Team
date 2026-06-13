@@ -93,5 +93,5 @@ export function sanitizeTerminalText(text: string): string {
 		.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x9b[0-?]*[ -/]*[@-~]/g, "")
 		.replace(/\x1b[\(\)#%*+\-.\/0-?]*[ -/]*[@-~]?/g, "")
 		.replace(/\t/g, "    ")
-		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
+		.replace(/[\x00-\x08\x0b\x0c\x0d\x0e-\x1f\x7f-\x9f]/g, "");
 }
