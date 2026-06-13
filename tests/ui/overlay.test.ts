@@ -703,6 +703,83 @@ test("console keeps assistant and event rows width-safe", () => {
 	for (const line of lines) assert.ok(visibleWidth(line) <= 52, `line exceeds width: ${visibleWidth(line)} ${line}`);
 });
 
+function makeActivityContractInputs(now = 1_700_000_000_000): { chunks: AssistantChunk[]; events: WorkerConsoleEvent[] } {
+	return {
+		chunks: [
+			{ index: 0, ts: now, text: "Mapping current console rendering before proposing UI changes." },
+			{
+				index: 1,
+				ts: now + 4_000,
+				text: [
+					"<final_answer>",
+					"headline: APPROVE — no blocking issues found.",
+					"risks:",
+					"- UI wrapping tests need updates.",
+					"next_recommendation: Safe to continue after typecheck.",
+					"confidence: definite",
+					"</final_answer>",
+				].join("\n"),
+			},
+		],
+		events: [
+			{ ts: now + 1_000, kind: "tool_start", text: "git diff --stat main...HEAD" },
+			{ ts: now + 2_000, kind: "tool_end", text: "src/ui/overlay.ts              | 42 +++++++++++++++++\ntests/ui/overlay.test.ts       | 18 +++++++\n… +14 lines hidden" },
+		],
+	};
+}
+
+test("console Activity contract renders the golden command, output elision, process note, and final-answer fields", () => {
+	const state = makeState(1);
+	const { chunks, events } = makeActivityContractInputs();
+	const { component } = makeComponent({ state, rows: 48, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks }, consoles: { w1: events } });
+	component.handleInput("3");
+
+	assertRenderedSubsequence(renderPlain(component, 100), CONSOLE_ACTIVITY_GOLDEN_LINES, "Console Activity golden example");
+});
+
+test("console Raw fallback contract keeps timestamped diagnostic activity reachable", () => {
+	const state = makeState(1);
+	const { chunks, events } = makeActivityContractInputs();
+	const { component } = makeComponent({ state, rows: 48, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks }, consoles: { w1: events } });
+	component.handleInput("3");
+	component.handleInput("r");
+
+	assertRenderedSubsequence(renderPlain(component, 100), CONSOLE_RAW_FALLBACK_GOLDEN_LINES, "Console Raw fallback golden example");
+});
+
+test("inspect Recent activity contract renders compact recent commands, thinking, and final-answer signal", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.finalAnswer = "headline: APPROVE — no blocking issues found.";
+	const { component } = makeComponent({
+		state,
+		rows: 48,
+		cols: 100,
+		initialWorkerId: "w1",
+		transcripts: { w1: "comparing overlay width behavior" },
+		consoles: {
+			w1: [
+				{ ts: 1_700_000_000_000, kind: "tool_start", text: "grep \"buildConsoleLines\" src/ui/overlay.ts" },
+				{ ts: 1_700_000_001_000, kind: "tool_start", text: "npm run typecheck" },
+			],
+		},
+	});
+
+	assertRenderedSubsequence(renderPlain(component, 100), INSPECT_RECENT_ACTIVITY_GOLDEN_LINES, "Inspect Recent activity golden example");
+});
+
+test("console Activity contract stays ANSI-width-safe and wraps nested output at narrow width", () => {
+	const state = makeState(1);
+	const { chunks, events } = makeActivityContractInputs();
+	const { component } = makeComponent({ state, rows: 48, cols: NARROW_CONSOLE_ACTIVITY_WIDTH, initialWorkerId: "w1", chunks: { w1: chunks }, consoles: { w1: events } });
+	component.handleInput("3");
+
+	const lines = renderPlain(component, NARROW_CONSOLE_ACTIVITY_WIDTH);
+	assertRenderedSubsequence(lines, NARROW_CONSOLE_ACTIVITY_GOLDEN_LINES, "narrow Console Activity golden example");
+	for (const line of lines) {
+		assert.ok(visibleWidth(line) <= NARROW_CONSOLE_ACTIVITY_WIDTH, `line exceeds width: ${visibleWidth(line)} ${line}`);
+	}
+});
+
 test("console auto-follow keeps the newest line visible", () => {
 	const state = makeState(1);
 	const chunks: AssistantChunk[] = Array.from({ length: 30 }, (_, i) => ({ index: i, ts: Date.now() + i, text: `line-${i}` }));
