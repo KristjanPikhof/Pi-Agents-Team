@@ -47,6 +47,7 @@ function cloneProfile(profile: TeamProfileSpec): TeamProfileSpec {
 	return {
 		...profile,
 		tools: [...profile.tools],
+		...(profile.extensions !== undefined ? { extensions: [...profile.extensions] } : {}),
 		pathScope: clonePathScope(profile.pathScope),
 	};
 }
@@ -243,6 +244,42 @@ function normalizePathScope(
 	};
 }
 
+function isLocalRelativeExtensionSource(source: string): boolean {
+	return source === "." || source === ".." || source.startsWith("./") || source.startsWith("../");
+}
+
+function normalizeExtensionSources(
+	sources: string[] | null | undefined,
+	layerRoot: string,
+	fieldPath: string,
+): { extensions: string[]; diagnostics: ProjectConfigDiagnostic[] } {
+	if (!sources || sources.length === 0) {
+		return { extensions: [], diagnostics: [] };
+	}
+
+	const extensions: string[] = [];
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	for (const [index, source] of sources.entries()) {
+		const trimmed = source.trim();
+		const entryPath = `${fieldPath}[${index}]`;
+		if (trimmed.length === 0) {
+			diagnostics.push(
+				makeDiagnostic(
+					"error",
+					"extension_source_empty",
+					`Role extension source at ${entryPath} must be a non-empty string.`,
+					entryPath,
+				),
+			);
+			continue;
+		}
+
+		extensions.push(isLocalRelativeExtensionSource(trimmed) ? resolve(layerRoot, trimmed) : trimmed);
+	}
+
+	return { extensions, diagnostics };
+}
+
 function normalizePromptPath(
 	profile: TeamProfileSpec,
 	roleConfig: ProjectRoleConfig,
@@ -315,7 +352,7 @@ function normalizeFlatWritePolicy(write: boolean | undefined): WorkerWritePolicy
  * - prompt: "default" / null / absent → builtin. String → treated as project path.
  *   Object form stays available for explicit prompt source/path control.
  * - access.write: true → "scoped-write"; false → "read-only"; absent → inherit.
- * - access groups tools, extension mode, worker spawning, and path scope.
+ * - access groups tools, extensions, extension mode, worker spawning, and path scope.
  */
 export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleConfig {
 	const flat = raw as ProjectRoleFlatConfig;
@@ -341,6 +378,7 @@ export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleCo
 		thinkingLevel: flat.thinkingLevel,
 		permissions: {
 			tools: access.tools,
+			extensions: access.extensions,
 			extensionMode: access.extensionMode,
 			writePolicy: normalizeFlatWritePolicy(access.write),
 			pathScope: access.pathScope,
@@ -465,6 +503,9 @@ function materializeRoleProfile(
 	});
 	diagnostics.push(...resolvedPathScope.diagnostics);
 
+	const resolvedExtensions = normalizeExtensionSources(permissions.extensions, layer.layerRoot, `${fieldBase}.access.extensions`);
+	diagnostics.push(...resolvedExtensions.diagnostics);
+
 	const writePolicy: WorkerWritePolicy = permissions.writePolicy ?? "read-only";
 	if (writePolicy === "read-only" && resolvedPathScope.pathScope?.allowWrite) {
 		diagnostics.push(
@@ -488,6 +529,16 @@ function materializeRoleProfile(
 			),
 		);
 	}
+	if (extensionMode === "disable" && resolvedExtensions.extensions.length > 0) {
+		diagnostics.push(
+			makeDiagnostic(
+				"error",
+				"extension_mode_disable_extensions_forbidden",
+				`Role "${roleName}" sets extensionMode "disable" but also declares access.extensions. Remove access.extensions or use "worker-minimal".`,
+				`${fieldBase}.access.extensions`,
+			),
+		);
+	}
 
 	const prompt = resolveRolePrompt(roleName, normalized.prompt, layer);
 	diagnostics.push(...prompt.diagnostics);
@@ -498,6 +549,7 @@ function materializeRoleProfile(
 		model: normalized.model ?? undefined,
 		thinkingLevel: normalized.thinkingLevel,
 		tools: permissions.tools ? [...permissions.tools] : [...DEFAULT_READ_ONLY_TOOLS],
+		extensions: resolvedExtensions.extensions.length > 0 ? resolvedExtensions.extensions : undefined,
 		promptPath: prompt.promptPath,
 		promptInline: prompt.promptInline,
 		extensionMode,

@@ -90,6 +90,13 @@ function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean
 	return sortedA.every((value, index) => value === sortedB[index]);
 }
 
+function orderedArrayEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	if (a.length !== b.length) return false;
+	return a.every((value, index) => value === b[index]);
+}
+
 function rejectSaturatedReuse(worker: WorkerRuntimeState): void {
 	const percent = worker.usage.contextPercent;
 	const remaining = worker.usage.contextRemainingTokens;
@@ -280,6 +287,8 @@ export class TeamManager {
 			systemPromptPath: launchPlan.systemPromptPath,
 			extensionMode: launchPlan.extensionMode,
 			projectTrust,
+			command: this.config.rpc.command,
+			baseArgs: this.config.rpc.args,
 			// Only enable Pi's skill discovery when the task actually requested
 			// skills. Without this the worker launches with `--no-skills` (set in
 			// buildWorkerProcessArgs), the available skill context is omitted, and
@@ -472,6 +481,10 @@ export class TeamManager {
 		}
 		const mismatches: string[] = [];
 		if (existing.cwd !== launchPlan.cwd) mismatches.push(`cwd (${existing.cwd} → ${launchPlan.cwd})`);
+		if (existing.command !== this.config.rpc.command) {
+			mismatches.push(`command (${existing.command ?? "pi"} → ${this.config.rpc.command})`);
+		}
+		if (!orderedArrayEqual(existing.baseArgs, this.config.rpc.args)) mismatches.push(`baseArgs`);
 		if (existing.model !== launchPlan.model) mismatches.push(`model (${existing.model ?? "default"} → ${launchPlan.model ?? "default"})`);
 		if (existing.thinkingLevel !== launchPlan.thinkingLevel) mismatches.push(`thinkingLevel`);
 		if (existing.systemPromptPath !== launchPlan.systemPromptPath) mismatches.push(`systemPromptPath`);
