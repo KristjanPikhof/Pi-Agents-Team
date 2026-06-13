@@ -471,7 +471,10 @@ test("inspect tab renders structured readable sections with styled headers", () 
 	for (const section of ["Status", "Task", "Needs operator", "Summary", "Final answer", "Latest assistant text"]) {
 		assert.ok(body.includes(section), `expected Inspect section ${section}`);
 	}
+	assert.ok(lines.some((line) => line.includes("╭─ Status [running]")), "expected framed Status block");
+	assert.ok(lines.some((line) => line.includes("╭─ Final answer [ok]")), "expected framed Final answer block");
 	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;75mStatus\x1b[0m")), "expected styled Status header");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;179mrunning\x1b[0m")), "expected running status to use warning color");
 	assert.ok(rawLines.some((line) => line.includes("\x1b[2mThinking:\x1b[0m")), "expected dimmed metadata label");
 });
 
@@ -480,21 +483,21 @@ test("inspect tab visually separates final answer from latest assistant text and
 	state.activeWorkers.w1!.finalAnswer = `Final answer ${"alpha beta ".repeat(18)}`;
 	const { component } = makeComponent({
 		state,
-		rows: 52,
+		rows: 80,
 		cols: 58,
 		initialWorkerId: "w1",
 		transcripts: { w1: `Latest assistant ${"gamma delta ".repeat(18)}` },
 	});
 
 	const lines = renderPlain(component, 58);
-	const finalIndex = lines.findIndex((line) => line.includes("── Final answer ──"));
-	const latestIndex = lines.findIndex((line) => line.includes("Latest assistant text"));
-	assert.ok(finalIndex >= 0, "expected Final answer header");
+	const finalIndex = lines.findIndex((line) => line.includes("╭─ Final answer [ok]"));
+	const latestIndex = lines.findIndex((line) => line.includes("╭─ Latest assistant text [tail]"));
+	assert.ok(finalIndex >= 0, "expected Final answer block header");
 	assert.ok(latestIndex > finalIndex, "expected Latest assistant text after Final answer");
 	assert.ok(lines.slice(finalIndex + 1, latestIndex).some((line) => line.includes("Final answer alpha")), "expected final answer content under its header");
 	assert.ok(lines.slice(latestIndex + 1).some((line) => line.includes("Latest assistant gamma")), "expected latest assistant text content under its header");
-	assert.ok(lines[finalIndex]!.includes("── Final answer ──"), lines[finalIndex]);
-	assert.ok(lines[latestIndex]!.includes("── Latest assistant text ──"), lines[latestIndex]);
+	assert.ok(lines[finalIndex]!.includes("╭─ Final answer [ok]"), lines[finalIndex]);
+	assert.ok(lines[latestIndex]!.includes("╭─ Latest assistant text [tail]"), lines[latestIndex]);
 	for (const line of lines) assert.ok(visibleWidth(line) <= 58, `line exceeds width: ${visibleWidth(line)} ${line}`);
 });
 
@@ -712,7 +715,7 @@ test("formatter keeps mixed structured inspect output width-safe at narrow sizes
 		`    at Object.example (/tmp/${"nested/".repeat(10)}file.ts:12:34)`,
 		`Plain paragraph ${"with many words ".repeat(14)}ending here.`,
 	].join("\n");
-	const { component } = makeComponent({ state, rows: 44, cols: 50, initialWorkerId: "w1" });
+	const { component } = makeComponent({ state, rows: 64, cols: 50, initialWorkerId: "w1" });
 
 	const lines = renderPlain(component, 50);
 	assert.ok(lines.some((line) => line.includes("## Narrow report")), "expected heading in narrow render");
@@ -1346,7 +1349,7 @@ test("render row count matches overlay maxHeight so the bottom frame is never cl
 
 test("framed panel renders top/bottom borders and side bars at any width", () => {
 	const state = makeState(4);
-	const { component } = makeComponent({ state, rows: 32, cols: 60, initialWorkerId: "w1" });
+	const { component } = makeComponent({ state, rows: 48, cols: 60, initialWorkerId: "w1" });
 	component.handleInput("2");
 	const lines = renderPlain(component, 60);
 	assert.ok(lines[0].startsWith("╭") && lines[0].endsWith("╮"), `expected top frame, got: ${lines[0]}`);
