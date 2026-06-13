@@ -128,7 +128,9 @@ interface FakeManagerOptions {
 	state: PersistedTeamState;
 	transcripts?: Record<string, string>;
 	consoles?: Record<string, WorkerConsoleEvent[]>;
+	activities?: Record<string, WorkerActivityEvent[]>;
 	chunks?: Record<string, AssistantChunk[]>;
+	activityListeners?: Array<(workerId: string, event: WorkerActivityEvent) => void>;
 	routingMode?: "team" | "solo";
 	displayCost?: boolean;
 	profiles?: string[];
@@ -163,8 +165,16 @@ function makeFakeManager(options: FakeManagerOptions): TeamManager {
 		},
 		getWorkerTranscript: (workerId: string) => options.transcripts?.[workerId],
 		getWorkerConsole: (workerId: string) => options.consoles?.[workerId] ?? [],
+		getWorkerActivity: (workerId: string) => options.activities?.[workerId] ?? [],
 		getAssistantTail: (workerId: string) => options.chunks?.[workerId] ?? [],
 		onAssistantChunk: () => () => {},
+		onActivityEvent: (listener: (workerId: string, event: WorkerActivityEvent) => void) => {
+			(options.activityListeners ??= []).push(listener);
+			return () => {
+				const index = options.activityListeners?.indexOf(listener) ?? -1;
+				if (index >= 0) options.activityListeners?.splice(index, 1);
+			};
+		},
 		messageWorker: async (workerId: string, message: string, delivery = "auto") => {
 			calls.messages.push({ workerId, message, delivery });
 			return { worker: options.state.activeWorkers[workerId]!, delivery };
@@ -198,6 +208,7 @@ function makeComponent(opts: {
 	initialWorkerId?: string;
 	transcripts?: Record<string, string>;
 	consoles?: Record<string, WorkerConsoleEvent[]>;
+	activities?: Record<string, WorkerActivityEvent[]>;
 	chunks?: Record<string, AssistantChunk[]>;
 	routingMode?: "team" | "solo";
 	displayCost?: boolean;
@@ -212,6 +223,7 @@ function makeComponent(opts: {
 		state,
 		transcripts: opts.transcripts,
 		consoles: opts.consoles,
+		activities: opts.activities,
 		chunks: opts.chunks,
 		routingMode: opts.routingMode,
 		displayCost: opts.displayCost,
@@ -555,6 +567,72 @@ test("action bar dispatches steer/message/close/cancel/prune/refresh/copy throug
 	component.handleInput("r");
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(calls.pings, 1);
+});
+
+test("overlay copy hotkey passes real worker activity events into clipboard payload", async () => {
+	const state = makeState(1);
+	const now = Date.now();
+	const capturedPath = join(await mkdtemp(join(tmpdir(), "team-overlay-copy-test-")), "payload.txt");
+	const binDir = await mkdtemp(join(tmpdir(), "team-overlay-copy-bin-"));
+	for (const command of ["pbcopy", "wl-copy", "xclip", "xsel"]) {
+		const scriptPath = join(binDir, command);
+		await writeFile(scriptPath, `#!/bin/sh\ncat > ${JSON.stringify(capturedPath)}\n`, "utf8");
+		chmodSync(scriptPath, 0o755);
+	}
+	const originalPath = process.env.PATH;
+	process.env.PATH = `${binDir}${process.platform === "win32" ? ";" : ":"}${originalPath ?? ""}`;
+	try {
+		const { component } = makeComponent({
+			state,
+			rows: 30,
+			cols: 100,
+			initialWorkerId: "w1",
+			consoles: { w1: [{ ts: now, kind: "tool_start", text: "raw fallback command" }] },
+			activities: { w1: [{
+				id: "activity-1",
+				ts: now,
+				updatedAt: now,
+				actionKind: "command",
+				status: "completed",
+				label: "Ran npm test",
+				summary: "npm test",
+				command: "npm test",
+				sourceEvent: "worker_tool_finished",
+			}] },
+		});
+
+		component.handleInput("y");
+		await new Promise((resolve) => setImmediate(resolve));
+		const payload = await readFile(capturedPath, "utf8");
+		assert.match(payload, /## Activity[\s\S]*• Ran npm test/);
+		assert.doesNotMatch(payload, /## Activity[\s\S]*raw fallback command/);
+	} finally {
+		process.env.PATH = originalPath;
+	}
+});
+
+test("inspect live-follow re-renders on activity-only updates", () => {
+	const state = makeState(1);
+	const managerOpts: FakeManagerOptions = { state, activityListeners: [] };
+	let renders = 0;
+	const tui = { terminal: { rows: 30, columns: 100 }, requestRender: () => { renders += 1; } };
+	const manager = makeFakeManager(managerOpts);
+	const component = createTeamDashboardOverlayComponent(tui, manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1], state, () => {}, {
+		initialWorkerId: "w1",
+	});
+	component.handleInput("f");
+	renders = 0;
+	managerOpts.activityListeners![0]!("w1", {
+		id: "activity-1",
+		ts: Date.now(),
+		updatedAt: Date.now(),
+		actionKind: "tool",
+		status: "completed",
+		label: "Used read",
+		sourceEvent: "worker_tool_finished",
+	});
+	assert.equal(renders, 1);
+	component.dispose();
 });
 
 test("[s]teer accepts idle/waiting workers (delivery resolver upgrades to prompt)", async () => {
