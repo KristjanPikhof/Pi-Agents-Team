@@ -1113,6 +1113,103 @@ test("activity stream dedupes streamed and canonical final-answer summaries", as
 	assert.equal(finalEntries[0].finalSummaryFields?.headline, "one canonical summary");
 });
 
+test("activity getters do not flush token-sized streamed thinking into durable process rows", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-read-stable",
+		profileName: "reviewer",
+		task: taskInput("task-read-stable", "Read stability"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-read-stable", "stream tiny deltas");
+	await waitForMicrotasks();
+	for (const delta of ["a", "b", "c", "d", "e"]) {
+		transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta } });
+		manager.getWorkerActivity("worker-read-stable");
+		manager.getWorkerConsole("worker-read-stable");
+	}
+	await waitForMicrotasks();
+
+	const activityBeforeBoundary = manager.getWorkerActivity("worker-read-stable") ?? [];
+	assert.equal(activityBeforeBoundary.filter((event) => event.actionKind === "process" && event.label === "Thinking").length, 0);
+	transport.writeEvent({ type: "tool_execution_start", toolCallId: "boundary", toolName: "read", args: { path: "x.ts" } });
+	await waitForMicrotasks();
+	const activityAfterBoundary = manager.getWorkerActivity("worker-read-stable") ?? [];
+	const thinking = activityAfterBoundary.filter((event) => event.actionKind === "process" && event.label === "Thinking");
+	assert.equal(thinking.length, 1);
+	assert.equal(thinking[0].summary, "abcde");
+});
+
+test("activity reads can discover final answers without emitting token-sized thinking", async () => {
+	const finalAnswer = [
+		"headline: read-side final freshness",
+		"risks:",
+		"- none",
+		"next_recommendation: copy inspect can read it",
+	].join("\n");
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-read-final",
+		profileName: "reviewer",
+		task: taskInput("task-read-final", "Read final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-read-final", "stream final");
+	await waitForMicrotasks();
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: `<final_answer>\n${finalAnswer}\n</final_answer>` } });
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-read-final") ?? [];
+	const finalEntry = activity.find((event) => event.actionKind === "final_summary");
+	assert.ok(finalEntry);
+	assert.equal(finalEntry.finalSummaryFields?.headline, "read-side final freshness");
+	assert.equal(manager.getWorker("worker-read-final")?.state.finalAnswer, finalAnswer);
+	assert.equal(activity.find((event) => event.actionKind === "process" && event.label === "Thinking"), undefined);
+});
+
+test("activity cap prunes pending tool mappings and preserves standalone finishes", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-pruned-finish",
+		profileName: "reviewer",
+		task: taskInput("task-pruned-finish", "Pruned finish"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-pruned-finish", "many tools");
+	await waitForMicrotasks();
+	for (let i = 0; i < 620; i += 1) {
+		transport.writeEvent({ type: "tool_execution_start", toolCallId: `pruned-${i}`, toolName: "read", args: { path: `file-${i}.ts` } });
+	}
+	transport.writeEvent({
+		type: "tool_execution_end",
+		toolCallId: "pruned-0",
+		toolName: "read",
+		result: { content: [{ type: "text", text: "old start finished after pruning" }] },
+		isError: false,
+	});
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-pruned-finish") ?? [];
+	assert.ok(activity.length <= 500);
+	const finish = activity.find((event) => event.toolCallId === "pruned-0");
+	assert.ok(finish);
+	assert.equal(finish.status, "completed");
+	assert.equal(finish.outputSnippet, "old start finished after pruning");
+	assert.equal(finish.label, "read finished");
+});
+
 test("activity stream remains bounded independently from console events", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = new WorkerManager(() => new MockWorkerHandle(transport));

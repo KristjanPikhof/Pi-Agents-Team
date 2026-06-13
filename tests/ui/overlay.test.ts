@@ -824,6 +824,30 @@ function makeActivityContractInputs(now = 1_700_000_000_000): { chunks: Assistan
 	};
 }
 
+test("console Activity fallback coalesces adjacent assistant chunks while Raw keeps each chunk", () => {
+	const state = makeState(1);
+	const chunks: AssistantChunk[] = Array.from({ length: 8 }, (_, index) => ({
+		index,
+		ts: 1_700_000_000_000 + index,
+		text: index === 7 ? "done" : `token-${index} `,
+	}));
+	const { component } = makeComponent({ state, rows: 80, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+
+	let lines = renderPlain(component, 100);
+	let body = lines.join("\n");
+	assert.match(body, /activity=1/);
+	assert.equal((body.match(/process thinking/g)?.length ?? 0), 1, body);
+	assert.match(body, /token-0 token-1 token-2/);
+	assert.match(body, /done/);
+
+	component.handleInput("r");
+	lines = renderPlain(component, 100);
+	body = lines.join("\n");
+	assert.match(body, /\[raw\] assistant chunk #0/);
+	assert.match(body, /\[raw\] assistant chunk #7/);
+});
+
 test("console Activity contract renders final-answer fields through the shared parser", () => {
 	const state = makeState(1);
 	const now = 1_700_000_000_000;
