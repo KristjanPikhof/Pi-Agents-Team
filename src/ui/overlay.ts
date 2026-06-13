@@ -1394,16 +1394,16 @@ export async function openTeamDashboardOverlay(
 				if (dashboardShown || wrapper.isDisposed()) return;
 				dashboardShown = true;
 				const state = teamManager.snapshot();
-					const resolvedFocusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
-						? options.initialWorkerId
-						: focusWorkerId;
-					wrapper.replace(createTeamDashboardOverlayComponent(
-						tui as TUI,
-						teamManager as unknown as OverlayTeamManager,
-						state,
-						done,
-						{ initialWorkerId: resolvedFocusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme: resolvedTheme },
-					));
+				const resolvedFocusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
+					? options.initialWorkerId
+					: focusWorkerId;
+				wrapper.replace(createTeamDashboardOverlayComponent(
+					tui as TUI,
+					teamManager as unknown as OverlayTeamManager,
+					state,
+					done,
+					{ initialWorkerId: resolvedFocusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme: resolvedTheme },
+				));
 				tui.requestRender();
 			};
 			const timer = setTimeout(showDashboard, timeoutMs);
