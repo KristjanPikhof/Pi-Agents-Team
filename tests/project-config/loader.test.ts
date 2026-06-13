@@ -544,6 +544,113 @@ test("loadActiveTeamConfig accepts the schema v4 role shape", () => {
 	assert.deepEqual(fixer?.tools, ["read", "bash", "edit", "write"]);
 });
 
+test("loadActiveTeamConfig v4: access.extensions are normalized onto profiles", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-role-extensions-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	const absoluteExtension = join(root, "absolute-provider.ts");
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			explorer: {
+				whenToUse: "Use for custom model provider discovery.",
+				model: "myAnthropic/claude-opus-4-7",
+				thinkingLevel: "low",
+				access: {
+					tools: ["read", "grep", "find", "ls", "bash"],
+					write: false,
+					extensions: [
+						"./extensions/custom-provider.ts",
+						"npm:@org/pi-provider",
+						"git:github.com/org/pi-provider@v1",
+						"@org/package-provider",
+						absoluteExtension,
+					],
+				},
+				prompt: "default",
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.equal(result.delegationEnabled, true);
+	const explorer = result.config.profiles.find((profile) => profile.name === "explorer");
+	assert.ok(explorer);
+	assert.deepEqual(explorer?.extensions, [
+		join(root, "extensions", "custom-provider.ts"),
+		"npm:@org/pi-provider",
+		"git:github.com/org/pi-provider@v1",
+		"@org/package-provider",
+		absoluteExtension,
+	]);
+});
+
+test("loadActiveTeamConfig v4: empty extension sources invalidate the winning config", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-empty-extension-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			fixer: {
+				access: {
+					tools: ["read", "bash", "edit", "write"],
+					write: true,
+					extensions: ["./extensions/provider.ts", "  "],
+				},
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "invalid");
+	assert.equal(result.delegationEnabled, false);
+	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "extension_source_empty"));
+});
+
+test("loadActiveTeamConfig v4: non-string extension sources fail schema validation", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-non-string-extension-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			fixer: {
+				access: {
+					extensions: ["./extensions/provider.ts", 42],
+				},
+			} as any,
+		},
+	} as any);
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "invalid");
+	assert.equal(result.delegationEnabled, false);
+	assert.ok(
+		result.diagnostics.some((diagnostic) => diagnostic.fieldPath?.includes("/roles/fixer/access/extensions/1") && /must be string/.test(diagnostic.message)),
+		"expected a schema diagnostic for the non-string extension entry",
+	);
+});
+
+test("loadActiveTeamConfig v4: extensionMode disable rejects explicit extensions", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-disable-extension-conflict-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			reviewer: {
+				access: {
+					extensionMode: "disable",
+					extensions: ["npm:@org/pi-provider"],
+				},
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "invalid");
+	assert.equal(result.delegationEnabled, false);
+	assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "extension_mode_disable_extensions_forbidden"));
+});
+
 test("loadActiveTeamConfig strips invalid role thinkingLevel and records a warning", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-thinking-typo-"));
 	mkdirSync(join(root, "app"), { recursive: true });
