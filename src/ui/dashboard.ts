@@ -21,7 +21,7 @@ export interface WorkerRosterSection {
 	workers: WorkerRuntimeState[];
 }
 
-const DEFAULT_DASHBOARD_WIDTH = 100;
+const DEFAULT_DASHBOARD_WIDTH = 160;
 
 function sortWorkers(workers: WorkerRuntimeState[]): WorkerRuntimeState[] {
 	return workers.slice().sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
