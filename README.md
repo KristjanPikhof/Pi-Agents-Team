@@ -8,7 +8,7 @@ Pi main session acts as the coordinator, while background RPC workers execute th
 </p>
 
 - **Repo:** [`git@github.com:KristjanPikhof/pi-agents-team.git`](https://github.com/KristjanPikhof/Pi-Agents-Team)
-- **Requires:** pi ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.79.0`, Node `>=22.19.0`, Git. Pi `0.79+` enables Project Trust-aware config loading, worker trust propagation, cache metrics, and natural `@worker` / `$role` autocomplete.
+- **Requires:** pi ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.79.2`, Node `>=22.19.0`, Git. Pi `0.79.2+` enables Project Trust-aware config loading, worker trust propagation, cache metrics, natural `@worker` / `$role` autocomplete, and custom provider/model resolution for worker-launched extensions.
 
 ## Install
 
