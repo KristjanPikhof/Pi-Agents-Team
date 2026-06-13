@@ -121,12 +121,12 @@ test("extension registers natural autocomplete provider when UI API is available
 				autocompleteFactories.push(factory);
 			},
 		},
-			sessionManager: {
-				getEntries() {
-					return [];
-				},
+		sessionManager: {
+			getEntries() {
+				return [];
 			},
-		} as any;
+		},
+	} as any;
 
 	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
 
@@ -171,7 +171,11 @@ test("extension emits plain widget lines in RPC mode even when hasUI=true", asyn
 		},
 		sessionManager: {
 			getEntries() {
-				return [];
+				return [{
+					type: "custom",
+					customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+					data: makeWidgetState(),
+				}];
 			},
 		},
 	} as any;

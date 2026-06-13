@@ -46,7 +46,7 @@ function makeState(): PersistedTeamState {
 	return state;
 }
 
-function installTeamCommand(state = makeState()) {
+function installTeamCommand(state = makeState(), displayCost = true) {
 	const commands: RegisteredCommand[] = [];
 	const emitted: string[] = [];
 	const calls = { pings: [] as Array<{ mode?: string }>, custom: 0, notifications: [] as string[] };
@@ -54,6 +54,7 @@ function installTeamCommand(state = makeState()) {
 		listWorkers: () => Object.values(state.activeWorkers),
 		resolveWorkerId: (input: string) => state.activeWorkers[input] ? input : undefined,
 		snapshot: () => state,
+		displayCost,
 		pingWorkers: async (options?: { mode?: "passive" | "active" }) => {
 			calls.pings.push(options ?? {});
 			return [];
@@ -94,6 +95,15 @@ test("/team in RPC mode with hasUI=true emits refreshed text instead of opening 
 	assert.match(harness.emitted[0]!, /Pi Agents Team Dashboard/);
 	assert.match(harness.emitted[0]!, /reviewer \(w1\)/);
 	assert.match(harness.emitted[0]!, /status: running/);
+});
+
+test("/team in RPC mode mirrors display.cost false in fallback text", async () => {
+	const harness = installTeamCommand(makeState(), false);
+	await harness.run("");
+
+	assert.equal(harness.emitted.length, 1);
+	assert.match(harness.emitted[0]!, /Workers \/ Inspect \/ Console tabs/);
+	assert.doesNotMatch(harness.emitted[0]!, /Workers \/ Inspect \/ Console \/ Cost tabs/);
 });
 
 test("/team <unknown> in RPC mode emits the warning text without calling ctx.ui.notify", async () => {
