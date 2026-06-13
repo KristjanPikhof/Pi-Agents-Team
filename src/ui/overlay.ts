@@ -18,7 +18,7 @@ import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSection
 import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
 import { formatAgentMessageResult } from "./tool-formatters";
-import { FRAME, stripAnsi, fallbackPalette, themedPalette, type ThemedPalette } from "./theme";
+import { FRAME, stripAnsi, sanitizeTerminalText, fallbackPalette, themedPalette, type ThemedPalette } from "./theme";
 
 // The overlay is a single-instance custom component. Styling helpers delegate
 // to a mutable palette so the Pi Theme object supplied by ctx.ui.custom can be
@@ -201,11 +201,15 @@ function formatRosterProfileName(worker: WorkerRuntimeState): string {
 }
 
 function compactActivityLine(event: WorkerActivityEvent): string | undefined {
-	if (event.actionKind === "command") return `• Ran ${event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "")}`;
-	if (event.actionKind === "tool") return `• ${event.label.startsWith("Used ") ? event.label : `Used ${event.toolName ?? event.label}`}`;
-	if (event.actionKind === "process" && event.summary) return `• ${event.label}: ${event.summary}`;
+	const label = sanitizeTerminalText(event.label);
+	const command = event.command ? sanitizeTerminalText(event.command) : undefined;
+	const summary = event.summary ? sanitizeTerminalText(event.summary) : undefined;
+	const toolName = event.toolName ? sanitizeTerminalText(event.toolName) : undefined;
+	if (event.actionKind === "command") return `• Ran ${command ?? summary ?? label.replace(/^Ran\s+/, "")}`;
+	if (event.actionKind === "tool") return `• ${label.startsWith("Used ") ? label : `Used ${toolName ?? label}`}`;
+	if (event.actionKind === "process" && summary) return `• ${label}: ${summary}`;
 	if (event.actionKind === "final_summary") return "• Final answer produced";
-	if (event.actionKind === "error" && event.summary) return `• Error: ${event.summary}`;
+	if (event.actionKind === "error" && summary) return `• Error: ${summary}`;
 	return undefined;
 }
 
@@ -220,7 +224,7 @@ function buildRecentActivityRows(
 		.filter((line): line is string => Boolean(line))
 		.filter((line, index, all) => all.indexOf(line) === index)
 		.slice(-4);
-	const transcriptLines = transcript?.trim().split("\n").filter(Boolean) ?? [];
+	const transcriptLines = sanitizeTerminalText(transcript ?? "").trim().split("\n").filter(Boolean);
 	const latestThinking = transcriptLines.length <= 3 ? transcriptLines.slice(-1)[0] : undefined;
 	if (latestThinking && !rows.some((line) => line.includes(latestThinking))) rows.push(`• Thinking: ${latestThinking}`);
 	if (worker.finalAnswer && !rows.includes("• Final answer produced")) rows.push("• Final answer produced");

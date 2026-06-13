@@ -461,6 +461,96 @@ test("aggregateUsage sums token and cost fields across every tracked worker", as
 	assert.ok(agg.costUsd >= 0.02);
 });
 
+test("active ping returns restored exited registry snapshots without requiring WorkerManager records", async () => {
+	const teamManager = new TeamManager();
+	const state = createDefaultTeamState();
+	state.activeWorkers["w1"] = {
+		...workerSnapshot("w1", "exited", {
+			turns: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0,
+		}),
+		error: "Pi Agents Team session restored; relaunch required for live worker control.",
+	};
+	teamManager.restore(state);
+
+	const results = await teamManager.pingWorkers({ mode: "active" });
+
+	assert.equal(results.length, 1);
+	assert.equal(results[0]?.worker.workerId, "w1");
+	assert.equal(results[0]?.worker.status, "exited");
+	assert.match(results[0]?.worker.error ?? "", /restored|registry snapshot|not attached/i);
+	assert.ok(results[0]?.worker.lastSummary, "active ping should return a usable summary for registry-only workers");
+});
+
+test("active ping refreshes live workers when restored stale workers are registry-only", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ sessionStats: {
+		sessionId: "live-session",
+		totalMessages: 4,
+		tokens: { input: 111, output: 22, cacheRead: 0, cacheWrite: 0, total: 133 },
+		cost: 0.5,
+		contextUsage: { tokens: 133, contextWindow: 200000, percent: 0.07 },
+	} })));
+	const teamManager = new TeamManager({ workerManager });
+	const state = createDefaultTeamState();
+	state.activeWorkers["w1"] = {
+		...workerSnapshot("w1", "exited", {
+			turns: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0,
+		}),
+		error: "Pi Agents Team session restored; relaunch required for live worker control.",
+	};
+	teamManager.restore(state);
+	const live = await teamManager.delegateTask({
+		title: "Live worker",
+		goal: "stay refreshable",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+
+	const results = await teamManager.pingWorkers({ mode: "active" });
+	const stale = results.find((result) => result.worker.workerId === "w1");
+	const refreshed = results.find((result) => result.worker.workerId === live.worker.workerId);
+
+	assert.equal(results.length, 2);
+	assert.equal(stale?.worker.status, "exited");
+	assert.match(stale?.worker.error ?? "", /restored|registry snapshot|not attached/i);
+	assert.equal(refreshed?.worker.usage.inputTokens, 111);
+	assert.equal(refreshed?.worker.usage.outputTokens, 22);
+});
+
+test("active ping times out stuck refreshes and reuses the in-flight refresh per worker", async () => {
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
+	const teamManager = new TeamManager({ workerManager, activePingTimeoutMs: 5 });
+	const delegated = await teamManager.delegateTask({
+		title: "Stuck refresh",
+		goal: "simulate a hung RPC refresh",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	let refreshCalls = 0;
+	(workerManager as unknown as { refreshState: (workerId: string) => Promise<unknown> }).refreshState = async () => {
+		refreshCalls += 1;
+		return new Promise(() => {});
+	};
+
+	const first = await teamManager.pingWorkers({ workerIds: [delegated.worker.workerId], mode: "active" });
+	const second = await teamManager.pingWorkers({ workerIds: [delegated.worker.workerId], mode: "active" });
+
+	assert.equal(refreshCalls, 1);
+	assert.match(first[0]?.worker.error ?? "", /timed out/i);
+	assert.match(second[0]?.worker.error ?? "", /timed out/i);
+});
+
 test("active ping does not make stale terminal workers reappear in the widget", async () => {
 	const originalDateNow = Date.now;
 	let now = 1_000;
