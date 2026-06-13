@@ -74,6 +74,30 @@ export interface WorkerConsoleEvent {
 	text: string;
 }
 
+export type WorkerActivityKind = "status" | "command" | "tool" | "process" | "final_summary" | "queue" | "error" | "exit";
+export type WorkerActivityStatus = "started" | "completed" | "error" | "info";
+
+export interface WorkerActivityEvent {
+	id: string;
+	ts: number;
+	updatedAt: number;
+	actionKind: WorkerActivityKind;
+	status: WorkerActivityStatus;
+	label: string;
+	summary?: string;
+	toolName?: string;
+	command?: string;
+	outputSnippet?: string;
+	hiddenLineCount?: number;
+	sourceEvent: NormalizedWorkerEvent["type"] | "worker_text_flush";
+	toolCallId?: string;
+	finalSummaryFields?: {
+		headline?: string;
+		risks?: string[];
+		nextRecommendation?: string;
+	};
+}
+
 export interface AssistantChunk {
 	index: number;
 	ts: number;
@@ -81,6 +105,9 @@ export interface AssistantChunk {
 }
 
 const CONSOLE_BUFFER_LIMIT = 500;
+const ACTIVITY_BUFFER_LIMIT = 500;
+const TOOL_OUTPUT_ACTIVITY_LINE_LIMIT = 6;
+const TOOL_OUTPUT_ACTIVITY_CHAR_LIMIT = 800;
 const ASSISTANT_TEXT_BATCH_MS = 400;
 // Cap is on the number of buffered text-delta chunks, NOT rendered lines —
 // a single chunk may contain newlines. Memory is bounded by the byte cap;
@@ -106,6 +133,8 @@ export interface WorkerLaunchSnapshot {
 interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	textBuffer: string;
 	console: WorkerConsoleEvent[];
+	activity: WorkerActivityEvent[];
+	pendingToolActivityByCallId: Map<string, string>;
 	pendingTextDelta: string;
 	pendingTextFlushAt: number;
 	unsubscribers: Array<() => void>;
@@ -166,6 +195,28 @@ function extractResultText(result: Record<string, unknown>): string {
 	return snippet(result);
 }
 
+function extractCommand(args: Record<string, unknown>): string | undefined {
+	const direct = args.command;
+	if (typeof direct === "string" && direct.trim()) return direct.trim();
+	const cmd = args.cmd;
+	if (typeof cmd === "string" && cmd.trim()) return cmd.trim();
+	return undefined;
+}
+
+function buildOutputSnippet(text: string): { snippet: string; hiddenLineCount: number } {
+	const normalized = text.replace(/\r/g, "").trim();
+	if (!normalized) return { snippet: "", hiddenLineCount: 0 };
+	const lines = normalized.split("\n");
+	const visibleLines = lines.slice(0, TOOL_OUTPUT_ACTIVITY_LINE_LIMIT);
+	let output = visibleLines.join("\n");
+	let hiddenLineCount = Math.max(0, lines.length - visibleLines.length);
+	if (Buffer.byteLength(output, "utf8") > TOOL_OUTPUT_ACTIVITY_CHAR_LIMIT) {
+		output = trimSummary(output, TOOL_OUTPUT_ACTIVITY_CHAR_LIMIT);
+		if (hiddenLineCount === 0 && lines.length > 1) hiddenLineCount = lines.length - 1;
+	}
+	return { snippet: output, hiddenLineCount };
+}
+
 const FINAL_ANSWER_PATTERN = /<final[_\s-]?answer>([\s\S]*?)<\/final[_\s-]?answer>/i;
 
 export function extractFinalAnswer(text: string): string | undefined {
@@ -183,6 +234,28 @@ function extractAssistantText(message: Record<string, unknown>): string {
 		.map((part) => part.text)
 		.join("\n")
 		.trim();
+}
+
+function extractFinalSummaryFields(finalAnswer: string): WorkerActivityEvent["finalSummaryFields"] {
+	const headline = /^headline:\s*(.+)$/im.exec(finalAnswer)?.[1]?.trim();
+	const nextRecommendation = /^next_recommendation:\s*(.+)$/im.exec(finalAnswer)?.[1]?.trim();
+	const risksBlock = /^risks:\s*$(?<body>(?:\s*[-*]\s+.+\n?)*)/im.exec(finalAnswer)?.groups?.body ?? "";
+	const risks = risksBlock
+		.split("\n")
+		.map((line) => /^\s*[-*]\s+(.+)$/.exec(line)?.[1]?.trim())
+		.filter((line): line is string => Boolean(line));
+	return {
+		...(headline ? { headline } : {}),
+		...(risks.length > 0 ? { risks } : {}),
+		...(nextRecommendation ? { nextRecommendation } : {}),
+	};
+}
+
+function buildFinalSummary(finalAnswer: string): { summary: string; fields: WorkerActivityEvent["finalSummaryFields"] } {
+	const fields = extractFinalSummaryFields(finalAnswer);
+	const pieces = [fields?.headline, fields?.risks?.[0] ? `Risk: ${fields.risks[0]}` : undefined, fields?.nextRecommendation ? `Next: ${fields.nextRecommendation}` : undefined]
+		.filter((value): value is string => Boolean(value));
+	return { summary: trimSummary(pieces.length > 0 ? pieces.join(" · ") : finalAnswer, 360), fields };
 }
 
 function buildSummary(state: WorkerRuntimeState, text: string): WorkerSummary {
@@ -263,7 +336,9 @@ export class WorkerManager {
 			state: createInitialState(options),
 			textBuffer: "",
 			console: [],
-			pendingTextDelta: "",
+			activity: [],
+			pendingToolActivityByCallId: new Map(),
+			pendingTextDelta: ""
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
 			closing: false,
@@ -384,6 +459,8 @@ export class WorkerManager {
 		record.textBuffer = "";
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
+		record.activity = [];
+		record.pendingToolActivityByCallId = new Map();
 		record.assistantChunks = [];
 		record.assistantChunkBytes = 0;
 		record.assistantNextIndex = 0;
@@ -477,6 +554,13 @@ export class WorkerManager {
 		return record.console.slice();
 	}
 
+	getWorkerActivity(workerId: string): WorkerActivityEvent[] | undefined {
+		const record = this.workers.get(workerId);
+		if (!record) return undefined;
+		this.flushPendingText(record);
+		return structuredClone(record.activity);
+	}
+
 	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[] {
 		const record = this.workers.get(workerId);
 		if (!record) return [];
@@ -487,6 +571,11 @@ export class WorkerManager {
 	onAssistantChunk(listener: (workerId: string, chunk: AssistantChunk) => void): () => void {
 		this.emitter.on("assistant_chunk", listener);
 		return () => this.emitter.off("assistant_chunk", listener);
+	}
+
+	onActivityEvent(listener: (workerId: string, event: WorkerActivityEvent) => void): () => void {
+		this.emitter.on("activity_event", listener);
+		return () => this.emitter.off("activity_event", listener);
 	}
 
 	private appendAssistantChunk(record: WorkerRuntimeRecord, ts: number, text: string): void {
@@ -516,12 +605,43 @@ export class WorkerManager {
 		}
 	}
 
+	private appendActivity(record: WorkerRuntimeRecord, event: WorkerActivityEvent): void {
+		record.activity.push(event);
+		if (record.activity.length > ACTIVITY_BUFFER_LIMIT) {
+			record.activity.splice(0, record.activity.length - ACTIVITY_BUFFER_LIMIT);
+		}
+		this.emitter.emit("activity_event", record.workerId, structuredClone(event));
+	}
+
+	private updateActivity(record: WorkerRuntimeRecord, activityId: string, patch: Partial<WorkerActivityEvent>): void {
+		const activity = record.activity.find((item) => item.id === activityId);
+		if (!activity) return;
+		Object.assign(activity, patch);
+		this.emitter.emit("activity_event", record.workerId, structuredClone(activity));
+	}
+
+	private nextActivityId(record: WorkerRuntimeRecord, sourceEvent: WorkerActivityEvent["sourceEvent"], timestamp: number): string {
+		return `${record.workerId}:${sourceEvent}:${timestamp}:${record.activity.length}`;
+	}
+
 	private flushPendingText(record: WorkerRuntimeRecord): void {
 		if (!record.pendingTextDelta) return;
+		const ts = record.pendingTextFlushAt || Date.now();
+		const text = trimSummary(record.pendingTextDelta, 400);
 		this.appendConsole(record, {
-			ts: record.pendingTextFlushAt || Date.now(),
+			ts,
 			kind: "assistant_text",
-			text: trimSummary(record.pendingTextDelta, 400),
+			text,
+		});
+		this.appendActivity(record, {
+			id: this.nextActivityId(record, "worker_text_flush", ts),
+			ts,
+			updatedAt: ts,
+			actionKind: "process",
+			status: "info",
+			label: "Thinking",
+			summary: trimSummary(text, 260),
+			sourceEvent: "worker_text_flush",
 		});
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
@@ -555,6 +675,16 @@ export class WorkerManager {
 				record.state.status = "running";
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: "running" });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "status",
+					status: "info",
+					label: "Worker running",
+					summary: "running",
+					sourceEvent: event.type,
+				});
 				break;
 			case "worker_text_delta":
 				record.textBuffer += event.delta;
@@ -583,6 +713,31 @@ export class WorkerManager {
 						kind: "assistant_message",
 						text: trimSummary(finalAnswer ?? assistantText, 600),
 					});
+					if (finalAnswer) {
+						const finalSummary = buildFinalSummary(finalAnswer);
+						this.appendActivity(record, {
+							id: this.nextActivityId(record, event.type, event.timestamp),
+							ts: event.timestamp,
+							updatedAt: event.timestamp,
+							actionKind: "final_summary",
+							status: "completed",
+							label: "Final answer",
+							summary: finalSummary.summary,
+							sourceEvent: event.type,
+							finalSummaryFields: finalSummary.fields,
+						});
+					} else {
+						this.appendActivity(record, {
+							id: this.nextActivityId(record, event.type, event.timestamp),
+							ts: event.timestamp,
+							updatedAt: event.timestamp,
+							actionKind: "process",
+							status: "info",
+							label: "Assistant message",
+							summary: trimSummary(assistantText, 260),
+							sourceEvent: event.type,
+						});
+					}
 				}
 				const messageUsage = event.message.usage as Record<string, unknown> | undefined;
 				if (messageUsage) {
