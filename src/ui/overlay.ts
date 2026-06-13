@@ -100,16 +100,16 @@ function appendList(lines: string[], label: string, values: string[]): void {
 	for (const value of values) lines.push(`  ${value}`);
 }
 
-function inspectSection(label: string): string {
-	return accentBold(label);
+function inspectSection(label: string, palette: ThemedPalette): string {
+	return palette.accentBold(label);
 }
 
-function inspectDivider(label: string): string {
-	return accent(FRAME.horizontal.repeat(2)) + " " + inspectSection(label) + " " + accent(FRAME.horizontal.repeat(2));
+function inspectDivider(label: string, palette: ThemedPalette): string {
+	return palette.accent(FRAME.horizontal.repeat(2)) + " " + inspectSection(label, palette) + " " + palette.accent(FRAME.horizontal.repeat(2));
 }
 
-function inspectField(label: string, value: string): string {
-	return `  ${dim(label)} ${value}`;
+function inspectField(label: string, value: string, palette: ThemedPalette): string {
+	return `  ${palette.dim(label)} ${value}`;
 }
 
 function formatUsage(worker: WorkerRuntimeState): string {
@@ -128,25 +128,25 @@ function hasClampedThinking(worker: WorkerRuntimeState): boolean {
 	return worker.requestedThinkingLevel !== worker.effectiveThinkingLevel;
 }
 
-function formatThinking(worker: WorkerRuntimeState): string {
+function formatThinking(worker: WorkerRuntimeState, palette: ThemedPalette): string {
 	if (!hasClampedThinking(worker)) return worker.effectiveThinkingLevel;
-	return warning(`${worker.requestedThinkingLevel} -> ${worker.effectiveThinkingLevel} (clamped)`);
+	return palette.warning(`${worker.requestedThinkingLevel} -> ${worker.effectiveThinkingLevel} (clamped)`);
 }
 
 function formatRosterProfileName(worker: WorkerRuntimeState): string {
 	return `${worker.profileName}${hasClampedThinking(worker) ? " (clamped)" : ""}`;
 }
 
-function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined): string {
+function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, palette: ThemedPalette): string {
 	const lines = [
 		`${worker.workerId} · ${worker.profileName} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : ""}`,
 		"",
-		inspectSection("Status"),
-		inspectField("Usage:", formatUsage(worker)),
-		inspectField("Thinking:", formatThinking(worker)),
+		inspectSection("Status", palette),
+		inspectField("Usage:", formatUsage(worker), palette),
+		inspectField("Thinking:", formatThinking(worker, palette), palette),
 	];
-	if (worker.lastToolName) lines.push(inspectField("Last tool:", worker.lastToolName));
-	if (worker.error) lines.push(inspectField("Error:", danger(worker.error)));
+	if (worker.lastToolName) lines.push(inspectField("Last tool:", worker.lastToolName, palette));
+	if (worker.error) lines.push(inspectField("Error:", palette.danger(worker.error), palette));
 
 	lines.push("", inspectSection("Task"));
 	if (worker.currentTask) {
@@ -541,6 +541,7 @@ export interface OpenTeamDashboardOptions {
 	initialWorkerId?: string;
 	cwd?: string;
 	displayCost?: boolean;
+	theme?: Theme;
 }
 
 export function createTeamDashboardOverlayComponent(
@@ -1133,12 +1134,12 @@ export async function openTeamDashboardOverlay(
 	}
 
 	await ctx.ui.custom<void>(
-		(tui, _theme, _keybindings, done) => createTeamDashboardOverlayComponent(
+		(tui, theme, _keybindings, done) => createTeamDashboardOverlayComponent(
 			tui as TUI,
 			teamManager as unknown as OverlayTeamManager,
 			state,
 			done,
-			{ initialWorkerId: focusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost },
+			{ initialWorkerId: focusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme },
 		),
 		{
 			overlay: true,
