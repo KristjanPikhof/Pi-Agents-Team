@@ -146,8 +146,11 @@ function applyUi(
 	}
 
 	const theme = ctx.ui.theme;
+	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode, displayCost, theme, width: 80 });
 	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip, orchestratorWorking, theme));
-	if (ctx.mode === "tui") {
+	if (widgetLines.length === 0) {
+		ctx.ui.setWidget(config.ui.widgetKey, undefined);
+	} else if (ctx.mode === "tui") {
 		ctx.ui.setWidget(
 			config.ui.widgetKey,
 			(_tui, widgetTheme) => ({
@@ -158,7 +161,7 @@ function applyUi(
 	} else {
 		ctx.ui.setWidget(
 			config.ui.widgetKey,
-			buildTeamWidgetLines(state, { frame, routingMode, displayCost, theme, width: 80 }),
+			widgetLines,
 		);
 	}
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
