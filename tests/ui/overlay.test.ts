@@ -1551,6 +1551,7 @@ test("sanitizeText strips BEL and backspace but preserves ESC for trusted stylin
 test("sanitizeTerminalText strips hostile OSC, CSI, ESC, and control sequences from worker text", () => {
 	const hostile = "start\x1b]52;c;Y2xpcA==\x07clip\x1b]0;owned\x1b\\title\x1b[2Jclear\x1b[10;5Hmove\x1b[31mred\x1b[0m\x07end";
 	assert.equal(sanitizeTerminalText(hostile), "startcliptitleclearmoveredend");
+	assert.equal(sanitizeTerminalText("safe\rspoof"), "safespoof");
 });
 
 test("inspect and console render worker terminal escapes inertly while preserving trusted theme styling", () => {
