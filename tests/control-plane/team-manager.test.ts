@@ -481,9 +481,12 @@ test("active ping returns restored exited registry snapshots without requiring W
 
 	assert.equal(results.length, 1);
 	assert.equal(results[0]?.worker.workerId, "w1");
+	const snapshot = teamManager.snapshot().activeWorkers.w1;
 	assert.equal(results[0]?.worker.status, "exited");
-	assert.match(results[0]?.worker.error ?? "", /restored|registry snapshot|not attached/i);
+	assert.match(results[0]?.worker.error ?? "", /registry snapshot|not attached/i);
 	assert.ok(results[0]?.worker.lastSummary, "active ping should return a usable summary for registry-only workers");
+	assert.match(snapshot?.error ?? "", /registry snapshot|not attached/i);
+	assert.match(snapshot?.lastSummary?.headline ?? "", /registry snapshot|not attached/i);
 });
 
 test("active ping refreshes live workers when restored stale workers are registry-only", async () => {
@@ -528,7 +531,7 @@ test("active ping refreshes live workers when restored stale workers are registr
 	assert.equal(refreshed?.worker.usage.outputTokens, 22);
 });
 
-test("active ping times out stuck refreshes and reuses the in-flight refresh per worker", async () => {
+test("active ping times out stuck refreshes, surfaces warning in snapshots, and evicts stale dedupe", async () => {
 	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ autoCompletePrompt: false })));
 	const teamManager = new TeamManager({ workerManager, activePingTimeoutMs: 5 });
 	const delegated = await teamManager.delegateTask({
@@ -544,10 +547,13 @@ test("active ping times out stuck refreshes and reuses the in-flight refresh per
 	};
 
 	const first = await teamManager.pingWorkers({ workerIds: [delegated.worker.workerId], mode: "active" });
+	const snapshotAfterFirst = teamManager.snapshot().activeWorkers[delegated.worker.workerId];
 	const second = await teamManager.pingWorkers({ workerIds: [delegated.worker.workerId], mode: "active" });
 
-	assert.equal(refreshCalls, 1);
+	assert.equal(refreshCalls, 2);
 	assert.match(first[0]?.worker.error ?? "", /timed out/i);
+	assert.match(snapshotAfterFirst?.error ?? "", /timed out/i);
+	assert.match(snapshotAfterFirst?.lastSummary?.headline ?? "", /timed out/i);
 	assert.match(second[0]?.worker.error ?? "", /timed out/i);
 });
 
