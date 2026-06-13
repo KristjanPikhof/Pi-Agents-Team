@@ -455,7 +455,7 @@ class LabeledInput implements Component, Focusable {
 		this.input.handleInput(data);
 	}
 
-	render(width: number): string[] {
+	render(width: number, rowBudget = ROSTER_PAGE_SIZE): string[] {
 		this.input.focused = this.focused;
 		const labelWidth = visibleWidth(this.label);
 		if (width <= labelWidth) {
@@ -514,7 +514,9 @@ class RosterSelectList implements Component {
 			scrollInfo: (text) => text,
 			noMatch: (text) => text,
 		};
-		const list = new SelectList(items, Math.min(items.length, ROSTER_PAGE_SIZE), theme);
+		const visibleRows = Math.max(1, Math.min(rowBudget, ROSTER_PAGE_SIZE));
+		const itemRows = items.length > visibleRows && visibleRows > 1 ? visibleRows - 1 : visibleRows;
+		const list = new SelectList(items, Math.min(items.length, itemRows), theme);
 		list.setSelectedIndex(safeSelectedIndex);
 		return list.render(width).map((line) => {
 			const plain = stripAnsi(line);
@@ -1030,8 +1032,8 @@ export function createTeamDashboardOverlayComponent(
 
 	function renderWorkersBody(width: number, rows: number): string[] {
 		const roster = new RosterSelectList(snapshot, state.selectedWorkerId);
-		const lines = roster.render(width);
-		lastRenderMetrics.listPageSize = Math.max(1, rows - 1);
+		const lines = roster.render(width, rows);
+		lastRenderMetrics.listPageSize = Math.max(1, Math.min(rows - 1, ROSTER_PAGE_SIZE));
 		return enforceWidth(lines, width).slice(0, rows);
 	}
 
