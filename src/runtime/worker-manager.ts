@@ -14,6 +14,8 @@ import {
 	type WorkerProcessOptions,
 } from "./worker-process";
 import { buildWorkerSummaryFromText, extractRelayQuestions } from "../comms/summary";
+import { extractFinalAnswer, parseFinalAnswerSummaryFields } from "./final-answer";
+export { extractFinalAnswer } from "./final-answer";
 import { THINKING_LEVELS } from "../types";
 import type {
 	DelegatedTaskInput,
@@ -115,6 +117,8 @@ const ASSISTANT_TEXT_BATCH_MS = 400;
 // chunk is small. Either limit shifts the oldest chunk out.
 const ASSISTANT_BUFFER_CHUNK_CAP = 4096;
 const ASSISTANT_BUFFER_BYTE_CAP = 256 * 1024;
+const ASSISTANT_TRANSCRIPT_BYTE_CAP = 256 * 1024;
+const ASSISTANT_TRANSCRIPT_LINE_CAP = 4000;
 
 export interface WorkerLaunchSnapshot {
 	cwd: string;
@@ -147,6 +151,9 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	assistantNextIndex: number;
 	activityNextIndex: number;
 	finalSummaryKeys: Set<string>;
+	textBufferTruncated: boolean;
+	textBufferDroppedBytes: number;
+	textBufferDroppedLines: number;
 }
 
 function emptyUsage(): WorkerUsageStats {
@@ -219,15 +226,6 @@ function buildOutputSnippet(text: string): { snippet: string; hiddenLineCount: n
 	return { snippet: output, hiddenLineCount };
 }
 
-const FINAL_ANSWER_PATTERN = /<final[_\s-]?answer>([\s\S]*?)<\/final[_\s-]?answer>/i;
-
-export function extractFinalAnswer(text: string): string | undefined {
-	const match = FINAL_ANSWER_PATTERN.exec(text);
-	if (!match) return undefined;
-	const content = match[1]?.trim();
-	return content && content.length > 0 ? content : undefined;
-}
-
 function extractAssistantText(message: Record<string, unknown>): string {
 	const content = Array.isArray(message.content) ? message.content : [];
 	return content
@@ -238,26 +236,54 @@ function extractAssistantText(message: Record<string, unknown>): string {
 		.trim();
 }
 
-function extractFinalSummaryFields(finalAnswer: string): WorkerActivityEvent["finalSummaryFields"] {
-	const headline = /^headline:\s*(.+)$/im.exec(finalAnswer)?.[1]?.trim();
-	const nextRecommendation = /^next_recommendation:\s*(.+)$/im.exec(finalAnswer)?.[1]?.trim();
-	const risksBlock = /^risks:\s*$(?<body>(?:\s*[-*]\s+.+\n?)*)/im.exec(finalAnswer)?.groups?.body ?? "";
-	const risks = risksBlock
-		.split("\n")
-		.map((line) => /^\s*[-*]\s+(.+)$/.exec(line)?.[1]?.trim())
-		.filter((line): line is string => Boolean(line));
-	return {
-		...(headline ? { headline } : {}),
-		...(risks.length > 0 ? { risks } : {}),
-		...(nextRecommendation ? { nextRecommendation } : {}),
-	};
-}
-
 function buildFinalSummary(finalAnswer: string): { summary: string; fields: WorkerActivityEvent["finalSummaryFields"] } {
-	const fields = extractFinalSummaryFields(finalAnswer);
+	const fields = parseFinalAnswerSummaryFields(finalAnswer);
 	const pieces = [fields?.headline, fields?.risks?.[0] ? `Risk: ${fields.risks[0]}` : undefined, fields?.nextRecommendation ? `Next: ${fields.nextRecommendation}` : undefined]
 		.filter((value): value is string => Boolean(value));
 	return { summary: trimSummary(pieces.length > 0 ? pieces.join(" · ") : finalAnswer, 360), fields };
+}
+
+function trimTranscriptTail(text: string): { text: string; droppedText: string } {
+	let trimmed = text;
+	const lines = trimmed.split("\n");
+	if (lines.length > ASSISTANT_TRANSCRIPT_LINE_CAP) {
+		trimmed = lines.slice(-ASSISTANT_TRANSCRIPT_LINE_CAP).join("\n");
+	}
+	let start = 0;
+	while (Buffer.byteLength(trimmed.slice(start), "utf8") > ASSISTANT_TRANSCRIPT_BYTE_CAP) {
+		start += Math.max(1, Math.ceil((Buffer.byteLength(trimmed.slice(start), "utf8") - ASSISTANT_TRANSCRIPT_BYTE_CAP) / 4));
+	}
+	if (start > 0) trimmed = trimmed.slice(start);
+	const droppedLength = Math.max(0, text.length - trimmed.length);
+	return { text: trimmed, droppedText: droppedLength > 0 ? text.slice(0, droppedLength) : "" };
+}
+
+function transcriptTruncationNote(record: WorkerRuntimeRecord): string | undefined {
+	if (!record.textBufferTruncated) return undefined;
+	const parts = [
+		record.textBufferDroppedBytes > 0 ? `${record.textBufferDroppedBytes.toLocaleString()} bytes` : undefined,
+		record.textBufferDroppedLines > 0 ? `${record.textBufferDroppedLines.toLocaleString()} lines` : undefined,
+	].filter((part): part is string => Boolean(part));
+	return `[transcript truncated: showing retained tail; omitted ${parts.join(" / ") || "earlier assistant text"}]`;
+}
+
+function appendTranscriptText(record: WorkerRuntimeRecord, text: string): void {
+	const combined = record.textBuffer + text;
+	const trimmed = trimTranscriptTail(combined);
+	if (trimmed.droppedText) {
+		record.textBufferTruncated = true;
+		record.textBufferDroppedBytes += Buffer.byteLength(trimmed.droppedText, "utf8");
+		record.textBufferDroppedLines += Math.max(0, trimmed.droppedText.split("\n").length - 1);
+	}
+	record.textBuffer = trimmed.text;
+}
+
+function setTranscriptText(record: WorkerRuntimeRecord, text: string): void {
+	const trimmed = trimTranscriptTail(text);
+	record.textBufferTruncated = Boolean(trimmed.droppedText);
+	record.textBufferDroppedBytes = trimmed.droppedText ? Buffer.byteLength(trimmed.droppedText, "utf8") : 0;
+	record.textBufferDroppedLines = trimmed.droppedText ? Math.max(0, trimmed.droppedText.split("\n").length - 1) : 0;
+	record.textBuffer = trimmed.text;
 }
 
 function finalSummaryKey(finalAnswer: string): string {
@@ -355,6 +381,9 @@ export class WorkerManager {
 			assistantNextIndex: 0,
 			activityNextIndex: 0,
 			finalSummaryKeys: new Set(),
+			textBufferTruncated: false,
+			textBufferDroppedBytes: 0,
+			textBufferDroppedLines: 0,
 			launchSnapshot: {
 				cwd: options.cwd,
 				command: options.command,
@@ -474,6 +503,9 @@ export class WorkerManager {
 		record.assistantNextIndex = 0;
 		record.activityNextIndex = 0;
 		record.finalSummaryKeys = new Set();
+		record.textBufferTruncated = false;
+		record.textBufferDroppedBytes = 0;
+		record.textBufferDroppedLines = 0;
 		// Reuse keeps the same RPC session and launch-time model/thinking flags,
 		// so the post-launch clamp comparison remains valid for the reused task.
 		await this.promptWorker(workerId, message);
@@ -554,7 +586,10 @@ export class WorkerManager {
 	}
 
 	getWorkerTranscript(workerId: string): string | undefined {
-		return this.workers.get(workerId)?.textBuffer;
+		const record = this.workers.get(workerId);
+		if (!record) return undefined;
+		const note = transcriptTruncationNote(record);
+		return note ? `${note}\n${record.textBuffer}` : record.textBuffer;
 	}
 
 	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined {
@@ -729,7 +764,7 @@ export class WorkerManager {
 				});
 				break;
 			case "worker_text_delta":
-				record.textBuffer += event.delta;
+				appendTranscriptText(record, event.delta);
 				record.state.status = "running";
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				record.pendingTextDelta += event.delta;
@@ -743,8 +778,8 @@ export class WorkerManager {
 				this.flushPendingText(record);
 				const assistantText = extractAssistantText(event.message);
 				if (assistantText) {
-					record.textBuffer = assistantText;
 					const finalAnswer = extractFinalAnswer(assistantText);
+					setTranscriptText(record, finalAnswer ?? assistantText);
 					record.state.pendingRelayQuestions = extractRelayQuestions(assistantText, record.state);
 					record.state.lastSummary = buildSummary(record.state, assistantText);
 					this.appendConsole(record, {
