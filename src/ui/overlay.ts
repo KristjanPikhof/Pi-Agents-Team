@@ -9,7 +9,7 @@ import {
 import type { Component, Focusable, OverlayOptions, SelectItem, SelectListTheme, TUI } from "@earendil-works/pi-tui";
 import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager";
-import type { AssistantChunk, WorkerConsoleEvent } from "../runtime/worker-manager";
+import type { AssistantChunk, WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager";
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
@@ -92,6 +92,7 @@ interface DashboardState {
 	inspectFollow: boolean;
 	consoleScroll: number;
 	consoleFollow: boolean;
+	consoleMode: "activity" | "raw";
 	costScroll: number;
 	modal?: ModalState;
 }
@@ -267,32 +268,156 @@ function formatConsoleEvent(event: WorkerConsoleEvent): string {
 	return `${dim(`[${formatTimestamp(event.ts)}]`)} ${styleConsoleEventKind(event)} ${styleConsoleEventText(event)}`;
 }
 
-function buildConsoleLines(
+function formatFinalAnswerFields(fields: WorkerActivityEvent["finalSummaryFields"] | undefined, summary?: string): string[] {
+	if (!fields || Object.keys(fields).length === 0) return summary ? [`  ${summary}`] : [];
+	const lines: string[] = [];
+	if (fields.headline) lines.push(`  ${bold("Headline:")} ${fields.headline}`);
+	for (const risk of fields.risks ?? []) lines.push(`  ${bold("Risks:")} ${risk}`);
+	if (fields.nextRecommendation) lines.push(`  ${bold("Next:")} ${fields.nextRecommendation}`);
+	return lines;
+}
+
+function formatActivityEvent(event: WorkerActivityEvent): string[] {
+	const bulletLabel = event.actionKind === "command"
+		? `• Ran ${event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "")}`
+		: event.actionKind === "tool"
+			? `• ${event.label.startsWith("Used ") ? event.label : `Used ${event.toolName ?? event.label}`}`
+			: `• ${event.label}`;
+	const lines = [event.status === "error" ? dangerBold(bulletLabel) : bulletLabel];
+	if (event.actionKind === "final_summary") {
+		lines.push(...formatFinalAnswerFields(event.finalSummaryFields, event.summary));
+	} else if (event.summary && event.actionKind !== "command") {
+		lines.push(`  ${event.summary}`);
+	}
+	if (event.outputSnippet) {
+		for (const line of event.outputSnippet.replace(/\r/g, "").split("\n")) lines.push(`  ${line}`);
+	}
+	if ((event.hiddenLineCount ?? 0) > 0) lines.push(`  … +${event.hiddenLineCount} lines hidden`);
+	return lines;
+}
+
+function parseFinalAnswerFields(text: string): WorkerActivityEvent["finalSummaryFields"] {
+	const headline = /^headline:\s*(.+)$/im.exec(text)?.[1]?.trim();
+	const nextRecommendation = /^next_recommendation:\s*(.+)$/im.exec(text)?.[1]?.trim();
+	const risksBlock = /^risks:\s*$(?<body>(?:\s*[-*]\s+.+\n?)*)/im.exec(text)?.groups?.body ?? "";
+	const risks = risksBlock
+		.split("\n")
+		.map((line) => /^\s*[-*]\s+(.+)$/.exec(line)?.[1]?.trim())
+		.filter((line): line is string => Boolean(line));
+	return {
+		...(headline ? { headline } : {}),
+		...(risks.length > 0 ? { risks } : {}),
+		...(nextRecommendation ? { nextRecommendation } : {}),
+	};
+}
+
+function extractFinalAnswerBlock(text: string): string | undefined {
+	return /<final[_\s-]?answer>([\s\S]*?)<\/final[_\s-]?answer>/i.exec(text)?.[1]?.trim();
+}
+
+function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConsoleEvent[]): WorkerActivityEvent[] {
+	const activity: WorkerActivityEvent[] = [];
+	let id = 0;
+	for (const chunk of chunks) {
+		const finalAnswer = extractFinalAnswerBlock(chunk.text);
+		if (finalAnswer) {
+			activity.push({
+				id: `chunk:${id++}`,
+				ts: chunk.ts,
+				updatedAt: chunk.ts,
+				actionKind: "final_summary",
+				status: "completed",
+				label: "Final answer",
+				summary: finalAnswer.replace(/\s+/g, " ").trim(),
+				sourceEvent: "worker_text_flush",
+				finalSummaryFields: parseFinalAnswerFields(finalAnswer),
+			});
+		} else if (chunk.text.trim()) {
+			activity.push({
+				id: `chunk:${id++}`,
+				ts: chunk.ts,
+				updatedAt: chunk.ts,
+				actionKind: "process",
+				status: "info",
+				label: "Thinking",
+				summary: chunk.text.replace(/\r/g, "").trim(),
+				sourceEvent: "worker_text_flush",
+			});
+		}
+	}
+	for (let index = 0; index < consoleEvents.length; index += 1) {
+		const event = consoleEvents[index]!;
+		if (event.kind === "tool_start") {
+			const next = consoleEvents.slice(index + 1).find((candidate) => candidate.kind === "tool_end" && candidate.ts >= event.ts);
+			const outputLines = next?.text.split("\n") ?? [];
+			const hiddenMatch = outputLines.find((line) => /… \+\d+ lines hidden/.test(line));
+			activity.push({
+				id: `event:${id++}`,
+				ts: event.ts,
+				updatedAt: next?.ts ?? event.ts,
+				actionKind: "command",
+				status: next?.kind === "tool_end" ? "completed" : "started",
+				label: `Ran ${event.text}`,
+				summary: event.text,
+				command: event.text,
+				outputSnippet: outputLines.filter((line) => !/… \+\d+ lines hidden/.test(line)).join("\n"),
+				hiddenLineCount: hiddenMatch ? Number(/… \+(\d+) lines hidden/.exec(hiddenMatch)?.[1] ?? 0) : undefined,
+				sourceEvent: "worker_text_flush",
+			});
+		} else if (event.kind === "error" || event.kind === "exit" || event.kind === "queue") {
+			activity.push({
+				id: `event:${id++}`,
+				ts: event.ts,
+				updatedAt: event.ts,
+				actionKind: event.kind,
+				status: event.kind === "error" ? "error" : "info",
+				label: event.kind === "error" ? "Worker error" : event.kind === "exit" ? "Worker exited" : "Messages queued",
+				summary: event.text,
+				sourceEvent: "worker_text_flush",
+			});
+		}
+	}
+	return activity.sort((a, b) => a.ts - b.ts || a.updatedAt - b.updatedAt);
+}
+
+function buildRawConsoleLines(
 	worker: WorkerRuntimeState,
 	chunks: AssistantChunk[],
 	consoleEvents: WorkerConsoleEvent[],
 ): string[] {
 	if (chunks.length === 0 && consoleEvents.length === 0) {
-		return [`${worker.workerId} · ${worker.profileName} · ${worker.status}`, "", "(no console activity yet)"];
+		return [`${worker.workerId} · ${worker.profileName} · ${worker.status}`, "", accentBold("— raw —"), "(no console activity yet)"];
 	}
-	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  chunks=${chunks.length}  events=${consoleEvents.length}`, ""];
-	lines.push(accentBold("— assistant —"));
-	if (chunks.length === 0) {
-		lines.push(dim("(no assistant text captured)"));
-	} else {
-		for (const chunk of chunks) {
-			lines.push(dim(`[${formatTimestamp(chunk.ts)}]`));
-			const text = chunk.text.replace(/\r/g, "");
-			const parts = text.split("\n");
-			for (const part of parts) lines.push(part);
-		}
-	}
+	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  chunks=${chunks.length}  events=${consoleEvents.length}  ·  raw`, "", accentBold("— raw —")];
+	const entries = [
+		...chunks.map((chunk) => ({ ts: chunk.ts, order: chunk.index, lines: [`[raw] assistant chunk #${chunk.index}`, ...chunk.text.replace(/\r/g, "").split("\n")] })),
+		...consoleEvents.map((event, order) => ({ ts: event.ts, order, lines: event.text.replace(/\r/g, "").split("\n").map((line) => `[raw] ${event.kind} ${line}`) })),
+	].sort((a, b) => a.ts - b.ts || a.order - b.order);
+	for (const entry of entries) lines.push(...entry.lines);
+	lines.push("", accentBold("— assistant —"));
+	for (const chunk of chunks) lines.push(dim(`[${formatTimestamp(chunk.ts)}]`), ...chunk.text.replace(/\r/g, "").split("\n"));
 	lines.push("", accentBold("— events —"));
-	if (consoleEvents.length === 0) {
-		lines.push(dim("(no events captured)"));
-	} else {
-		for (const event of consoleEvents) lines.push(formatConsoleEvent(event));
+	for (const event of consoleEvents) lines.push(formatConsoleEvent(event));
+	return lines;
+}
+
+function buildConsoleLines(
+	worker: WorkerRuntimeState,
+	chunks: AssistantChunk[],
+	consoleEvents: WorkerConsoleEvent[],
+	activityEvents: WorkerActivityEvent[] | undefined,
+	mode: "activity" | "raw" = "activity",
+): string[] {
+	if (mode === "raw") return buildRawConsoleLines(worker, chunks, consoleEvents);
+	const activity = (activityEvents && activityEvents.length > 0 ? activityEvents : synthesizeActivity(chunks, consoleEvents));
+	if (activity.length === 0) {
+		return [`${worker.workerId} · ${worker.profileName} · ${worker.status}`, "", accentBold("— activity —"), dim("(no activity yet — press r for raw logs)")];
 	}
+	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  activity=${activity.length}  ·  raw:r`, "", accentBold("— activity —")];
+	activity.forEach((event, index) => {
+		if (index > 0) lines.push("");
+		lines.push(...formatActivityEvent(event));
+	});
 	return lines;
 }
 
@@ -693,8 +818,10 @@ interface OverlayTeamManager {
 	pingWorkers(options?: { mode?: "passive" | "active" }): Promise<unknown>;
 	getWorkerTranscript(workerId: string): string | undefined;
 	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined;
+	getWorkerActivity?(workerId: string): WorkerActivityEvent[] | undefined;
 	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[];
 	onAssistantChunk?(listener: (workerId: string, chunk: AssistantChunk) => void): () => void;
+	onActivityEvent?(listener: (workerId: string, event: WorkerActivityEvent) => void): () => void;
 	messageWorker?(workerId: string, message: string, delivery?: "auto" | "steer" | "follow_up"): Promise<AgentMessageResult>;
 	closeWorker?(workerId: string, reason?: string): Promise<unknown>;
 	cancelWorker?(workerId: string): Promise<unknown>;
@@ -749,7 +876,8 @@ export function createTeamDashboardOverlayComponent(
 		inspectFollow: false,
 		consoleScroll: 0,
 		consoleFollow: true,
-		costScroll: 0,
+		consoleMode: "activity",
+		costScroll: 0;
 	};
 	let statusMessage: string | undefined;
 	let statusExpires = 0;
@@ -778,11 +906,16 @@ export function createTeamDashboardOverlayComponent(
 			requestRender();
 		}
 	});
+	const offActivity = teamManager.onActivityEvent?.((workerId) => {
+		if (state.selectedWorkerId !== workerId) return;
+		if (state.tab === "console" && state.consoleFollow) requestRender();
+	});
 	let disposed = false;
 	const dispose = () => {
 		if (disposed) return;
 		disposed = true;
 		offChunk?.();
+		offActivity?.();
 	};
 	const finish = () => {
 		dispose();
@@ -801,6 +934,7 @@ export function createTeamDashboardOverlayComponent(
 		state.inspectFollow = false;
 		state.consoleScroll = 0;
 		state.consoleFollow = true;
+		state.consoleMode = "activity";
 	};
 	const refreshSnapshot = () => {
 		snapshot = teamManager.snapshot();
@@ -990,7 +1124,8 @@ export function createTeamDashboardOverlayComponent(
 		}
 		const chunks = teamManager.getAssistantTail(worker.workerId);
 		const events = teamManager.getWorkerConsole(worker.workerId) ?? [];
-		const all = wrapLines(buildConsoleLines(worker, chunks, events).join("\n"), width);
+		const activity = teamManager.getWorkerActivity?.(worker.workerId);
+		const all = wrapLines(buildConsoleLines(worker, chunks, events, activity, state.consoleMode).join("\n"), width);
 		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
 		const visible = Math.max(1, rows - 1);
 		const maxTop = Math.max(0, all.length - visible);
