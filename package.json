@@ -1,0 +1,81 @@
+{
+  "name": "pi-agents-team",
+  "version": "2026.6.14",
+  "description": "Pi extension that turns one coding session into a multi-agent team with background RPC worker agents.",
+  "license": "MIT",
+  "type": "module",
+  "author": {
+    "name": "Kristjan Pikhof",
+    "url": "https://github.com/KristjanPikhof"
+  },
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "extension",
+    "ai-agents",
+    "multi-agent",
+    "agent-team",
+    "coding-agent",
+    "orchestrator",
+    "background-agents",
+    "rpc",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/KristjanPikhof/pi-agents-team",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KristjanPikhof/pi-agents-team.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KristjanPikhof/pi-agents-team/issues"
+  },
+  "main": "./extensions/index.ts",
+  "exports": {
+    ".": "./extensions/index.ts"
+  },
+  "files": [
+    "extensions/",
+    "src/",
+    "prompts/",
+    "profiles/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts",
+    "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check",
+    "smoke:runtime": "tsx scripts/smoke/runtime-worker.ts",
+    "smoke:team": "tsx scripts/smoke/team-flow.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ],
+    "prompts": []
+  },
+  "dependencies": {
+    "cross-spawn": "^7.0.6",
+    "typebox": "^1.0.56"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.79.2",
+    "@earendil-works/pi-tui": ">=0.79.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.2",
+    "@earendil-works/pi-tui": "^0.79.2",
+    "@types/node": "^25.6.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
