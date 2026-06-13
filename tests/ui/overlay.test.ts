@@ -13,6 +13,13 @@ import {
 	TEAM_DASHBOARD_OVERLAY_OPTIONS,
 } from "../../src/ui/overlay";
 import { stripAnsi } from "../../src/ui/theme";
+import {
+	CONSOLE_ACTIVITY_GOLDEN_LINES,
+	CONSOLE_RAW_FALLBACK_GOLDEN_LINES,
+	INSPECT_RECENT_ACTIVITY_GOLDEN_LINES,
+	NARROW_CONSOLE_ACTIVITY_GOLDEN_LINES,
+	NARROW_CONSOLE_ACTIVITY_WIDTH,
+} from "./activity-log-examples";
 
 function plainLines(lines: string[]): string[] {
 	return lines.map(stripAnsi);
@@ -26,6 +33,16 @@ interface OverlayComponent {
 
 function renderPlain(component: OverlayComponent, width: number): string[] {
 	return (component as { render(w: number): string[] }).render(width).map(stripAnsi);
+}
+
+function assertRenderedSubsequence(renderedLines: string[], expectedLines: readonly string[], label: string): void {
+	let cursor = 0;
+	for (const expected of expectedLines) {
+		if (expected === "") continue;
+		const index = renderedLines.findIndex((line, lineIndex) => lineIndex >= cursor && line.includes(expected));
+		assert.ok(index >= 0, `expected ${label} line ${JSON.stringify(expected)} after index ${cursor}; got:\n${renderedLines.join("\n")}`);
+		cursor = index + 1;
+	}
 }
 
 function makeFakeTheme(): Theme {
