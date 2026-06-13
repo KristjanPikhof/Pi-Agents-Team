@@ -47,7 +47,7 @@ const legacy: ThemedPalette = { bold, dim, muted, accent, accentBold, success, s
 export const fallbackPalette: ThemedPalette = legacy;
 
 export function themedPalette(theme?: Theme): ThemedPalette {
-	if (!theme) return legacy;
+	if (!theme || typeof theme.fg !== "function" || typeof theme.bold !== "function") return legacy;
 	return {
 		bold: (text) => (text ? theme.bold(text) : text),
 		dim: (text) => (text ? theme.fg("dim", text) : text),
