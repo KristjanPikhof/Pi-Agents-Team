@@ -1,6 +1,6 @@
 import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_TEAM_CONFIG } from "../config";
 import { getWorkerPromptPath, loadWorkerPrompt } from "../prompts/contracts";
@@ -120,9 +120,15 @@ function getExtensionSourceTail(source: string): string | undefined {
 function isPathLikeExtensionSource(source: string): boolean {
 	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return true;
 	if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) return true;
+	if (source === "extensions") return true;
 	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
 	if (source.startsWith("@")) return false;
 	return /[\\/]/.test(source);
+}
+
+function isSameOrAncestorPath(candidate: string, target: string): boolean {
+	const rel = relative(candidate, target);
+	return rel === "" || (rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel));
 }
 
 export function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
@@ -133,7 +139,9 @@ export function isRecursiveOrchestratorExtensionSource(source: string, baseDir: 
 
 	const resolved = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed);
 	const realResolved = realpathOrSelf(resolved);
-	return SELF_EXTENSION_PATHS.has(resolved) || SELF_EXTENSION_PATHS.has(realResolved);
+	return [...SELF_EXTENSION_PATHS].some(
+		(selfPath) => isSameOrAncestorPath(resolved, selfPath) || isSameOrAncestorPath(realResolved, selfPath),
+	);
 }
 
 function rejectRecursiveOrchestratorExtensions(sources: readonly string[] | undefined, baseDir: string): void {

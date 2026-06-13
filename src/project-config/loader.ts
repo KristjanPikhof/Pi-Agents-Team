@@ -183,6 +183,7 @@ function getExtensionSourceTail(source: string): string | undefined {
 function isPathLikeExtensionSource(source: string): boolean {
 	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return true;
 	if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) return true;
+	if (source === "extensions") return true;
 	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
 	if (source.startsWith("@")) return false;
 	return /[\\/]/.test(source);
@@ -193,7 +194,12 @@ function isLocalExtensionPathSource(source: string): boolean {
 	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("git+")) return false;
 	if (source.startsWith("http://") || source.startsWith("https://")) return false;
 	if (source.startsWith("@")) return false;
-	return source === "." || source === ".." || source.startsWith("./") || source.startsWith("../") || /[\\/]/.test(source);
+	return source === "." || source === ".." || source === "extensions" || source.startsWith("./") || source.startsWith("../") || /[\\/]/.test(source);
+}
+
+function isSameOrAncestorPath(candidate: string, target: string): boolean {
+	const rel = relative(candidate, target);
+	return rel === "" || (rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
@@ -204,7 +210,9 @@ function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string)
 
 	const resolved = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed);
 	const realResolved = realpathOrSelf(resolved);
-	return SELF_EXTENSION_PATHS.has(resolved) || SELF_EXTENSION_PATHS.has(realResolved);
+	return [...SELF_EXTENSION_PATHS].some(
+		(selfPath) => isSameOrAncestorPath(resolved, selfPath) || isSameOrAncestorPath(realResolved, selfPath),
+	);
 }
 
 interface ResolvedPath {
