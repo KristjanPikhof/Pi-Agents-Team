@@ -4,7 +4,7 @@ import { TaskRegistry } from "./task-registry";
 import { resolveWorkerMessageDelivery, type WorkerMessageDeliveryResolved } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
-import { WorkerManager, type AssistantChunk, type WorkerConsoleEvent } from "../runtime/worker-manager";
+import { WorkerManager, type AssistantChunk, type ManagedWorkerRecord, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
 import { isPathWithinProjectRoot } from "../safety/path-scope";
 import { aggregateWorkerUsage } from "../usage";
@@ -276,27 +276,35 @@ export class TeamManager {
 
 		this.registry.registerTask(task);
 
-		const worker = await this.workerManager.launchWorker({
-			workerId,
-			profileName: request.profileName,
-			task,
-			cwd: launchPlan.cwd,
-			model: launchPlan.model,
-			thinkingLevel: launchPlan.thinkingLevel,
-			tools: launchPlan.tools,
-			workerExtensions: launchPlan.workerExtensions,
-			systemPromptPath: launchPlan.systemPromptPath,
-			extensionMode: launchPlan.extensionMode,
-			projectTrust,
-			command: this.config.rpc.command,
-			baseArgs: this.config.rpc.args,
-			// Only enable Pi's skill discovery when the task actually requested
-			// skills. Without this the worker launches with `--no-skills` (set in
-			// buildWorkerProcessArgs), the available skill context is omitted, and
-			// the task prompt's requested-skill instructions are impossible to
-			// satisfy.
-			allowSkills: task.skills !== undefined && task.skills.length > 0,
-		});
+		let worker: ManagedWorkerRecord;
+		try {
+			worker = await this.workerManager.launchWorker({
+				workerId,
+				profileName: request.profileName,
+				task,
+				cwd: launchPlan.cwd,
+				model: launchPlan.model,
+				thinkingLevel: launchPlan.thinkingLevel,
+				tools: launchPlan.tools,
+				workerExtensions: launchPlan.workerExtensions,
+				systemPromptPath: launchPlan.systemPromptPath,
+				extensionMode: launchPlan.extensionMode,
+				projectTrust,
+				command: this.config.rpc.command,
+				baseArgs: this.config.rpc.args,
+				// Only enable Pi's skill discovery when the task actually requested
+				// skills. Without this the worker launches with `--no-skills` (set in
+				// buildWorkerProcessArgs), the available skill context is omitted, and
+				// the task prompt's requested-skill instructions are impossible to
+				// satisfy.
+				allowSkills: task.skills !== undefined && task.skills.length > 0,
+			});
+		} catch (error) {
+			this.registry.removeWorker(workerId);
+			this.registry.unregisterTask(taskId);
+			this.events.emit("state_change", this.snapshot());
+			throw error;
+		}
 
 		this.registry.upsertWorker(worker.state);
 		await this.workerManager.promptWorker(workerId, buildWorkerTaskPrompt(task));

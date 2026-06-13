@@ -80,6 +80,7 @@ export interface WorkerExitEvent {
 	code: number | null;
 	signal: NodeJS.Signals | null;
 	stderr?: string;
+	error?: string;
 	timestamp: number;
 }
 
@@ -202,12 +203,14 @@ export function createWorkerExitEvent(
 	code: number | null,
 	signal: NodeJS.Signals | null,
 	stderr?: string,
+	error?: string,
 ): WorkerExitEvent {
 	return {
 		type: "worker_exit",
 		code,
 		signal,
 		stderr,
+		error,
 		timestamp: now(),
 	};
 }
