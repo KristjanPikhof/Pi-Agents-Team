@@ -96,7 +96,25 @@ function realpathOrSelf(path: string): string {
 function isSelfPackageExtensionSource(source: string): boolean {
 	const spec = source.startsWith("npm:") ? source.slice("npm:".length) : source;
 	const escapedName = SELF_EXTENSION_PACKAGE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	return new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec);
+	if (new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec)) return true;
+	return getExtensionSourceTail(source) === SELF_EXTENSION_PACKAGE_NAME;
+}
+
+function getExtensionSourceTail(source: string): string | undefined {
+	let spec = source.trim();
+	if (spec.startsWith("npm:")) spec = spec.slice("npm:".length);
+	if (spec.startsWith("git+")) spec = spec.slice("git+".length);
+	if (spec.startsWith("git:")) spec = spec.slice("git:".length);
+	try {
+		const url = new URL(spec);
+		spec = url.pathname;
+	} catch {
+		const scpLikeMatch = /^[^@/\s]+@[^:\s]+:(.+)$/.exec(spec);
+		if (scpLikeMatch?.[1]) spec = scpLikeMatch[1];
+	}
+	spec = spec.split(/[?#]/, 1)[0] ?? spec;
+	const tail = spec.split(/[\\/]/).filter((part) => part.length > 0).at(-1);
+	return tail?.replace(/\.git$/i, "").replace(/@[^@/]+$/, "");
 }
 
 function isPathLikeExtensionSource(source: string): boolean {

@@ -159,7 +159,25 @@ const SELF_EXTENSION_PATHS: ReadonlySet<string> = new Set(
 function isSelfPackageExtensionSource(source: string): boolean {
 	const spec = source.startsWith("npm:") ? source.slice("npm:".length) : source;
 	const escapedName = SELF_EXTENSION_PACKAGE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	return new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec);
+	if (new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec)) return true;
+	return getExtensionSourceTail(source) === SELF_EXTENSION_PACKAGE_NAME;
+}
+
+function getExtensionSourceTail(source: string): string | undefined {
+	let spec = source.trim();
+	if (spec.startsWith("npm:")) spec = spec.slice("npm:".length);
+	if (spec.startsWith("git+")) spec = spec.slice("git+".length);
+	if (spec.startsWith("git:")) spec = spec.slice("git:".length);
+	try {
+		const url = new URL(spec);
+		spec = url.pathname;
+	} catch {
+		const scpLikeMatch = /^[^@/\s]+@[^:\s]+:(.+)$/.exec(spec);
+		if (scpLikeMatch?.[1]) spec = scpLikeMatch[1];
+	}
+	spec = spec.split(/[?#]/, 1)[0] ?? spec;
+	const tail = spec.split(/[\\/]/).filter((part) => part.length > 0).at(-1);
+	return tail?.replace(/\.git$/i, "").replace(/@[^@/]+$/, "");
 }
 
 function isPathLikeExtensionSource(source: string): boolean {
@@ -168,6 +186,14 @@ function isPathLikeExtensionSource(source: string): boolean {
 	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
 	if (source.startsWith("@")) return false;
 	return /[\\/]/.test(source);
+}
+
+function isLocalExtensionPathSource(source: string): boolean {
+	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return false;
+	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("git+")) return false;
+	if (source.startsWith("http://") || source.startsWith("https://")) return false;
+	if (source.startsWith("@")) return false;
+	return source === "." || source === ".." || source.startsWith("./") || source.startsWith("../") || /[\\/]/.test(source);
 }
 
 function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
@@ -284,10 +310,6 @@ function normalizePathScope(
 	};
 }
 
-function isLocalRelativeExtensionSource(source: string): boolean {
-	return source === "." || source === ".." || source.startsWith("./") || source.startsWith("../");
-}
-
 function normalizeExtensionSources(
 	sources: string[] | null | undefined,
 	layerRoot: string,
@@ -325,7 +347,7 @@ function normalizeExtensionSources(
 			continue;
 		}
 
-		extensions.push(isLocalRelativeExtensionSource(trimmed) ? resolve(layerRoot, trimmed) : trimmed);
+		extensions.push(isLocalExtensionPathSource(trimmed) ? resolve(layerRoot, trimmed) : trimmed);
 	}
 
 	return { extensions, diagnostics };
