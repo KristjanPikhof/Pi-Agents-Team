@@ -1,6 +1,17 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { TUI, OverlayOptions } from "@earendil-works/pi-tui";
+import {
+	Container,
+	CURSOR_MARKER,
+	Input,
+	matchesKey,
+	SelectList,
+	Spacer,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
+import type { Component, Focusable, OverlayOptions, SelectItem, SelectListTheme, TUI } from "@earendil-works/pi-tui";
+import { BorderedLoader, DynamicBorder } from "@earendil-works/pi-coding-agent";
 import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager";
 import type { AssistantChunk, WorkerConsoleEvent } from "../runtime/worker-manager";
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
@@ -397,6 +408,112 @@ function padToWidth(line: string, width: number): string {
 	const truncated = visibleWidth(safe) > width ? truncateToWidth(safe, width, "…") : safe;
 	const padding = Math.max(0, width - visibleWidth(truncated));
 	return truncated + " ".repeat(padding);
+}
+
+class LabeledInput implements Component, Focusable {
+	input: Input;
+	label: string;
+	focused = false;
+	onSubmit?: (value: string) => void;
+	onEscape?: () => void;
+
+	constructor(label: string) {
+		this.label = label;
+		this.input = new Input();
+		this.input.onSubmit = (value) => this.onSubmit?.(value);
+		this.input.onEscape = () => this.onEscape?.();
+	}
+
+	getValue(): string {
+		return this.input.getValue();
+	}
+
+	setValue(value: string): void {
+		this.input.setValue(value);
+	}
+
+	handleInput(data: string): void {
+		if (data === "\r" || data === "\n") {
+			this.onSubmit?.(this.input.getValue());
+			return;
+		}
+		if (data.includes("\n") || data.includes("\r")) {
+			this.input.handleInput(data.replace(/\r\n|\r|\n/g, " "));
+			return;
+		}
+		this.input.handleInput(data);
+	}
+
+	render(width: number): string[] {
+		this.input.focused = this.focused;
+		const labelWidth = visibleWidth(this.label);
+		if (width <= labelWidth) {
+			return [truncateToWidth(this.label, width, "…")];
+		}
+		const inputWidth = width - labelWidth + 2;
+		const lines = this.input.render(Math.max(3, inputWidth));
+		return lines.map((line) => {
+			if (line.startsWith("> ")) {
+				return this.label + line.slice(2);
+			}
+			return truncateToWidth(this.label + line, width, "…");
+		});
+	}
+
+	invalidate(): void {
+		this.input.invalidate();
+	}
+}
+
+class RosterSelectList implements Component {
+	constructor(
+		private snapshot: PersistedTeamState,
+		private selectedWorkerId?: string,
+	) {}
+
+	invalidate(): void {}
+
+	render(width: number): string[] {
+		const items: SelectItem[] = [];
+		for (const section of buildRosterSections(this.snapshot)) {
+			if (section.workers.length === 0) continue;
+			items.push({
+				value: `__section__${section.key}`,
+				label: colorForGroupBold(section.key)(`${section.label} (${section.workers.length})`),
+			});
+			for (const worker of section.workers) {
+				const base = `${worker.workerId} · ${formatRosterProfileName(worker)} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? " [reuse]" : ""} · ${buildWorkerPrioritySnippet(worker)}`;
+				items.push({ value: worker.workerId, label: colorForWorker(worker)(base) });
+			}
+		}
+		if (items.length === 0) {
+			return [dim("No tracked workers. Press [n] to delegate one.")];
+		}
+		const workerIndices = items
+			.map((item, index) => (item.value.startsWith("__section__") ? -1 : index))
+			.filter((index) => index >= 0);
+		const selectedIndex = this.selectedWorkerId
+			? workerIndices.find((index) => items[index].value === this.selectedWorkerId)
+			: undefined;
+		const safeSelectedIndex = selectedIndex ?? workerIndices[0] ?? 0;
+		const theme: SelectListTheme = {
+			selectedText: (text) => bold(text),
+			selectedPrefix: (text) => text,
+			description: (text) => text,
+			scrollInfo: (text) => text,
+			noMatch: (text) => text,
+		};
+		const list = new SelectList(items, items.length, theme);
+		list.setSelectedIndex(safeSelectedIndex);
+		return list.render(width).map((line) => {
+			const plain = stripAnsi(line);
+			if (plain.startsWith("→ ")) {
+				const arrowIndex = line.indexOf("→ ");
+				return line.slice(0, arrowIndex) + "▶ " + line.slice(arrowIndex + 2);
+			}
+			return line;
+		});
+	}
 }
 
 function computeOverlayRows(termRows: number): number {
