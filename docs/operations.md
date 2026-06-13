@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0` and Pi `>=0.79.0`.
+Requires Node `>=22.19.0` and Pi `>=0.79.2`.
 
 Install dependencies and run the checks:
 
