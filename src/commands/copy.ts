@@ -7,7 +7,7 @@ import type { CommandRegistrationContext } from "./team";
 
 export function registerCopyCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {
 	pi.registerCommand("team-copy", {
-		description: "Copy a worker's task, summary, final answer, transcript, and console to the clipboard: /team-copy <worker-id>",
+		description: "Copy a worker's task, summary, final answer, retained/latest assistant-text tail, Activity, and Raw diagnostics: /team-copy <worker-id>",
 		getArgumentCompletions: (prefix) => {
 			if (/\s/.test(prefix)) return [];
 			return dependencies.teamManager
