@@ -1114,6 +1114,49 @@ test("activity stream remains bounded independently from console events", async 
 	assert.ok(consoleEvents.at(-1)?.text.includes("file-619.ts"));
 });
 
+test("activity stream keeps IDs unique after cap pruning so tool finishes patch the intended row", async () => {
+	const originalDateNow = Date.now;
+	Date.now = () => 123_456;
+	try {
+		const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+		const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+		await manager.launchWorker({
+			workerId: "worker-activity-id-cap",
+			profileName: "reviewer",
+			task: taskInput("task-activity-id-cap", "Activity id cap"),
+			cwd: process.cwd(),
+			tools: ["read"],
+			extensionMode: "worker-minimal",
+		});
+		await manager.promptWorker("worker-activity-id-cap", "many same-ms events");
+		await waitForMicrotasks();
+		for (let i = 0; i < 620; i += 1) {
+			transport.writeEvent({ type: "tool_execution_start", toolCallId: `same-ms-${i}`, toolName: "read", args: { path: `file-${i}.ts` } });
+		}
+		transport.writeEvent({
+			type: "tool_execution_end",
+			toolCallId: "same-ms-619",
+			toolName: "read",
+			result: { content: [{ type: "text", text: "latest finished" }] },
+			isError: false,
+		});
+		await waitForMicrotasks();
+
+		const activity = manager.getWorkerActivity("worker-activity-id-cap") ?? [];
+		const ids = activity.map((event) => event.id);
+		assert.equal(new Set(ids).size, ids.length, "retained activity IDs must remain unique after cap pruning");
+		const latest = activity.find((event) => event.toolCallId === "same-ms-619");
+		assert.ok(latest);
+		assert.equal(latest.status, "completed");
+		assert.equal(latest.outputSnippet, "latest finished");
+		const incorrectlyPatched = activity.find((event) => event.toolCallId !== "same-ms-619" && event.outputSnippet === "latest finished");
+		assert.equal(incorrectlyPatched, undefined);
+	} finally {
+		Date.now = originalDateNow;
+	}
+});
+
 test("applyNormalizedEvent captures <final_answer> contents on message_end", async () => {
 	const finalAnswerBody = "headline: guard regression verified\nfiles:\n- src/runtime/worker-manager.ts";
 	const transport = new MockWorkerTransport({
