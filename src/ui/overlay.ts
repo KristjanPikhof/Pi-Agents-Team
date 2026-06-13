@@ -10,11 +10,13 @@ import type { Component, Focusable, OverlayOptions, SelectItem, SelectListTheme,
 import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager";
 import type { AssistantChunk, WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager";
+import { extractFinalAnswer, parseFinalAnswerSummaryFields } from "../runtime/final-answer";
 import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
 import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
+import { formatRetainedTranscript } from "./transcript-retention";
 import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
 import { formatAgentMessageResult } from "./tool-formatters";
@@ -317,7 +319,7 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 	pushInspectBlock(lines, "Summary", summaryBody, palette);
 
 	const finalAnswer = sanitizeTerminalText(worker.finalAnswer ?? "").trim();
-	const assistantText = sanitizeTerminalText(transcript ?? "").trim();
+	const assistantText = formatRetainedTranscript(transcript);
 	pushInspectBlock(lines, "Final answer", (finalAnswer || "(no <final_answer> block produced)").split("\n"), palette, worker.finalAnswer ? "ok" : undefined, { structured: true });
 	pushInspectBlock(lines, "Latest assistant text", (assistantText || "(no assistant text captured)").split("\n"), palette, assistantText ? "tail" : undefined, { structured: true });
 	return lines.join("\n");
@@ -430,32 +432,12 @@ function formatActivityEvent(event: WorkerActivityEvent): string[] {
 	return lines;
 }
 
-function parseFinalAnswerFields(text: string): WorkerActivityEvent["finalSummaryFields"] {
-	const safeText = sanitizeTerminalText(text);
-	const headline = /^headline:\s*(.+)$/im.exec(safeText)?.[1]?.trim();
-	const nextRecommendation = /^next_recommendation:\s*(.+)$/im.exec(safeText)?.[1]?.trim();
-	const risksBlock = /^risks:\s*$(?<body>(?:\s*[-*]\s+.+\n?)*)/im.exec(safeText)?.groups?.body ?? "";
-	const risks = risksBlock
-		.split("\n")
-		.map((line) => /^\s*[-*]\s+(.+)$/.exec(line)?.[1]?.trim())
-		.filter((line): line is string => Boolean(line));
-	return {
-		...(headline ? { headline } : {}),
-		...(risks.length > 0 ? { risks } : {}),
-		...(nextRecommendation ? { nextRecommendation } : {}),
-	};
-}
-
-function extractFinalAnswerBlock(text: string): string | undefined {
-	return /<final[_\s-]?answer>([\s\S]*?)<\/final[_\s-]?answer>/i.exec(text)?.[1]?.trim();
-}
-
 function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConsoleEvent[]): WorkerActivityEvent[] {
 	const activity: WorkerActivityEvent[] = [];
 	let id = 0;
 	for (const chunk of chunks) {
 		const chunkText = sanitizeTerminalText(chunk.text);
-		const finalAnswer = extractFinalAnswerBlock(chunkText);
+		const finalAnswer = extractFinalAnswer(chunkText);
 		if (finalAnswer) {
 			activity.push({
 				id: `chunk:${id++}`,
@@ -466,7 +448,7 @@ function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConso
 				label: "Final answer",
 				summary: finalAnswer.replace(/\s+/g, " ").trim(),
 				sourceEvent: "worker_text_flush",
-				finalSummaryFields: parseFinalAnswerFields(finalAnswer),
+				finalSummaryFields: parseFinalAnswerSummaryFields(finalAnswer),
 			});
 		} else if (chunkText.trim()) {
 			activity.push({

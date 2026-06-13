@@ -627,6 +627,7 @@ test("reuseWorker resets per-task state, sends a fresh prompt, and emits a state
 
 	const afterReuse = manager.getWorker("worker-reuse-1");
 	assert.equal(afterReuse?.state.status, "idle");
+	assert.doesNotMatch(manager.getWorkerTranscript("worker-reuse-1") ?? "", /transcript truncated/);
 	assert.equal(afterReuse?.state.currentTask?.taskId, "task-reuse-2");
 	assert.equal(afterReuse?.state.currentTask?.title, "Second task");
 	const promptCommands = transports[0]?.commands.filter((cmd) => cmd.type === "prompt") ?? [];
@@ -850,6 +851,31 @@ test("assistant ring buffer accepts a newline-heavy chunk without bypassing the 
 	const totalBytes = chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk.text, "utf8"), 0);
 	assert.ok(totalBytes <= 256 * 1024, `byte cap must hold even when one chunk has 2000 newlines, got ${totalBytes}`);
 	assert.ok(chunks.some((chunk) => chunk.text.includes("\n")), "chunk should preserve newlines as delivered");
+});
+
+test("assistant transcript storage caps retained text and exposes truncation in transcript reads", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-transcript-cap",
+		profileName: "reviewer",
+		task: taskInput("task-transcript-cap", "Transcript cap"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-transcript-cap", "go");
+	await waitForMicrotasks();
+	const huge = `${"older\n".repeat(30_000)}tail-marker`;
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: huge } });
+	await waitForMicrotasks();
+
+	const transcript = manager.getWorkerTranscript("worker-transcript-cap") ?? "";
+	assert.match(transcript, /^\[transcript truncated: showing retained tail; omitted /);
+	assert.match(transcript, /tail-marker$/);
+	assert.doesNotMatch(transcript, /^older\nolder/);
+	assert.ok(Buffer.byteLength(transcript, "utf8") < Buffer.byteLength(huge, "utf8"), "copied transcript should be smaller than full stream");
 });
 
 test("assistant ring buffer caps line and byte budget", async () => {
