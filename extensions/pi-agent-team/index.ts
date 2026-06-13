@@ -693,7 +693,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "ping_agents",
 		label: "Ping Agents",
-		description: "Return passive or active status for tracked workers. Prefer wait_for_agents while waiting. Done statuses are idle/completed/aborted/error/exited; running means not done.",
+		description: "Return passive or active status for tracked workers. Active mode refreshes attached live workers and returns registry snapshots for restored/disposed workers. Prefer wait_for_agents while waiting. Done statuses are idle/completed/aborted/error/exited; running means not done.",
 		parameters: PingAgentsSchema,
 		renderCall: renderAgentToolCallTitle("ping_agents"),
 		async execute(_toolCallId, params) {
