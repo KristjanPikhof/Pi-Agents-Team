@@ -82,24 +82,29 @@ The header carries a tab bar, the per-tab help row, and the selected worker's pr
 
 Inspect renders status, a compact `Recent activity` section, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. `Recent activity` stays intentionally short: it lists recent commands, process notes, and final-answer production without copying dense task prompts or raw transcript text. The text formatter keeps common report shapes recognizable — Markdown-style headings and tables, list markers, separators, indented/code-like lines, and stack-trace-like lines — while wrapping instead of ellipsizing normal body content.
 
-Console opens on the human-readable `— activity —` view. Activity items are bullet action blocks: commands and tools use `• Ran <command>` or the equivalent tool label, nested output is indented under the action, and long output is elided with an explicit hidden-line count such as `… +14 lines hidden`. Process notes are short operational summaries, not private reasoning dumps. Final answers render as structured fields (`Headline`, `Risks`, `Next`, and other parsed fields when available) instead of a raw blob. Press `r` in Console to switch to `— raw —`; press `r` again to return to Activity. Raw/debug keeps timestamped assistant chunks and console events for diagnostics, including status transitions, tool starts and ends, queue updates, errors, and exit. Activity, assistant chunks, and Raw diagnostics are bounded in memory only; raw transcripts/events are not persisted and are not a synthesis fallback. Console content is isolated per selected worker.
+Console opens on the human-readable `— activity —` view. Activity items are Pi-themed blocks: commands and tools get a framed header, readable status (`[running]`, `[ok]`, `[error]`, or `[info]`), a `$` command line, nested output, and footer metadata such as duration plus the `raw:r` escape hatch. Tool status, command headers, and diff-style output use the active Pi theme roles (accent, success, danger, warning, muted) rather than hardcoded colors. Git-like output keeps its textual `+` / `-` / `±` markers so the meaning survives plain text copies, while additions/deletions are also colored in the TUI. Long output is elided with an explicit hidden-line count such as `… +14 lines hidden`. Process notes are short operational summaries, not private reasoning dumps. Final answers render as structured fields (`Headline`, `Risks`, `Next`, and other parsed fields when available) instead of a raw blob. Press `r` in Console to switch to `— raw —`; press `r` again to return to Activity. Raw/debug keeps timestamped assistant chunks and console events for diagnostics, including status transitions, tool starts and ends, queue updates, errors, and exit. Activity, assistant chunks, and Raw diagnostics are bounded in memory only; raw transcripts/events are not persisted and are not a synthesis fallback. Console content is isolated per selected worker.
 
-Example Console Activity output:
+Example Console Activity output (the docs show plain text; in the TUI, `[ok]`, command headers, and `+` / `-` diff markers use theme colors):
 
 ```text
 — activity —
-• Thinking
-  Mapping current console rendering before proposing UI changes.
+╭─ process thinking [info] 00:13:20 ─
+│ Mapping current console rendering before proposing UI changes.
+╰─ raw:r
 
-• Ran git diff --stat main...HEAD
-  src/ui/overlay.ts              | 42 +++++++++++++++++
-  tests/ui/overlay.test.ts       | 18 +++++++
-  … +14 lines hidden
+╭─ tool command [ok] 00:13:21 ─
+│ $ git diff --stat main...HEAD
+│ src/ui/overlay.ts              | 42 +++++++++++++++++
+│ tests/ui/overlay.test.ts       | 18 +++++++
+│ ± 2 files changed, +60 insertions, -0 deletions
+│ … +14 lines hidden
+╰─ took 1.0s · raw:r
 
-• Final answer
-  Headline: APPROVE — no blocking issues found.
-  Risks: UI wrapping tests need updates.
-  Next: Safe to continue after typecheck.
+╭─ final-answer [ok] 00:13:24 ─
+│ Headline: APPROVE — no blocking issues found.
+│ Risks: UI wrapping tests need updates.
+│ Next: Safe to continue after typecheck.
+╰─ raw:r
 ```
 
 Example Inspect `Recent activity` output:
