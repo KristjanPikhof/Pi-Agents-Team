@@ -200,8 +200,9 @@ test("/team-copy passes real worker activity events into clipboard payload", asy
 
 		await harness.run(worker.workerId);
 		const payload = await readFile(capturedPath, "utf8");
-		assert.match(payload, /## Activity[\s\S]*• Ran npm test/);
-		assert.doesNotMatch(payload, /## Activity[\s\S]*raw fallback command/);
+		const activitySection = payload.split("## Activity")[1]?.split("## Console timeline")[0] ?? "";
+		assert.match(activitySection, /• Ran npm test/);
+		assert.doesNotMatch(activitySection, /raw fallback command/);
 		assert.match(harness.notifications[0]?.message ?? "", /Copy complete/);
 	} finally {
 		process.env.PATH = originalPath;
