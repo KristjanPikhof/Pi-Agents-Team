@@ -975,6 +975,44 @@ test("activity stream extracts process and final-answer summaries without adding
 	off();
 });
 
+test("activity stream classifies streamed final-answer deltas instead of exposing raw tags as Thinking", async () => {
+	const finalAnswerBody = [
+		"headline: streamed final summary",
+		"risks:",
+		"- none",
+		"next_recommendation: reviewer spot-check",
+	].join("\n");
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-stream-final",
+		profileName: "reviewer",
+		task: taskInput("task-stream-final", "Stream final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-stream-final", "stream a final answer");
+	await waitForMicrotasks();
+
+	transport.writeEvent({
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "text_delta",
+			delta: `\n<final_answer>\n${finalAnswerBody}\n</final_answer>\n${".".repeat(260)}`,
+		},
+	});
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-stream-final") ?? [];
+	const finalEntry = activity.find((event) => event.actionKind === "final_summary");
+	assert.ok(finalEntry);
+	assert.equal(finalEntry.finalSummaryFields?.headline, "streamed final summary");
+	const rawTaggedThinking = activity.find((event) => event.actionKind === "process" && /<\/?final[_\s-]?answer>/i.test(event.summary ?? ""));
+	assert.equal(rawTaggedThinking, undefined);
+});
+
 test("activity stream remains bounded independently from console events", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = new WorkerManager(() => new MockWorkerHandle(transport));

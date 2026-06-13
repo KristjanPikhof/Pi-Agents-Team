@@ -627,22 +627,39 @@ export class WorkerManager {
 	private flushPendingText(record: WorkerRuntimeRecord): void {
 		if (!record.pendingTextDelta) return;
 		const ts = record.pendingTextFlushAt || Date.now();
-		const text = trimSummary(record.pendingTextDelta, 400);
+		const pendingText = record.pendingTextDelta;
+		const text = trimSummary(pendingText, 400);
 		this.appendConsole(record, {
 			ts,
 			kind: "assistant_text",
 			text,
 		});
-		this.appendActivity(record, {
-			id: this.nextActivityId(record, "worker_text_flush", ts),
-			ts,
-			updatedAt: ts,
-			actionKind: "process",
-			status: "info",
-			label: "Thinking",
-			summary: trimSummary(text, 260),
-			sourceEvent: "worker_text_flush",
-		});
+		const finalAnswer = extractFinalAnswer(pendingText);
+		if (finalAnswer) {
+			const finalSummary = buildFinalSummary(finalAnswer);
+			this.appendActivity(record, {
+				id: this.nextActivityId(record, "worker_text_flush", ts),
+				ts,
+				updatedAt: ts,
+				actionKind: "final_summary",
+				status: "completed",
+				label: "Final answer",
+				summary: finalSummary.summary,
+				sourceEvent: "worker_text_flush",
+				finalSummaryFields: finalSummary.fields,
+			});
+		} else if (!/<final[_\s-]?answer\b|<\/final[_\s-]?answer>/i.test(pendingText)) {
+			this.appendActivity(record, {
+				id: this.nextActivityId(record, "worker_text_flush", ts),
+				ts,
+				updatedAt: ts,
+				actionKind: "process",
+				status: "info",
+				label: "Thinking",
+				summary: trimSummary(text, 260),
+				sourceEvent: "worker_text_flush",
+			});
+		}
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
 	}

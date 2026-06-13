@@ -945,7 +945,9 @@ export function createTeamDashboardOverlayComponent(
 	});
 	const offActivity = teamManager.onActivityEvent?.((workerId) => {
 		if (state.selectedWorkerId !== workerId) return;
-		if (state.tab === "console" && state.consoleFollow) requestRender();
+		if ((state.tab === "console" && state.consoleFollow) || (state.tab === "inspect" && state.inspectFollow)) {
+			requestRender();
+		}
 	});
 	let disposed = false;
 	const dispose = () => {
@@ -1010,6 +1012,7 @@ export function createTeamDashboardOverlayComponent(
 			worker,
 			teamManager.getWorkerTranscript(worker.workerId),
 			teamManager.getWorkerConsole(worker.workerId),
+			teamManager.getWorkerActivity?.(worker.workerId),
 		);
 		copyToClipboard(payload)
 			.then(() => setStatus(`Copy complete — ${worker.workerId} (${payload.length.toLocaleString()} chars)`))

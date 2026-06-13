@@ -40,6 +40,7 @@ export function registerCopyCommand(pi: ExtensionAPI, dependencies: CommandRegis
 				result.worker,
 				dependencies.teamManager.getWorkerTranscript(workerId),
 				dependencies.teamManager.getWorkerConsole(workerId),
+				dependencies.teamManager.getWorkerActivity(workerId),
 			);
 			try {
 				await copyToClipboard(payload);
