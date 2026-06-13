@@ -247,8 +247,6 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 		}
 	}
 
-	lines.push("", ...buildRecentActivityLines(worker, transcript, consoleEvents));
-
 	lines.push("", inspectSection("Summary"));
 	if (worker.lastSummary) {
 		lines.push(inspectField("Headline:", worker.lastSummary.headline));
@@ -265,6 +263,8 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 
 	lines.push("", inspectDivider("Latest assistant text"));
 	lines.push(transcript?.trim() || "  (no assistant text captured)");
+
+	lines.push("", ...buildRecentActivityLines(worker, transcript, consoleEvents));
 	return lines.join("\n");
 }
 
@@ -430,7 +430,7 @@ function buildConsoleLines(
 	if (activity.length === 0) {
 		return [`${worker.workerId} · ${worker.profileName} · ${worker.status}`, "", accentBold("— activity —"), dim("(no activity yet — press r for raw logs)")];
 	}
-	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  activity=${activity.length}  chunks=${chunks.length}  events=${consoleEvents.length}  ·  raw:r`, "", accentBold("— activity —")];
+	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  chunks=${chunks.length}  events=${consoleEvents.length}  activity=${activity.length}  ·  raw:r`, "", accentBold("— activity —")];
 	activity.forEach((event, index) => {
 		if (index > 0) lines.push("");
 		lines.push(...formatActivityEvent(event));
@@ -491,7 +491,8 @@ interface TextLineShape {
 // (e.g. a colored `# heading` from a tool) still matches the structural regexes.
 function classifyTextLine(line: string): TextLineShape {
 	const plain = stripAnsi(line);
-	if (/^\s{2,}\S/.test(plain)) return { kind: "code", continuation: plain.match(/^\s*/)?.[0] ?? "" };
+	if (/^\s{4,}\S/.test(plain)) return { kind: "code", continuation: plain.match(/^\s*/)?.[0] ?? "" };
+	if (/^\s{2,}\S/.test(plain)) return { kind: "plain", continuation: plain.match(/^\s*/)?.[0] ?? "" };
 	if (/^\s*(?:at\s+\S|Caused by:|\.{3}\s+\d+\s+more|[A-Za-z_.$][\w.$<>]*Error:)/.test(plain)) return { kind: "stack", continuation: "    " };
 	if (/^\s*#{1,6}\s+\S/.test(plain)) return { kind: "heading", continuation: dim("↳ ") };
 	if (/^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(plain)) {
@@ -527,6 +528,10 @@ function wrapTextLine(raw: string, width: number): string[] {
 	while (visibleWidth(prefix + remaining) > width && guard < 1000) {
 		const available = Math.max(1, width - visibleWidth(prefix));
 		let head = truncateToWidth(remaining, available, "");
+		if (shape.kind !== "code" && visibleWidth(head) === available) {
+			const breakAt = head.search(/\s+\S*$/);
+			if (breakAt > Math.floor(available * 0.45)) head = head.slice(0, breakAt);
+		}
 		// truncateToWidth can return "" when the next visible glyph is wider than
 		// `available` (e.g. wide CJK char at width=1, or an ANSI escape boundary).
 		// Force-consume one code unit so the loop always makes progress instead of
