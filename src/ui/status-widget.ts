@@ -53,15 +53,16 @@ export function buildTeamStatusLine(
 	tip?: string,
 	orchestratorWorking = false,
 	theme?: Theme,
+	width = HEADER_WIDTH,
 ): string {
 	const activityPlain = orchestratorWorking || hasActiveOrchestratorWork(state) ? "Working..." : "Idle";
 	const status = routingMode === "solo" ? `Orchestrator · Solo · ${activityPlain}` : `Orchestrator · ${activityPlain}`;
-	if (!theme) return truncateToWidth(tip ? `${status} · Tip: ${tip}` : status, HEADER_WIDTH);
+	if (!theme) return truncateToWidth(tip ? `${status} · Tip: ${tip}` : status, width);
 	const palette = themedPalette(theme);
 	const activity = orchestratorWorking || hasActiveOrchestratorWork(state) ? palette.warning("Working...") : palette.success("Idle");
 	const themedStatus = routingMode === "solo" ? `Orchestrator · Solo · ${activity}` : `Orchestrator · ${activity}`;
 	const line = tip ? `${themedStatus} · ${palette.dim("Tip:")} ${tip}` : themedStatus;
-	return truncateToWidth(line, HEADER_WIDTH);
+	return truncateToWidth(line, width);
 }
 
 function hasActiveOrchestratorWork(state: PersistedTeamState): boolean {
