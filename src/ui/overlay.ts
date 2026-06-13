@@ -207,7 +207,8 @@ function buildRecentActivityLines(worker: WorkerRuntimeState, transcript: string
 		.slice(-3)
 		.map((event) => `• Ran ${event.text}`);
 	lines.push(...recentCommands);
-	const latestThinking = transcript?.trim().split("\n").filter(Boolean).slice(-1)[0];
+	const transcriptLines = transcript?.trim().split("\n").filter(Boolean) ?? [];
+	const latestThinking = transcriptLines.length <= 3 ? transcriptLines.slice(-1)[0] : undefined;
 	if (latestThinking) lines.push(`• Thinking: ${latestThinking}`);
 	if (worker.finalAnswer) lines.push("• Final answer produced");
 	if (lines.length === 1) lines.push(dim("(none yet)"));
@@ -429,7 +430,7 @@ function buildConsoleLines(
 	if (activity.length === 0) {
 		return [`${worker.workerId} · ${worker.profileName} · ${worker.status}`, "", accentBold("— activity —"), dim("(no activity yet — press r for raw logs)")];
 	}
-	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  activity=${activity.length}  ·  raw:r`, "", accentBold("— activity —")];
+	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  activity=${activity.length}  chunks=${chunks.length}  events=${consoleEvents.length}  ·  raw:r`, "", accentBold("— activity —")];
 	activity.forEach((event, index) => {
 		if (index > 0) lines.push("");
 		lines.push(...formatActivityEvent(event));
@@ -490,7 +491,7 @@ interface TextLineShape {
 // (e.g. a colored `# heading` from a tool) still matches the structural regexes.
 function classifyTextLine(line: string): TextLineShape {
 	const plain = stripAnsi(line);
-	if (/^\s{4,}\S/.test(plain)) return { kind: "code", continuation: plain.match(/^\s*/)?.[0] ?? "" };
+	if (/^\s{2,}\S/.test(plain)) return { kind: "code", continuation: plain.match(/^\s*/)?.[0] ?? "" };
 	if (/^\s*(?:at\s+\S|Caused by:|\.{3}\s+\d+\s+more|[A-Za-z_.$][\w.$<>]*Error:)/.test(plain)) return { kind: "stack", continuation: "    " };
 	if (/^\s*#{1,6}\s+\S/.test(plain)) return { kind: "heading", continuation: dim("↳ ") };
 	if (/^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(plain)) {
@@ -1240,9 +1241,9 @@ export function createTeamDashboardOverlayComponent(
 					])
 					: state.tab === "console"
 						? firstFitting(innerWidth, [
-							`↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${fullTabHint}`,
-							`↑↓ scroll · f follow · space/b · g/G · ${compactTabHint}`,
-							`↑↓ · f · space/b · g/G · ${compactTabHint}`,
+							`↑/↓ scroll · f follow · r raw/activity · space/b page · g/G top/bottom · ${fullTabHint}`,
+							`↑↓ scroll · f follow · r raw · space/b · g/G · ${compactTabHint}`,
+							`↑↓ · f · r · space/b · g/G · ${compactTabHint}`,
 						])
 						: firstFitting(innerWidth, [
 							`↑/↓ scroll · space/b page · g/G top/bottom · ${fullTabHint}`,
@@ -1282,7 +1283,7 @@ export function createTeamDashboardOverlayComponent(
 				}
 				footerLines.push(...inputLines);
 			}
-			footerLines.push(buildActionBar());
+			footerLines.push(buildActionBar(state.tab === "console" ? { r: state.consoleMode === "activity" ? "aw" : "ctivity" } : undefined));
 			if (status) footerLines.push(accent(`» ${status}`));
 
 			// Reserve rows: top frame (1) + header lines + blank + body + blank + footer + bottom frame (1).
@@ -1373,7 +1374,14 @@ export function createTeamDashboardOverlayComponent(
 				return;
 			}
 			if (data === "r") {
-				refreshActive();
+				if (state.tab === "console") {
+					state.consoleMode = state.consoleMode === "activity" ? "raw" : "activity";
+					state.consoleScroll = 0;
+					state.consoleFollow = false;
+					setStatus(`Console ${state.consoleMode} view`);
+				} else {
+					refreshActive();
+				}
 				requestRender();
 				return;
 			}

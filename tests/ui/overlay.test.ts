@@ -657,6 +657,7 @@ test("console separates assistant text and events with readable assistant format
 	const events: WorkerConsoleEvent[] = [{ ts: now + 1_000, kind: "tool_start", text: "read src/ui/overlay.ts" }];
 	const { component } = makeComponent({ state, rows: 44, cols: 90, initialWorkerId: "w1", chunks: { w1: chunks }, consoles: { w1: events } });
 	component.handleInput("3");
+	component.handleInput("r");
 
 	const rawLines = component.render(90);
 	const lines = plainLines(rawLines);
@@ -679,6 +680,7 @@ test("console dims routine event metadata and highlights errors or recovery", ()
 	];
 	const { component } = makeComponent({ state, rows: 44, cols: 90, initialWorkerId: "w1", consoles: { w1: events } });
 	component.handleInput("3");
+	component.handleInput("r");
 
 	const rawLines = component.render(90);
 	const lines = plainLines(rawLines);
@@ -696,6 +698,7 @@ test("console keeps assistant and event rows width-safe", () => {
 	const events: WorkerConsoleEvent[] = [{ ts: Date.now(), kind: "tool_end", text: "metadata ".repeat(30) }];
 	const { component } = makeComponent({ state, rows: 34, cols: 52, initialWorkerId: "w1", chunks: { w1: chunks }, consoles: { w1: events } });
 	component.handleInput("3");
+	component.handleInput("r");
 
 	const lines = renderPlain(component, 52);
 	assert.ok(lines.some((line) => line.includes("— assistant —")), "expected assistant divider at narrow width");
