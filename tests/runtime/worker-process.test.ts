@@ -32,6 +32,48 @@ test("buildWorkerProcessArgs preserves configured base args before launch flags"
 	assert.deepEqual(args.slice(5), ["--approve", "--model", "provider/model"]);
 });
 
+test("buildWorkerProcessArgs keeps complete launch option order stable", () => {
+	const args = buildWorkerProcessArgs({
+		cwd: process.cwd(),
+		baseArgs: ["dist/cli.js", "--mode", "rpc", "--no-session"],
+		projectTrust: "approve",
+		model: "provider/model",
+		thinkingLevel: "high",
+		tools: ["read", "grep"],
+		systemPromptPath: "/tmp/worker-prompt.md",
+		extensionMode: "worker-minimal",
+		workerExtensions: ["npm:@org/pi-provider", "/tmp/provider.ts"],
+		extraArgs: ["--append-system-prompt", "/tmp/extra-prompt.md"],
+	});
+
+	assert.deepEqual(args, [
+		"dist/cli.js",
+		"--mode",
+		"rpc",
+		"--no-session",
+		"--approve",
+		"--model",
+		"provider/model",
+		"--thinking",
+		"high",
+		"--tools",
+		"read,grep",
+		"--append-system-prompt",
+		"/tmp/worker-prompt.md",
+		"--no-extensions",
+		"--extension",
+		"npm:@org/pi-provider",
+		"--extension",
+		"/tmp/provider.ts",
+		"--no-prompt-templates",
+		"--no-themes",
+		"--no-context-files",
+		"--no-skills",
+		"--append-system-prompt",
+		"/tmp/extra-prompt.md",
+	]);
+});
+
 test("buildWorkerProcessArgs keeps worker-minimal resources reduced while loading explicit extensions", () => {
 	const args = buildWorkerProcessArgs({
 		cwd: process.cwd(),
