@@ -1,6 +1,8 @@
 import type { WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager";
 import type { WorkerRuntimeState } from "../types";
+import { parseFinalAnswerSummaryFields } from "../runtime/final-answer";
 import { sanitizeTerminalText } from "./theme";
+import { formatRetainedTranscript } from "./transcript-retention";
 import { hasCacheUsage } from "./usage-format";
 
 function formatTs(ts: number): string {
@@ -10,22 +12,6 @@ function formatTs(ts: number): string {
 
 function formatConsoleEvent(event: WorkerConsoleEvent): string {
 	return `[${formatTs(event.ts)}] [${event.kind}] ${sanitizeTerminalText(event.text)}`;
-}
-
-function parseFinalAnswerFields(text: string): WorkerActivityEvent["finalSummaryFields"] {
-	const safeText = sanitizeTerminalText(text);
-	const headline = /^headline:\s*(.+)$/im.exec(safeText)?.[1]?.trim();
-	const nextRecommendation = /^next_recommendation:\s*(.+)$/im.exec(safeText)?.[1]?.trim();
-	const risksBlock = /^risks:\s*$(?<body>(?:\s*[-*]\s+.+\n?)*)/im.exec(safeText)?.groups?.body ?? "";
-	const risks = risksBlock
-		.split("\n")
-		.map((line) => /^\s*[-*]\s+(.+)$/.exec(line)?.[1]?.trim())
-		.filter((line): line is string => Boolean(line));
-	return {
-		...(headline ? { headline } : {}),
-		...(risks.length > 0 ? { risks } : {}),
-		...(nextRecommendation ? { nextRecommendation } : {}),
-	};
 }
 
 function formatFinalAnswerFields(fields: WorkerActivityEvent["finalSummaryFields"] | undefined, summary?: string): string[] {
@@ -112,7 +98,7 @@ function synthesizeActivity(
 		}
 	}
 	if (worker.finalAnswer) {
-		const fields = parseFinalAnswerFields(worker.finalAnswer);
+		const fields = parseFinalAnswerSummaryFields(sanitizeTerminalText(worker.finalAnswer));
 		activity.push({
 			id: `copy:${id++}`,
 			ts: worker.lastEventAt,
@@ -203,7 +189,7 @@ export function buildCopyPayload(
 	}
 
 	lines.push("", "## Latest assistant text");
-	lines.push(sanitizeTerminalText(transcript ?? "").trim() || "(no assistant text captured)");
+	lines.push(formatRetainedTranscript(transcript) || "(no assistant text captured)");
 
 	const activity = activityEvents && activityEvents.length > 0 ? activityEvents : synthesizeActivity(worker, consoleEvents);
 	lines.push("", "## Activity");
