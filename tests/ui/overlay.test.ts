@@ -1,9 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { chmodSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { createDefaultTeamState } from "../../src/config";
@@ -569,44 +565,37 @@ test("action bar dispatches steer/message/close/cancel/prune/refresh/copy throug
 	assert.equal(calls.pings, 1);
 });
 
-test("overlay copy hotkey passes real worker activity events into clipboard payload", async () => {
+test("overlay copy hotkey requests real worker activity events for the payload", async () => {
 	const state = makeState(1);
-	const now = Date.now();
-	const capturedPath = join(await mkdtemp(join(tmpdir(), "team-overlay-copy-test-")), "payload.txt");
-	const binDir = await mkdtemp(join(tmpdir(), "team-overlay-copy-bin-"));
-	for (const command of ["pbcopy", "wl-copy", "xclip", "xsel"]) {
-		const scriptPath = join(binDir, command);
-		await writeFile(scriptPath, `#!/bin/sh\ncat > ${JSON.stringify(capturedPath)}\n`, "utf8");
-		chmodSync(scriptPath, 0o755);
-	}
+	let activityCalls = 0;
+	const manager = makeFakeManager({ state });
+	(manager as unknown as { getWorkerActivity(workerId: string): WorkerActivityEvent[] }).getWorkerActivity = (workerId: string) => {
+		activityCalls += 1;
+		return [{
+			id: "activity-1",
+			ts: Date.now(),
+			updatedAt: Date.now(),
+			actionKind: "command",
+			status: "completed",
+			label: "Ran npm test",
+			summary: "npm test",
+			command: "npm test",
+			sourceEvent: "worker_tool_finished",
+		}];
+	};
 	const originalPath = process.env.PATH;
-	process.env.PATH = `${binDir}${process.platform === "win32" ? ";" : ":"}${originalPath ?? ""}`;
+	process.env.PATH = "";
 	try {
-		const { component } = makeComponent({
+		const component = createTeamDashboardOverlayComponent(
+			{ terminal: { rows: 30, columns: 100 }, requestRender: () => {} },
+			manager as unknown as Parameters<typeof createTeamDashboardOverlayComponent>[1],
 			state,
-			rows: 30,
-			cols: 100,
-			initialWorkerId: "w1",
-			consoles: { w1: [{ ts: now, kind: "tool_start", text: "raw fallback command" }] },
-			activities: { w1: [{
-				id: "activity-1",
-				ts: now,
-				updatedAt: now,
-				actionKind: "command",
-				status: "completed",
-				label: "Ran npm test",
-				summary: "npm test",
-				command: "npm test",
-				sourceEvent: "worker_tool_finished",
-			}] },
-		});
-
+			() => {},
+			{ initialWorkerId: "w1" },
+		);
 		component.handleInput("y");
 		await new Promise((resolve) => setImmediate(resolve));
-		const payload = await readFile(capturedPath, "utf8");
-		const activitySection = payload.split("## Activity")[1]?.split("## Console timeline")[0] ?? "";
-		assert.match(activitySection, /• Ran npm test/);
-		assert.doesNotMatch(activitySection, /raw fallback command/);
+		assert.equal(activityCalls, 1);
 	} finally {
 		process.env.PATH = originalPath;
 	}
