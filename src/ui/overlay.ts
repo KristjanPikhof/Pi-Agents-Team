@@ -1362,4 +1362,4 @@ export async function openTeamDashboardOverlay(
 	);
 }
 
-export { buildTeamDashboardText };
+export { buildTeamDashboardText, sanitizeText };
