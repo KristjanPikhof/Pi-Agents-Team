@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import extension from "../../extensions/pi-agent-team/index";
+import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 
 interface RegisteredTool {
 	name: string;
@@ -12,6 +13,39 @@ interface RegisteredTool {
 
 interface RegisteredCommand {
 	name: string;
+}
+
+function makeWidgetState() {
+	const state = createDefaultTeamState();
+	const now = Date.now();
+	state.activeWorkers.w1 = {
+		workerId: "w1",
+		profileName: "reviewer",
+		sessionMode: "worker",
+		status: "running",
+		startedAt: now,
+		lastEventAt: now,
+		pendingRelayQuestions: [],
+		usage: {
+			turns: 1,
+			inputTokens: 100,
+			outputTokens: 25,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0.01,
+		},
+		currentTask: {
+			taskId: "task-1",
+			title: "Review widget",
+			goal: "Render RPC widget lines",
+			requestedBy: "orchestrator",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			contextHints: [],
+			createdAt: now,
+		},
+	};
+	return state;
 }
 
 test("extension registers control-plane tools and operator commands", () => {
@@ -89,7 +123,11 @@ test("extension registers natural autocomplete provider when UI API is available
 		},
 		sessionManager: {
 			getEntries() {
-				return [];
+				return [{
+					type: "custom",
+					customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+					data: makeWidgetState(),
+				}];
 			},
 		},
 	} as any;
