@@ -1394,9 +1394,9 @@ export async function openTeamDashboardOverlay(
 				if (dashboardShown || wrapper.isDisposed()) return;
 				dashboardShown = true;
 				const state = teamManager.snapshot();
-				const resolvedFocusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
-					? options.initialWorkerId
-					: focusWorkerId;
+					const resolvedFocusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
+						? options.initialWorkerId
+						: focusWorkerId;
 					wrapper.replace(createTeamDashboardOverlayComponent(
 						tui as TUI,
 						teamManager as unknown as OverlayTeamManager,
