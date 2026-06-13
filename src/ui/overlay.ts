@@ -15,7 +15,7 @@ import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } f
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { copyToClipboard } from "../util/clipboard";
 import { buildCopyPayload } from "./copy-payload";
-import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup, getWorkerAttentionGroup } from "./dashboard";
+import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet } from "./dashboard";
 import { formatRetainedTranscript } from "./transcript-retention";
 import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
@@ -77,7 +77,6 @@ function setPalette(theme?: Theme): void {
 }
 
 type OverlayTab = "workers" | "inspect" | "console" | "cost";
-type LayoutMode = "stack" | "split";
 type ModalKind = "steer" | "message" | "new_task";
 
 interface ModalState {
@@ -100,7 +99,6 @@ interface DashboardState {
 }
 
 interface RenderMetrics {
-	layout: LayoutMode;
 	listPageSize: number;
 	bodyPageSize: number;
 }
@@ -142,14 +140,6 @@ const TAB_LABELS: Record<OverlayTab, string> = {
 };
 
 const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
-const TERMINAL_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
-	"idle",
-	"completed",
-	"aborted",
-	"error",
-	"exited",
-]);
-
 function clamp(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(value, max));
 }
@@ -911,32 +901,6 @@ function formatFollowHeader(following: boolean, top: number, visible: number, to
 	return `${status}  scroll ${start}-${end} / ${total}`;
 }
 
-function colorForGroup(group: WorkerAttentionGroup): (text: string) => string {
-	switch (group) {
-		case "needs_reply":
-			return warning;
-		case "needs_recovery":
-			return danger;
-		case "in_progress":
-			return accent;
-		case "completed_or_idle":
-			return success;
-	}
-}
-
-function colorForGroupBold(group: WorkerAttentionGroup): (text: string) => string {
-	switch (group) {
-		case "needs_reply":
-			return warningBold;
-		case "needs_recovery":
-			return dangerBold;
-		case "in_progress":
-			return accentBold;
-		case "completed_or_idle":
-			return successBold;
-	}
-}
-
 function colorForWorker(worker: WorkerRuntimeState): (text: string) => string {
 	if (worker.pendingRelayQuestions.length > 0) return warning;
 	switch (worker.status) {
@@ -1026,7 +990,7 @@ export function createTeamDashboardOverlayComponent(
 	};
 	let statusMessage: string | undefined;
 	let statusExpires = 0;
-	let lastRenderMetrics: RenderMetrics = { layout: "stack", listPageSize: 8, bodyPageSize: 10 };
+	let lastRenderMetrics: RenderMetrics = { listPageSize: 8, bodyPageSize: 10 };
 
 	const requestRender = () => {
 		tui.requestRender?.();
@@ -1300,11 +1264,6 @@ export function createTeamDashboardOverlayComponent(
 		return enforceWidth(all.slice(top, top + rows), width);
 	};
 
-	const renderRosterPane = (_width: number, _rows: number): string[] => {
-		// Split layout dropped: panel is always narrow (right-anchored 30%).
-		return [];
-	};
-
 	const renderBody = (width: number, rows: number): string[] => {
 		if (rows <= 0) return [];
 		switch (state.tab) {
@@ -1352,7 +1311,6 @@ export function createTeamDashboardOverlayComponent(
 	return {
 		render(width: number): string[] {
 			refreshSnapshot();
-			lastRenderMetrics.layout = "stack";
 			const cap = Math.min(width, Math.max(1, tui.terminal.columns));
 			const innerWidth = Math.max(1, cap - 4); // outer frame: │ + space + content + space + │
 			const totalRows = computeOverlayRows(tui.terminal.rows);
