@@ -202,11 +202,11 @@ Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) i
 - lifecycle: `status`, `startedAt`, `lastEventAt`, `error`
 - work: `currentTask`, `lastToolName`
 - thinking: `requestedThinkingLevel`, `effectiveThinkingLevel`
-- output: `lastSummary` (headline + readFiles + changedFiles + risks + nextRecommendation), `finalAnswer`
+- output: `lastSummary` (headline + readFiles + changedFiles + risks + nextRecommendation), `finalAnswer`, bounded in-memory Activity events for Console/Inspect/copy rendering
 - supervision: `pendingRelayQuestions`
 - accounting: `usage` (turns, input/output tokens, cache, costUsd, contextTokens, contextWindow, contextPercent, contextRemainingTokens)
 
-`WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager`: `record.textBuffer` (raw concatenated assistant text), a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard, and a separate per-worker assistant-chunk ring buffer (`ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks — *not* rendered lines, since one delta may contain `\n`s — `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`, monotonic per-task indexes, exposed via `getAssistantTail(workerId, fromIndex?)` and `onAssistantChunk(listener)`) that powers the overlay's Console live-tail. Memory is bounded by the byte cap; the chunk cap defends against many tiny deltas. Reuse resets the chunk buffer and rewinds `nextIndex` to 0. Nothing here is persisted.
+`WorkerSummary` has hard caps from `config.summaries` (`maxHeadlineLength: 160`, `maxChangedFiles: 8`, `maxRelayQuestions: 3`, `maxItemsPerWorker: 3`). Transcripts are kept only in-memory on the `WorkerManager`: `record.textBuffer` (raw concatenated assistant text), a bounded console ring (`CONSOLE_BUFFER_LIMIT`) for the dashboard, a bounded Activity ring (`ACTIVITY_BUFFER_LIMIT`) exposed via `getWorkerActivity(workerId)` / `onActivityEvent(listener)`, and a separate per-worker assistant-chunk ring buffer (`ASSISTANT_BUFFER_CHUNK_CAP = 4096` text-delta chunks — *not* rendered lines, since one delta may contain `\n`s — `ASSISTANT_BUFFER_BYTE_CAP = 256 KB`, monotonic per-task indexes, exposed via `getAssistantTail(workerId, fromIndex?)` and `onAssistantChunk(listener)`) that powers the overlay's Console live-tail. Memory is bounded by the byte cap and activity/console caps; the chunk cap defends against many tiny deltas. Reuse resets the chunk buffer, activity ring, pending tool activity map, and rewinds `nextIndex` to 0. Nothing here is persisted.
 
 `requestedThinkingLevel` is the launch-policy output sent to Pi. `effectiveThinkingLevel` is read back from RPC `get_state.thinkingLevel` and can differ when Pi clamps unsupported model-family levels. `WorkerManager` emits a `thinking_clamped` normalized event for that mismatch so the extension can notify once per worker/requested/effective tuple.
 
@@ -225,6 +225,7 @@ Persisted session state does **not** include:
 
 - full worker transcripts
 - raw streaming deltas
+- raw activity events
 - tool output dumps
 - per-pruned-worker history after prune; only the aggregate `prunedWorkerUsageTotals` bucket remains
 - the `<final_answer>` block on disk (it lives on `WorkerRuntimeState` but storage honors the compact-state rule; `config.persistence.storeTranscripts` is `false` by default)
@@ -281,9 +282,9 @@ Internal worker prompts are packaged for runtime use only: `prompts/orchestrator
 - **Right-side stack panel.** The overlay is a single right-anchored panel. `Workers`, `Inspect`, `Console`, and `Cost` are selected through the top tab bar; Inspect and Console do not render a separate roster beside the body.
 - **Live ping on open** and on `r`. The overlay issues `teamManager.pingWorkers({ mode: "active" })` so token counts and streaming status are current.
 - **Direct focus.** `/team <worker-id>` opens the overlay already on the Inspect tab for that worker. Tab completion on the `/team` argument pulls live worker ids.
-- **Inspect/Console follow.** Console subscribes to `teamManager.onAssistantChunk` and reads `getAssistantTail(workerId)` on render; Inspect uses the latest worker transcript in the same scroll frame as status/task/summary/final answer. Both tabs expose a compact follow/paused header (`[follow]` or `[paused f/G]` plus `scroll start-end / total`). `f` toggles follow, `G` jumps to the tail and follows, `g` jumps top and pauses, and manual scroll/page keys (`↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `b`/`space`, `ctrl+u`/`ctrl+d`) pause follow. Per-worker isolation is enforced by tying visible chunks/transcripts to `state.selectedWorkerId`.
+- **Inspect/Console follow.** Console subscribes to `teamManager.onAssistantChunk` and `teamManager.onActivityEvent`, reads `getAssistantTail(workerId)` / `getWorkerActivity(workerId)` on render, and defaults to Activity mode. Inspect renders a compact `Recent activity` section from the same Activity source near the top, while keeping status/task/summary/final answer/latest assistant text. Both tabs expose a compact follow/paused header (`[follow]` or `[paused f/G]` plus `scroll start-end / total`). `f` toggles follow, `G` jumps to the tail and follows, `g` jumps top and pauses, and manual scroll/page keys (`↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `b`/`space`, `ctrl+u`/`ctrl+d`) pause follow. In Console, `r` toggles Activity / Raw; outside Console it remains the active refresh key. Per-worker isolation is enforced by tying visible chunks, transcripts, and activity events to `state.selectedWorkerId`.
 - **Reuse hint.** Idle / waiting_followup workers render `[reuse]` in the roster row and `[reusable]` in the Inspect header. The `n` modal always delegates a fresh worker (never silently reuses the selected one); reuse is intentionally exposed only via `delegate_task.reuseWorkerId` from the orchestrator side.
-- **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload (task, summary, relays, usage, final answer, latest assistant text, console timeline) via pbcopy / clip.exe / wl-copy / xclip / xsel.
+- **Copy.** `y` (or `/team-copy <worker-id>`) copies a full markdown payload (task, summary, relays, usage, final answer, latest assistant text, `## Activity`, then `## Console timeline (Raw)`) via pbcopy / clip.exe / wl-copy / xclip / xsel.
 
 ### Overlay text formatting rules
 
@@ -291,7 +292,7 @@ Inspect and Console share the local text wrapping helpers in `src/ui/overlay.ts`
 
 Key invariants:
 
-- **Content/event split.** Inspect builds a structured text document from worker state (`buildInspectText`) with explicit section dividers for Status, Task, Needs operator, Summary, Final answer, and Latest assistant text. Console builds assistant text and console events separately (`buildConsoleLines`), rendering assistant chunks before the `— events —` timeline when both exist.
+- **Content/event split.** Inspect builds a structured text document from worker state (`buildInspectText`) with explicit section dividers for Status, Recent activity, Task, Needs operator, Summary, Final answer, and Latest assistant text. Console builds a default `— activity —` document from Activity events and keeps `— raw —` as the debug fallback. Activity command/tool blocks render as bullets with nested output snippets and explicit elision (`… +N lines hidden`); final answers render parsed fields such as Headline, Risks, and Next.
 - **Readable report shapes.** The formatter preserves recognizable Markdown-like headings, tables, table separators, list markers, horizontal rules, indented/code-like lines, and stack-trace-like lines. Continuation lines use a small prefix (or preserved indentation for code) rather than collapsing the body into single-line ellipses.
 - **ANSI-width safety.** All wrapping and frame padding use terminal visible width, not JavaScript string length. Control characters and tabs are normalized before measurement, while this package's own ANSI styling is preserved for `pi-tui` to measure correctly.
 - **Row-budget safety.** The overlay returns exactly `floor(terminal.rows * 0.9)` rows to match `TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight`. Body content is sliced within the frame; on tiny terminals where fixed chrome alone exceeds the budget, the final framed output is clamped while preserving the top/bottom border rows.

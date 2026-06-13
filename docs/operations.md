@@ -84,6 +84,34 @@ Inspect renders status, a compact `Recent activity` section, task, operator-need
 
 Console opens on the human-readable `— activity —` view. Activity items are bullet action blocks: commands and tools use `• Ran <command>` or the equivalent tool label, nested output is indented under the action, and long output is elided with an explicit hidden-line count such as `… +14 lines hidden`. Process notes are short operational summaries, not private reasoning dumps. Final answers render as structured fields (`Headline`, `Risks`, `Next`, and other parsed fields when available) instead of a raw blob. Press `r` in Console to switch to `— raw —`; press `r` again to return to Activity. Raw/debug keeps timestamped assistant chunks and console events for diagnostics, including status transitions, tool starts and ends, queue updates, errors, and exit. Console content is isolated per selected worker.
 
+Example Console Activity output:
+
+```text
+— activity —
+• Thinking
+  Mapping current console rendering before proposing UI changes.
+
+• Ran git diff --stat main...HEAD
+  src/ui/overlay.ts              | 42 +++++++++++++++++
+  tests/ui/overlay.test.ts       | 18 +++++++
+  … +14 lines hidden
+
+• Final answer
+  Headline: APPROVE — no blocking issues found.
+  Risks: UI wrapping tests need updates.
+  Next: Safe to continue after typecheck.
+```
+
+Example Inspect `Recent activity` output:
+
+```text
+Recent activity
+• Ran grep "buildConsoleLines" src/ui/overlay.ts
+• Ran npm run typecheck
+• Thinking: comparing overlay width behavior
+• Final answer produced
+```
+
 Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused f/G]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cache / cost when cache counters are non-zero. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
 
 ## Inspect a worker's result
