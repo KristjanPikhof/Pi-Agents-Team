@@ -121,16 +121,12 @@ test("extension registers natural autocomplete provider when UI API is available
 				autocompleteFactories.push(factory);
 			},
 		},
-		sessionManager: {
-			getEntries() {
-				return [{
-					type: "custom",
-					customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
-					data: makeWidgetState(),
-				}];
+			sessionManager: {
+				getEntries() {
+					return [];
+				},
 			},
-		},
-	} as any;
+		} as any;
 
 	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
 
@@ -187,6 +183,50 @@ test("extension emits plain widget lines in RPC mode even when hasUI=true", asyn
 	assert.ok(definedWidgets.every((value) => Array.isArray(value)), "RPC widget updates must be string arrays");
 	assert.ok(definedWidgets.flat().every((line) => typeof line === "string"), "RPC widget lines must be strings");
 	assert.ok(definedWidgets.every((value) => typeof value !== "function"), "RPC widget updates must not be component factories");
+
+	await handlers.get("session_shutdown")?.({}, ctx);
+});
+
+test("extension clears empty RPC widget with undefined", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const widgets: unknown[] = [];
+
+	extension({
+		registerTool() {},
+		registerCommand() {},
+		on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) {
+			handlers.set(event, handler);
+		},
+		appendEntry() {},
+		sendMessage() {},
+	} as any);
+
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agent-team-empty-rpc-widget-"));
+	const ctx = {
+		mode: "rpc",
+		cwd,
+		hasUI: true,
+		ui: {
+			theme: undefined,
+			notify() {},
+			setStatus() {},
+			setWidget(_key: string, value: unknown) {
+				widgets.push(value);
+			},
+			setTitle() {},
+			addAutocompleteProvider() {},
+		},
+		sessionManager: {
+			getEntries() {
+				return [];
+			},
+		},
+	} as any;
+
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+	assert.ok(widgets.includes(undefined), "empty active team state must clear the widget");
+	assert.ok(widgets.every((value) => value === undefined), "empty active team state must not register blank arrays");
 
 	await handlers.get("session_shutdown")?.({}, ctx);
 });
@@ -287,7 +327,11 @@ test("extension rotates footer tips with an unref'd timer and clears it on shutd
 			},
 			sessionManager: {
 				getEntries() {
-					return [];
+					return [{
+						type: "custom",
+						customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+						data: makeWidgetState(),
+					}];
 				},
 			},
 		} as any;
