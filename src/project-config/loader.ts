@@ -1,0 +1,1112 @@
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, resolve, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Value } from "typebox/value";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
+import {
+	DEFAULT_MODEL_SENTINEL,
+	DEFAULT_PROMPT_SENTINEL,
+	PROJECT_CONFIG_DIAGNOSTIC_SEVERITIES,
+	PROJECT_CONFIG_STATUSES,
+	TEAM_PROJECT_CONFIG_DIR,
+	TEAM_PROJECT_CONFIG_FILE,
+	TEAM_PROJECT_CONFIG_RELATIVE_PATH,
+	TEAM_PROJECT_SCHEMA_VERSION,
+	TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED,
+	THINKING_LEVELS,
+	isPackagedProfileName,
+	type ActiveTeamConfigFreshness,
+	type LoadedTeamProjectConfig,
+	type PartialRawProjectRoleConfigMap,
+	type ProjectConfigDiagnostic,
+	type ProjectRoleConfig,
+	type ProjectRoleFlatConfig,
+	type ProjectRolePromptConfig,
+	type RawProjectRoleConfig,
+	type TeamConfig,
+	type TeamConfigScope,
+	type TeamEnabledSource,
+	type TeamPathScope,
+	type TeamProfileSpec,
+	type TeamProjectConfigFile,
+	type TeamProjectConfigLayer,
+	type ThinkingLevelConfigWarning,
+	type WorkerWritePolicy,
+} from "../types";
+
+function clonePathScope(pathScope: TeamPathScope | undefined): TeamPathScope | undefined {
+	if (!pathScope) return undefined;
+	return {
+		roots: [...pathScope.roots],
+		allowReadOutsideRoots: pathScope.allowReadOutsideRoots,
+		allowWrite: pathScope.allowWrite,
+	};
+}
+
+function cloneProfile(profile: TeamProfileSpec): TeamProfileSpec {
+	return {
+		...profile,
+		tools: [...profile.tools],
+		...(profile.extensions !== undefined ? { extensions: [...profile.extensions] } : {}),
+		pathScope: clonePathScope(profile.pathScope),
+	};
+}
+
+function cloneTeamConfig(config: TeamConfig): TeamConfig {
+	return {
+		...config,
+		orchestration: {
+			...config.orchestration,
+			systemPromptNotes: [...config.orchestration.systemPromptNotes],
+		},
+		rpc: {
+			...config.rpc,
+			args: [...config.rpc.args],
+		},
+		summaries: { ...config.summaries },
+		ui: { ...config.ui },
+		safety: { ...config.safety },
+		persistence: { ...config.persistence },
+		profiles: config.profiles.map(cloneProfile),
+	};
+}
+
+function makeDiagnostic(
+	severity: ProjectConfigDiagnostic["severity"],
+	code: string,
+	message: string,
+	fieldPath?: string,
+): ProjectConfigDiagnostic {
+	return { severity, code, message, fieldPath };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sanitizeThinkingLevelsForSchema(
+	scope: TeamConfigScope,
+	value: unknown,
+): { parsedJson: unknown; warnings: ThinkingLevelConfigWarning[] } {
+	if (!isRecord(value) || !isRecord(value.roles)) {
+		return { parsedJson: value, warnings: [] };
+	}
+
+	const warnings: ThinkingLevelConfigWarning[] = [];
+	for (const [profileName, rawRole] of Object.entries(value.roles)) {
+		if (!isRecord(rawRole) || !("thinkingLevel" in rawRole)) continue;
+		const badValue = rawRole.thinkingLevel;
+		if ((THINKING_LEVELS as readonly unknown[]).includes(badValue)) continue;
+		delete rawRole.thinkingLevel;
+		warnings.push({ scope, profileName, badValue });
+	}
+
+	return { parsedJson: value, warnings };
+}
+
+function extensionModeRank(mode: TeamProfileSpec["extensionMode"]): number {
+	switch (mode) {
+		case "disable":
+			return 2;
+		case "worker-minimal":
+			return 1;
+		case "inherit":
+		default:
+			return 0;
+	}
+}
+
+function isExtensionModeNarrowerOrEqual(candidate: TeamProfileSpec["extensionMode"], baseline: TeamProfileSpec["extensionMode"]): boolean {
+	return extensionModeRank(candidate) >= extensionModeRank(baseline);
+}
+
+function isPathScopeNarrowerOrEqual(candidate: TeamPathScope | undefined, baseline: TeamPathScope | undefined): boolean {
+	if (!candidate) return baseline === undefined;
+	if (!baseline) return true;
+	if (candidate.allowWrite && !baseline.allowWrite) return false;
+	if (candidate.allowReadOutsideRoots && !baseline.allowReadOutsideRoots) return false;
+	return candidate.roots.every((candidateRoot) => baseline.roots.some((baselineRoot) => isPathInsideRoot(candidateRoot, baselineRoot)));
+}
+
+function isPathInsideRoot(targetPath: string, root: string): boolean {
+	const rel = relative(root, targetPath);
+	return rel === "" || (!rel.startsWith("..") && rel !== ".." && !rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`));
+}
+
+function realpathOrSelf(path: string): string {
+	try {
+		return realpathSync.native(path);
+	} catch {
+		return path;
+	}
+}
+
+const SELF_EXTENSION_PACKAGE_NAME = "pi-agents-team";
+const SELF_EXTENSION_ENTRYPOINTS = [
+	"extensions/index.ts",
+	"extensions/pi-agent-team/index.ts",
+] as const;
+const SELF_EXTENSION_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const SELF_EXTENSION_PATHS: ReadonlySet<string> = new Set(
+	SELF_EXTENSION_ENTRYPOINTS.flatMap((entrypoint) => {
+		const path = resolve(SELF_EXTENSION_PACKAGE_ROOT, entrypoint);
+		const realPath = realpathOrSelf(path);
+		return realPath === path ? [path] : [path, realPath];
+	}),
+);
+
+function isSelfPackageExtensionSource(source: string): boolean {
+	const spec = source.startsWith("npm:") ? source.slice("npm:".length) : source;
+	const escapedName = SELF_EXTENSION_PACKAGE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	if (new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec)) return true;
+	return getExtensionSourceTail(source) === SELF_EXTENSION_PACKAGE_NAME;
+}
+
+function getExtensionSourceTail(source: string): string | undefined {
+	let spec = source.trim();
+	if (spec.startsWith("npm:")) spec = spec.slice("npm:".length);
+	if (spec.startsWith("git+")) spec = spec.slice("git+".length);
+	if (spec.startsWith("git:")) spec = spec.slice("git:".length);
+	try {
+		const url = new URL(spec);
+		spec = url.pathname;
+	} catch {
+		const scpLikeMatch = /^[^@/\s]+@[^:\s]+:(.+)$/.exec(spec);
+		if (scpLikeMatch?.[1]) spec = scpLikeMatch[1];
+	}
+	spec = spec.split(/[?#]/, 1)[0] ?? spec;
+	const tail = spec.split(/[\\/]/).filter((part) => part.length > 0).at(-1);
+	return tail?.replace(/\.git$/i, "").replace(/@[^@/]+$/, "");
+}
+
+function isPathLikeExtensionSource(source: string): boolean {
+	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return true;
+	if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) return true;
+	if (source === "extensions") return true;
+	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
+	if (source.startsWith("@")) return false;
+	return /[\\/]/.test(source);
+}
+
+function isLocalExtensionPathSource(source: string): boolean {
+	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return false;
+	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("git+")) return false;
+	if (source.startsWith("http://") || source.startsWith("https://")) return false;
+	if (source.startsWith("@")) return false;
+	return source === "." || source === ".." || source === "extensions" || source.startsWith("./") || source.startsWith("../") || /[\\/]/.test(source);
+}
+
+function isSameOrAncestorPath(candidate: string, target: string): boolean {
+	const rel = relative(candidate, target);
+	return rel === "" || (rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
+	const trimmed = source.trim();
+	if (trimmed.length === 0) return false;
+	if (isSelfPackageExtensionSource(trimmed)) return true;
+	if (!isPathLikeExtensionSource(trimmed)) return false;
+
+	const resolved = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed);
+	const realResolved = realpathOrSelf(resolved);
+	return [...SELF_EXTENSION_PATHS].some(
+		(selfPath) => isSameOrAncestorPath(resolved, selfPath) || isSameOrAncestorPath(realResolved, selfPath),
+	);
+}
+
+interface ResolvedPath {
+	path?: string;
+	diagnostic?: ProjectConfigDiagnostic;
+}
+
+function resolveLayerPath(layerRoot: string, value: string, fieldPath: string, options: { requireInsideLayerRoot: boolean }): ResolvedPath {
+	const resolved = isAbsolute(value) ? value : resolve(layerRoot, value);
+	if (options.requireInsideLayerRoot) {
+		// Lexical check first — catches `..` escapes that resolve to an outside
+		// path on paper.
+		if (!isPathInsideRoot(resolved, layerRoot)) {
+			return {
+				diagnostic: makeDiagnostic("error", "project_path_escape", `Resolved path must stay within the project root: ${value}`, fieldPath),
+			};
+		}
+		// Realpath check — only fires when the CANDIDATE itself actually resolves
+		// through a symlink to a different inode. A hostile repo could commit a
+		// symlink inside the project pointing at ~/.ssh; the lexical check above
+		// accepts it because the symlink file lives under layerRoot, so we have
+		// to follow the link.
+		//
+		// Skipped when the candidate doesn't exist (realpathOrSelf returns the
+		// lexical path unchanged — the lexical containment check is authoritative
+		// for not-yet-created paths). Also skipped when layerRoot itself is a
+		// symlink but the candidate is not (common on macOS where /tmp →
+		// /private/tmp) — the lexical check inside layerRoot already held.
+		const realCandidate = realpathOrSelf(resolved);
+		if (realCandidate !== resolved) {
+			const realRoot = realpathOrSelf(layerRoot);
+			if (!isPathInsideRoot(realCandidate, realRoot)) {
+				return {
+					diagnostic: makeDiagnostic(
+						"error",
+						"project_path_escape",
+						`Resolved path must stay within the project root: ${value} (resolves via symlink to ${realCandidate}, outside ${realRoot})`,
+						fieldPath,
+					),
+				};
+			}
+		}
+	}
+	return { path: resolved };
+}
+
+/**
+ * Heuristic: does this string look like it was meant to be a file path rather
+ * than inline prompt prose? Used by `resolveRolePrompt` to emit a warning when
+ * the user clearly typed a path but it didn't resolve to a readable file — the
+ * most common cause is a typo, and silently falling back to "inline prompt text"
+ * (where the inline text is literally the path they typed) is the worst UX.
+ */
+function looksLikePathString(value: string): boolean {
+	const trimmed = value.trim();
+	if (trimmed.length === 0) return false;
+	if (/\n/.test(trimmed)) return false; // multi-line → definitely prose
+	if (trimmed.startsWith("./") || trimmed.startsWith("../") || trimmed.startsWith("~/") || trimmed.startsWith("/")) return true;
+	if (/^[a-zA-Z]:[\\/]/.test(trimmed)) return true; // Windows drive
+	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return true;
+	if (trimmed.endsWith(".md") || trimmed.endsWith(".txt") || trimmed.endsWith(".prompt")) return true;
+	// Contains a path separator and no whitespace → very likely a path.
+	if (/[\\/]/.test(trimmed) && !/\s/.test(trimmed)) return true;
+	return false;
+}
+
+function normalizePathScope(
+	pathScope: TeamPathScope | undefined,
+	layerRoot: string,
+	fieldPath: string,
+	options: { requireInsideLayerRoot: boolean },
+) {
+	if (!pathScope) return { pathScope: undefined as TeamPathScope | undefined, diagnostics: [] as ProjectConfigDiagnostic[] };
+	if (pathScope.allowWrite && !pathScope.roots.length) {
+		return {
+			pathScope: undefined,
+			diagnostics: [makeDiagnostic("error", "path_scope_roots_required", "Writable path scopes require at least one root.", fieldPath)],
+		};
+	}
+
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	const roots: string[] = [];
+	for (const [index, root] of pathScope.roots.entries()) {
+		const resolved = resolveLayerPath(layerRoot, root, `${fieldPath}.roots[${index}]`, options);
+		if (resolved.diagnostic) {
+			diagnostics.push(resolved.diagnostic);
+			continue;
+		}
+		roots.push(resolved.path!);
+	}
+
+	if (diagnostics.length > 0) {
+		return { pathScope: undefined, diagnostics };
+	}
+
+	return {
+		pathScope: {
+			roots,
+			allowReadOutsideRoots: pathScope.allowReadOutsideRoots,
+			allowWrite: pathScope.allowWrite,
+		},
+		diagnostics,
+	};
+}
+
+function normalizeExtensionSources(
+	sources: string[] | null | undefined,
+	layerRoot: string,
+	fieldPath: string,
+): { extensions: string[]; diagnostics: ProjectConfigDiagnostic[] } {
+	if (!sources || sources.length === 0) {
+		return { extensions: [], diagnostics: [] };
+	}
+
+	const extensions: string[] = [];
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	for (const [index, source] of sources.entries()) {
+		const trimmed = source.trim();
+		const entryPath = `${fieldPath}[${index}]`;
+		if (trimmed.length === 0) {
+			diagnostics.push(
+				makeDiagnostic(
+					"error",
+					"extension_source_empty",
+					`Role extension source at ${entryPath} must be a non-empty string.`,
+					entryPath,
+				),
+			);
+			continue;
+		}
+		if (isRecursiveOrchestratorExtensionSource(trimmed, layerRoot)) {
+			diagnostics.push(
+				makeDiagnostic(
+					"error",
+					"recursive_orchestrator_extension_forbidden",
+					`Role extension source at ${entryPath} would load pi-agents-team recursively as a worker extension: ${trimmed}. Use a third-party provider extension instead.`,
+					entryPath,
+				),
+			);
+			continue;
+		}
+
+		extensions.push(isLocalExtensionPathSource(trimmed) ? resolve(layerRoot, trimmed) : trimmed);
+	}
+
+	return { extensions, diagnostics };
+}
+
+function normalizePromptPath(
+	profile: TeamProfileSpec,
+	roleConfig: ProjectRoleConfig,
+	layerRoot: string,
+	fieldPath: string,
+	options: { requireInsideLayerRoot: boolean; layerScope: TeamConfigScope; layerPath: string },
+) {
+	const prompt = roleConfig.prompt;
+	if (prompt.source === "builtin") {
+		if (prompt.path) {
+			return {
+				promptPath: profile.promptPath,
+				diagnostics: [makeDiagnostic("error", "builtin_prompt_path_forbidden", "prompt.path must be omitted when prompt.source is builtin.", fieldPath)],
+			};
+		}
+		return { promptPath: profile.promptPath, diagnostics: [] as ProjectConfigDiagnostic[] };
+	}
+
+	if (!prompt.path) {
+		return {
+			promptPath: profile.promptPath,
+			diagnostics: [makeDiagnostic("error", "project_prompt_path_required", "prompt.path is required when prompt.source is project.", fieldPath)],
+		};
+	}
+
+	const resolved = resolveLayerPath(layerRoot, prompt.path, `${fieldPath}.path`, options);
+	if (resolved.diagnostic) {
+		return { promptPath: profile.promptPath, diagnostics: [resolved.diagnostic] };
+	}
+	if (!existsSync(resolved.path!)) {
+		return {
+			promptPath: profile.promptPath,
+			diagnostics: [
+				makeDiagnostic(
+					"warning",
+					"project_prompt_missing",
+					`Prompt file not readable: ${prompt.path} (${options.layerScope} ${options.layerPath}) — falling back to the built-in ${profile.name} prompt.`,
+					`${fieldPath}.path`,
+				),
+			],
+		};
+	}
+	return { promptPath: resolved.path!, diagnostics: [] as ProjectConfigDiagnostic[] };
+}
+
+export const GENERIC_WORKER_PROMPT_SENTINEL = "<generic-worker>";
+
+interface LayerApplication {
+	scope: TeamConfigScope;
+	layerRoot: string;
+	layerPath: string;
+	requireInsideLayerRoot: boolean;
+	allowWorkerPathsOutsideProject: boolean;
+	roles: PartialRawProjectRoleConfigMap;
+}
+
+function isPromptObject(value: unknown): value is ProjectRolePromptConfig {
+	return typeof value === "object" && value !== null && "source" in value;
+}
+
+function normalizeFlatWritePolicy(write: boolean | undefined): WorkerWritePolicy | undefined {
+	if (write === undefined) return undefined;
+	return write ? "scoped-write" : "read-only";
+}
+
+/**
+ * Translate the schema v4 role shape into the internal ProjectRoleConfig used
+ * by materializeRoleProfile. Shape rules:
+ * - model: "default" / null / absent → inherit ceiling (internal null).
+ * - prompt: "default" / null / absent → builtin. String → treated as project path.
+ *   Object form stays available for explicit prompt source/path control.
+ * - access.write: true → "scoped-write"; false → "read-only"; absent → inherit.
+ * - access groups tools, extensions, extension mode, worker spawning, and path scope.
+ */
+export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleConfig {
+	const flat = raw as ProjectRoleFlatConfig;
+	const access = flat.access ?? {};
+
+	const model =
+		flat.model === undefined || flat.model === null || flat.model === DEFAULT_MODEL_SENTINEL
+			? null
+			: flat.model;
+
+	let prompt: ProjectRolePromptConfig;
+	if (flat.prompt === undefined || flat.prompt === null || flat.prompt === DEFAULT_PROMPT_SENTINEL) {
+		prompt = { source: "builtin", path: null };
+	} else if (isPromptObject(flat.prompt)) {
+		prompt = flat.prompt;
+	} else {
+		prompt = { source: "project", path: flat.prompt };
+	}
+
+	return {
+		description: flat.whenToUse ?? null,
+		model,
+		thinkingLevel: flat.thinkingLevel,
+		permissions: {
+			tools: access.tools,
+			extensions: access.extensions,
+			extensionMode: access.extensionMode,
+			writePolicy: normalizeFlatWritePolicy(access.write),
+			pathScope: access.pathScope,
+			canSpawnWorkers: access.canSpawnWorkers,
+		},
+		prompt,
+	};
+}
+
+const DEFAULT_READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "bash"];
+
+/**
+ * Schema v4 prompt resolution. The input `prompt` may be:
+ *  - source: "builtin" (user wrote `"default"` / null / absent in JSON) →
+ *    if the role name matches a packaged profile, use the packaged file;
+ *    otherwise use the generic-worker sentinel.
+ *  - source: "project" with a path that resolves to a readable file → use the file.
+ *  - source: "project" with a string that does NOT resolve to a file → treat as
+ *    inline prompt text (populates TeamProfileSpec.promptInline).
+ *  - source: "project" with no path → warn and fall back to generic-worker.
+ */
+function resolveRolePrompt(
+	roleName: string,
+	prompt: ProjectRolePromptConfig,
+	layer: LayerApplication,
+): { promptPath: string; promptInline?: string; diagnostics: ProjectConfigDiagnostic[] } {
+	const fieldPath = `roles.${roleName}.prompt`;
+
+	if (prompt.source === "builtin") {
+		if (isPackagedProfileName(roleName)) {
+			return { promptPath: `prompts/agents/${roleName}.md`, diagnostics: [] };
+		}
+		return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, diagnostics: [] };
+	}
+
+	const raw = prompt.path;
+	if (!raw || raw.trim().length === 0) {
+		return {
+			promptPath: GENERIC_WORKER_PROMPT_SENTINEL,
+			diagnostics: [
+				makeDiagnostic(
+					"warning",
+					"project_prompt_empty",
+					`Prompt is empty for role "${roleName}" — using the generic worker template.`,
+					fieldPath,
+				),
+			],
+		};
+	}
+
+	const resolved = resolveLayerPath(layer.layerRoot, raw, fieldPath, {
+		requireInsideLayerRoot: layer.requireInsideLayerRoot,
+	});
+	if (resolved.diagnostic) {
+		// A path-shaped string that escapes the project root. Never silent-fallback
+		// — users explicitly typed a path, so surface the error.
+		return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, diagnostics: [resolved.diagnostic] };
+	}
+	if (resolved.path && existsSync(resolved.path)) {
+		// Existing path — verify it's a regular file. A directory would crash
+		// `readFileSync` at worker launch with EISDIR; catch it here instead.
+		try {
+			if (!statSync(resolved.path).isFile()) {
+				return {
+					promptPath: GENERIC_WORKER_PROMPT_SENTINEL,
+					diagnostics: [
+						makeDiagnostic(
+							"warning",
+							"project_prompt_not_a_file",
+							`Prompt path resolves to a directory (or non-file) for role "${roleName}": ${raw} — using the generic worker template.`,
+							fieldPath,
+						),
+					],
+				};
+			}
+		} catch {
+			// stat failed — treat as not-a-file, fall through to inline/warning path
+		}
+		return { promptPath: resolved.path, diagnostics: [] };
+	}
+
+	// Not a readable file. Two cases:
+	//  - string looks like a path (has separators, `.md` suffix, `./`, `~/`,
+	//    http(s)://, Windows drive) — very likely a typo or a wrong scope; warn
+	//    so operators see it, but still fall through to inline rather than
+	//    hard-failing (escape hatch for intentional inline prompts that happen
+	//    to contain `/`).
+	//  - string looks like prose — silent fallback to inline is the user's
+	//    explicit escape hatch.
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	if (looksLikePathString(raw)) {
+		diagnostics.push(
+			makeDiagnostic(
+				"warning",
+				"project_prompt_missing",
+				`Prompt string for role "${roleName}" looks like a path but no file was found at ${raw} — treating it as inline prompt text. If you meant a file, fix the path; if you meant literal text, ignore this warning.`,
+				fieldPath,
+			),
+		);
+	}
+	return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, promptInline: raw, diagnostics };
+}
+
+/**
+ * Schema v4: build a TeamProfileSpec from a user-authored role config, with
+ * sensible defaults for omitted fields. No ceiling enforcement — the user's
+ * JSON is the source of truth. Platform-level safety (recursion guard, pathScope
+ * for writes) still applies at delegate time via launch-policy.
+ */
+function materializeRoleProfile(
+	roleName: string,
+	raw: RawProjectRoleConfig,
+	layer: LayerApplication,
+): { profile: TeamProfileSpec; diagnostics: ProjectConfigDiagnostic[] } {
+	const normalized = normalizeRawRoleConfig(raw);
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	const permissions = normalized.permissions;
+	const fieldBase = `roles.${roleName}`;
+
+	const resolvedPathScope = normalizePathScope(permissions.pathScope, layer.layerRoot, `${fieldBase}.access.pathScope`, {
+		requireInsideLayerRoot: layer.requireInsideLayerRoot && !layer.allowWorkerPathsOutsideProject,
+	});
+	diagnostics.push(...resolvedPathScope.diagnostics);
+
+	const resolvedExtensions = normalizeExtensionSources(permissions.extensions, layer.layerRoot, `${fieldBase}.access.extensions`);
+	diagnostics.push(...resolvedExtensions.diagnostics);
+
+	const writePolicy: WorkerWritePolicy = permissions.writePolicy ?? "read-only";
+	if (writePolicy === "read-only" && resolvedPathScope.pathScope?.allowWrite) {
+		diagnostics.push(
+			makeDiagnostic(
+				"error",
+				"read_only_scope_write_forbidden",
+				`Role "${roleName}" is read-only but declares a writable path scope.`,
+				`${fieldBase}.access.pathScope.allowWrite`,
+			),
+		);
+	}
+
+	const extensionMode = permissions.extensionMode ?? "worker-minimal";
+	if (extensionMode === "inherit") {
+		diagnostics.push(
+			makeDiagnostic(
+				"error",
+				"extension_mode_inherit_forbidden",
+				`Role "${roleName}" uses extensionMode "inherit", which would let workers recursively boot the orchestrator. Use "worker-minimal" or "disable".`,
+				`${fieldBase}.access.extensionMode`,
+			),
+		);
+	}
+	if (extensionMode === "disable" && resolvedExtensions.extensions.length > 0) {
+		diagnostics.push(
+			makeDiagnostic(
+				"error",
+				"extension_mode_disable_extensions_forbidden",
+				`Role "${roleName}" sets extensionMode "disable" but also declares access.extensions. Remove access.extensions or use "worker-minimal".`,
+				`${fieldBase}.access.extensions`,
+			),
+		);
+	}
+
+	const prompt = resolveRolePrompt(roleName, normalized.prompt, layer);
+	diagnostics.push(...prompt.diagnostics);
+
+	const profile: TeamProfileSpec = {
+		name: roleName,
+		description: normalized.description ?? "",
+		model: normalized.model ?? undefined,
+		thinkingLevel: normalized.thinkingLevel,
+		tools: permissions.tools ? [...permissions.tools] : [...DEFAULT_READ_ONLY_TOOLS],
+		...(resolvedExtensions.extensions.length > 0 ? { extensions: resolvedExtensions.extensions } : {}),
+		promptPath: prompt.promptPath,
+		promptInline: prompt.promptInline,
+		extensionMode,
+		writePolicy,
+		pathScope: resolvedPathScope.pathScope,
+		canSpawnWorkers: permissions.canSpawnWorkers ?? false,
+	};
+
+	return { profile, diagnostics };
+}
+
+export function findNearestProjectConfigPath(cwd: string): string | undefined {
+	// Walk up from cwd looking for `.pi/agent/agents-team.json`. STOP at the
+	// user's homedir: anything at or above homedir belongs to the global scope
+	// (which is probed separately). Without this cap, a stale file in /tmp or
+	// at a shared ancestor would silently bias every project loaded below it,
+	// and on multi-user machines a file at /tmp/.pi/agent/ would be a cross-user
+	// prompt-injection vector.
+	let current = resolve(cwd);
+	const home = resolve(homedir());
+	while (true) {
+		const candidate = resolve(current, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+		if (existsSync(candidate)) return candidate;
+		if (current === home) return undefined;
+		const parent = dirname(current);
+		if (parent === current) return undefined;
+		current = parent;
+	}
+}
+
+export function getGlobalProjectConfigPath(): string {
+	return resolve(homedir(), TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+}
+
+/**
+ * Single source of truth for the global config path, honoring the
+ * `PI_AGENT_TEAM_GLOBAL_CONFIG_PATH` env override. Returns `undefined` when
+ * the env explicitly disables global (`""`/`"null"`/`"none"`), an explicit
+ * path when the env is set, and the default `~/.pi/agent/agents-team.json`
+ * otherwise. Tests and scripted fixtures rely on this to redirect global
+ * reads/writes to a tmpdir; `/team-init global`, `/team-enable on|off --global`,
+ * and deprecated `/team-enable on|off --persist global` writes must go through
+ * the same helper so they don't clobber the user's real
+ * home config while the env is pointed elsewhere.
+ */
+export function resolveGlobalConfigPath(): string | undefined {
+	const envOverride = process.env.PI_AGENT_TEAM_GLOBAL_CONFIG_PATH;
+	if (envOverride === undefined) return getGlobalProjectConfigPath();
+	if (envOverride === "" || envOverride === "null" || envOverride === "none") return undefined;
+	return envOverride;
+}
+
+export function findGlobalProjectConfigPath(): string | undefined {
+	const candidate = resolveGlobalConfigPath();
+	if (!candidate) return undefined;
+	return existsSync(candidate) ? candidate : undefined;
+}
+
+export function getProjectConfigPathForScope(scope: TeamConfigScope, cwd: string): string | undefined {
+	if (scope === "global") return resolveGlobalConfigPath();
+	return resolve(cwd, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
+}
+
+interface ParsedLayer {
+	scope: TeamConfigScope;
+	path: string;
+	layerRoot: string;
+	requireInsideLayerRoot: boolean;
+	parsed: TeamProjectConfigFile;
+	diagnostics: ProjectConfigDiagnostic[];
+	thinkingLevelWarnings: ThinkingLevelConfigWarning[];
+}
+
+function computeLayerRoot(scope: TeamConfigScope, path: string): string {
+	if (scope === "project") {
+		// Config lives at <projectRoot>/.pi/agent/agents-team.json → root is two dirs up.
+		return dirname(dirname(dirname(path)));
+	}
+	return dirname(path);
+}
+
+function parseLayer(scope: TeamConfigScope, path: string): ParsedLayer | { fatalDiagnostics: ProjectConfigDiagnostic[]; scope: TeamConfigScope; path: string } {
+	const layerRoot = computeLayerRoot(scope, path);
+	const requireInsideLayerRoot = scope === "project";
+
+	let parsedJson: unknown;
+	try {
+		parsedJson = JSON.parse(readFileSync(path, "utf8"));
+	} catch (error) {
+		return {
+			scope,
+			path,
+			fatalDiagnostics: [
+				makeDiagnostic(
+					"error",
+					"project_config_parse_failed",
+					`Could not parse ${scope} ${TEAM_PROJECT_CONFIG_FILE} at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+				),
+			],
+		};
+	}
+
+	const { parsedJson: sanitizedJson, warnings: thinkingLevelWarnings } = sanitizeThinkingLevelsForSchema(scope, parsedJson);
+	const schemaErrors = Array.from(Value.Errors(TeamProjectConfigSchema, sanitizedJson), (error) => {
+		const code = typeof error === "object" && error !== null && "keyword" in error && typeof error.keyword === "string"
+			? error.keyword
+			: "validation";
+		const fieldPath = typeof error === "object" && error !== null && "instancePath" in error && typeof error.instancePath === "string" && error.instancePath.length > 0
+			? error.instancePath
+			: undefined;
+		return makeDiagnostic("error", `schema_${code}`, `${scope} config: ${error.message}`, fieldPath);
+	});
+	if (schemaErrors.length > 0) {
+		return { scope, path, fatalDiagnostics: schemaErrors };
+	}
+
+	return {
+		scope,
+		path,
+		layerRoot,
+		requireInsideLayerRoot,
+		parsed: sanitizedJson as TeamProjectConfigFile,
+		diagnostics: [],
+		thinkingLevelWarnings,
+	};
+}
+
+function isFatalLayerParse(value: ParsedLayer | { fatalDiagnostics: ProjectConfigDiagnostic[] }): value is { fatalDiagnostics: ProjectConfigDiagnostic[]; scope: TeamConfigScope; path: string } {
+	return "fatalDiagnostics" in value;
+}
+
+function makeActiveConfigFreshness(
+	winningScope: TeamConfigScope,
+	layers: TeamProjectConfigLayer[],
+	fatalScopes: Set<TeamConfigScope>,
+): ActiveTeamConfigFreshness {
+	const activeLayer = layers.find((layer) => layer.scope === winningScope);
+	if (!activeLayer) {
+		return {
+			kind: "none",
+			parseStatus: "none",
+			scaffoldVersionMissing: false,
+			scaffoldStale: false,
+		};
+	}
+
+	return {
+		kind: "layer",
+		scope: activeLayer.scope,
+		path: activeLayer.path,
+		parseStatus: activeLayer.schemaMismatch ? "schema-mismatch" : fatalScopes.has(activeLayer.scope) ? "fatal" : "valid",
+		scaffoldVersion: activeLayer.scaffoldVersion,
+		scaffoldVersionMissing: activeLayer.scaffoldVersion === undefined,
+		scaffoldStale: activeLayer.scaffoldStale === true,
+		rawSchemaVersion: activeLayer.rawSchemaVersion,
+	};
+}
+
+export interface LoadActiveTeamConfigOptions {
+	cwd: string;
+	baseConfig?: TeamConfig;
+	/**
+	 * Whether to consider the nearest project-local `.pi/agent/agents-team.json`.
+	 * Defaults to true for direct loader callers. The extension passes false until
+	 * Pi's project-trust decision says project-local resources are trusted.
+	 */
+	projectConfigTrusted?: boolean;
+	/**
+	 * Override the global config lookup.
+	 * - `undefined` (default): probe `~/.pi/agent/agents-team.json`.
+	 * - `null`: skip the global probe entirely (used by tests for isolation).
+	 * - `string`: treat this as the global config path; load if the file exists.
+	 */
+	globalConfigPath?: string | null;
+}
+
+export function loadActiveTeamConfig(options: LoadActiveTeamConfigOptions = { cwd: process.cwd() }): LoadedTeamProjectConfig {
+	const baseConfig = cloneTeamConfig(options.baseConfig ?? DEFAULT_TEAM_CONFIG);
+
+	let globalPath: string | undefined;
+	if (options.globalConfigPath === null) {
+		globalPath = undefined;
+	} else if (typeof options.globalConfigPath === "string") {
+		globalPath = existsSync(options.globalConfigPath) ? options.globalConfigPath : undefined;
+	} else {
+		globalPath = findGlobalProjectConfigPath();
+	}
+	const projectPath = options.projectConfigTrusted === false
+		? undefined
+		: findNearestProjectConfigPath(options.cwd);
+
+	const layers: TeamProjectConfigLayer[] = [];
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	const thinkingLevelWarnings: ThinkingLevelConfigWarning[] = [];
+	const parsedLayers: ParsedLayer[] = [];
+	const fatalScopes = new Set<TeamConfigScope>();
+	// Hold per-scope fatal-parse diagnostics until we know which scope wins.
+	// Only the winning scope's fatal diagnostic counts toward the "has errors →
+	// invalid" gate below; a fatal global in a project-winning session is
+	// diagnostic-only so the valid project config still loads.
+	const fatalDiagnosticsByScope = new Map<TeamConfigScope, ProjectConfigDiagnostic[]>();
+
+	for (const [scope, path] of [["global", globalPath], ["project", projectPath]] as const) {
+		if (!path) continue;
+		const result = parseLayer(scope, path);
+		if (isFatalLayerParse(result)) {
+			fatalDiagnosticsByScope.set(result.scope, result.fatalDiagnostics);
+			layers.push({ scope: result.scope, path: result.path });
+			fatalScopes.add(result.scope);
+			continue;
+		}
+		thinkingLevelWarnings.push(...result.thinkingLevelWarnings);
+		// Accept the current field names; also read legacy field names so old files
+		// can be detected and warned about rather than parse-failing silently.
+		const parsedAny = result.parsed as unknown as {
+			schemaVersion?: unknown;
+			version?: unknown;
+			scaffoldVersion?: unknown;
+			defaultsVersion?: unknown;
+		};
+		const layerScaffoldVersion =
+			typeof parsedAny.scaffoldVersion === "number"
+				? parsedAny.scaffoldVersion
+				: typeof parsedAny.defaultsVersion === "number"
+					? parsedAny.defaultsVersion
+					: undefined;
+		const rawSchemaVersion =
+			typeof parsedAny.schemaVersion === "number"
+				? parsedAny.schemaVersion
+				: typeof parsedAny.version === "number"
+					? parsedAny.version
+					: undefined;
+		const schemaMismatch =
+			rawSchemaVersion === undefined ||
+			!(TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED as readonly number[]).includes(rawSchemaVersion);
+
+		if (schemaMismatch) {
+			// Don't use this layer's roles. For the project scope this intentionally
+			// does NOT let a valid global layer take over — see finding 1 fix in the
+			// winning-layer selection below. Users re-scaffold via /team-init.
+			const initSubcommand = scope === "project" ? "local" : "global";
+			diagnostics.push(
+				makeDiagnostic(
+					"warning",
+					"schema_version_mismatch",
+					`${scope} ${TEAM_PROJECT_CONFIG_FILE} at ${path} uses schemaVersion ${rawSchemaVersion ?? "?"} (supported: ${TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED.join(", ")}). Run /team-init ${initSubcommand} --force to regenerate with current best-practice defaults (the old file will be backed up first).`,
+				),
+			);
+			layers.push({
+				scope: result.scope,
+				path: result.path,
+				enabled: result.parsed.enabled,
+				scaffoldVersion: layerScaffoldVersion,
+				scaffoldStale: layerScaffoldVersion !== undefined && layerScaffoldVersion !== CURRENT_SCAFFOLD_VERSION,
+				schemaMismatch: true,
+				rawSchemaVersion,
+			});
+			continue;
+		}
+
+		parsedLayers.push(result);
+		layers.push({
+			scope: result.scope,
+			path: result.path,
+			enabled: result.parsed.enabled,
+			scaffoldVersion: layerScaffoldVersion,
+			scaffoldStale: layerScaffoldVersion !== undefined && layerScaffoldVersion !== CURRENT_SCAFFOLD_VERSION,
+			rawSchemaVersion,
+		});
+	}
+
+	let enabled = true;
+	let enabledSource: TeamEnabledSource = "default";
+	for (const layer of layers) {
+		if (layer.enabled === undefined) continue;
+		enabled = layer.enabled;
+		enabledSource = layer.scope;
+	}
+
+	// Pick the winning layer based on FILE PRESENCE first, not validity. If a
+	// project file exists (valid, mismatched, or fatal-parse), project wins — a
+	// stale/broken project must NOT let global silently take over, because that
+	// would let a stale local config resurface broader global roles in a repo
+	// that explicitly narrowed them. Rule: project > global by presence;
+	// invalid/fatal winning layer → built-in fallback for that scope (or invalid
+	// status when the winning layer's parse was fatal), never
+	// downshift-to-other-layer.
+	const projectLayer = parsedLayers.find((layer) => layer.scope === "project");
+	const globalLayer = parsedLayers.find((layer) => layer.scope === "global");
+	const projectFilePresent = projectPath !== undefined;
+	const winningScope: TeamConfigScope = projectFilePresent ? "project" : "global";
+	const activeConfigFreshness = makeActiveConfigFreshness(winningScope, layers, fatalScopes);
+
+	let winningLayer: ParsedLayer | undefined;
+	if (projectFilePresent) {
+		// Project wins by presence. If it parsed cleanly, use it; otherwise we
+		// explicitly fall through to built-ins (winningLayer stays undefined).
+		winningLayer = projectLayer;
+	} else {
+		winningLayer = globalLayer;
+	}
+
+	// Read persistedRoutingMode from the winning layer ONLY. Same rule as
+	// profiles: a project file present-but-mismatched must NOT let global
+	// values bleed through. If the winning layer is undefined (mismatched or
+	// fatal), persistedRoutingMode stays undefined and deriveInitialRoutingMode
+	// falls back to "team" when delegation is on.
+	const persistedRoutingMode: "team" | "solo" | undefined =
+		winningLayer?.parsed.routingMode === "team" || winningLayer?.parsed.routingMode === "solo"
+			? winningLayer.parsed.routingMode
+			: undefined;
+
+	// Read display.cost from the winning layer; default true when absent.
+	const displayCost: boolean = winningLayer?.parsed.display?.cost ?? true;
+
+	// A fatal parse error on the WINNING layer disables delegation (the user's
+	// intended config is broken and they need a diagnostic). A fatal parse on a
+	// non-winning layer is surfaced as a diagnostic but doesn't block the
+	// winning layer from taking effect. Pre-fix, any fatal parse (including a
+	// broken global) short-circuited here and disabled delegation machine-wide.
+	if (fatalScopes.has(winningScope)) {
+		// Promote every fatal diagnostic to the main stream — the user needs to
+		// see both the winning-layer parse error AND any non-winning ones.
+		for (const fatalDiagnostics of fatalDiagnosticsByScope.values()) {
+			diagnostics.push(...fatalDiagnostics);
+		}
+		return {
+			status: "invalid",
+			config: baseConfig,
+			sourcePath: projectPath ?? globalPath,
+			projectRoot: projectPath ? computeLayerRoot("project", projectPath) : options.cwd,
+			layers,
+			activeConfigFreshness,
+			enabled,
+			enabledSource,
+			diagnostics,
+			delegationEnabled: false,
+			persistedRoutingMode,
+			displayCost,
+			thinkingLevelWarnings,
+		};
+	}
+
+	// Non-winning fatal diagnostics are still worth showing — but they must not
+	// trigger the "has errors → invalid" gate below. We add them to the main
+	// diagnostics stream AFTER the gate.
+	const nonWinningFatalDiagnostics: ProjectConfigDiagnostic[] = [];
+	for (const [scope, fatalDiagnostics] of fatalDiagnosticsByScope) {
+		if (scope !== winningScope) nonWinningFatalDiagnostics.push(...fatalDiagnostics);
+	}
+
+	let profiles: TeamProfileSpec[];
+	if (!winningLayer || !winningLayer.parsed.roles || Object.keys(winningLayer.parsed.roles).length === 0) {
+		profiles = baseConfig.profiles.map(cloneProfile);
+	} else {
+		const roles = winningLayer.parsed.roles as Record<string, RawProjectRoleConfig>;
+		const application: LayerApplication = {
+			scope: winningLayer.scope,
+			layerRoot: winningLayer.layerRoot,
+			layerPath: winningLayer.path,
+			requireInsideLayerRoot: winningLayer.requireInsideLayerRoot,
+			allowWorkerPathsOutsideProject: winningLayer.parsed.workerAccess?.allowPathsOutsideProject !== false,
+			roles,
+		};
+		profiles = Object.entries(roles).map(([roleName, rawRoleConfig]) => {
+			const { profile, diagnostics: profileDiagnostics } = materializeRoleProfile(roleName, rawRoleConfig, application);
+			diagnostics.push(...profileDiagnostics);
+			return profile;
+		});
+	}
+
+	if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+		// Include non-winning fatal diagnostics so the user sees both broken
+		// layers in the error report.
+		diagnostics.push(...nonWinningFatalDiagnostics);
+		return {
+			status: "invalid",
+			config: baseConfig,
+			sourcePath: projectPath ?? globalPath,
+			projectRoot: projectPath ? computeLayerRoot("project", projectPath) : options.cwd,
+			layers,
+			activeConfigFreshness,
+			enabled,
+			enabledSource,
+			diagnostics,
+			delegationEnabled: false,
+			persistedRoutingMode,
+			displayCost,
+			thinkingLevelWarnings,
+		};
+	}
+
+	// Winning layer is clean. Merge in any non-winning fatal diagnostics as
+	// diagnostics-only (user sees "global is broken, using project") without
+	// disabling delegation.
+	diagnostics.push(...nonWinningFatalDiagnostics);
+
+	// If no layer actually supplied profiles (no valid layers, OR project was
+	// mismatched and we intentionally didn't fall through to global), report
+	// "builtin" so callers don't pretend a user file was loaded. projectRoot
+	// still defaults to cwd so prompt containment has a project anchor and
+	// launch-policy can enforce the explicit allowPathsOutsideProject: false
+	// restriction. Outside-project path scopes remain allowed by default, but
+	// no-config setups should not leave projectRoot undefined.
+	if (parsedLayers.length === 0 || !winningLayer) {
+		return {
+			status: "builtin",
+			config: {
+				...baseConfig,
+				safety: {
+					...baseConfig.safety,
+					projectRoot: projectPath ? computeLayerRoot("project", projectPath) : options.cwd,
+				},
+			},
+			layers,
+			activeConfigFreshness,
+			enabled,
+			enabledSource,
+			diagnostics,
+			delegationEnabled: true,
+			persistedRoutingMode,
+			displayCost,
+			thinkingLevelWarnings,
+		};
+	}
+
+	for (const layer of layers) {
+		if (layer.schemaMismatch) continue; // already announced as a warning
+		diagnostics.unshift(
+			makeDiagnostic("info", "project_config_loaded", `Loaded ${layer.scope} ${TEAM_PROJECT_CONFIG_FILE} from ${layer.path}`),
+		);
+	}
+
+	const projectRoot = projectPath ? computeLayerRoot("project", projectPath) : options.cwd;
+	const allowWorkerPathsOutsideProject = winningLayer.parsed.workerAccess?.allowPathsOutsideProject !== false;
+
+	return {
+		status: "project",
+		config: {
+			...baseConfig,
+			safety: {
+				...baseConfig.safety,
+				allowWorkerPathsOutsideProject,
+				allowProjectProfiles: true,
+				projectRoot,
+			},
+			profiles,
+		},
+		sourcePath: projectPath ?? globalPath,
+		projectRoot,
+		layers,
+		activeConfigFreshness,
+		enabled,
+		enabledSource,
+		diagnostics,
+		delegationEnabled: true,
+		persistedRoutingMode,
+		displayCost,
+		thinkingLevelWarnings,
+	};
+}
+
+export function formatProjectConfigDiagnostics(result: LoadedTeamProjectConfig): string {
+	if (result.diagnostics.length === 0) return "No project config diagnostics.";
+	return result.diagnostics
+		.filter((diagnostic) => PROJECT_CONFIG_DIAGNOSTIC_SEVERITIES.includes(diagnostic.severity))
+		.map((diagnostic) => `${diagnostic.severity.toUpperCase()}: ${diagnostic.message}${diagnostic.fieldPath ? ` (${diagnostic.fieldPath})` : ""}`)
+		.join("\n");
+}
+
+export function isProjectConfigStatus(value: string): value is LoadedTeamProjectConfig["status"] {
+	return PROJECT_CONFIG_STATUSES.includes(value as LoadedTeamProjectConfig["status"]);
+}
+
+export const _internalProjectConfigPaths = {
+	TEAM_PROJECT_CONFIG_DIR,
+	TEAM_PROJECT_CONFIG_FILE,
+	TEAM_PROJECT_CONFIG_RELATIVE_PATH,
+};
