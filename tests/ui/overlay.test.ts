@@ -1,5 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmodSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { createDefaultTeamState } from "../../src/config";
@@ -60,7 +64,7 @@ function makeFakeTheme(): Theme {
 		inverse: (text: string) => `\x1b[7m${text}\x1b[0m`,
 	} as unknown as Theme;
 }
-import type { AssistantChunk, WorkerConsoleEvent } from "../../src/runtime/worker-manager";
+import type { AssistantChunk, WorkerActivityEvent, WorkerConsoleEvent } from "../../src/runtime/worker-manager";
 import type { PersistedTeamState, WorkerRuntimeState, WorkerStatus } from "../../src/types";
 
 function makeWorker(overrides: Partial<WorkerRuntimeState> & { workerId: string; status: WorkerStatus }): WorkerRuntimeState {
