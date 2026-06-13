@@ -145,6 +145,8 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	assistantChunks: AssistantChunk[];
 	assistantChunkBytes: number;
 	assistantNextIndex: number;
+	activityNextIndex: number;
+	finalSummaryKeys: Set<string>;
 }
 
 function emptyUsage(): WorkerUsageStats {
@@ -258,6 +260,10 @@ function buildFinalSummary(finalAnswer: string): { summary: string; fields: Work
 	return { summary: trimSummary(pieces.length > 0 ? pieces.join(" · ") : finalAnswer, 360), fields };
 }
 
+function finalSummaryKey(finalAnswer: string): string {
+	return finalAnswer.replace(/\s+/g, " ").trim();
+}
+
 function buildSummary(state: WorkerRuntimeState, text: string): WorkerSummary {
 	const summary = buildWorkerSummaryFromText(text || state.currentTask?.title || `${state.profileName}:${state.status}`, state);
 	return {
@@ -347,6 +353,8 @@ export class WorkerManager {
 			assistantChunks: [],
 			assistantChunkBytes: 0,
 			assistantNextIndex: 0,
+			activityNextIndex: 0,
+			finalSummaryKeys: new Set(),
 			launchSnapshot: {
 				cwd: options.cwd,
 				command: options.command,
@@ -464,6 +472,8 @@ export class WorkerManager {
 		record.assistantChunks = [];
 		record.assistantChunkBytes = 0;
 		record.assistantNextIndex = 0;
+		record.activityNextIndex = 0;
+		record.finalSummaryKeys = new Set();
 		// Reuse keeps the same RPC session and launch-time model/thinking flags,
 		// so the post-launch clamp comparison remains valid for the reused task.
 		await this.promptWorker(workerId, message);
@@ -621,7 +631,33 @@ export class WorkerManager {
 	}
 
 	private nextActivityId(record: WorkerRuntimeRecord, sourceEvent: WorkerActivityEvent["sourceEvent"], timestamp: number): string {
-		return `${record.workerId}:${sourceEvent}:${timestamp}:${record.activity.length}`;
+		const index = record.activityNextIndex;
+		record.activityNextIndex += 1;
+		return `${record.workerId}:${sourceEvent}:${timestamp}:${index}`;
+	}
+
+	private appendFinalSummaryActivity(
+		record: WorkerRuntimeRecord,
+		sourceEvent: WorkerActivityEvent["sourceEvent"],
+		ts: number,
+		finalAnswer: string,
+	): void {
+		const key = finalSummaryKey(finalAnswer);
+		if (record.finalSummaryKeys.has(key)) return;
+		record.finalSummaryKeys.add(key);
+		record.state.finalAnswer = finalAnswer;
+		const finalSummary = buildFinalSummary(finalAnswer);
+		this.appendActivity(record, {
+			id: this.nextActivityId(record, sourceEvent, ts),
+			ts,
+			updatedAt: ts,
+			actionKind: "final_summary",
+			status: "completed",
+			label: "Final answer",
+			summary: finalSummary.summary,
+			sourceEvent,
+			finalSummaryFields: finalSummary.fields,
+		});
 	}
 
 	private flushPendingText(record: WorkerRuntimeRecord): void {
@@ -634,20 +670,9 @@ export class WorkerManager {
 			kind: "assistant_text",
 			text,
 		});
-		const finalAnswer = extractFinalAnswer(pendingText);
+		const finalAnswer = extractFinalAnswer(pendingText) ?? extractFinalAnswer(record.textBuffer);
 		if (finalAnswer) {
-			const finalSummary = buildFinalSummary(finalAnswer);
-			this.appendActivity(record, {
-				id: this.nextActivityId(record, "worker_text_flush", ts),
-				ts,
-				updatedAt: ts,
-				actionKind: "final_summary",
-				status: "completed",
-				label: "Final answer",
-				summary: finalSummary.summary,
-				sourceEvent: "worker_text_flush",
-				finalSummaryFields: finalSummary.fields,
-			});
+			this.appendFinalSummaryActivity(record, "worker_text_flush", ts, finalAnswer);
 		} else if (!/<final[_\s-]?answer\b|<\/final[_\s-]?answer>/i.test(pendingText)) {
 			this.appendActivity(record, {
 				id: this.nextActivityId(record, "worker_text_flush", ts),
@@ -720,9 +745,6 @@ export class WorkerManager {
 				if (assistantText) {
 					record.textBuffer = assistantText;
 					const finalAnswer = extractFinalAnswer(assistantText);
-					if (finalAnswer) {
-						record.state.finalAnswer = finalAnswer;
-					}
 					record.state.pendingRelayQuestions = extractRelayQuestions(assistantText, record.state);
 					record.state.lastSummary = buildSummary(record.state, assistantText);
 					this.appendConsole(record, {
@@ -731,18 +753,7 @@ export class WorkerManager {
 						text: trimSummary(finalAnswer ?? assistantText, 600),
 					});
 					if (finalAnswer) {
-						const finalSummary = buildFinalSummary(finalAnswer);
-						this.appendActivity(record, {
-							id: this.nextActivityId(record, event.type, event.timestamp),
-							ts: event.timestamp,
-							updatedAt: event.timestamp,
-							actionKind: "final_summary",
-							status: "completed",
-							label: "Final answer",
-							summary: finalSummary.summary,
-							sourceEvent: event.type,
-							finalSummaryFields: finalSummary.fields,
-						});
+						this.appendFinalSummaryActivity(record, event.type, event.timestamp, finalAnswer);
 					} else {
 						this.appendActivity(record, {
 							id: this.nextActivityId(record, event.type, event.timestamp),

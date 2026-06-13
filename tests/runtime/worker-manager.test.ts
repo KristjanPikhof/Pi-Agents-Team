@@ -1013,6 +1013,80 @@ test("activity stream classifies streamed final-answer deltas instead of exposin
 	assert.equal(rawTaggedThinking, undefined);
 });
 
+test("activity stream preserves split streamed final-answer blocks across read-side flushes", async () => {
+	const finalAnswerBody = [
+		"headline: split stream summary",
+		"risks:",
+		"- flush boundary handled",
+		"next_recommendation: merge after review",
+	].join("\n");
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-split-final",
+		profileName: "reviewer",
+		task: taskInput("task-split-final", "Split final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-split-final", "stream split final answer");
+	await waitForMicrotasks();
+
+	manager.getWorkerActivity("worker-split-final");
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "\n<final_answer>\nheadline: split" } });
+	await waitForMicrotasks();
+	manager.getWorkerActivity("worker-split-final");
+	transport.writeEvent({
+		type: "message_update",
+		assistantMessageEvent: { type: "text_delta", delta: ` stream summary\n${finalAnswerBody.split("\n").slice(1).join("\n")}\n</final_answer>` },
+	});
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-split-final") ?? [];
+	const finalEntries = activity.filter((event) => event.actionKind === "final_summary");
+	assert.equal(finalEntries.length, 1);
+	assert.equal(finalEntries[0].finalSummaryFields?.headline, "split stream summary");
+	assert.equal(finalEntries[0].finalSummaryFields?.nextRecommendation, "merge after review");
+	assert.equal(manager.getWorker("worker-split-final")?.state.finalAnswer, finalAnswerBody);
+	const rawTaggedThinking = activity.find((event) => event.actionKind === "process" && /<\/?final[_\s-]?answer>/i.test(event.summary ?? ""));
+	assert.equal(rawTaggedThinking, undefined);
+});
+
+test("activity stream dedupes streamed and canonical final-answer summaries", async () => {
+	const finalAnswer = [
+		"headline: one canonical summary",
+		"risks:",
+		"- duplicate suppressed",
+		"next_recommendation: ship once",
+	].join("\n");
+	const finalAnswerText = `<final_answer>\n${finalAnswer}\n</final_answer>`;
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-dedupe-final",
+		profileName: "reviewer",
+		task: taskInput("task-dedupe-final", "Dedupe final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-dedupe-final", "stream then end");
+	await waitForMicrotasks();
+
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: finalAnswerText } });
+	await waitForMicrotasks();
+	manager.getWorkerActivity("worker-dedupe-final");
+	transport.completePrompt(`preamble\n${finalAnswerText}\ntrailing`);
+	await waitForMicrotasks();
+
+	const finalEntries = (manager.getWorkerActivity("worker-dedupe-final") ?? []).filter((event) => event.actionKind === "final_summary");
+	assert.equal(finalEntries.length, 1);
+	assert.equal(finalEntries[0].finalSummaryFields?.headline, "one canonical summary");
+});
+
 test("activity stream remains bounded independently from console events", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
