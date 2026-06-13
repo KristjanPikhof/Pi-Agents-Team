@@ -103,6 +103,7 @@ export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 // than the panel can display, the bottom (frame + footer) gets cut. Compute
 // our row budget from this constant, not from terminal rows directly.
 const OVERLAY_HEIGHT_PCT = 0.9;
+const ROSTER_PAGE_SIZE = 30;
 
 const TAB_ORDER: OverlayTab[] = ["workers", "inspect", "console", "cost"];
 const TAB_LABELS: Record<OverlayTab, string> = {
@@ -488,7 +489,7 @@ class RosterSelectList implements Component {
 			scrollInfo: (text) => text,
 			noMatch: (text) => text,
 		};
-		const list = new SelectList(items, items.length, theme);
+		const list = new SelectList(items, Math.min(items.length, ROSTER_PAGE_SIZE), theme);
 		list.setSelectedIndex(safeSelectedIndex);
 		return list.render(width).map((line) => {
 			const plain = stripAnsi(line);
