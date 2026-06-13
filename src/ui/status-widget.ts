@@ -39,6 +39,7 @@ export interface WidgetRenderOptions {
 	displayCost?: boolean;
 	now?: number;
 	theme?: Theme;
+	width?: number;
 }
 
 export function getTeamStatusTip(index: number): string {
@@ -230,6 +231,7 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	const routingMode = options.routingMode ?? "team";
 	const displayCost = options.displayCost !== false;
 	const now = options.now ?? Date.now();
+	const width = options.width ?? HEADER_WIDTH;
 	const palette = widgetPalette(options.theme);
 	const allWorkers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 	const workers = allWorkers.filter((worker) => shouldRenderWorker(worker, now));
@@ -239,7 +241,7 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 		if (allWorkers.length === 0) return [];
 		return [truncateToWidth(palette.dim("Pi Agents Team — solo"), HEADER_WIDTH)];
 	}
-	if (allWorkers.length === 0 && (!displayCost || !buildUsageLine(state))) return [];
+	if (allWorkers.length === 0 && (!displayCost || !buildUsageLine(state, palette))) return [];
 
 	const status = displayCost ? buildStatusRow(state, palette) : { row: buildCountsLine(state, palette), includesUsage: false };
 	const activeCount = allWorkers.filter((worker) => isActiveSurfaceWorker(worker)).length;
@@ -261,5 +263,5 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 		lines.push(...buildWorkerLines(visibleWorkers, frame, now, summaryParts.length > 0, palette));
 		if (summaryParts.length > 0) lines.push(buildAgentsSummaryLine(summaryParts, palette));
 	}
-	return lines.map((line) => truncateToWidth(line, HEADER_WIDTH));
+	return lines.map((line) => truncateToWidth(line, width));
 }

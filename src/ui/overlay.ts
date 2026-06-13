@@ -11,7 +11,30 @@ import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSection
 import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
 import { formatAgentMessageResult } from "./tool-formatters";
-import { FRAME, stripAnsi, themedPalette, type ThemedPalette } from "./theme";
+import { FRAME, stripAnsi, fallbackPalette, themedPalette, type ThemedPalette } from "./theme";
+
+// The overlay is a single-instance custom component. Styling helpers delegate
+// to a mutable palette so the Pi Theme object supplied by ctx.ui.custom can be
+// applied, invalidated, and rebuilt without threading a palette through every
+// standalone helper signature.
+let currentPalette: ThemedPalette = fallbackPalette;
+
+const bold = (text: string): string => currentPalette.bold(text);
+const dim = (text: string): string => currentPalette.dim(text);
+const muted = (text: string): string => currentPalette.muted(text);
+const accent = (text: string): string => currentPalette.accent(text);
+const accentBold = (text: string): string => currentPalette.accentBold(text);
+const success = (text: string): string => currentPalette.success(text);
+const successBold = (text: string): string => currentPalette.successBold(text);
+const warning = (text: string): string => currentPalette.warning(text);
+const warningBold = (text: string): string => currentPalette.warningBold(text);
+const danger = (text: string): string => currentPalette.danger(text);
+const dangerBold = (text: string): string => currentPalette.dangerBold(text);
+const inverse = (text: string): string => currentPalette.inverse(text);
+
+function setPalette(theme?: Theme): void {
+	currentPalette = themedPalette(theme);
+}
 
 type OverlayTab = "workers" | "inspect" | "console" | "cost";
 type LayoutMode = "stack" | "split";
@@ -100,15 +123,15 @@ function appendList(lines: string[], label: string, values: string[]): void {
 	for (const value of values) lines.push(`  ${value}`);
 }
 
-function inspectSection(label: string, palette: ThemedPalette): string {
+function inspectSection(label: string, palette: ThemedPalette = currentPalette): string {
 	return palette.accentBold(label);
 }
 
-function inspectDivider(label: string, palette: ThemedPalette): string {
+function inspectDivider(label: string, palette: ThemedPalette = currentPalette): string {
 	return palette.accent(FRAME.horizontal.repeat(2)) + " " + inspectSection(label, palette) + " " + palette.accent(FRAME.horizontal.repeat(2));
 }
 
-function inspectField(label: string, value: string, palette: ThemedPalette): string {
+function inspectField(label: string, value: string, palette: ThemedPalette = currentPalette): string {
 	return `  ${palette.dim(label)} ${value}`;
 }
 
