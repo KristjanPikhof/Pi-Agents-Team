@@ -23,6 +23,12 @@ export interface WorkerRosterSection {
 
 const DEFAULT_DASHBOARD_WIDTH = 160;
 
+export interface TeamDashboardTextOptions {
+	theme?: Theme;
+	width?: number;
+	displayCost?: boolean;
+}
+
 function sortWorkers(workers: WorkerRuntimeState[]): WorkerRuntimeState[] {
 	return workers.slice().sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
 }
@@ -75,20 +81,31 @@ export function buildCompactTeamSummaryLine(state: PersistedTeamState, theme?: T
 	return `workers ${workerCount} · mode ${mode} · relays ${relays} · ${buildActionSummaryLine(state, theme)}`;
 }
 
-export function buildTeamDashboardLines(state: PersistedTeamState, theme?: Theme, width = DEFAULT_DASHBOARD_WIDTH): string[] {
+export function buildTeamDashboardLines(
+	state: PersistedTeamState,
+	themeOrOptions?: Theme | TeamDashboardTextOptions,
+	width = DEFAULT_DASHBOARD_WIDTH,
+): string[] {
+	const options = themeOrOptions && ("displayCost" in themeOrOptions || "theme" in themeOrOptions || "width" in themeOrOptions)
+		? themeOrOptions as TeamDashboardTextOptions
+		: { theme: themeOrOptions as Theme | undefined, width };
+	const theme = options.theme;
+	const resolvedWidth = options.width ?? width;
+	const displayCost = options.displayCost !== false;
 	const palette = theme ? themedPalette(theme) : undefined;
 	const workers = Object.values(state.activeWorkers);
+	const tabSummary = displayCost ? "Workers / Inspect / Console / Cost" : "Workers / Inspect / Console";
 	const lines = [
-		truncateToWidth(palette ? palette.accentBold("Pi Agents Team Dashboard") : "Pi Agents Team Dashboard", width),
-		truncateToWidth(buildCompactTeamSummaryLine(state, theme), width),
-		truncateToWidth("/team opens a keyboard-first overlay with the complete worker registry grouped by attention.", width),
-		truncateToWidth("Use /team <worker-id> for direct focus, then inspect Workers / Inspect / Console / Cost tabs. Print mode stays summary-only.", width),
-		truncateToWidth("Use /team-result <id> for the final deliverable block.", width),
+		truncateToWidth(palette ? palette.accentBold("Pi Agents Team Dashboard") : "Pi Agents Team Dashboard", resolvedWidth),
+		truncateToWidth(buildCompactTeamSummaryLine(state, theme), resolvedWidth),
+		truncateToWidth("/team opens a keyboard-first overlay with the complete worker registry grouped by attention.", resolvedWidth),
+		truncateToWidth(`Use /team <worker-id> for direct focus, then inspect ${tabSummary} tabs. Print mode stays summary-only.`, resolvedWidth),
+		truncateToWidth("Use /team-result <id> for the final deliverable block.", resolvedWidth),
 		"",
 	];
 
 	if (workers.length === 0) {
-		lines.push(truncateToWidth(palette ? palette.dim("No tracked workers.") : "No tracked workers.", width));
+		lines.push(truncateToWidth(palette ? palette.dim("No tracked workers.") : "No tracked workers.", resolvedWidth));
 		return lines;
 	}
 
@@ -97,17 +114,17 @@ export function buildTeamDashboardLines(state: PersistedTeamState, theme?: Theme
 		const sectionHeader = palette
 			? `${palette.accentBold(section.label)} (${palette.bold(String(section.workers.length))})`
 			: `${section.label} (${section.workers.length})`;
-		lines.push(truncateToWidth(sectionHeader, width));
+		lines.push(truncateToWidth(sectionHeader, resolvedWidth));
 		for (const worker of section.workers) {
-			lines.push(truncateToWidth(`- ${formatWorkerLabel(worker)} — ${buildWorkerPrioritySnippet(worker)}`, width, "…"));
+			lines.push(truncateToWidth(`- ${formatWorkerLabel(worker)} — ${buildWorkerPrioritySnippet(worker)}`, resolvedWidth, "…"));
 			lines.push(
-				truncateToWidth(`  status: ${worker.status} (${formatWorkerStatusLabel(worker)}) · action: ${getWorkerPrimaryAction(worker)}`, width, "…"),
+				truncateToWidth(`  status: ${worker.status} (${formatWorkerStatusLabel(worker)}) · action: ${getWorkerPrimaryAction(worker)}`, resolvedWidth, "…"),
 			);
-			if (worker.currentTask?.title) lines.push(truncateToWidth(`  task: ${worker.currentTask.title}`, width, "…"));
+			if (worker.currentTask?.title) lines.push(truncateToWidth(`  task: ${worker.currentTask.title}`, resolvedWidth, "…"));
 			lines.push(
 				truncateToWidth(
 					`  usage: turns=${worker.usage.turns} input=${formatCompactTokenCount(worker.usage.inputTokens)} output=${formatCompactTokenCount(worker.usage.outputTokens)}`,
-					width,
+					resolvedWidth,
 					"…",
 				),
 			);
@@ -118,6 +135,10 @@ export function buildTeamDashboardLines(state: PersistedTeamState, theme?: Theme
 	return lines;
 }
 
-export function buildTeamDashboardText(state: PersistedTeamState, theme?: Theme, width = DEFAULT_DASHBOARD_WIDTH): string {
-	return buildTeamDashboardLines(state, theme, width).join("\n");
+export function buildTeamDashboardText(
+	state: PersistedTeamState,
+	themeOrOptions?: Theme | TeamDashboardTextOptions,
+	width = DEFAULT_DASHBOARD_WIDTH,
+): string {
+	return buildTeamDashboardLines(state, themeOrOptions, width).join("\n");
 }

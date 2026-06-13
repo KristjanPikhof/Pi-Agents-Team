@@ -1385,7 +1385,8 @@ export async function openTeamDashboardOverlay(
 
 	await ctx.ui.custom<void>(
 		(tui, theme, _keybindings, done) => {
-			const loader = new BorderedLoader(tui, theme as Theme, "Loading team dashboard…", { cancellable: false });
+			const resolvedTheme = resolveTheme(theme as Theme | undefined);
+			const loader = new BorderedLoader(tui, resolvedTheme, "Loading team dashboard…", { cancellable: false });
 			const wrapper = new DashboardLoader(loader);
 			const timeoutMs = Math.max(0, options.initialRefreshTimeoutMs ?? TEAM_DASHBOARD_INITIAL_REFRESH_TIMEOUT_MS);
 			let dashboardShown = false;
@@ -1396,13 +1397,13 @@ export async function openTeamDashboardOverlay(
 				const resolvedFocusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
 					? options.initialWorkerId
 					: focusWorkerId;
-				wrapper.replace(createTeamDashboardOverlayComponent(
-					tui as TUI,
-					teamManager as unknown as OverlayTeamManager,
-					state,
-					done,
-					{ initialWorkerId: resolvedFocusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme },
-				));
+					wrapper.replace(createTeamDashboardOverlayComponent(
+						tui as TUI,
+						teamManager as unknown as OverlayTeamManager,
+						state,
+						done,
+						{ initialWorkerId: resolvedFocusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme: resolvedTheme },
+					));
 				tui.requestRender();
 			};
 			const timer = setTimeout(showDashboard, timeoutMs);
