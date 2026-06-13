@@ -28,7 +28,9 @@ export function registerTeamCommand(pi: ExtensionAPI, dependencies: CommandRegis
 			const input = args.trim();
 			const emitDashboardText = async () => {
 				await dependencies.teamManager.pingWorkers({ mode: "active" }).catch(() => {});
-				dependencies.emitText(ctx, buildTeamDashboardText(dependencies.teamManager.snapshot()));
+				dependencies.emitText(ctx, buildTeamDashboardText(dependencies.teamManager.snapshot(), {
+					displayCost: dependencies.teamManager.displayCost,
+				}));
 			};
 			if (!input) {
 				if (ctx.mode === "tui") await openTeamDashboardOverlay(ctx, dependencies.teamManager);
