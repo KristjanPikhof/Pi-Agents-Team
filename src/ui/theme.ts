@@ -82,3 +82,16 @@ export const FRAME = {
 export function stripAnsi(text: string): string {
 	return text.replace(/\x1b\[[0-9;]*m/g, "");
 }
+
+// Worker-controlled text must be inert before it reaches terminal render/copy
+// surfaces. Keep this separate from trusted theme styling: apply it to raw
+// worker payloads first, then wrap the result with Pi-owned colors.
+export function sanitizeTerminalText(text: string): string {
+	return text
+		.replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)|\x9d[\s\S]*?(?:\x07|\x9c)/g, "")
+		.replace(/\x1b[P^_][\s\S]*?(?:\x1b\\|\x9c)/g, "")
+		.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x9b[0-?]*[ -/]*[@-~]/g, "")
+		.replace(/\x1b[\(\)#%*+\-.\/0-?]*[ -/]*[@-~]?/g, "")
+		.replace(/\t/g, "    ")
+		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
+}
