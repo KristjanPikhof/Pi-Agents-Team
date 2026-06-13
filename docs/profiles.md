@@ -186,9 +186,14 @@ Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-co
 | `access.write` | boolean | `false` | `true` allows `edit`/`write`. Requires a `pathScope` at delegate time (platform-level safety). |
 | `access.pathScope` | object | omitted | Default path scope for this role. The orchestrator can also pass `pathScopeRoots` at delegate time. |
 | `access.extensionMode` | string | `"worker-minimal"` | `"worker-minimal"` or `"disable"`. `"inherit"` is rejected to prevent recursive orchestrators. |
+| `access.extensions` | string[] | omitted | Explicit Pi extension sources for this role's workers. Use this for provider/model extensions that must be loaded before the worker model is selected. |
 | `access.canSpawnWorkers` | boolean | `false` | Reserved for role metadata. Workers still run as background RPC peers, not nested user-facing agents. |
 
 Project Trust is not a role field. Worker launches inside the active project root get `--approve` or `--no-approve` from the orchestrator's current session trust. Launches outside that root, or host contexts that unexpectedly provide no trust decision, get no trust override.
+
+`access.extensions` accepts the same source strings Pi accepts for `--extension`/`-e`: local paths, npm specs, and git/http sources. Local relative paths resolve from the `agents-team.json` layer root. In `worker-minimal` mode the worker still starts with `--no-extensions`; the runtime then passes each listed source with `--extension`, so ambient discovery stays disabled while explicitly listed provider extensions can run. `access.extensionMode: "disable"` cannot be combined with `access.extensions`.
+
+Use `access.extensions` for extensions that call `pi.registerProvider()` and make custom model IDs available during worker startup. Do not put the team extension itself there: `pi-agents-team`, `npm:pi-agents-team`, and this package's own extension entrypoints are rejected to prevent recursive orchestrators.
 
 ### Writing a good `whenToUse`
 
@@ -231,16 +236,20 @@ Inline text is the escape hatch when you don't want to maintain a separate markd
 
 ## Common recipes
 
-### Pin a specific model for one role
+### Pin a custom provider model for one role
 
 ```json
 "oracle": {
-  "model": "<provider>/<model-id>",
-  "thinkingLevel": "xhigh"
+  "model": "myAnthropic/claude-opus-4-7",
+  "thinkingLevel": "xhigh",
+  "access": {
+    "extensionMode": "worker-minimal",
+    "extensions": ["./extensions/myAnthropic-provider.ts"]
+  }
 }
 ```
 
-Replace `<provider>/<model-id>` with an actual canonical Pi model ID (check your Pi install's available models — the exact set depends on configured providers).
+Replace the extension source with the path, npm spec, or git/http source that registers your provider with `pi.registerProvider`. At launch, the worker receives `--no-extensions --extension ./extensions/myAnthropic-provider.ts`; Pi can then resolve `myAnthropic/claude-opus-4-7` before the RPC worker starts.
 
 Everything else (access, prompt) falls through to the built-in `oracle` defaults because the role name matches a packaged one.
 
@@ -345,7 +354,7 @@ Both constants live in `src/project-config/versions.ts` (currently `schemaVersio
 
 The loader trusts whatever you put in the file. `launch-policy.ts` runs every time `delegate_task` fires and enforces invariants that can't be turned off:
 
-1. **No recursive orchestrators.** `access.extensionMode: "inherit"` is rejected at load time. Launch-time overrides to `inherit` are also rejected.
+1. **No recursive orchestrators.** `access.extensionMode: "inherit"` is rejected at load time. Launch-time overrides to `inherit` are also rejected. `access.extensions` sources that would load `pi-agents-team` itself are rejected for the same reason.
 2. **Writable roles need a `pathScope`.** Any role with `access.write: true` — or `access.tools` containing `edit` / `write` — must have a path scope at delegate time, either in `access.pathScope` or passed via `pathScopeRoots` on the `delegate_task` call. No "write anywhere" workers.
 3. **Path scope roots may leave the project root by default.** Set `workerAccess.allowPathsOutsideProject: false` in the winning config to restrict delegated worker `pathScope` roots to `safety.projectRoot` (the project root when a project config exists, else the current cwd). Prompt paths always stay inside the project root/current cwd. When restriction is enabled, symlink escapes are checked with `realpathSync.native`, so the loader/launcher compare real locations, not just lexical paths.
 4. **Prompt paths must stay inside the project root.** Same containment check as path scope roots. Pre-fix, the check was lexical only — a symlink under the project root pointing at `~/.ssh` would pass; the loader now calls `realpathSync.native` and rejects.

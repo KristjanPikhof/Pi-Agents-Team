@@ -36,6 +36,7 @@ export interface LaunchWorkerOptions {
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
+	workerExtensions?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
 	projectTrust?: WorkerProjectTrustOverride;
@@ -84,9 +85,12 @@ const ASSISTANT_BUFFER_BYTE_CAP = 256 * 1024;
 
 export interface WorkerLaunchSnapshot {
 	cwd: string;
+	command?: string;
+	baseArgs?: string[];
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
+	workerExtensions?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
 	projectTrust?: WorkerProjectTrustOverride;
@@ -217,6 +221,7 @@ function createWorkerProcessOptions(options: LaunchWorkerOptions): WorkerProcess
 		model: options.model,
 		thinkingLevel: options.thinkingLevel,
 		tools: options.tools,
+		workerExtensions: options.workerExtensions,
 		systemPromptPath: options.systemPromptPath,
 		extensionMode: options.extensionMode,
 		projectTrust: options.projectTrust,
@@ -263,9 +268,12 @@ export class WorkerManager {
 			assistantNextIndex: 0,
 			launchSnapshot: {
 				cwd: options.cwd,
+				command: options.command,
+				baseArgs: options.baseArgs ? [...options.baseArgs] : undefined,
 				model: options.model,
 				thinkingLevel: options.thinkingLevel,
 				tools: options.tools ? [...options.tools] : undefined,
+				workerExtensions: options.workerExtensions ? [...options.workerExtensions] : undefined,
 				systemPromptPath: options.systemPromptPath,
 				extensionMode: options.extensionMode,
 				projectTrust: options.projectTrust,
@@ -292,14 +300,37 @@ export class WorkerManager {
 			}),
 		);
 
-		handle.waitForExit().then((exitInfo) => {
-			const event = createWorkerExitEvent(exitInfo.code, exitInfo.signal, handle.stderrBuffer);
-			this.applyNormalizedEvent(record, event);
+		let launchCommitted = false;
+		const exitPromise = handle.waitForExit().then((exitInfo) => {
+			if (launchCommitted) {
+				const event = createWorkerExitEvent(exitInfo.code, exitInfo.signal, handle.stderrBuffer, exitInfo.error?.message);
+				this.applyNormalizedEvent(record, event);
+			}
+			return exitInfo;
 		});
 
-		const state = await this.refreshState(options.workerId);
-		this.detectThinkingClamp(record, state);
-		return this.snapshot(options.workerId)!;
+		try {
+			const state = await Promise.race([
+				this.refreshState(options.workerId),
+				exitPromise.then((exitInfo) => {
+					throw exitInfo.error ?? new Error("Worker exited before launch completed");
+				}),
+			]);
+			launchCommitted = true;
+			this.detectThinkingClamp(record, state);
+			return this.snapshot(options.workerId)!;
+		} catch (error) {
+			for (const off of record.unsubscribers) off();
+			record.client.dispose("Worker launch failed");
+			this.workers.delete(options.workerId);
+			try {
+				await handle.dispose();
+			} catch {
+				// Best-effort cleanup after launch failure.
+			}
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			throw new Error(`Worker launch failed for ${options.workerId}: ${errorMessage}`);
+		}
 	}
 
 	hasWorker(workerId: string): boolean {
@@ -308,7 +339,12 @@ export class WorkerManager {
 
 	getLaunchSnapshot(workerId: string): WorkerLaunchSnapshot | undefined {
 		const record = this.workers.get(workerId);
-		return record ? { ...record.launchSnapshot, tools: record.launchSnapshot.tools ? [...record.launchSnapshot.tools] : undefined } : undefined;
+		return record ? {
+			...record.launchSnapshot,
+			baseArgs: record.launchSnapshot.baseArgs ? [...record.launchSnapshot.baseArgs] : undefined,
+			tools: record.launchSnapshot.tools ? [...record.launchSnapshot.tools] : undefined,
+			workerExtensions: record.launchSnapshot.workerExtensions ? [...record.launchSnapshot.workerExtensions] : undefined,
+		} : undefined;
 	}
 
 	async removeWorker(workerId: string): Promise<void> {
@@ -612,6 +648,9 @@ export class WorkerManager {
 			case "worker_exit":
 				if (record.closing) {
 					record.state.status = "exited";
+				} else if (event.error) {
+					record.state.status = "error";
+					record.state.error = event.error;
 				} else {
 					record.state.status = event.signal === "SIGTERM" ? "aborted" : "exited";
 					if (event.code && event.code !== 0) {

@@ -21,6 +21,11 @@ export class TaskRegistry {
 		this.touch();
 	}
 
+	unregisterTask(taskId: string): void {
+		delete this.state.taskRegistry[taskId];
+		this.touch();
+	}
+
 	upsertWorker(worker: WorkerRuntimeState): void {
 		this.state.activeWorkers[worker.workerId] = structuredClone(worker);
 		this.touch();

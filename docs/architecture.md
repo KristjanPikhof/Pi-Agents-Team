@@ -79,8 +79,8 @@ delegate_task (tool, with reuseWorkerId)
           → profile match          (same profileName)
           → applyLaunchPolicy      (compute would-be plan)
           → launch-snapshot diff   (model, tools, cwd, systemPromptPath,
-                                    extensionMode, thinkingLevel, allowSkills,
-                                    projectTrust)
+                                    extensionMode, workerExtensions,
+                                    thinkingLevel, allowSkills, projectTrust)
           → refreshStats           (pull current context budget)
           → context budget guard   (reject >=80% or <=32768 remaining tokens)
           → registerTask           (fresh taskId)
@@ -91,7 +91,7 @@ delegate_task (tool, with reuseWorkerId)
   ← returns { worker, task }
 ```
 
-Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, skill discovery, and project-trust override) are baked at spawn and can't change between tasks. `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error, so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason: different role means different prompt path.
+Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Process-launch flags (model, tools, cwd, prompt path, extension mode, explicit worker extension sources, skill discovery, and project-trust override) are baked at spawn and can't change between tasks. `WorkerManager` snapshots them at launch and `reuseWorkerForTask` rejects mismatches with a per-field error, so the orchestrator either aligns the request or drops `reuseWorkerId` and spawns fresh. Cross-profile reuse is rejected for the same reason: different role means different prompt path.
 
 After launch-setting checks, reuse refreshes worker stats and rejects saturated context before registering the new task or sending the prompt. The hard guard rejects `contextPercent >= 80` or `contextRemainingTokens <= 32768`, with an error that includes known budget values and says to delegate fresh. Unknown/null context does not hard-reject; the orchestrator prompt instead biases long, exploratory, or multi-lane work toward fresh workers. There is intentionally no auto-compact fallback.
 
@@ -105,7 +105,18 @@ Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, f
 
 ### Workers launch with reduced discovery
 
-The default launch mode is `worker-minimal`. That disables recursive extension discovery and keeps workers from accidentally booting the full orchestrator package again. `preventRecursiveOrchestrator: true` in the safety config hard-rejects any attempt to launch with `extensionMode: "inherit"`.
+The default launch mode is `worker-minimal`. `spawnWorkerProcess` passes
+`--no-extensions` to disable ambient extension discovery, then adds one
+`--extension` argument for each role-level `access.extensions` source. That
+keeps workers from accidentally booting the full orchestrator package again
+while still allowing explicitly listed provider/model extensions, including
+extensions that call `pi.registerProvider`, to load for that worker.
+
+`preventRecursiveOrchestrator: true` in the safety config hard-rejects any
+attempt to launch with `extensionMode: "inherit"`. The loader and launch policy
+also reject extension sources that would self-load `pi-agents-team`, including
+the package name and this package's extension entrypoints, to prevent recursive
+orchestrator workers.
 
 Worker-minimal mode also disables Pi skill discovery unless the delegated task
 sets `skills`. When requested skills are present, `TeamManager` passes
@@ -125,7 +136,7 @@ differs on `projectTrust`.
 
 At extension factory time the package intentionally calls `loadActiveTeamConfig` with `projectConfigTrusted: false`. That gives tool schemas and defaults a safe built-in/global baseline without reading repo-controlled project config before Pi has made a Project Trust decision.
 
-On `session_start`, the extension calls `ctx.isProjectTrusted()`. If the project is trusted, `loadActiveTeamConfig({ cwd, projectConfigTrusted: true })` may read the nearest ancestor `.pi/agent/agents-team.json`; if untrusted, project-local config is skipped and global/built-in config is used. The package now declares Pi `>=0.79.0`; compatibility guards still treat a missing trust API as trusted so tests and unexpected host shapes fail open like older releases rather than crashing. When a project file is loaded, prompt paths and scope roots resolve relative to the config file's project root, then the merged config is handed to `TeamManager`. That merged config is the active runtime authority for the session.
+On `session_start`, the extension calls `ctx.isProjectTrusted()`. If the project is trusted, `loadActiveTeamConfig({ cwd, projectConfigTrusted: true })` may read the nearest ancestor `.pi/agent/agents-team.json`; if untrusted, project-local config is skipped and global/built-in config is used. The package now declares Pi `>=0.79.2`; compatibility guards still treat a missing trust API as trusted so tests and unexpected host shapes fail open like older releases rather than crashing. When a project file is loaded, prompt paths and scope roots resolve relative to the config file's project root, then the merged config is handed to `TeamManager`. That merged config is the active runtime authority for the session.
 
 The runtime does **not** hot-reload `agents-team.json` mid-session. This avoids a class of bugs where active workers were launched under one role definition and later supervision/tooling reads a different one. If the WINNING config layer is invalid, the extension keeps packaged defaults available for display but marks delegation disabled until the next fixed session start. A fatal parse on a NON-WINNING layer (e.g. a typo in `~/.pi/agent/agents-team.json` while a valid trusted project-local config exists) is diagnostic-only — project wins by file presence, and the broken global surfaces as a warning rather than disabling delegation.
 

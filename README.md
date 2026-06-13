@@ -8,7 +8,7 @@ Pi main session acts as the coordinator, while background RPC workers execute th
 </p>
 
 - **Repo:** [`git@github.com:KristjanPikhof/pi-agents-team.git`](https://github.com/KristjanPikhof/Pi-Agents-Team)
-- **Requires:** pi ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.79.0`, Node `>=22.19.0`, Git. Pi `0.79+` enables Project Trust-aware config loading, worker trust propagation, cache metrics, and natural `@worker` / `$role` autocomplete.
+- **Requires:** pi ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.79.2`, Node `>=22.19.0`, Git. Pi `0.79.2+` enables Project Trust-aware config loading, worker trust propagation, cache metrics, natural `@worker` / `$role` autocomplete, and custom provider/model resolution for worker-launched extensions.
 
 ## Install
 
@@ -68,7 +68,7 @@ Slash commands available once the extension is loaded. The orchestrator's own to
 | `/team-copy <id>` | Copy the worker's task, summary, final answer, and console timeline to the clipboard. |
 | `/team-result <id>` | Print a transcript-free worker result: worker title, optional task/status/error, pending relay questions, and `Result:` followed by the verbatim `<final_answer>` contents (or `No final answer block extracted yet.`). It does not print or depend on the worker transcript. The `agent_result` tool may additionally include scan-friendly summary sections for orchestrator synthesis. |
 | `/team-enable on\|off [--local\|--global]` | Flip routing between **team** and **solo** live for this session. With no flag, the change is session-only and resets on `/reload` or restart. In solo mode the orchestrator answers directly; `delegate_task` rejects with a routing-off error. Other `agent_*` tools stay live so workers spawned earlier remain reachable. The widget collapses to a single `Pi Agents Team — solo` line while workers are tracked, and disappears entirely when none are; the bottom status line shows solo explicitly (`Orchestrator · Solo · Idle` / `Orchestrator · Solo · Working...`) plus a rotating tip such as `Tip: Use /team to view workers`. Pass `--local` or `--global` to persist `routingMode` to that config scope. Legacy `--persist local\|global` still works but is deprecated. `/team-enable on` errors with an "enable first" hint when `enabled: false`. |
-| `/team-init [global\|local] [--force]` | Scaffold `agents-team.json` with every built-in role stamped in place, including each role's default `thinkingLevel`, plus the current `schemaVersion` + `scaffoldVersion` markers, the default `routingMode: "team"`, and top-level worker access defaults like `allowPathsOutsideProject: true`. Refuses existing files without `--force`; on `--force` the previous file is backed up first. |
+| `/team-init [global\|local] [--force]` | Scaffold `agents-team.json` with every built-in role stamped in place, including each role's default `thinkingLevel`, plus the current `schemaVersion` + `scaffoldVersion` markers, the default `routingMode: "team"`, and top-level worker access defaults like `allowPathsOutsideProject: true`. Per-role `access` knobs include tools, write, path scope, extension mode, and explicit extension sources for provider/model extensions. Refuses existing files without `--force`; on `--force` the previous file is backed up first. |
 
 In TUI sessions that support editor autocomplete, type `@` to complete tracked workers (`@w1`) and `$` to complete configured roles (`$reviewer`) while writing prompts or command arguments.
 
@@ -77,6 +77,8 @@ In TUI sessions that support editor autocomplete, type `@` to complete tracked w
 The orchestrator may answer trivial, already-known or tiny bounded asks directly; substantial investigation, review, mapping, tests, and multi-file work goes to background workers. 
 
 For delegated work, the orchestrator **picks a role** from the loaded config (seven [built-ins](https://github.com/KristjanPikhof/Pi-Agents-Team/tree/main/prompts/agents) by default: explorer, fixer, reviewer, librarian, observer, oracle, designer) and calls `delegate_task`. The runtime spawns `pi --mode rpc --no-session` and feeds the worker its role prompt plus a task prompt that requires the final reply to wrap the deliverable in a `<final_answer>…</final_answer>` block. If `delegate_task.skills` names installed Pi skills, worker skill discovery is enabled and the worker is told to load and apply those requested skill names from its available skill context.
+
+Roles can also declare `access.extensions` when a worker needs a custom provider/model extension. The default `worker-minimal` launch disables ambient extension discovery with `--no-extensions`, then passes each explicit source with Pi `--extension`/`-e`, so a model such as `myAnthropic/claude-opus-4-7` can be made available without loading the full orchestrator into the worker.
 
 `delegate_task` shows a launch title such as `Launching fixer agent` (or `Reusing fixer agent (w1)` for warm reuse), then returns one compact receipt line such as `w1 · Build seam (t1)`.
 

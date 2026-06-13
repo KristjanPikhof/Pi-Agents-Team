@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Value } from "typebox/value";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
 import {
@@ -47,6 +48,7 @@ function cloneProfile(profile: TeamProfileSpec): TeamProfileSpec {
 	return {
 		...profile,
 		tools: [...profile.tools],
+		...(profile.extensions !== undefined ? { extensions: [...profile.extensions] } : {}),
 		pathScope: clonePathScope(profile.pathScope),
 	};
 }
@@ -138,6 +140,79 @@ function realpathOrSelf(path: string): string {
 	} catch {
 		return path;
 	}
+}
+
+const SELF_EXTENSION_PACKAGE_NAME = "pi-agents-team";
+const SELF_EXTENSION_ENTRYPOINTS = [
+	"extensions/index.ts",
+	"extensions/pi-agent-team/index.ts",
+] as const;
+const SELF_EXTENSION_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const SELF_EXTENSION_PATHS: ReadonlySet<string> = new Set(
+	SELF_EXTENSION_ENTRYPOINTS.flatMap((entrypoint) => {
+		const path = resolve(SELF_EXTENSION_PACKAGE_ROOT, entrypoint);
+		const realPath = realpathOrSelf(path);
+		return realPath === path ? [path] : [path, realPath];
+	}),
+);
+
+function isSelfPackageExtensionSource(source: string): boolean {
+	const spec = source.startsWith("npm:") ? source.slice("npm:".length) : source;
+	const escapedName = SELF_EXTENSION_PACKAGE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	if (new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec)) return true;
+	return getExtensionSourceTail(source) === SELF_EXTENSION_PACKAGE_NAME;
+}
+
+function getExtensionSourceTail(source: string): string | undefined {
+	let spec = source.trim();
+	if (spec.startsWith("npm:")) spec = spec.slice("npm:".length);
+	if (spec.startsWith("git+")) spec = spec.slice("git+".length);
+	if (spec.startsWith("git:")) spec = spec.slice("git:".length);
+	try {
+		const url = new URL(spec);
+		spec = url.pathname;
+	} catch {
+		const scpLikeMatch = /^[^@/\s]+@[^:\s]+:(.+)$/.exec(spec);
+		if (scpLikeMatch?.[1]) spec = scpLikeMatch[1];
+	}
+	spec = spec.split(/[?#]/, 1)[0] ?? spec;
+	const tail = spec.split(/[\\/]/).filter((part) => part.length > 0).at(-1);
+	return tail?.replace(/\.git$/i, "").replace(/@[^@/]+$/, "");
+}
+
+function isPathLikeExtensionSource(source: string): boolean {
+	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return true;
+	if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) return true;
+	if (source === "extensions") return true;
+	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
+	if (source.startsWith("@")) return false;
+	return /[\\/]/.test(source);
+}
+
+function isLocalExtensionPathSource(source: string): boolean {
+	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return false;
+	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("git+")) return false;
+	if (source.startsWith("http://") || source.startsWith("https://")) return false;
+	if (source.startsWith("@")) return false;
+	return source === "." || source === ".." || source === "extensions" || source.startsWith("./") || source.startsWith("../") || /[\\/]/.test(source);
+}
+
+function isSameOrAncestorPath(candidate: string, target: string): boolean {
+	const rel = relative(candidate, target);
+	return rel === "" || (rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
+	const trimmed = source.trim();
+	if (trimmed.length === 0) return false;
+	if (isSelfPackageExtensionSource(trimmed)) return true;
+	if (!isPathLikeExtensionSource(trimmed)) return false;
+
+	const resolved = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed);
+	const realResolved = realpathOrSelf(resolved);
+	return [...SELF_EXTENSION_PATHS].some(
+		(selfPath) => isSameOrAncestorPath(resolved, selfPath) || isSameOrAncestorPath(realResolved, selfPath),
+	);
 }
 
 interface ResolvedPath {
@@ -243,6 +318,49 @@ function normalizePathScope(
 	};
 }
 
+function normalizeExtensionSources(
+	sources: string[] | null | undefined,
+	layerRoot: string,
+	fieldPath: string,
+): { extensions: string[]; diagnostics: ProjectConfigDiagnostic[] } {
+	if (!sources || sources.length === 0) {
+		return { extensions: [], diagnostics: [] };
+	}
+
+	const extensions: string[] = [];
+	const diagnostics: ProjectConfigDiagnostic[] = [];
+	for (const [index, source] of sources.entries()) {
+		const trimmed = source.trim();
+		const entryPath = `${fieldPath}[${index}]`;
+		if (trimmed.length === 0) {
+			diagnostics.push(
+				makeDiagnostic(
+					"error",
+					"extension_source_empty",
+					`Role extension source at ${entryPath} must be a non-empty string.`,
+					entryPath,
+				),
+			);
+			continue;
+		}
+		if (isRecursiveOrchestratorExtensionSource(trimmed, layerRoot)) {
+			diagnostics.push(
+				makeDiagnostic(
+					"error",
+					"recursive_orchestrator_extension_forbidden",
+					`Role extension source at ${entryPath} would load pi-agents-team recursively as a worker extension: ${trimmed}. Use a third-party provider extension instead.`,
+					entryPath,
+				),
+			);
+			continue;
+		}
+
+		extensions.push(isLocalExtensionPathSource(trimmed) ? resolve(layerRoot, trimmed) : trimmed);
+	}
+
+	return { extensions, diagnostics };
+}
+
 function normalizePromptPath(
 	profile: TeamProfileSpec,
 	roleConfig: ProjectRoleConfig,
@@ -315,7 +433,7 @@ function normalizeFlatWritePolicy(write: boolean | undefined): WorkerWritePolicy
  * - prompt: "default" / null / absent → builtin. String → treated as project path.
  *   Object form stays available for explicit prompt source/path control.
  * - access.write: true → "scoped-write"; false → "read-only"; absent → inherit.
- * - access groups tools, extension mode, worker spawning, and path scope.
+ * - access groups tools, extensions, extension mode, worker spawning, and path scope.
  */
 export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleConfig {
 	const flat = raw as ProjectRoleFlatConfig;
@@ -341,6 +459,7 @@ export function normalizeRawRoleConfig(raw: RawProjectRoleConfig): ProjectRoleCo
 		thinkingLevel: flat.thinkingLevel,
 		permissions: {
 			tools: access.tools,
+			extensions: access.extensions,
 			extensionMode: access.extensionMode,
 			writePolicy: normalizeFlatWritePolicy(access.write),
 			pathScope: access.pathScope,
@@ -465,6 +584,9 @@ function materializeRoleProfile(
 	});
 	diagnostics.push(...resolvedPathScope.diagnostics);
 
+	const resolvedExtensions = normalizeExtensionSources(permissions.extensions, layer.layerRoot, `${fieldBase}.access.extensions`);
+	diagnostics.push(...resolvedExtensions.diagnostics);
+
 	const writePolicy: WorkerWritePolicy = permissions.writePolicy ?? "read-only";
 	if (writePolicy === "read-only" && resolvedPathScope.pathScope?.allowWrite) {
 		diagnostics.push(
@@ -488,6 +610,16 @@ function materializeRoleProfile(
 			),
 		);
 	}
+	if (extensionMode === "disable" && resolvedExtensions.extensions.length > 0) {
+		diagnostics.push(
+			makeDiagnostic(
+				"error",
+				"extension_mode_disable_extensions_forbidden",
+				`Role "${roleName}" sets extensionMode "disable" but also declares access.extensions. Remove access.extensions or use "worker-minimal".`,
+				`${fieldBase}.access.extensions`,
+			),
+		);
+	}
 
 	const prompt = resolveRolePrompt(roleName, normalized.prompt, layer);
 	diagnostics.push(...prompt.diagnostics);
@@ -498,6 +630,7 @@ function materializeRoleProfile(
 		model: normalized.model ?? undefined,
 		thinkingLevel: normalized.thinkingLevel,
 		tools: permissions.tools ? [...permissions.tools] : [...DEFAULT_READ_ONLY_TOOLS],
+		...(resolvedExtensions.extensions.length > 0 ? { extensions: resolvedExtensions.extensions } : {}),
 		promptPath: prompt.promptPath,
 		promptInline: prompt.promptInline,
 		extensionMode,

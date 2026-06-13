@@ -4,7 +4,7 @@ import { TaskRegistry } from "./task-registry";
 import { resolveWorkerMessageDelivery, type WorkerMessageDeliveryResolved } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
-import { WorkerManager, type AssistantChunk, type WorkerConsoleEvent } from "../runtime/worker-manager";
+import { WorkerManager, type AssistantChunk, type ManagedWorkerRecord, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
 import { isPathWithinProjectRoot } from "../safety/path-scope";
 import { aggregateWorkerUsage } from "../usage";
@@ -88,6 +88,13 @@ function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean
 	const sortedA = [...a].sort();
 	const sortedB = [...b].sort();
 	return sortedA.every((value, index) => value === sortedB[index]);
+}
+
+function orderedArrayEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	if (a.length !== b.length) return false;
+	return a.every((value, index) => value === b[index]);
 }
 
 function rejectSaturatedReuse(worker: WorkerRuntimeState): void {
@@ -269,24 +276,35 @@ export class TeamManager {
 
 		this.registry.registerTask(task);
 
-		const worker = await this.workerManager.launchWorker({
-			workerId,
-			profileName: request.profileName,
-			task,
-			cwd: launchPlan.cwd,
-			model: launchPlan.model,
-			thinkingLevel: launchPlan.thinkingLevel,
-			tools: launchPlan.tools,
-			systemPromptPath: launchPlan.systemPromptPath,
-			extensionMode: launchPlan.extensionMode,
-			projectTrust,
-			// Only enable Pi's skill discovery when the task actually requested
-			// skills. Without this the worker launches with `--no-skills` (set in
-			// buildWorkerProcessArgs), the available skill context is omitted, and
-			// the task prompt's requested-skill instructions are impossible to
-			// satisfy.
-			allowSkills: task.skills !== undefined && task.skills.length > 0,
-		});
+		let worker: ManagedWorkerRecord;
+		try {
+			worker = await this.workerManager.launchWorker({
+				workerId,
+				profileName: request.profileName,
+				task,
+				cwd: launchPlan.cwd,
+				model: launchPlan.model,
+				thinkingLevel: launchPlan.thinkingLevel,
+				tools: launchPlan.tools,
+				workerExtensions: launchPlan.workerExtensions,
+				systemPromptPath: launchPlan.systemPromptPath,
+				extensionMode: launchPlan.extensionMode,
+				projectTrust,
+				command: this.config.rpc.command,
+				baseArgs: this.config.rpc.args,
+				// Only enable Pi's skill discovery when the task actually requested
+				// skills. Without this the worker launches with `--no-skills` (set in
+				// buildWorkerProcessArgs), the available skill context is omitted, and
+				// the task prompt's requested-skill instructions are impossible to
+				// satisfy.
+				allowSkills: task.skills !== undefined && task.skills.length > 0,
+			});
+		} catch (error) {
+			this.registry.removeWorker(workerId);
+			this.registry.unregisterTask(taskId);
+			this.events.emit("state_change", this.snapshot());
+			throw error;
+		}
 
 		this.registry.upsertWorker(worker.state);
 		await this.workerManager.promptWorker(workerId, buildWorkerTaskPrompt(task));
@@ -472,10 +490,15 @@ export class TeamManager {
 		}
 		const mismatches: string[] = [];
 		if (existing.cwd !== launchPlan.cwd) mismatches.push(`cwd (${existing.cwd} → ${launchPlan.cwd})`);
+		if (existing.command !== this.config.rpc.command) {
+			mismatches.push(`command (${existing.command ?? "pi"} → ${this.config.rpc.command})`);
+		}
+		if (!orderedArrayEqual(existing.baseArgs, this.config.rpc.args)) mismatches.push(`baseArgs`);
 		if (existing.model !== launchPlan.model) mismatches.push(`model (${existing.model ?? "default"} → ${launchPlan.model ?? "default"})`);
 		if (existing.thinkingLevel !== launchPlan.thinkingLevel) mismatches.push(`thinkingLevel`);
 		if (existing.systemPromptPath !== launchPlan.systemPromptPath) mismatches.push(`systemPromptPath`);
 		if (existing.extensionMode !== launchPlan.extensionMode) mismatches.push(`extensionMode`);
+		if (!orderedArrayEqual(existing.workerExtensions, launchPlan.workerExtensions)) mismatches.push(`workerExtensions`);
 		if (existing.projectTrust !== projectTrust) {
 			mismatches.push(`projectTrust (${existing.projectTrust ?? "none"} → ${projectTrust ?? "none"})`);
 		}

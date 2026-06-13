@@ -1,7 +1,21 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
 import type { Readable, Writable } from "node:stream";
 import type { ThinkingLevel, WorkerExtensionMode, WorkerProjectTrustOverride } from "../types";
+
+const require = createRequire(import.meta.url);
+const crossSpawn = require("cross-spawn") as typeof nodeSpawn;
+
+export type WorkerSpawnImplementation = "node:child_process" | "cross-spawn";
+
+export function resolveWorkerSpawnImplementation(platform: NodeJS.Platform = process.platform): WorkerSpawnImplementation {
+	return platform === "win32" ? "cross-spawn" : "node:child_process";
+}
+
+function selectSpawn(platform: NodeJS.Platform = process.platform): typeof nodeSpawn {
+	return resolveWorkerSpawnImplementation(platform) === "cross-spawn" ? crossSpawn : nodeSpawn;
+}
 
 export interface WorkerProcessOptions {
 	cwd: string;
@@ -10,6 +24,7 @@ export interface WorkerProcessOptions {
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
+	workerExtensions?: string[];
 	systemPromptPath?: string;
 	extensionMode?: WorkerExtensionMode;
 	projectTrust?: WorkerProjectTrustOverride;
@@ -28,6 +43,7 @@ export interface WorkerProcessOptions {
 export interface ExitInfo {
 	code: number | null;
 	signal: NodeJS.Signals | null;
+	error?: Error;
 }
 
 export interface WorkerTransport {
@@ -37,8 +53,10 @@ export interface WorkerTransport {
 	stderr: Readable;
 	kill(signal?: NodeJS.Signals): boolean;
 	on(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+	on(event: "error", listener: (error: Error) => void): this;
 	on(event: string, listener: (...args: unknown[]) => void): this;
 	off(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+	off(event: "error", listener: (error: Error) => void): this;
 	off(event: string, listener: (...args: unknown[]) => void): this;
 }
 
@@ -62,8 +80,15 @@ class NodeWorkerProcessHandle extends EventEmitter implements WorkerProcessHandl
 		this.transport.stderr.on("data", (chunk) => {
 			this.stderr += chunk.toString();
 		});
+		this.transport.stdin.on("error", () => {
+			// Child process launch failures are reported through the process "error" event below.
+		});
 		this.exitPromise = new Promise<ExitInfo>((resolve) => {
 			this.transport.on("exit", (code, signal) => resolve({ code, signal }));
+			this.transport.on("error", (error) => {
+				this.stderr += `${error.message}\n`;
+				resolve({ code: null, signal: null, error });
+			});
 		});
 	}
 
@@ -99,7 +124,11 @@ export function buildWorkerProcessArgs(options: WorkerProcessOptions): string[] 
 	if (options.tools && options.tools.length > 0) args.push("--tools", options.tools.join(","));
 	if (options.systemPromptPath) args.push("--append-system-prompt", options.systemPromptPath);
 	if (options.extensionMode && options.extensionMode !== "inherit") {
-		args.push("--no-extensions", "--no-prompt-templates", "--no-themes", "--no-context-files");
+		args.push("--no-extensions");
+		if (options.extensionMode === "worker-minimal") {
+			for (const source of options.workerExtensions ?? []) args.push("--extension", source);
+		}
+		args.push("--no-prompt-templates", "--no-themes", "--no-context-files");
 		if (!options.allowSkills) args.push("--no-skills");
 	}
 	if (options.extraArgs) args.push(...options.extraArgs);
@@ -110,6 +139,7 @@ export function buildWorkerProcessArgs(options: WorkerProcessOptions): string[] 
 export function spawnWorkerProcess(options: WorkerProcessOptions): WorkerProcessHandle {
 	const command = options.command ?? "pi";
 	const args = buildWorkerProcessArgs(options);
+	const spawn = selectSpawn();
 	const child = spawn(command, args, {
 		cwd: options.cwd,
 		env: options.env,
