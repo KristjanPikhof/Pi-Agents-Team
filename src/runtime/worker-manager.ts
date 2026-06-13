@@ -752,7 +752,7 @@ export class WorkerManager {
 				}
 				break;
 			}
-			case "worker_tool_started":
+			case "worker_tool_started": {
 				record.state.status = "running";
 				record.state.lastToolName = event.toolName;
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
@@ -762,8 +762,26 @@ export class WorkerManager {
 					kind: "tool_start",
 					text: `${event.toolName} ${snippet(event.args, 180)}`.trim(),
 				});
+				const command = extractCommand(event.args);
+				const isCommand = event.toolName === "bash" || event.toolName === "shell" || command !== undefined;
+				const activityId = this.nextActivityId(record, event.type, event.timestamp);
+				if (event.toolCallId) record.pendingToolActivityByCallId.set(event.toolCallId, activityId);
+				this.appendActivity(record, {
+					id: activityId,
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: isCommand ? "command" : "tool",
+					status: "started",
+					label: isCommand ? `Ran ${command ?? event.toolName}` : `Used ${event.toolName || "tool"}`,
+					summary: command ? trimSummary(command, 220) : snippet(event.args, 220),
+					toolName: event.toolName,
+					...(command ? { command } : {}),
+					sourceEvent: event.type,
+					toolCallId: event.toolCallId || undefined,
+				});
 				break;
-			case "worker_tool_finished":
+			}
+			case "worker_tool_finished": {
 				record.state.lastToolName = event.toolName;
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				this.appendConsole(record, {
@@ -771,7 +789,36 @@ export class WorkerManager {
 					kind: "tool_end",
 					text: `${event.toolName}${event.isError ? " [error]" : ""} → ${snippet(extractResultText(event.result), 260)}`,
 				});
+				const resultText = extractResultText(event.result);
+				const output = buildOutputSnippet(resultText);
+				const pendingId = event.toolCallId ? record.pendingToolActivityByCallId.get(event.toolCallId) : undefined;
+				if (pendingId) {
+					record.pendingToolActivityByCallId.delete(event.toolCallId);
+					this.updateActivity(record, pendingId, {
+						updatedAt: event.timestamp,
+						status: event.isError ? "error" : "completed",
+						toolName: event.toolName,
+						...(output.snippet ? { outputSnippet: output.snippet } : {}),
+						...(output.hiddenLineCount > 0 ? { hiddenLineCount: output.hiddenLineCount } : {}),
+						sourceEvent: event.type,
+					});
+				} else {
+					this.appendActivity(record, {
+						id: this.nextActivityId(record, event.type, event.timestamp),
+						ts: event.timestamp,
+						updatedAt: event.timestamp,
+						actionKind: "tool",
+						status: event.isError ? "error" : "completed",
+						label: `${event.toolName || "Tool"} finished`,
+						toolName: event.toolName,
+						...(output.snippet ? { outputSnippet: output.snippet } : {}),
+						...(output.hiddenLineCount > 0 ? { hiddenLineCount: output.hiddenLineCount } : {}),
+						sourceEvent: event.type,
+						toolCallId: event.toolCallId || undefined,
+					});
+				}
 				break;
+			}
 			case "worker_queue_updated":
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				if (event.steering.length > 0 || event.followUp.length > 0) {
@@ -780,6 +827,16 @@ export class WorkerManager {
 						kind: "queue",
 						text: `steering=${event.steering.length} followUp=${event.followUp.length}`,
 					});
+					this.appendActivity(record, {
+						id: this.nextActivityId(record, event.type, event.timestamp),
+						ts: event.timestamp,
+						updatedAt: event.timestamp,
+						actionKind: "queue",
+						status: "info",
+						label: "Messages queued",
+						summary: `steering=${event.steering.length} followUp=${event.followUp.length}`,
+						sourceEvent: event.type,
+					});
 				}
 				break;
 			case "worker_idle":
@@ -787,6 +844,16 @@ export class WorkerManager {
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: record.state.status });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "status",
+					status: "info",
+					label: "Worker idle",
+					summary: record.state.status,
+					sourceEvent: event.type,
+				});
 				break;
 			case "worker_error":
 				record.state.status = "error";
@@ -794,6 +861,16 @@ export class WorkerManager {
 				record.state.lastSummary = buildSummary(record.state, event.error);
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "error",
+					status: "error",
+					label: "Worker error",
+					summary: trimSummary(event.error, 260),
+					sourceEvent: event.type,
+				});
 				break;
 			case "worker_state": {
 				if (isThinkingLevel(event.state.thinkingLevel)) {
@@ -834,6 +911,16 @@ export class WorkerManager {
 					ts: event.timestamp,
 					kind: "exit",
 					text: `status=${record.state.status}${event.code !== null ? ` code=${event.code}` : ""}${event.signal ? ` signal=${event.signal}` : ""}`,
+				});
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "exit",
+					status: record.state.status === "error" ? "error" : "completed",
+					label: "Worker exited",
+					summary: `status=${record.state.status}${event.code !== null ? ` code=${event.code}` : ""}${event.signal ? ` signal=${event.signal}` : ""}`,
+					sourceEvent: event.type,
 				});
 				record.client.dispose(`Worker exited: ${event.code ?? "signal"}`);
 				break;
