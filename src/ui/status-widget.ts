@@ -4,7 +4,7 @@ import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, typ
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
 import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
 import { bold as legacyBold, themedPalette, type ThemedPalette } from "./theme";
-import { formatCacheUsage, formatCompactTokenCount } from "./usage-format";
+import { formatCacheUsage, formatCacheUsageWithHit, formatCompactTokenCount } from "./usage-format";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 export const TEAM_STATUS_TIPS = [
@@ -80,6 +80,9 @@ function buildUsageLine(state: PersistedTeamState, palette: ThemedPalette, width
 	const base = `${palette.accent("Σ")} turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · $${usage.costUsd.toFixed(4)}`;
 	const cache = formatCacheUsage(usage);
 	if (!cache) return truncateToWidth(base, width);
+	const cacheWithHit = formatCacheUsageWithHit(usage) ?? cache;
+	const withCacheAndHit = `${palette.accent("Σ")} turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · ${cacheWithHit} · $${usage.costUsd.toFixed(4)}`;
+	if (visibleWidth(withCacheAndHit) <= width) return truncateToWidth(withCacheAndHit, width);
 	const withCache = `${palette.accent("Σ")} turns=${usage.turns} · in=${formatCompactTokenCount(usage.inputTokens)} · out=${formatCompactTokenCount(usage.outputTokens)} · ${cache} · $${usage.costUsd.toFixed(4)}`;
 	return truncateToWidth(visibleWidth(withCache) <= width ? withCache : base, width);
 }
