@@ -200,22 +200,37 @@ function formatRosterProfileName(worker: WorkerRuntimeState): string {
 	return `${worker.profileName}${hasClampedThinking(worker) ? " (clamped)" : ""}`;
 }
 
-function buildRecentActivityLines(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined): string[] {
+function compactActivityLine(event: WorkerActivityEvent): string | undefined {
+	if (event.actionKind === "command") return `• Ran ${event.command ?? event.summary ?? event.label.replace(/^Ran\s+/, "")}`;
+	if (event.actionKind === "tool") return `• ${event.label.startsWith("Used ") ? event.label : `Used ${event.toolName ?? event.label}`}`;
+	if (event.actionKind === "process" && event.summary) return `• ${event.label}: ${event.summary}`;
+	if (event.actionKind === "final_summary") return "• Final answer produced";
+	if (event.actionKind === "error" && event.summary) return `• Error: ${event.summary}`;
+	return undefined;
+}
+
+function buildRecentActivityLines(
+	worker: WorkerRuntimeState,
+	transcript: string | undefined,
+	consoleEvents: WorkerConsoleEvent[] | undefined,
+	activityEvents: WorkerActivityEvent[] | undefined,
+): string[] {
 	const lines: string[] = [inspectSection("Recent activity")];
-	const recentCommands = (consoleEvents ?? [])
-		.filter((event) => event.kind === "tool_start")
-		.slice(-3)
-		.map((event) => `• Ran ${event.text}`);
-	lines.push(...recentCommands);
+	const compact = (activityEvents && activityEvents.length > 0 ? activityEvents : synthesizeActivity([], consoleEvents ?? []))
+		.map(compactActivityLine)
+		.filter((line): line is string => Boolean(line))
+		.filter((line, index, all) => all.indexOf(line) === index)
+		.slice(-4);
+	lines.push(...compact);
 	const transcriptLines = transcript?.trim().split("\n").filter(Boolean) ?? [];
 	const latestThinking = transcriptLines.length <= 3 ? transcriptLines.slice(-1)[0] : undefined;
-	if (latestThinking) lines.push(`• Thinking: ${latestThinking}`);
-	if (worker.finalAnswer) lines.push("• Final answer produced");
+	if (latestThinking && !lines.some((line) => line.includes(latestThinking))) lines.push(`• Thinking: ${latestThinking}`);
+	if (worker.finalAnswer && !lines.includes("• Final answer produced")) lines.push("• Final answer produced");
 	if (lines.length === 1) lines.push(dim("(none yet)"));
 	return lines;
 }
 
-function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined, palette: ThemedPalette): string {
+function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined, activityEvents: WorkerActivityEvent[] | undefined, palette: ThemedPalette): string {
 	const lines = [
 		`${worker.workerId} · ${worker.profileName} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : ""}`,
 		"",
@@ -225,6 +240,8 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 	];
 	if (worker.lastToolName) lines.push(inspectField("Last tool:", worker.lastToolName, palette));
 	if (worker.error) lines.push(inspectField("Error:", palette.danger(worker.error), palette));
+
+	lines.push("", ...buildRecentActivityLines(worker, transcript, consoleEvents, activityEvents));
 
 	lines.push("", inspectSection("Task"));
 	if (worker.currentTask) {
@@ -263,8 +280,6 @@ function buildInspectText(worker: WorkerRuntimeState, transcript: string | undef
 
 	lines.push("", inspectDivider("Latest assistant text"));
 	lines.push(transcript?.trim() || "  (no assistant text captured)");
-
-	lines.push("", ...buildRecentActivityLines(worker, transcript, consoleEvents));
 	return lines.join("\n");
 }
 
@@ -1127,7 +1142,13 @@ export function createTeamDashboardOverlayComponent(
 		if (!worker) {
 			return enforceWidth(["No worker selected. Switch to Workers (1) to pick one."], width).slice(0, rows);
 		}
-		const body = wrapLines(buildInspectText(worker, teamManager.getWorkerTranscript(worker.workerId), teamManager.getWorkerConsole(worker.workerId), currentPalette), width);
+		const body = wrapLines(buildInspectText(
+			worker,
+			teamManager.getWorkerTranscript(worker.workerId),
+			teamManager.getWorkerConsole(worker.workerId),
+			teamManager.getWorkerActivity?.(worker.workerId),
+			currentPalette,
+		), width);
 		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
 		const visible = Math.max(1, rows - 1);
 		const maxTop = Math.max(0, body.length - visible);
