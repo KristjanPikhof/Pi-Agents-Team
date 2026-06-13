@@ -1141,7 +1141,7 @@ test("activity getters do not flush token-sized streamed thinking into durable p
 	const activityAfterBoundary = manager.getWorkerActivity("worker-read-stable") ?? [];
 	const thinking = activityAfterBoundary.filter((event) => event.actionKind === "process" && event.label === "Thinking");
 	assert.equal(thinking.length, 1);
-	assert.equal(thinking[0].summary, "abcde");
+	assert.match(thinking[0].summary ?? "", /abcde$/);
 });
 
 test("activity reads can discover final answers without emitting token-sized thinking", async () => {

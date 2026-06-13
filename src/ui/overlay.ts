@@ -479,6 +479,7 @@ function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConso
 		} else if (chunkText.trim()) {
 			pendingStart ??= chunk;
 			pendingEndTs = chunk.ts;
+			if (pendingText && !/\s$/.test(pendingText) && !/^\s/.test(chunkText)) pendingText += "\n";
 			pendingText += chunkText;
 		}
 	}
