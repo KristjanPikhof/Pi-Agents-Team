@@ -306,17 +306,6 @@ function getAttentionOrderedWorkerIds(state: PersistedTeamState): string[] {
 	return buildRosterSections(state).flatMap((section) => section.workers.map((worker) => worker.workerId));
 }
 
-function buildRosterRow(worker: WorkerRuntimeState, selected: boolean, width: number): string {
-	const prefix = selected ? "▶ " : "  ";
-	const reuse = REUSABLE_STATUSES.has(worker.status) ? " [reuse]" : "";
-	const head = `${prefix}${worker.workerId} · ${formatRosterProfileName(worker)} · ${worker.status}${reuse}`;
-	const tail = ` · ${buildWorkerPrioritySnippet(worker)}`;
-	const truncated = truncateToWidth(`${head}${tail}`, width, "…");
-	const color = colorForWorker(worker);
-	if (selected) return color(bold(truncated));
-	return color(truncated);
-}
-
 // Worker output frequently contains tabs and other control bytes whose
 // visibleWidth (1) does not match the terminal's rendered width. Normalize
 // before any measurement. ESC (0x1b) is preserved so our own ANSI styling
@@ -1299,27 +1288,61 @@ export async function openTeamDashboardOverlay(
 	teamManager: TeamManager,
 	options: OpenTeamDashboardOptions = {},
 ): Promise<void> {
-	try {
-		await teamManager.pingWorkers({ mode: "active" });
-	} catch {}
-	const state = teamManager.snapshot();
-	const focusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
+	const initialState = teamManager.snapshot();
+	const focusWorkerId = options.initialWorkerId && initialState.activeWorkers[options.initialWorkerId]
 		? options.initialWorkerId
 		: undefined;
 
 	if (!ctx.hasUI) {
-		console.log(buildTeamDashboardText(state));
+		console.log(buildTeamDashboardText(initialState));
 		return;
 	}
 
+	class DashboardLoader implements Component {
+		private child: Component & { dispose?(): void; handleInput?(data: string): void };
+		constructor(child: Component & { dispose?(): void; handleInput?(data: string): void }) {
+			this.child = child;
+		}
+		replace(child: Component & { dispose?(): void; handleInput?(data: string): void }): void {
+			this.child.dispose?.();
+			this.child = child;
+		}
+		render(width: number): string[] {
+			return this.child.render(width);
+		}
+		invalidate(): void {
+			this.child.invalidate?.();
+		}
+		handleInput(data: string): void {
+			this.child.handleInput?.(data);
+		}
+		dispose(): void {
+			this.child.dispose?.();
+		}
+	}
+
 	await ctx.ui.custom<void>(
-		(tui, theme, _keybindings, done) => createTeamDashboardOverlayComponent(
-			tui as TUI,
-			teamManager as unknown as OverlayTeamManager,
-			state,
-			done,
-			{ initialWorkerId: focusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme },
-		),
+		(tui, theme, _keybindings, done) => {
+			const loader = new BorderedLoader(tui, theme as Theme, "Loading team dashboard…", { cancellable: false });
+			const wrapper = new DashboardLoader(loader);
+			teamManager.pingWorkers({ mode: "active" })
+				.catch(() => {})
+				.then(() => {
+					const state = teamManager.snapshot();
+					const resolvedFocusWorkerId = options.initialWorkerId && state.activeWorkers[options.initialWorkerId]
+						? options.initialWorkerId
+						: focusWorkerId;
+					wrapper.replace(createTeamDashboardOverlayComponent(
+						tui as TUI,
+						teamManager as unknown as OverlayTeamManager,
+						state,
+						done,
+						{ initialWorkerId: resolvedFocusWorkerId, cwd: options.cwd ?? ctx.cwd, displayCost: options.displayCost, theme },
+					));
+					tui.requestRender();
+				});
+			return wrapper;
+		},
 		{
 			overlay: true,
 			overlayOptions: TEAM_DASHBOARD_OVERLAY_OPTIONS,
