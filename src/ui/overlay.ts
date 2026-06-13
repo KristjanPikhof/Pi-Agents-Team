@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TUI, OverlayOptions } from "@earendil-works/pi-tui";
 import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager";
@@ -11,21 +11,7 @@ import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSection
 import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format";
 import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
 import { formatAgentMessageResult } from "./tool-formatters";
-import {
-	accent,
-	accentBold,
-	bold,
-	danger,
-	dangerBold,
-	dim,
-	FRAME,
-	muted,
-	stripAnsi,
-	success,
-	successBold,
-	warning,
-	warningBold,
-} from "./theme";
+import { FRAME, stripAnsi, themedPalette, type ThemedPalette } from "./theme";
 
 type OverlayTab = "workers" | "inspect" | "console" | "cost";
 type LayoutMode = "stack" | "split";
