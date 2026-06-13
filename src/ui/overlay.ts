@@ -1000,18 +1000,8 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	function renderWorkersBody(width: number, rows: number): string[] {
-		const lines: string[] = [];
-		for (const section of buildRosterSections(snapshot)) {
-			if (section.workers.length === 0) continue;
-			const label = `${section.label} (${section.workers.length})`;
-			lines.push(colorForGroupBold(section.key)(label));
-			for (const worker of section.workers) {
-				lines.push(buildRosterRow(worker, worker.workerId === state.selectedWorkerId, width));
-			}
-			lines.push("");
-		}
-		while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-		if (lines.length === 0) lines.push(dim("No tracked workers. Press [n] to delegate one."));
+		const roster = new RosterSelectList(snapshot, state.selectedWorkerId);
+		const lines = roster.render(width);
 		lastRenderMetrics.listPageSize = Math.max(1, rows - 1);
 		return enforceWidth(lines, width).slice(0, rows);
 	}
@@ -1102,7 +1092,13 @@ export function createTeamDashboardOverlayComponent(
 
 			const footerLines: string[] = [];
 			if (state.modal) {
-				footerLines.push(accent(`${state.modal.label}${state.modal.buffer}_`) + dim("  (enter submit · esc cancel)"));
+				const inputLines = state.modal.input.render(innerWidth);
+				const hint = dim("  (enter submit · esc cancel)");
+				if (inputLines.length > 0) {
+					const lastIndex = inputLines.length - 1;
+					inputLines[lastIndex] = truncateToWidth(inputLines[lastIndex] + hint, innerWidth, "…");
+				}
+				footerLines.push(...inputLines.map((line) => accent(line)));
 			}
 			footerLines.push(buildActionBar());
 			if (status) footerLines.push(accent(`» ${status}`));
