@@ -26,7 +26,7 @@ function workerSnapshot(workerId: string, status: WorkerRuntimeState["status"], 
 }
 
 test("TeamManager delegates, tracks, pings, and cancels workers", async () => {
-	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport({ promptText: "Completed runtime inspection" })));
 	const teamManager = new TeamManager({ workerManager });
 
 	const delegated = await teamManager.delegateTask({
