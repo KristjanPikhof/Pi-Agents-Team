@@ -64,6 +64,7 @@
     "prompts": []
   },
   "dependencies": {
+    "cross-spawn": "^7.0.6",
     "typebox": "^1.0.56"
   },
   "peerDependencies": {
