@@ -633,8 +633,15 @@ test("session lifecycle UI honors display.cost false", async () => {
 		ui: {
 			notify() {},
 			setStatus() {},
-			setWidget(_key: string, lines?: string[]) {
-				widgets.push(lines);
+			setWidget(_key: string, value: unknown) {
+				if (Array.isArray(value)) {
+					widgets.push(value);
+				} else if (typeof value === "function") {
+					const component = (value as (_tui: unknown, _theme: unknown) => { render: (width: number) => string[] })({}, {});
+					widgets.push(component.render(100));
+				} else {
+					widgets.push(value as string[] | undefined);
+				}
 			},
 			setTitle() {},
 		},
