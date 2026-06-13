@@ -450,15 +450,27 @@ function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConso
 		pendingStart = undefined;
 		pendingEndTs = 0;
 	};
-	for (const chunk of chunks) {
-		const chunkText = sanitizeTerminalText(chunk.text);
-		const finalAnswer = extractFinalAnswer(chunkText);
-		if (finalAnswer) {
-			flushPendingText();
+	const openTagPattern = /<final[_\s-]?answer>/i;
+	const closeTagPattern = /<\/final[_\s-]?answer>/i;
+	let finalAnswerStart: AssistantChunk | undefined;
+	let finalAnswerRaw = "";
+	let finalAnswerEndTs = 0;
+	const appendPendingText = (text: string, chunk: AssistantChunk | undefined) => {
+		if (!text || !chunk) return;
+		pendingStart ??= chunk;
+		pendingEndTs = chunk.ts;
+		if (pendingText && !/\s$/.test(pendingText) && !/^\s/.test(text)) pendingText += "\n";
+		pendingText += text;
+	};
+	const emitFinalAnswer = () => {
+		const finalAnswer = extractFinalAnswer(finalAnswerRaw);
+		if (!finalAnswer) {
+			appendPendingText(finalAnswerRaw, finalAnswerStart);
+		} else {
 			activity.push({
 				id: `chunk:${id++}`,
-				ts: chunk.ts,
-				updatedAt: chunk.ts,
+				ts: finalAnswerStart?.ts ?? finalAnswerEndTs,
+				updatedAt: finalAnswerEndTs || finalAnswerStart?.ts || 0,
 				actionKind: "final_summary",
 				status: "completed",
 				label: "Final answer",
@@ -466,13 +478,46 @@ function synthesizeActivity(chunks: AssistantChunk[], consoleEvents: WorkerConso
 				sourceEvent: "worker_text_flush",
 				finalSummaryFields: parseFinalAnswerSummaryFields(finalAnswer),
 			});
-		} else if (chunkText.trim()) {
-			pendingStart ??= chunk;
-			pendingEndTs = chunk.ts;
-			if (pendingText && !/\s$/.test(pendingText) && !/^\s/.test(chunkText)) pendingText += "\n";
-			pendingText += chunkText;
+		}
+		finalAnswerStart = undefined;
+		finalAnswerRaw = "";
+		finalAnswerEndTs = 0;
+	};
+	for (const chunk of chunks) {
+		let chunkText = sanitizeTerminalText(chunk.text);
+		while (chunkText.length > 0) {
+			if (finalAnswerStart) {
+				const closeMatch = closeTagPattern.exec(chunkText);
+				if (!closeMatch) {
+					finalAnswerRaw += chunkText;
+					finalAnswerEndTs = chunk.ts;
+					break;
+				}
+				const closeIndex = closeMatch.index;
+				const closeTag = closeMatch[0];
+				finalAnswerRaw += chunkText.slice(0, closeIndex) + closeTag;
+				finalAnswerEndTs = chunk.ts;
+				emitFinalAnswer();
+				chunkText = chunkText.slice(closeIndex + closeTag.length);
+				continue;
+			}
+
+			const openMatch = openTagPattern.exec(chunkText);
+			if (!openMatch) {
+				appendPendingText(chunkText, chunk);
+				break;
+			}
+			const openIndex = openMatch.index;
+			const openTag = openMatch[0];
+			appendPendingText(chunkText.slice(0, openIndex), chunk);
+			flushPendingText();
+			finalAnswerStart = chunk;
+			finalAnswerRaw = openTag;
+			finalAnswerEndTs = chunk.ts;
+			chunkText = chunkText.slice(openIndex + openTag.length);
 		}
 	}
+	if (finalAnswerStart) appendPendingText(finalAnswerRaw, finalAnswerStart);
 	flushPendingText();
 	for (let index = 0; index < consoleEvents.length; index += 1) {
 		const event = consoleEvents[index]!;

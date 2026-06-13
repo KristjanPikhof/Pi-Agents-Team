@@ -872,6 +872,77 @@ test("console Activity contract renders final-answer fields through the shared p
 	assert.match(body, /Next: keep parser shared/);
 });
 
+test("console Activity fallback parses final-answer blocks split across assistant chunks", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const chunks: AssistantChunk[] = [
+		{ index: 0, ts: now, text: "Mapping result before final.\n<final_answer>\nhead" },
+		{ index: 1, ts: now + 1_000, text: "line: split overlay headline\nrisks:\n- split tag risk\nnext_recommendation: keep fallback parser\n" },
+		{ index: 2, ts: now + 2_000, text: "</final_answer>\nPostscript after final." },
+	];
+	const { component } = makeComponent({ state, rows: 60, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+
+	const body = renderPlain(component, 100).join("\n");
+	assert.match(body, /process thinking \[info\]/, "expected preamble/trailing activity to remain process thinking");
+	assert.match(body, /Mapping result before final\./, "expected preamble process text");
+	assert.match(body, /Postscript after final\./, "expected trailing process text");
+	assert.match(body, /final-answer \[ok\]/, "expected split final-answer block as final summary");
+	assert.match(body, /Headline: split overlay headline/);
+	assert.match(body, /Risks: split tag risk/);
+	assert.match(body, /Next: keep fallback parser/);
+	assert.doesNotMatch(body, /process thinking \[info\][\s\S]*headline: split overlay headline/, "final-answer body must not be rendered as process thinking");
+
+	component.handleInput("r");
+	const rawBody = renderPlain(component, 100).join("\n");
+	assert.match(rawBody, /\[raw\] assistant chunk #0/);
+	assert.match(rawBody, /<final_answer>/, "Raw diagnostics must retain original final-answer tag text");
+	assert.match(rawBody, /<\/final_answer>/, "Raw diagnostics must retain original closing tag text");
+});
+
+test("console Activity fallback keeps unclosed final-answer tags visible as process text", () => {
+	const state = makeState(1);
+	const now = 1_700_000_000_000;
+	const chunks: AssistantChunk[] = [
+		{ index: 0, ts: now, text: "<final_answer>\nheadline: incomplete overlay headline" },
+		{ index: 1, ts: now + 1_000, text: "\nrisks:\n- missing close tag" },
+	];
+	const { component } = makeComponent({ state, rows: 48, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
+	component.handleInput("3");
+
+	const body = renderPlain(component, 100).join("\n");
+	assert.match(body, /process thinking \[info\]/, "unclosed blocks should remain visible as process text");
+	assert.match(body, /<final_answer>/);
+	assert.match(body, /headline: incomplete overlay headline/);
+	assert.doesNotMatch(body, /final answer \[ok\]/, "unclosed blocks must not be synthesized as final summaries");
+});
+
+test("inspect Recent activity with worker.finalAnswer avoids duplicate final-answer body", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.finalAnswer = "headline: split overlay headline\nrisks:\n- duplicate body risk";
+	const activities: WorkerActivityEvent[] = [{
+		id: "final-1",
+		ts: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_000,
+		actionKind: "final_summary",
+		status: "completed",
+		label: "Final answer",
+		summary: "headline: split overlay headline risks: duplicate body risk",
+		sourceEvent: "worker_text_flush",
+		finalSummaryFields: { headline: "split overlay headline", risks: ["duplicate body risk"] },
+	}];
+	const { component } = makeComponent({ state, rows: 48, cols: 100, initialWorkerId: "w1", activities: { w1: activities } });
+
+	const lines = renderPlain(component, 100);
+	const recentIndex = lines.findIndex((line) => line.includes("Recent activity"));
+	const taskIndex = lines.findIndex((line) => line.includes("Task"));
+	assert.ok(recentIndex >= 0 && taskIndex > recentIndex, `expected Recent activity before Task; got:\n${lines.join("\n")}`);
+	const recentBlock = lines.slice(recentIndex, taskIndex).join("\n");
+	assert.match(recentBlock, /• Final answer produced/);
+	assert.doesNotMatch(recentBlock, /split overlay headline/);
+	assert.doesNotMatch(recentBlock, /duplicate body risk/);
+});
+
 test("console Activity contract renders the golden command, output elision, process note, and final-answer fields", () => {
 	const state = makeState(1);
 	const { chunks, events } = makeActivityContractInputs();
