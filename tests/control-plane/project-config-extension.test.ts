@@ -607,6 +607,42 @@ test("fatal-parse active config produces invalid-config warning but no scaffold 
 	assert.ok(!notifications.some(({ message }) => /scaffoldVersion|scaffold freshness|has no scaffoldVersion/i.test(message)));
 });
 
+test("ping_agents active returns restored registry snapshots after session_start", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-active-ping-restored-"));
+	const cwd = join(root, "app");
+	mkdirSync(cwd, { recursive: true });
+	writeProjectConfig(root, buildConfig());
+	const restored = makeWorkerState();
+	const notifications: Array<{ message: string; level?: string }> = [];
+	const { tools, handlers } = createExtensionHarness(notifications);
+	const ctx = {
+		...createSessionContext(cwd, notifications),
+		sessionManager: {
+			getEntries() {
+				return [{
+					type: "custom",
+					customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+					data: restored,
+				}];
+			},
+		},
+	} as any;
+
+	await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+	const pingAgents = tools.find((tool) => tool.name === "ping_agents");
+	assert.ok(pingAgents, "expected ping_agents tool to be registered");
+	const response = await pingAgents.execute("call-1", { mode: "active" }, undefined, undefined, ctx) as {
+		details?: { mode?: string; results?: Array<{ worker: WorkerRuntimeState }> };
+	};
+	const worker = response.details?.results?.[0]?.worker;
+
+	assert.equal(response.details?.mode, "active");
+	assert.equal(worker?.workerId, "w1");
+	assert.equal(worker?.status, "completed");
+	assert.match(worker?.error ?? "", /registry snapshot|not attached/i);
+	assert.ok(worker?.lastSummary, "expected active ping to return a usable snapshot summary");
+});
+
 test("session lifecycle UI honors display.cost false", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-extension-display-cost-"));
 	const cwd = join(root, "app");
@@ -633,8 +669,15 @@ test("session lifecycle UI honors display.cost false", async () => {
 		ui: {
 			notify() {},
 			setStatus() {},
-			setWidget(_key: string, lines?: string[]) {
-				widgets.push(lines);
+			setWidget(_key: string, value: unknown) {
+				if (Array.isArray(value)) {
+					widgets.push(value);
+				} else if (typeof value === "function") {
+					const component = (value as (_tui: unknown, _theme: unknown) => { render: (width: number) => string[] })({}, {});
+					widgets.push(component.render(100));
+				} else {
+					widgets.push(value as string[] | undefined);
+				}
 			},
 			setTitle() {},
 		},

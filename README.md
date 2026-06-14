@@ -1,6 +1,6 @@
 # Pi Agents Team
 
-Pi main session acts as the coordinator, while background RPC workers execute the tasks. The orchestrator does not view the complete transcripts from the workers, receiving only concise summaries and one `<final_answer>` block per worker. Meanwhile, the user is able to monitor the cost, tokens used, active workers and their full transcripts.
+Pi main session acts as the coordinator, while background RPC workers execute the tasks. The orchestrator does not view complete transcripts from the workers, receiving only concise summaries and one `<final_answer>` block per worker. Meanwhile, the user can monitor cost, tokens, active workers, readable Activity, Raw diagnostics, and the retained/latest assistant-text tail.
 
 <p align="center">
   <img width="auto" height="900" alt="pi-agents-team" src="https://github.com/user-attachments/assets/5dd744c3-3fef-4c9c-9e1a-29443f0570bb" />
@@ -16,6 +16,12 @@ Install from npm:
 
 ```bash
 pi install npm:pi-agents-team
+```
+
+`pi install` persists the package source in your Pi settings, so future sessions load it automatically. To try the extension for one run without writing settings, launch Pi with `-e` instead:
+
+```bash
+pi -e npm:pi-agents-team
 ```
 
 You can also install from Git using one of the options below.
@@ -54,21 +60,19 @@ Add an entry to the `packages` array. Pi installs any missing packages the next 
 }
 ```
 
-Clones to a temp directory for a single run. Nothing is written to your settings.
-
 ## Operator commands
 
-Slash commands available once the extension is loaded. The orchestrator's own tool surface (`delegate_task`, `wait_for_agents`, `agent_result`, etc.) is documented in [`docs/prompting.md`](docs/prompting.md); you don't invoke those directly.
+Slash commands available once the extension is loaded. The orchestrator's own tool surface (`delegate_task`, `wait_for_agents`, `agent_result`, etc.) is documented in [prompting](https://github.com/KristjanPikhof/Pi-Agents-Team/blob/main/docs/prompting.md); you don't invoke those directly. See [operations](https://github.com/KristjanPikhof/Pi-Agents-Team/blob/main/docs/operations.md) for dashboard keys, copy output, steer semantics, and troubleshooting.
 
 | Command | What it does |
 |---|---|
-| `/team` | Open the keyboard-first dashboard overlay: this is the full live worker registry, not just currently running workers. Tabs are **Workers / Inspect / Console / Cost**; jump with `1`–`4`, or cycle with `tab` / `shift+tab`. The action bar runs `[s]teer [m]sg [n]ew [c]lose [x]cancel [p]rune [r]efresh [y]copy [q]uit` for the selected worker. Inspect renders status, task/operator needs, summary, final answer, and latest assistant text as readable sections; Console groups assistant text separately from timestamped events. Both preserve common Markdown-like headings, tables, lists, and indented/code-like lines while wrapping to the panel width. Inspect and Console support follow mode with `f` (`G` jumps bottom + follows, `g` jumps top); Mac-friendly paging uses `space` / `b` in addition to `PgDn` / `PgUp`. Their compact header shows either `[follow]` or `[paused f/G]` plus the visible row range. Cost shows per-worker usage for currently tracked workers, plus `Σ` totals for active workers and usage retained from pruned terminal workers. The footer widget retains recent terminal worker rows briefly, and pruning clears old rows without resetting team token/cost totals. `/team <worker-id>` opens that worker's Inspect tab. The header shows `solo` when routing is off, and idle workers show `[reuse]`. |
-| `/team-steer <id\|all> <message> [--queue]` | Send a message to one worker or broadcast to all. Routes by current status: `steer` if running, re-`prompt` to wake idle/waiting_followup. `--queue` forces `follow_up` delivery for running workers (message runs after current turn); idle/waiting workers still upgrade to a fresh prompt so the session wakes. |
-| `/team-stop <id\|all>` | Stop one worker or every non-terminal worker. Auto-picks the right verb: `cancel` for running/starting, `close` for idle/waiting_followup. Already-terminal workers are skipped with a note; use overlay `[p]` to remove them. |
-| `/team-copy <id>` | Copy the worker's task, summary, final answer, and console timeline to the clipboard. |
-| `/team-result <id>` | Print a transcript-free worker result: worker title, optional task/status/error, pending relay questions, and `Result:` followed by the verbatim `<final_answer>` contents (or `No final answer block extracted yet.`). It does not print or depend on the worker transcript. The `agent_result` tool may additionally include scan-friendly summary sections for orchestrator synthesis. |
-| `/team-enable on\|off [--local\|--global]` | Flip routing between **team** and **solo** live for this session. With no flag, the change is session-only and resets on `/reload` or restart. In solo mode the orchestrator answers directly; `delegate_task` rejects with a routing-off error. Other `agent_*` tools stay live so workers spawned earlier remain reachable. The widget collapses to a single `Pi Agents Team — solo` line while workers are tracked, and disappears entirely when none are; the bottom status line shows solo explicitly (`Orchestrator · Solo · Idle` / `Orchestrator · Solo · Working...`) plus a rotating tip such as `Tip: Use /team to view workers`. Pass `--local` or `--global` to persist `routingMode` to that config scope. Legacy `--persist local\|global` still works but is deprecated. `/team-enable on` errors with an "enable first" hint when `enabled: false`. |
-| `/team-init [global\|local] [--force]` | Scaffold `agents-team.json` with every built-in role stamped in place, including each role's default `thinkingLevel`, plus the current `schemaVersion` + `scaffoldVersion` markers, the default `routingMode: "team"`, and top-level worker access defaults like `allowPathsOutsideProject: true`. Per-role `access` knobs include tools, write, path scope, extension mode, and explicit extension sources for provider/model extensions. Refuses existing files without `--force`; on `--force` the previous file is backed up first. |
+| `/team [worker-id]` | Open the live dashboard. Tabs cover Workers, Inspect, Console, and Cost; `/team <worker-id>` opens Inspect for that worker in TUI sessions. RPC/non-TUI sessions print a summary dashboard instead. |
+| `/team-steer <id\|all> [--queue] <message>` | Message one worker or broadcast to all. Running workers receive `steer` by default; `--queue` sends the message after the current turn. Idle or waiting workers are woken with a fresh prompt. |
+| `/team-stop <id\|all>` | Stop one worker or every non-terminal worker. Running/starting workers are canceled, idle/waiting workers are closed, and terminal workers are skipped. |
+| `/team-copy <id>` | Copy task, summary, final answer, retained assistant tail, Activity, and Raw diagnostics to the clipboard. |
+| `/team-result <id>` | Print the transcript-free worker result and verbatim `<final_answer>` contents when available. |
+| `/team-enable on\|off [--local\|--global]` | Toggle routing between **team** and **solo**. Without a flag the change is session-only; `--local` or `--global` persists `routingMode` to that config scope. |
+| `/team-init [global\|local] [--force]` | Scaffold `agents-team.json` with built-in roles, schema/scaffold markers, default routing, and worker access defaults. Existing files require `--force`, which backs up the previous file first. |
 
 In TUI sessions that support editor autocomplete, type `@` to complete tracked workers (`@w1`) and `$` to complete configured roles (`$reviewer`) while writing prompts or command arguments.
 
@@ -82,7 +86,7 @@ Roles can also declare `access.extensions` when a worker needs a custom provider
 
 `delegate_task` shows a launch title such as `Launching fixer agent` (or `Reusing fixer agent (w1)` for warm reuse), then returns one compact receipt line such as `w1 · Build seam (t1)`.
 
-Worker RPC events get normalized into compact state: status, last tool, last summary, pending relay questions, token usage, and known context budget.
+Worker RPC events get normalized into compact state: status, last tool, last summary, pending relay questions, token usage, known context budget, and a bounded in-memory Activity stream. Console shows the Activity stream by default as Pi-themed blocks such as `╭─ tool bash [ok]` followed by a `$ npm run typecheck` command line, nested output snippets, and explicit elision like `… +14 lines hidden`; Raw remains available for debugging. In Console, `r` toggles Activity and Raw; outside Console, `r` refreshes worker state. Tool status and git-style `+` / `-` output use the active Pi theme roles while keeping plain-text markers for copies. Worker-controlled terminal text is sanitized before render/copy surfaces. Inspect summarizes the same source under `Recent activity`. Copy payloads put `## Activity` before `## Console timeline (Raw)` and show a retained assistant-text tail with an explicit truncation note when line or byte caps are hit. Raw transcripts/events are not persisted or used as a synthesis fallback.
 
 Subagent reuse is context-aware: same-scope idle workers are cheap below 50% context window, fresh workers are preferred above 70%, and reuse is rejected at or above 80% context or at/below 32768 remaining tokens. The orchestrator waits with `wait_for_agents` (zero-token wait, wakes early on relay questions by subagents), responds to relay wakes with `agent_message` and another `wait_for_agents`, reads each worker's `agent_result`, and synthesizes one user-facing answer. `wait_for_agents` returns human-readable outcomes such as `Wait: all agents finished`, `Wait: relay question raised`, `Wait: timeout`, `Wait: aborted`, or `Wait: no agents` with a `Next:` instruction. `agent_result` is the authoritative worker deliverable: a compact title/task/relay/summary wrapper plus the verbatim `<final_answer>` block, or an explicit missing-block message when no final answer was extracted. Worker transcripts are not persisted or used as a fallback synthesis source.
 
@@ -96,12 +100,12 @@ Config freshness warnings are based on the active config layer only: project-loc
 
 | File | Covers |
 |---|---|
-| [`docs/architecture.md`](docs/architecture.md) | Layering, runtime flow, state contract, animation layer. |
-| [`docs/operations.md`](docs/operations.md) | Install, dashboard keys, copy flow, steer semantics, troubleshooting. |
-| [`docs/profiles.md`](docs/profiles.md) | Default roles, how to create your own, prompt resolution, project vs global config, version bumps, launch-time safety. |
-| [`docs/prompting.md`](docs/prompting.md) | Orchestrator + worker prompt contracts, the `<final_answer>` rules. |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Local dev setup, tests, smoke scripts, package layout. |
-| [`CLAUDE.md`](CLAUDE.md) | Load-bearing invariants and anti-patterns. Read before touching state transitions. |
+| [Architecture](https://github.com/KristjanPikhof/Pi-Agents-Team/blob/main/docs/architecture.md) | Layering, runtime flow, state contract, animation layer. |
+| [Operations](https://github.com/KristjanPikhof/Pi-Agents-Team/blob/main/docs/operations.md) | Install, dashboard keys, copy flow, steer semantics, troubleshooting. |
+| [Profiles](https://github.com/KristjanPikhof/Pi-Agents-Team/blob/main/docs/profiles.md) | Default roles, how to create your own, prompt resolution, project vs global config, version bumps, launch-time safety. |
+| [Prompting](https://github.com/KristjanPikhof/Pi-Agents-Team/blob/main/docs/prompting.md) | Orchestrator + worker prompt contracts, the `<final_answer>` rules. |
+| [Contributing](https://github.com/KristjanPikhof/Pi-Agents-Team/blob/main/CONTRIBUTING.md) | Local dev setup, tests, smoke scripts, package layout. |
+| [Claude notes](https://github.com/KristjanPikhof/Pi-Agents-Team/blob/main/CLAUDE.md) | Load-bearing invariants and anti-patterns. Read before touching state transitions. |
 
 ## License
 

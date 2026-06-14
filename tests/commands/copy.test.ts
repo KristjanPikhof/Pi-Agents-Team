@@ -1,5 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmodSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { TeamManager } from "../../src/control-plane/team-manager";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import { registerCopyCommand } from "../../src/commands/copy";
@@ -144,6 +148,65 @@ test("buildCopyPayload includes console timeline when events are provided", () =
 	assert.match(payload, /\[assistant_text\] All done/);
 	// No transcript block when undefined.
 	assert.match(payload, /\(no assistant text captured\)/);
+});
+
+test("/team-copy passes real worker activity events into clipboard payload", async () => {
+	const now = Date.now();
+	const worker: WorkerRuntimeState = {
+		workerId: "w-copy-activity",
+		profileName: "reviewer",
+		sessionMode: "worker",
+		status: "idle",
+		startedAt: now,
+		lastEventAt: now,
+		pendingRelayQuestions: [],
+		usage: {
+			turns: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			costUsd: 0,
+		},
+	};
+	const capturedPath = join(await mkdtemp(join(tmpdir(), "team-copy-test-")), "payload.txt");
+	const binDir = await mkdtemp(join(tmpdir(), "team-copy-bin-"));
+	for (const command of ["pbcopy", "wl-copy", "xclip", "xsel"]) {
+		const scriptPath = join(binDir, command);
+		await writeFile(scriptPath, `#!/bin/sh\ncat > ${JSON.stringify(capturedPath)}\n`, "utf8");
+		chmodSync(scriptPath, 0o755);
+	}
+	const originalPath = process.env.PATH;
+	process.env.PATH = `${binDir}${process.platform === "win32" ? ";" : ":"}${originalPath ?? ""}`;
+	try {
+		const harness = installCopyCommand({
+			listWorkers: () => [worker],
+			resolveWorkerId: (input: string) => input === worker.workerId ? worker.workerId : undefined,
+			getWorkerResult: () => ({ worker }),
+			getWorkerTranscript: () => "assistant transcript",
+			getWorkerConsole: () => [{ ts: now, kind: "tool_start", text: "raw fallback command" }],
+			getWorkerActivity: () => [{
+				id: "activity-1",
+				ts: now,
+				updatedAt: now,
+				actionKind: "command",
+				status: "completed",
+				label: "Ran npm test",
+				summary: "npm test",
+				command: "npm test",
+				sourceEvent: "worker_tool_finished",
+			}],
+		} as unknown as TeamManager);
+
+		await harness.run(worker.workerId);
+		const payload = await readFile(capturedPath, "utf8");
+		const activitySection = payload.split("## Activity")[1]?.split("## Console timeline")[0] ?? "";
+		assert.match(activitySection, /• Ran npm test/);
+		assert.doesNotMatch(activitySection, /raw fallback command/);
+		assert.match(harness.notifications[0]?.message ?? "", /Copy complete/);
+	} finally {
+		process.env.PATH = originalPath;
+	}
 });
 
 test("buildCopyPayload includes task block when currentTask is present", () => {

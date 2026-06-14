@@ -47,12 +47,13 @@ function makeWorker(): WorkerRuntimeState {
 	};
 }
 
-test("buildCopyPayload includes task, summary, final answer, transcript, and console", () => {
+test("buildCopyPayload includes task, summary, final answer, transcript, activity, and raw console", () => {
 	const worker = makeWorker();
 	const transcript = "Here is the complete report…";
 	const payload = buildCopyPayload(worker, transcript, [
 		{ ts: 1_700_000_000_000, kind: "tool_start", text: "read src/runtime/rpc-client.ts" },
-		{ ts: 1_700_000_001_000, kind: "status", text: "idle" },
+		{ ts: 1_700_000_001_000, kind: "tool_end", text: "read → export function buildCopyPayload()\n… +4 lines hidden" },
+		{ ts: 1_700_000_002_000, kind: "status", text: "idle" },
 	]);
 
 	assert.match(payload, /# Worker w3/);
@@ -64,7 +65,10 @@ test("buildCopyPayload includes task, summary, final answer, transcript, and con
 	assert.match(payload, /## Final answer/);
 	assert.match(payload, /headline: all good/);
 	assert.match(payload, /## Latest assistant text[\s\S]*Here is the complete report/);
-	assert.match(payload, /## Console timeline[\s\S]*\[tool_start\] read src\/runtime\/rpc-client\.ts/);
+	assert.match(payload, /## Activity[\s\S]*• Ran read src\/runtime\/rpc-client\.ts[\s\S]*export function buildCopyPayload\(\)[\s\S]*… \+4 lines hidden/);
+	assert.match(payload, /• Final answer[\s\S]*Headline: all good/);
+	assert.match(payload, /## Console timeline \(Raw\)[\s\S]*\[2023-11-14T22:13:20\.000Z\] \[tool_start\] read src\/runtime\/rpc-client\.ts/);
+	assert.match(payload, /## Console timeline \(Raw\)[\s\S]*\[tool_end\] read → export function buildCopyPayload\(\)\n… \+4 lines hidden/);
 });
 
 test("buildCopyPayload handles absent final answer and transcript cleanly", () => {
@@ -73,7 +77,59 @@ test("buildCopyPayload handles absent final answer and transcript cleanly", () =
 	const payload = buildCopyPayload(worker, undefined, undefined);
 	assert.match(payload, /\(no <final_answer> block produced\)/);
 	assert.match(payload, /\(no assistant text captured\)/);
-	assert.doesNotMatch(payload, /## Console timeline/);
+	assert.match(payload, /## Activity\n\(no activity captured\)/);
+	assert.doesNotMatch(payload, /## Console timeline \(Raw\)/);
+});
+
+test("buildCopyPayload caps oversized assistant transcript and makes truncation visible", () => {
+	const worker = makeWorker();
+	const transcript = `${"older line\n".repeat(40_000)}tail line`;
+	const payload = buildCopyPayload(worker, transcript, undefined);
+
+	assert.match(payload, /## Latest assistant text[\s\S]*\[transcript truncated: showing retained tail; omitted /);
+	assert.match(payload, /tail line/);
+	assert.ok(payload.length < transcript.length, "payload should not include the full oversized transcript");
+});
+
+test("buildCopyPayload synthesizes final-answer fields through the shared parser", () => {
+	const worker = makeWorker();
+	worker.finalAnswer = [
+		"headline: shared parser headline",
+		"risks:",
+		"- parser drift risk",
+		"next_recommendation: keep one parser",
+	].join("\n");
+	const payload = buildCopyPayload(worker, undefined, undefined);
+
+	assert.match(payload, /• Final answer[\s\S]*Headline: shared parser headline/);
+	assert.match(payload, /Risks: parser drift risk/);
+	assert.match(payload, /Next: keep one parser/);
+});
+
+test("buildCopyPayload uses provided worker activity events before raw diagnostics", () => {
+	const worker = makeWorker();
+	worker.finalAnswer = undefined;
+	const payload = buildCopyPayload(worker, undefined, [
+		{ ts: 1_700_000_000_000, kind: "tool_start", text: "bash {\"command\":\"npm test\"}" },
+	], [
+		{
+			id: "a1",
+			ts: 1_700_000_000_000,
+			updatedAt: 1_700_000_000_500,
+			actionKind: "command",
+			status: "completed",
+			label: "Ran npm test",
+			summary: "npm test",
+			command: "npm test",
+			outputSnippet: "12/12 passing",
+			hiddenLineCount: 8,
+			sourceEvent: "worker_tool_finished",
+		},
+	]);
+
+	assert.match(payload, /## Activity[\s\S]*• Ran npm test[\s\S]*12\/12 passing[\s\S]*… \+8 lines hidden/);
+	assert.match(payload, /## Console timeline \(Raw\)[\s\S]*\[tool_start\] bash/);
+	assert.ok(payload.indexOf("## Activity") < payload.indexOf("## Console timeline (Raw)"));
 });
 
 test("buildCopyPayload omits cache fields when both cache counters are zero", () => {
@@ -83,4 +139,43 @@ test("buildCopyPayload omits cache fields when both cache counters are zero", ()
 	const payload = buildCopyPayload(worker, undefined, undefined);
 	assert.match(payload, /turns=3\s+input=1200\s+output=430\s+cost_usd=0\.0210/);
 	assert.doesNotMatch(payload, /cache_read|cache_write/);
+});
+
+test("buildCopyPayload sanitizes worker-controlled terminal escapes in copied text", () => {
+	const worker = makeWorker();
+	const hostile = "safe \x1b]52;c;Y2xpcA==\x07clip \x1b]0;owned\x1b\\title \x1b[2Jclear \x1b[10;5Hmove \x1b[31mred\x1b[0m end\x07";
+	worker.finalAnswer = `headline: ${hostile}`;
+	worker.lastSummary!.headline = hostile;
+	worker.lastSummary!.risks = [hostile];
+	worker.lastSummary!.nextRecommendation = hostile;
+	worker.pendingRelayQuestions = [{
+		relayId: "relay-1",
+		workerId: "w3",
+		taskId: "t1",
+		question: hostile,
+		assumption: hostile,
+		urgency: "high",
+		createdAt: 0,
+	}];
+	worker.error = hostile;
+
+	const payload = buildCopyPayload(worker, hostile, [
+		{ ts: 1_700_000_000_000, kind: "tool_start", text: hostile },
+		{ ts: 1_700_000_001_000, kind: "tool_end", text: `tool → ${hostile}` },
+	], [{
+		id: "a1",
+		ts: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_500,
+		actionKind: "command",
+		status: "completed",
+		label: `Ran ${hostile}`,
+		summary: hostile,
+		command: hostile,
+		outputSnippet: hostile,
+		sourceEvent: "worker_tool_finished",
+	}]);
+
+	assert.doesNotMatch(payload, /\x1b|\x07|\x9b|\x9d/);
+	assert.match(payload, /safe clip title clear move red end/);
+	assert.match(payload, /## Console timeline \(Raw\)[\s\S]*\[tool_end\] tool → safe clip title clear move red end/);
 });

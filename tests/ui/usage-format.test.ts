@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatCacheUsage, formatCompactTokenCount, hasCacheUsage } from "../../src/ui/usage-format";
+import { formatCacheHitPercent, formatCacheUsage, formatCacheUsageWithHit, formatCompactTokenCount, hasCacheUsage } from "../../src/ui/usage-format";
 
 test("formatCompactTokenCount keeps sub-1000 values raw", () => {
 	assert.equal(formatCompactTokenCount(0), "0");
@@ -28,4 +28,19 @@ test("formatCacheUsage suppresses zero cache and compacts read/write tokens", ()
 	assert.equal(formatCacheUsage({ cacheReadTokens: 0, cacheWriteTokens: 0 }), undefined);
 	assert.equal(hasCacheUsage({ cacheReadTokens: 12_345, cacheWriteTokens: 600 }), true);
 	assert.equal(formatCacheUsage({ cacheReadTokens: 12_345, cacheWriteTokens: 600 }), "cache=r12.3k/w600");
+});
+
+test("formatCacheHitPercent suppresses zero-cache and zero-denominator usage", () => {
+	assert.equal(formatCacheHitPercent({ inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }), undefined);
+	assert.equal(formatCacheUsageWithHit({ inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }), undefined);
+});
+
+test("formatCacheUsageWithHit appends cumulative one-decimal cache hit percentage", () => {
+	assert.equal(formatCacheHitPercent({ inputTokens: 20, cacheReadTokens: 980, cacheWriteTokens: 0 }), "98.0%");
+	assert.equal(formatCacheUsageWithHit({ inputTokens: 20, cacheReadTokens: 980, cacheWriteTokens: 0 }), "cache=r980/w0 hit=98.0%");
+	assert.equal(formatCacheUsageWithHit({ inputTokens: 1_000, cacheReadTokens: 12_345, cacheWriteTokens: 600 }), "cache=r12.3k/w600 hit=88.5%");
+});
+
+test("formatCacheUsageWithHit reports write-only cache usage as a computable zero hit rate", () => {
+	assert.equal(formatCacheUsageWithHit({ inputTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 1_000 }), "cache=r0/w1k hit=0.0%");
 });

@@ -145,9 +145,25 @@ function applyUi(
 		return;
 	}
 
-	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode, displayCost });
-	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip, orchestratorWorking));
-	ctx.ui.setWidget(config.ui.widgetKey, widgetLines.length > 0 ? widgetLines : undefined);
+	const theme = ctx.ui.theme;
+	const widgetLines = buildTeamWidgetLines(state, { frame, routingMode, displayCost, theme, width: 80 });
+	ctx.ui.setStatus(config.ui.statusKey, buildTeamStatusLine(state, routingMode, tip, orchestratorWorking, theme));
+	if (widgetLines.length === 0) {
+		ctx.ui.setWidget(config.ui.widgetKey, undefined);
+	} else if (ctx.mode === "tui") {
+		ctx.ui.setWidget(
+			config.ui.widgetKey,
+			(_tui, widgetTheme) => ({
+				render: (width) => buildTeamWidgetLines(state, { frame, routingMode, displayCost, theme: widgetTheme, width }),
+				invalidate: () => {},
+			}),
+		);
+	} else {
+		ctx.ui.setWidget(
+			config.ui.widgetKey,
+			widgetLines,
+		);
+	}
 	ctx.ui.setTitle(config.ui.titleTemplate.replace("{mode}", state.sessionMode));
 }
 
@@ -677,7 +693,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "ping_agents",
 		label: "Ping Agents",
-		description: "Return passive or active status for tracked workers. Prefer wait_for_agents while waiting. Done statuses are idle/completed/aborted/error/exited; running means not done.",
+		description: "Return passive or active status for tracked workers. Active mode refreshes attached live workers and returns registry snapshots for restored/disposed workers. Prefer wait_for_agents while waiting. Done statuses are idle/completed/aborted/error/exited; running means not done.",
 		parameters: PingAgentsSchema,
 		renderCall: renderAgentToolCallTitle("ping_agents"),
 		async execute(_toolCallId, params) {

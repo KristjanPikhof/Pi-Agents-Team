@@ -14,6 +14,8 @@ import {
 	type WorkerProcessOptions,
 } from "./worker-process";
 import { buildWorkerSummaryFromText, extractRelayQuestions } from "../comms/summary";
+import { extractFinalAnswer, parseFinalAnswerSummaryFields } from "./final-answer";
+export { extractFinalAnswer } from "./final-answer";
 import { THINKING_LEVELS } from "../types";
 import type {
 	DelegatedTaskInput,
@@ -27,6 +29,12 @@ import type {
 } from "../types";
 
 const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
+const UNREACHABLE_TERMINAL_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
+	"completed",
+	"aborted",
+	"error",
+	"exited",
+]);
 
 export interface LaunchWorkerOptions {
 	workerId: string;
@@ -68,6 +76,30 @@ export interface WorkerConsoleEvent {
 	text: string;
 }
 
+export type WorkerActivityKind = "status" | "command" | "tool" | "process" | "final_summary" | "queue" | "error" | "exit";
+export type WorkerActivityStatus = "started" | "completed" | "error" | "info";
+
+export interface WorkerActivityEvent {
+	id: string;
+	ts: number;
+	updatedAt: number;
+	actionKind: WorkerActivityKind;
+	status: WorkerActivityStatus;
+	label: string;
+	summary?: string;
+	toolName?: string;
+	command?: string;
+	outputSnippet?: string;
+	hiddenLineCount?: number;
+	sourceEvent: NormalizedWorkerEvent["type"] | "worker_text_flush";
+	toolCallId?: string;
+	finalSummaryFields?: {
+		headline?: string;
+		risks?: string[];
+		nextRecommendation?: string;
+	};
+}
+
 export interface AssistantChunk {
 	index: number;
 	ts: number;
@@ -75,6 +107,9 @@ export interface AssistantChunk {
 }
 
 const CONSOLE_BUFFER_LIMIT = 500;
+const ACTIVITY_BUFFER_LIMIT = 500;
+const TOOL_OUTPUT_ACTIVITY_LINE_LIMIT = 6;
+const TOOL_OUTPUT_ACTIVITY_CHAR_LIMIT = 800;
 const ASSISTANT_TEXT_BATCH_MS = 400;
 // Cap is on the number of buffered text-delta chunks, NOT rendered lines —
 // a single chunk may contain newlines. Memory is bounded by the byte cap;
@@ -82,6 +117,8 @@ const ASSISTANT_TEXT_BATCH_MS = 400;
 // chunk is small. Either limit shifts the oldest chunk out.
 const ASSISTANT_BUFFER_CHUNK_CAP = 4096;
 const ASSISTANT_BUFFER_BYTE_CAP = 256 * 1024;
+const ASSISTANT_TRANSCRIPT_BYTE_CAP = 256 * 1024;
+const ASSISTANT_TRANSCRIPT_LINE_CAP = 4000;
 
 export interface WorkerLaunchSnapshot {
 	cwd: string;
@@ -100,6 +137,8 @@ export interface WorkerLaunchSnapshot {
 interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	textBuffer: string;
 	console: WorkerConsoleEvent[];
+	activity: WorkerActivityEvent[];
+	pendingToolActivityByCallId: Map<string, string>;
 	pendingTextDelta: string;
 	pendingTextFlushAt: number;
 	unsubscribers: Array<() => void>;
@@ -110,6 +149,11 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	assistantChunks: AssistantChunk[];
 	assistantChunkBytes: number;
 	assistantNextIndex: number;
+	activityNextIndex: number;
+	finalSummaryKeys: Set<string>;
+	textBufferTruncated: boolean;
+	textBufferDroppedBytes: number;
+	textBufferDroppedLines: number;
 }
 
 function emptyUsage(): WorkerUsageStats {
@@ -160,13 +204,26 @@ function extractResultText(result: Record<string, unknown>): string {
 	return snippet(result);
 }
 
-const FINAL_ANSWER_PATTERN = /<final[_\s-]?answer>([\s\S]*?)<\/final[_\s-]?answer>/i;
+function extractCommand(args: Record<string, unknown>): string | undefined {
+	const direct = args.command;
+	if (typeof direct === "string" && direct.trim()) return direct.trim();
+	const cmd = args.cmd;
+	if (typeof cmd === "string" && cmd.trim()) return cmd.trim();
+	return undefined;
+}
 
-export function extractFinalAnswer(text: string): string | undefined {
-	const match = FINAL_ANSWER_PATTERN.exec(text);
-	if (!match) return undefined;
-	const content = match[1]?.trim();
-	return content && content.length > 0 ? content : undefined;
+function buildOutputSnippet(text: string): { snippet: string; hiddenLineCount: number } {
+	const normalized = text.replace(/\r/g, "").trim();
+	if (!normalized) return { snippet: "", hiddenLineCount: 0 };
+	const lines = normalized.split("\n");
+	const visibleLines = lines.slice(0, TOOL_OUTPUT_ACTIVITY_LINE_LIMIT);
+	let output = visibleLines.join("\n");
+	let hiddenLineCount = Math.max(0, lines.length - visibleLines.length);
+	if (Buffer.byteLength(output, "utf8") > TOOL_OUTPUT_ACTIVITY_CHAR_LIMIT) {
+		output = trimSummary(output, TOOL_OUTPUT_ACTIVITY_CHAR_LIMIT);
+		if (hiddenLineCount === 0 && lines.length > 1) hiddenLineCount = lines.length - 1;
+	}
+	return { snippet: output, hiddenLineCount };
 }
 
 function extractAssistantText(message: Record<string, unknown>): string {
@@ -177,6 +234,60 @@ function extractAssistantText(message: Record<string, unknown>): string {
 		.map((part) => part.text)
 		.join("\n")
 		.trim();
+}
+
+function buildFinalSummary(finalAnswer: string): { summary: string; fields: WorkerActivityEvent["finalSummaryFields"] } {
+	const fields = parseFinalAnswerSummaryFields(finalAnswer);
+	const pieces = [fields?.headline, fields?.risks?.[0] ? `Risk: ${fields.risks[0]}` : undefined, fields?.nextRecommendation ? `Next: ${fields.nextRecommendation}` : undefined]
+		.filter((value): value is string => Boolean(value));
+	return { summary: trimSummary(pieces.length > 0 ? pieces.join(" · ") : finalAnswer, 360), fields };
+}
+
+function trimTranscriptTail(text: string): { text: string; droppedText: string } {
+	let trimmed = text;
+	const lines = trimmed.split("\n");
+	if (lines.length > ASSISTANT_TRANSCRIPT_LINE_CAP) {
+		trimmed = lines.slice(-ASSISTANT_TRANSCRIPT_LINE_CAP).join("\n");
+	}
+	let start = 0;
+	while (Buffer.byteLength(trimmed.slice(start), "utf8") > ASSISTANT_TRANSCRIPT_BYTE_CAP) {
+		start += Math.max(1, Math.ceil((Buffer.byteLength(trimmed.slice(start), "utf8") - ASSISTANT_TRANSCRIPT_BYTE_CAP) / 4));
+	}
+	if (start > 0) trimmed = trimmed.slice(start);
+	const droppedLength = Math.max(0, text.length - trimmed.length);
+	return { text: trimmed, droppedText: droppedLength > 0 ? text.slice(0, droppedLength) : "" };
+}
+
+function transcriptTruncationNote(record: WorkerRuntimeRecord): string | undefined {
+	if (!record.textBufferTruncated) return undefined;
+	const parts = [
+		record.textBufferDroppedBytes > 0 ? `${record.textBufferDroppedBytes.toLocaleString()} bytes` : undefined,
+		record.textBufferDroppedLines > 0 ? `${record.textBufferDroppedLines.toLocaleString()} lines` : undefined,
+	].filter((part): part is string => Boolean(part));
+	return `[transcript truncated: showing retained tail; omitted ${parts.join(" / ") || "earlier assistant text"}]`;
+}
+
+function appendTranscriptText(record: WorkerRuntimeRecord, text: string): void {
+	const combined = record.textBuffer + text;
+	const trimmed = trimTranscriptTail(combined);
+	if (trimmed.droppedText) {
+		record.textBufferTruncated = true;
+		record.textBufferDroppedBytes += Buffer.byteLength(trimmed.droppedText, "utf8");
+		record.textBufferDroppedLines += Math.max(0, trimmed.droppedText.split("\n").length - 1);
+	}
+	record.textBuffer = trimmed.text;
+}
+
+function setTranscriptText(record: WorkerRuntimeRecord, text: string): void {
+	const trimmed = trimTranscriptTail(text);
+	record.textBufferTruncated = Boolean(trimmed.droppedText);
+	record.textBufferDroppedBytes = trimmed.droppedText ? Buffer.byteLength(trimmed.droppedText, "utf8") : 0;
+	record.textBufferDroppedLines = trimmed.droppedText ? Math.max(0, trimmed.droppedText.split("\n").length - 1) : 0;
+	record.textBuffer = trimmed.text;
+}
+
+function finalSummaryKey(finalAnswer: string): string {
+	return finalAnswer.replace(/\s+/g, " ").trim();
 }
 
 function buildSummary(state: WorkerRuntimeState, text: string): WorkerSummary {
@@ -257,6 +368,8 @@ export class WorkerManager {
 			state: createInitialState(options),
 			textBuffer: "",
 			console: [],
+			activity: [],
+			pendingToolActivityByCallId: new Map(),
 			pendingTextDelta: "",
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
@@ -266,6 +379,11 @@ export class WorkerManager {
 			assistantChunks: [],
 			assistantChunkBytes: 0,
 			assistantNextIndex: 0,
+			activityNextIndex: 0,
+			finalSummaryKeys: new Set(),
+			textBufferTruncated: false,
+			textBufferDroppedBytes: 0,
+			textBufferDroppedLines: 0,
 			launchSnapshot: {
 				cwd: options.cwd,
 				command: options.command,
@@ -378,9 +496,16 @@ export class WorkerManager {
 		record.textBuffer = "";
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
+		record.activity = [];
+		record.pendingToolActivityByCallId = new Map();
 		record.assistantChunks = [];
 		record.assistantChunkBytes = 0;
 		record.assistantNextIndex = 0;
+		record.activityNextIndex = 0;
+		record.finalSummaryKeys = new Set();
+		record.textBufferTruncated = false;
+		record.textBufferDroppedBytes = 0;
+		record.textBufferDroppedLines = 0;
 		// Reuse keeps the same RPC session and launch-time model/thinking flags,
 		// so the post-launch clamp comparison remains valid for the reused task.
 		await this.promptWorker(workerId, message);
@@ -452,7 +577,6 @@ export class WorkerManager {
 		const record = this.requireWorker(workerId);
 		const stats = await record.client.getSessionStats();
 		record.state.usage = this.updateUsage(record.state.usage, stats);
-		record.state.lastEventAt = Date.now();
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 		return stats;
 	}
@@ -462,14 +586,23 @@ export class WorkerManager {
 	}
 
 	getWorkerTranscript(workerId: string): string | undefined {
-		return this.workers.get(workerId)?.textBuffer;
+		const record = this.workers.get(workerId);
+		if (!record) return undefined;
+		const note = transcriptTruncationNote(record);
+		return note ? `${note}\n${record.textBuffer}` : record.textBuffer;
 	}
 
 	getWorkerConsole(workerId: string): WorkerConsoleEvent[] | undefined {
 		const record = this.workers.get(workerId);
 		if (!record) return undefined;
-		this.flushPendingText(record);
 		return record.console.slice();
+	}
+
+	getWorkerActivity(workerId: string): WorkerActivityEvent[] | undefined {
+		const record = this.workers.get(workerId);
+		if (!record) return undefined;
+		this.discoverFinalAnswer(record, "worker_text_flush", Date.now());
+		return structuredClone(record.activity);
 	}
 
 	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[] {
@@ -482,6 +615,11 @@ export class WorkerManager {
 	onAssistantChunk(listener: (workerId: string, chunk: AssistantChunk) => void): () => void {
 		this.emitter.on("assistant_chunk", listener);
 		return () => this.emitter.off("assistant_chunk", listener);
+	}
+
+	onActivityEvent(listener: (workerId: string, event: WorkerActivityEvent) => void): () => void {
+		this.emitter.on("activity_event", listener);
+		return () => this.emitter.off("activity_event", listener);
 	}
 
 	private appendAssistantChunk(record: WorkerRuntimeRecord, ts: number, text: string): void {
@@ -511,13 +649,87 @@ export class WorkerManager {
 		}
 	}
 
+	private appendActivity(record: WorkerRuntimeRecord, event: WorkerActivityEvent): void {
+		record.activity.push(event);
+		if (record.activity.length > ACTIVITY_BUFFER_LIMIT) {
+			const pruned = record.activity.splice(0, record.activity.length - ACTIVITY_BUFFER_LIMIT);
+			const prunedIds = new Set(pruned.map((item) => item.id));
+			for (const [callId, activityId] of record.pendingToolActivityByCallId.entries()) {
+				if (prunedIds.has(activityId)) record.pendingToolActivityByCallId.delete(callId);
+			}
+		}
+		this.emitter.emit("activity_event", record.workerId, structuredClone(event));
+	}
+
+	private updateActivity(record: WorkerRuntimeRecord, activityId: string, patch: Partial<WorkerActivityEvent>): boolean {
+		const activity = record.activity.find((item) => item.id === activityId);
+		if (!activity) return false;
+		Object.assign(activity, patch);
+		this.emitter.emit("activity_event", record.workerId, structuredClone(activity));
+		return true;
+	}
+
+	private nextActivityId(record: WorkerRuntimeRecord, sourceEvent: WorkerActivityEvent["sourceEvent"], timestamp: number): string {
+		const index = record.activityNextIndex;
+		record.activityNextIndex += 1;
+		return `${record.workerId}:${sourceEvent}:${timestamp}:${index}`;
+	}
+
+	private appendFinalSummaryActivity(
+		record: WorkerRuntimeRecord,
+		sourceEvent: WorkerActivityEvent["sourceEvent"],
+		ts: number,
+		finalAnswer: string,
+	): void {
+		const key = finalSummaryKey(finalAnswer);
+		if (record.finalSummaryKeys.has(key)) return;
+		record.finalSummaryKeys.add(key);
+		record.state.finalAnswer = finalAnswer;
+		const finalSummary = buildFinalSummary(finalAnswer);
+		this.appendActivity(record, {
+			id: this.nextActivityId(record, sourceEvent, ts),
+			ts,
+			updatedAt: ts,
+			actionKind: "final_summary",
+			status: "completed",
+			label: "Final answer",
+			summary: finalSummary.summary,
+			sourceEvent,
+			finalSummaryFields: finalSummary.fields,
+		});
+	}
+
+	private discoverFinalAnswer(record: WorkerRuntimeRecord, sourceEvent: WorkerActivityEvent["sourceEvent"], ts: number): string | undefined {
+		const finalAnswer = extractFinalAnswer(record.pendingTextDelta) ?? extractFinalAnswer(record.textBuffer);
+		if (!finalAnswer) return undefined;
+		this.appendFinalSummaryActivity(record, sourceEvent, ts, finalAnswer);
+		return finalAnswer;
+	}
+
 	private flushPendingText(record: WorkerRuntimeRecord): void {
 		if (!record.pendingTextDelta) return;
+		const ts = record.pendingTextFlushAt || Date.now();
+		const pendingText = record.pendingTextDelta;
+		const text = trimSummary(pendingText, 400);
 		this.appendConsole(record, {
-			ts: record.pendingTextFlushAt || Date.now(),
+			ts,
 			kind: "assistant_text",
-			text: trimSummary(record.pendingTextDelta, 400),
+			text,
 		});
+		const finalAnswer = this.discoverFinalAnswer(record, "worker_text_flush", ts);
+		if (finalAnswer) {
+		} else if (!/<final[_\s-]?answer\b|<\/final[_\s-]?answer>/i.test(pendingText)) {
+			this.appendActivity(record, {
+				id: this.nextActivityId(record, "worker_text_flush", ts),
+				ts,
+				updatedAt: ts,
+				actionKind: "process",
+				status: "info",
+				label: "Thinking",
+				summary: trimSummary(text, 260),
+				sourceEvent: "worker_text_flush",
+			});
+		}
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
 	}
@@ -540,7 +752,9 @@ export class WorkerManager {
 	}
 
 	private applyNormalizedEvent(record: WorkerRuntimeRecord, event: NormalizedWorkerEvent): void {
-		record.state.lastEventAt = event.timestamp;
+		if (event.type !== "worker_state") {
+			record.state.lastEventAt = event.timestamp;
+		}
 
 		switch (event.type) {
 			case "worker_started":
@@ -548,9 +762,19 @@ export class WorkerManager {
 				record.state.status = "running";
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: "running" });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "status",
+					status: "info",
+					label: "Worker running",
+					summary: "running",
+					sourceEvent: event.type,
+				});
 				break;
 			case "worker_text_delta":
-				record.textBuffer += event.delta;
+				appendTranscriptText(record, event.delta);
 				record.state.status = "running";
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				record.pendingTextDelta += event.delta;
@@ -564,11 +788,8 @@ export class WorkerManager {
 				this.flushPendingText(record);
 				const assistantText = extractAssistantText(event.message);
 				if (assistantText) {
-					record.textBuffer = assistantText;
 					const finalAnswer = extractFinalAnswer(assistantText);
-					if (finalAnswer) {
-						record.state.finalAnswer = finalAnswer;
-					}
+					setTranscriptText(record, finalAnswer ?? assistantText);
 					record.state.pendingRelayQuestions = extractRelayQuestions(assistantText, record.state);
 					record.state.lastSummary = buildSummary(record.state, assistantText);
 					this.appendConsole(record, {
@@ -576,6 +797,20 @@ export class WorkerManager {
 						kind: "assistant_message",
 						text: trimSummary(finalAnswer ?? assistantText, 600),
 					});
+					if (finalAnswer) {
+						this.appendFinalSummaryActivity(record, event.type, event.timestamp, finalAnswer);
+					} else {
+						this.appendActivity(record, {
+							id: this.nextActivityId(record, event.type, event.timestamp),
+							ts: event.timestamp,
+							updatedAt: event.timestamp,
+							actionKind: "process",
+							status: "info",
+							label: "Assistant message",
+							summary: trimSummary(assistantText, 260),
+							sourceEvent: event.type,
+						});
+					}
 				}
 				const messageUsage = event.message.usage as Record<string, unknown> | undefined;
 				if (messageUsage) {
@@ -590,7 +825,7 @@ export class WorkerManager {
 				}
 				break;
 			}
-			case "worker_tool_started":
+			case "worker_tool_started": {
 				record.state.status = "running";
 				record.state.lastToolName = event.toolName;
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
@@ -600,8 +835,26 @@ export class WorkerManager {
 					kind: "tool_start",
 					text: `${event.toolName} ${snippet(event.args, 180)}`.trim(),
 				});
+				const command = extractCommand(event.args);
+				const isCommand = event.toolName === "bash" || event.toolName === "shell" || command !== undefined;
+				const activityId = this.nextActivityId(record, event.type, event.timestamp);
+				if (event.toolCallId) record.pendingToolActivityByCallId.set(event.toolCallId, activityId);
+				this.appendActivity(record, {
+					id: activityId,
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: isCommand ? "command" : "tool",
+					status: "started",
+					label: isCommand ? `Ran ${command ?? event.toolName}` : `Used ${event.toolName || "tool"}`,
+					summary: command ? trimSummary(command, 220) : snippet(event.args, 220),
+					toolName: event.toolName,
+					...(command ? { command } : {}),
+					sourceEvent: event.type,
+					toolCallId: event.toolCallId || undefined,
+				});
 				break;
-			case "worker_tool_finished":
+			}
+			case "worker_tool_finished": {
 				record.state.lastToolName = event.toolName;
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				this.appendConsole(record, {
@@ -609,7 +862,38 @@ export class WorkerManager {
 					kind: "tool_end",
 					text: `${event.toolName}${event.isError ? " [error]" : ""} → ${snippet(extractResultText(event.result), 260)}`,
 				});
+				const resultText = extractResultText(event.result);
+				const output = buildOutputSnippet(resultText);
+				const pendingId = event.toolCallId ? record.pendingToolActivityByCallId.get(event.toolCallId) : undefined;
+				if (pendingId) {
+					record.pendingToolActivityByCallId.delete(event.toolCallId);
+					const patched = this.updateActivity(record, pendingId, {
+						updatedAt: event.timestamp,
+						status: event.isError ? "error" : "completed",
+						toolName: event.toolName,
+						...(output.snippet ? { outputSnippet: output.snippet } : {}),
+						...(output.hiddenLineCount > 0 ? { hiddenLineCount: output.hiddenLineCount } : {}),
+						sourceEvent: event.type,
+					});
+					if (patched) break;
+				}
+				{
+					this.appendActivity(record, {
+						id: this.nextActivityId(record, event.type, event.timestamp),
+						ts: event.timestamp,
+						updatedAt: event.timestamp,
+						actionKind: "tool",
+						status: event.isError ? "error" : "completed",
+						label: `${event.toolName || "Tool"} finished`,
+						toolName: event.toolName,
+						...(output.snippet ? { outputSnippet: output.snippet } : {}),
+						...(output.hiddenLineCount > 0 ? { hiddenLineCount: output.hiddenLineCount } : {}),
+						sourceEvent: event.type,
+						toolCallId: event.toolCallId || undefined,
+					});
+				}
 				break;
+			}
 			case "worker_queue_updated":
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				if (event.steering.length > 0 || event.followUp.length > 0) {
@@ -618,6 +902,16 @@ export class WorkerManager {
 						kind: "queue",
 						text: `steering=${event.steering.length} followUp=${event.followUp.length}`,
 					});
+					this.appendActivity(record, {
+						id: this.nextActivityId(record, event.type, event.timestamp),
+						ts: event.timestamp,
+						updatedAt: event.timestamp,
+						actionKind: "queue",
+						status: "info",
+						label: "Messages queued",
+						summary: `steering=${event.steering.length} followUp=${event.followUp.length}`,
+						sourceEvent: event.type,
+					});
 				}
 				break;
 			case "worker_idle":
@@ -625,6 +919,16 @@ export class WorkerManager {
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: record.state.status });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "status",
+					status: "info",
+					label: "Worker idle",
+					summary: record.state.status,
+					sourceEvent: event.type,
+				});
 				break;
 			case "worker_error":
 				record.state.status = "error";
@@ -632,17 +936,35 @@ export class WorkerManager {
 				record.state.lastSummary = buildSummary(record.state, event.error);
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "error",
+					status: "error",
+					label: "Worker error",
+					summary: trimSummary(event.error, 260),
+					sourceEvent: event.type,
+				});
 				break;
-			case "worker_state":
+			case "worker_state": {
 				if (isThinkingLevel(event.state.thinkingLevel)) {
 					record.state.effectiveThinkingLevel = event.state.thinkingLevel;
 				}
 				if (record.state.status === "starting" && !event.state.isStreaming) {
 					break;
 				}
+				if (UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) {
+					break;
+				}
+				const previousStatus = record.state.status;
 				record.state.status = deriveStatusFromSessionState(event.state);
+				if (record.state.status !== previousStatus) {
+					record.state.lastEventAt = event.timestamp;
+				}
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				break;
+			}
 			case "thinking_clamped":
 				break;
 			case "worker_exit":
@@ -664,6 +986,16 @@ export class WorkerManager {
 					ts: event.timestamp,
 					kind: "exit",
 					text: `status=${record.state.status}${event.code !== null ? ` code=${event.code}` : ""}${event.signal ? ` signal=${event.signal}` : ""}`,
+				});
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "exit",
+					status: record.state.status === "error" ? "error" : "completed",
+					label: "Worker exited",
+					summary: `status=${record.state.status}${event.code !== null ? ` code=${event.code}` : ""}${event.signal ? ` signal=${event.signal}` : ""}`,
+					sourceEvent: event.type,
 				});
 				record.client.dispose(`Worker exited: ${event.code ?? "signal"}`);
 				break;

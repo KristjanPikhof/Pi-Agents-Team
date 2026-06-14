@@ -4,7 +4,7 @@ import { TaskRegistry } from "./task-registry";
 import { resolveWorkerMessageDelivery, type WorkerMessageDeliveryResolved } from "../comms/agent-messaging";
 import { buildPassivePing } from "../comms/ping";
 import { buildWorkerTaskPrompt } from "../prompts/contracts";
-import { WorkerManager, type AssistantChunk, type ManagedWorkerRecord, type WorkerConsoleEvent } from "../runtime/worker-manager";
+import { WorkerManager, type AssistantChunk, type ManagedWorkerRecord, type WorkerActivityEvent, type WorkerConsoleEvent } from "../runtime/worker-manager";
 import { applyLaunchPolicy } from "../safety/launch-policy";
 import { isPathWithinProjectRoot } from "../safety/path-scope";
 import { aggregateWorkerUsage } from "../usage";
@@ -80,6 +80,7 @@ export interface DelegateTaskRequest {
 const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
 const REUSE_CONTEXT_HARD_PERCENT = 80;
 const REUSE_CONTEXT_MIN_REMAINING_TOKENS = 32768;
+const ACTIVE_PING_REFRESH_TIMEOUT_MS = 2_000;
 
 function toolsetEqual(a: string[] | undefined, b: string[] | undefined): boolean {
 	if (a === b) return true;
@@ -135,6 +136,11 @@ export interface PingAgentsRequest {
 	mode?: "passive" | "active";
 }
 
+type ActiveRefreshOutcome =
+	| { status: "refreshed" }
+	| { status: "registry_only"; message: string }
+	| { status: "failed" | "timeout"; message: string };
+
 export class TeamManager {
 	private readonly events = new EventEmitter();
 	private readonly registry: TaskRegistry;
@@ -142,6 +148,8 @@ export class TeamManager {
 	private workerCounter = 0;
 	private taskCounter = 0;
 	private _routingMode: RoutingMode;
+	private readonly activePingTimeoutMs: number;
+	private readonly activeRefreshes = new Map<string, Promise<ActiveRefreshOutcome>>();
 	readonly displayCost: boolean;
 
 	constructor(options?: {
@@ -150,11 +158,13 @@ export class TeamManager {
 		workerManager?: WorkerManager;
 		routingMode?: RoutingMode;
 		displayCost?: boolean;
+		activePingTimeoutMs?: number;
 	}) {
 		this.config = options?.config ?? DEFAULT_TEAM_CONFIG;
 		this.registry = options?.registry ?? new TaskRegistry();
 		this.workerManager = options?.workerManager ?? new WorkerManager();
 		this._routingMode = options?.routingMode ?? "team";
+		this.activePingTimeoutMs = options?.activePingTimeoutMs ?? ACTIVE_PING_REFRESH_TIMEOUT_MS;
 		this.displayCost = options?.displayCost !== false;
 		this.workerManager.onEvent((worker) => {
 			this.registry.upsertWorker(worker.state);
@@ -341,12 +351,20 @@ export class TeamManager {
 		return this.workerManager.getWorkerConsole(workerId);
 	}
 
+	getWorkerActivity(workerId: string): WorkerActivityEvent[] | undefined {
+		return this.workerManager.getWorkerActivity(workerId);
+	}
+
 	getAssistantTail(workerId: string, fromIndex?: number): AssistantChunk[] {
 		return this.workerManager.getAssistantTail(workerId, fromIndex);
 	}
 
 	onAssistantChunk(listener: (workerId: string, chunk: AssistantChunk) => void): () => void {
 		return this.workerManager.onAssistantChunk(listener);
+	}
+
+	onActivityEvent(listener: (workerId: string, event: WorkerActivityEvent) => void): () => void {
+		return this.workerManager.onActivityEvent(listener);
 	}
 
 	async messageWorker(workerId: string, message: string, delivery: "auto" | "steer" | "follow_up" = "auto"): Promise<AgentMessageResult> {
@@ -416,16 +434,20 @@ export class TeamManager {
 	async pingWorkers(request: PingAgentsRequest = {}): Promise<AgentResult[]> {
 		const mode = request.mode ?? "passive";
 		const workerIds = request.workerIds?.length ? request.workerIds : this.listWorkers().map((worker) => worker.workerId);
+		const activeOutcomes = new Map<string, ActiveRefreshOutcome>();
 
 		if (mode === "active") {
-			await Promise.all(
-				workerIds.map(async (workerId) => {
-					await this.workerManager.refreshState(workerId);
-					await this.workerManager.refreshStats(workerId);
-					const refreshed = this.workerManager.getWorker(workerId);
-					if (refreshed) this.registry.upsertWorker(refreshed.state);
-				}),
+			const outcomes = await Promise.all(
+				workerIds.map(async (workerId): Promise<[string, ActiveRefreshOutcome]> => [
+					workerId,
+					await this.refreshWorkerForActivePing(workerId),
+				]),
 			);
+			for (const [workerId, outcome] of outcomes) activeOutcomes.set(workerId, outcome);
+		}
+
+		for (const [workerId, activeOutcome] of activeOutcomes) {
+			if (activeOutcome.status !== "refreshed") this.persistActivePingWarning(workerId, activeOutcome.message);
 		}
 
 		return workerIds.map((workerId) => {
@@ -444,6 +466,83 @@ export class TeamManager {
 			};
 			return result;
 		});
+	}
+
+	private async refreshWorkerForActivePing(workerId: string): Promise<ActiveRefreshOutcome> {
+		const snapshot = this.registry.getWorker(workerId);
+		if (!snapshot) return { status: "registry_only", message: `Unknown worker: ${workerId}` };
+		if (!this.workerManager.hasWorker(workerId)) {
+			return {
+				status: "registry_only",
+				message: `Active ping returned registry snapshot only for ${workerId}: worker RPC is not attached (restored or disposed).`,
+			};
+		}
+
+		let refresh = this.activeRefreshes.get(workerId);
+		if (!refresh) {
+			refresh = (async (): Promise<ActiveRefreshOutcome> => {
+				try {
+					await this.workerManager.refreshState(workerId);
+					await this.workerManager.refreshStats(workerId);
+					const refreshed = this.workerManager.getWorker(workerId);
+					if (refreshed) this.registry.upsertWorker(refreshed.state);
+					return { status: "refreshed" };
+				} catch (error) {
+					return {
+						status: "failed",
+						message: `Active ping refresh failed for ${workerId}: ${error instanceof Error ? error.message : String(error)}`,
+					};
+				}
+			})();
+			this.activeRefreshes.set(workerId, refresh);
+			refresh.finally(() => {
+				if (this.activeRefreshes.get(workerId) === refresh) this.activeRefreshes.delete(workerId);
+			});
+		}
+
+		// Bound each active ping call without spawning duplicate refreshes for the same worker.
+		// If the RPC never resolves, later calls reuse the same in-flight promise instead of
+		// accumulating more stuck get_state/get_session_stats requests.
+		let timeout: NodeJS.Timeout | undefined;
+		try {
+			return await Promise.race([
+				refresh,
+				new Promise<ActiveRefreshOutcome>((resolve) => {
+					timeout = setTimeout(() => {
+						resolve({
+							status: "timeout",
+							message: `Active ping refresh timed out for ${workerId} after ${this.activePingTimeoutMs}ms; returned latest registry snapshot.`,
+						});
+					}, this.activePingTimeoutMs);
+					if (typeof timeout.unref === "function") timeout.unref();
+				}),
+			]);
+		} finally {
+			if (timeout) clearTimeout(timeout);
+		}
+	}
+
+	private persistActivePingWarning(workerId: string, message: string): void {
+		const worker = this.registry.getWorker(workerId);
+		if (!worker) return;
+		worker.error = message;
+		worker.lastSummary = this.buildActivePingSnapshotSummary(worker, message);
+		this.registry.upsertWorker(worker);
+	}
+
+	private buildActivePingSnapshotSummary(worker: WorkerRuntimeState, headline: string): NonNullable<WorkerRuntimeState["lastSummary"]> {
+		return {
+			workerId: worker.workerId,
+			taskId: worker.currentTask?.taskId ?? worker.workerId,
+			headline,
+			status: worker.status,
+			currentToolName: worker.lastToolName,
+			readFiles: [],
+			changedFiles: [],
+			risks: [],
+			relayQuestionCount: worker.pendingRelayQuestions.length,
+			updatedAt: Date.now(),
+		};
 	}
 
 	private async reuseWorkerForTask(request: DelegateTaskRequest): Promise<AgentResult> {
@@ -593,6 +692,7 @@ export class TeamManager {
 	}
 
 	async dispose(): Promise<void> {
+		this.activeRefreshes.clear();
 		await this.workerManager.dispose();
 	}
 
@@ -600,6 +700,7 @@ export class TeamManager {
 		const terminal = this.registry.listWorkers().filter((worker) => isTerminalWorkerStatus(worker.status));
 		const removed: WorkerRuntimeState[] = [];
 		for (const worker of terminal) {
+			this.activeRefreshes.delete(worker.workerId);
 			if (this.workerManager.hasWorker(worker.workerId)) {
 				try {
 					await this.workerManager.removeWorker(worker.workerId);

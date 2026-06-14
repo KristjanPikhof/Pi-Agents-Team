@@ -47,13 +47,15 @@ In TUI sessions with Pi's autocomplete provider API, the editor also understands
 
 Suggestions appear at the start of a token after whitespace. File completion is suppressed inside those `@` / `$` tokens so paths and team references do not fight each other. Older Pi versions without the provider API simply skip this enhancement; command-specific completions still work.
 
-- `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact dashboard summary in print mode. Treat it as the full live worker registry: running, queued, idle/reusable, recent terminal, error, and retained-cost state are all reachable there rather than through separate status commands.
+- `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact refreshed dashboard summary in RPC/non-TUI mode. Treat it as the full live worker registry: running, queued, idle/reusable, recent terminal, error, and retained-cost state are all reachable there rather than through separate status commands.
 - Top tabs (`1` Workers · `2` Inspect · `3` Console · `4` Cost) are jumped with the number row, or `tab` / `shift+tab` to cycle. The overlay is a single right-anchored stack panel; switch to `Workers` to change selection, then use `Inspect` or `Console` for the selected worker.
-- `/team <worker-id>` skips the roster and opens the overlay on that worker's Inspect tab (tab completion suggests live worker ids).
+- `/team <worker-id>` skips the roster and opens the overlay on that worker's Inspect tab in TUI mode (tab completion suggests live worker ids). RPC/non-TUI mode stays summary-only; use `/team-result <worker-id>` for the authoritative final deliverable.
 
-Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` inside the overlay to re-ping.
+Opening the overlay triggers an active RPC refresh so token counts and streaming status are current. Press `r` outside the Console tab to re-ping. In Console, `r` toggles between the default Activity view and the Raw/debug view. Refreshing does not reset recent terminal-row retention: old terminal rows continue to age out by time unless you prune them.
 
-The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command. Active rows display task elapsed time (using the current task start on reused workers); recent terminal rows are retained for five minutes so finishes remain visible until the operator opens `/team` or prunes them. Command tips rotate in the bottom orchestrator status line, for example `Orchestrator · Idle · Tip: Use /team to view workers`. The line switches to `Working...` while the visible orchestrator turn is active, and also while worker/relay activity is active.
+While the initial refresh is in flight, the overlay shows a compact loading spinner. If a worker refresh times out, `/team` shows the latest registry snapshot instead of hanging and marks the worker with an active-ping timeout warning. The overlay is theme-aware and uses the Pi host's active `Theme` for colors, borders, and status accents.
+
+The always-visible footer widget already shows glyphs + counts (`▶ 3 running  ✓ 1 done  ○ 2 idle  ? 1 relay`) plus an inline `Σ` cost column when active or retained-pruned usage is non-zero — there is no separate "status" slash command. Active rows display task elapsed time (using the current task start on reused workers); recent terminal rows are retained for five minutes so finishes remain visible briefly after completion, or until the operator prunes them. Command tips rotate in the bottom orchestrator status line, for example `Orchestrator · Idle · Tip: Use /team to view workers`. The line switches to `Working...` while the visible orchestrator turn is active, and also while worker/relay activity is active.
 
 ### Dashboard keys
 
@@ -74,15 +76,48 @@ Inside the `/team` overlay:
 | `c` | Close (idle / waiting_followup only) — disposes the RPC handle |
 | `x` | Cancel — aborts and shuts down a running worker |
 | `p` | Prune terminal workers |
-| `r` | Re-ping workers (fresh RPC state + stats) |
-| `y` | Copy the selected worker's task, summary, final answer, transcript, and console to the clipboard |
+| `r` | Re-ping workers outside Console; inside Console, toggle Activity / Raw |
+| `y` | Copy the selected worker's task, summary, final answer, Activity, and Raw console diagnostics to the clipboard |
 | `q` / `esc` | Close overlay (`esc` also cancels a modal) |
 
 The header carries a tab bar, the per-tab help row, and the selected worker's priority snippet. When routing is off, the bar shows a `solo` badge; idle workers carry a `[reuse]` tag in the roster row and `[reusable]` in the Inspect header so reusable sessions are obvious. A transient `» …` status line surfaces last action / refresh / error feedback for a few seconds.
 
-Inspect renders status, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. It uses readable section dividers so final answers and latest assistant text do not run together. The text formatter keeps common report shapes recognizable — Markdown-style headings and tables, list markers, separators, indented/code-like lines, and stack-trace-like lines — while wrapping instead of ellipsizing normal body content.
+Inspect renders status, a compact `Recent activity` section, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. `Recent activity` stays intentionally short: it lists recent commands, process notes, and final-answer production without copying dense task prompts or raw transcript text. Worker-controlled text is made terminal-safe before it reaches Inspect, Console, or copy payloads: OSC/DCS/CSI/ESC control sequences and non-printable controls are stripped, tabs become spaces, and Pi-owned theme colors are applied only after sanitization. The text formatter keeps common report shapes recognizable — Markdown-style headings and tables, list markers, separators, indented/code-like lines, and stack-trace-like lines — while wrapping instead of ellipsizing normal body content.
 
-Console streams a bounded ring buffer of assistant text deltas (timestamped) per worker, then the existing console event timeline (status transitions, tool starts and ends, queue updates, errors, exit) under an `— events —` divider. When both streams are present, the assistant group appears first under `— assistant —`; routine event metadata is dimmed, while errors and recovery/queue events are highlighted. Console content is isolated per selected worker.
+Console opens on the human-readable `— activity —` view. Activity items are Pi-themed blocks: commands and tools get a framed header, readable status (`[running]`, `[ok]`, `[error]`, or `[info]`), a `$` command line, nested output, and footer metadata such as duration plus the `raw:r` escape hatch. Tool status, command headers, and diff-style output use the active Pi theme roles (accent, success, danger, warning, muted) rather than hardcoded colors. Git-like output keeps its textual `+` / `-` / `±` markers so the meaning survives plain text copies, while additions/deletions are also colored in the TUI. Long output is elided with an explicit hidden-line count such as `… +14 lines hidden`. Process notes are short operational summaries, not private reasoning dumps. Final answers render the parsed `Headline`, `Risks`, and `Next` fields when present instead of dumping the entire block into the Activity card; the full verbatim block remains available in Inspect, `/team-result`, and copy payloads. Press `r` in Console to switch to `— raw —`; press `r` again to return to Activity. Raw/debug keeps timestamped assistant chunks and console events for diagnostics, including status transitions, tool starts and ends, queue updates, errors, and exit. Activity, assistant chunks, and Raw diagnostics are bounded in memory only; raw transcripts/events are not persisted and are not a synthesis fallback. Console content is isolated per selected worker.
+
+Example Console Activity output (the docs show plain text; in the TUI, `[ok]`, command headers, and `+` / `-` diff markers use theme colors):
+
+```text
+— activity —
+╭─ process thinking [info] 00:13:20 ─
+│ Mapping current console rendering before proposing UI changes.
+╰─ raw:r
+
+╭─ tool command [ok] 00:13:21 ─
+│ $ git diff --stat main...HEAD
+│ src/ui/overlay.ts              | 42 +++++++++++++++++
+│ tests/ui/overlay.test.ts       | 18 +++++++
+│ ± 2 files changed, +60 insertions, -0 deletions
+│ … +14 lines hidden
+╰─ took 1.0s · raw:r
+
+╭─ final-answer [ok] 00:13:24 ─
+│ Headline: APPROVE — no blocking issues found.
+│ Risks: UI wrapping tests need updates.
+│ Next: Safe to continue after typecheck.
+╰─ raw:r
+```
+
+Example Inspect `Recent activity` output:
+
+```text
+Recent activity
+• Ran grep "buildConsoleLines" src/ui/overlay.ts
+• Ran npm run typecheck
+• Thinking: comparing overlay width behavior
+• Final answer produced
+```
 
 Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused f/G]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cache / cost when cache counters are non-zero. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
 
@@ -143,7 +178,7 @@ Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per cur
 
 Large token counts are abbreviated to keep the overlay and footer readable: `k` means thousands (1,000), and `m` means millions (1,000,000). For example, `in=143.5k` is about 143,500 input tokens and `out=1.3m` is about 1,300,000 output tokens.
 
-When Pi reports cache tokens, non-zero cache counters appear as `cache=r<read>/w<write>` in the Cost tab, copy payloads, and the footer `Σ` line when it fits. Workers with no cache activity omit the cache field so narrow displays stay clean.
+When Pi reports cache tokens, non-zero cache counters appear as `cache=r<read>/w<write>` in the Cost tab, copy payloads, and the footer `Σ` line when it fits. In the footer, enough horizontal space adds `hit=<percent>` after the cache counters, for example `cache=r16.6m/w0 hit=98.0%`. This is the cumulative team cache hit rate, computed as `cacheReadTokens / (inputTokens + cacheReadTokens + cacheWriteTokens)`. Narrow footers drop `hit=` before dropping the cache field. Workers with no cache activity omit the cache field so narrow displays stay clean.
 
 The footer widget also shows a compact `Σ turns=… in=… out=… cost=$…` line as soon as any active or retained-pruned worker usage is non-zero, so you don't have to open the overlay for the running total. If all workers have been pruned but retained usage exists, the widget can still show the aggregate `Σ` line without per-worker rows.
 
@@ -166,7 +201,7 @@ Defaults to `true` when the field is absent.
 /team-copy <worker-id>
 ```
 
-Copies a single blob containing the worker's task, compact summary, pending relays, usage, final answer, latest assistant text, and the console timeline (status transitions, tool starts/ends, queue updates, errors, exit). Useful for pasting into an issue or sharing the full worker trace. Inside the `/team` overlay, `y` does the same for the currently focused worker.
+Copies a single Markdown blob containing the worker's task, compact summary, pending relays, usage, final answer, latest assistant text, `## Activity`, and `## Console timeline (Raw)`. `## Activity` appears before the Raw section so pasted logs are readable first while still carrying timestamped diagnostics for support. The latest assistant text is sanitized and capped to the retained tail (4,000 lines and 256 KiB); if older content is omitted, the section starts with `[transcript truncated: showing retained tail; omitted …]`. If no activity was captured, the payload says `(no activity captured)`; if Raw diagnostics exist, they stay under `## Console timeline (Raw)`. Inside the `/team` overlay, `y` does the same for the currently focused worker.
 
 Clipboard providers are picked by platform: `pbcopy` on macOS, `clip.exe` on Windows, and `wl-copy` / `xclip` / `xsel` on Linux (first one that works wins). If none are installed, the command prints the failure reason.
 
@@ -354,7 +389,7 @@ Next: delegate a task first.
 
 For relay questions, answer each relay, then immediately call `wait_for_agents` again with the same worker ids. For timeouts, either wait again or inspect status before taking action; a timeout does not cancel workers. For aborted waits, decide whether to continue supervising, inspect status, or cancel unwanted workers. If there are no agents, delegate first — repeated waits cannot create work.
 
-`agent_result` is the transcript-free synthesis surface for the orchestrator. It shows a compact worker header, pending relay questions, available scan-friendly summary sections, and `Result:` followed by the verbatim `<final_answer>` block. `/team-result` prints the related operator command surface with the same header/relay/result contract, but omits summary metadata sections and may include latest assistant text only when no final answer exists.
+`agent_result` is the transcript-free synthesis surface for the orchestrator. It shows a compact worker header, pending relay questions, available scan-friendly summary sections, and `Result:` followed by the verbatim `<final_answer>` block. The parsed summary sections are limited to the supported contract fields (`Headline`, `Read files`, `Changed files`, `Risks`, and `Next`); Console Activity only renders parsed final-answer `Headline`, `Risks`, and `Next`. `/team-result` prints the related operator command surface with the same header/relay/result contract, but omits summary metadata sections and may include latest assistant text only when no final answer exists.
 
 ```text
 fixer (w1)

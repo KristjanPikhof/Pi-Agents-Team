@@ -4,7 +4,26 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import type { ExitInfo, WorkerProcessHandle, WorkerTransport } from "../../src/runtime/worker-process";
+import { createDefaultTeamState } from "../../src/config";
+import { buildTeamWidgetLines } from "../../src/ui/status-widget";
+import { stripAnsi } from "../../src/ui/theme";
+import type { WorkerStatus } from "../../src/types";
 import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "./test-helpers";
+
+function setRuntimeStatus(
+	manager: WorkerManager,
+	workerId: string,
+	status: WorkerStatus,
+	lastEventAt: number,
+): void {
+	const record = (manager as unknown as {
+		workers: Map<string, { state: { status: WorkerStatus; lastEventAt: number; error?: string } }>;
+	}).workers.get(workerId);
+	assert.ok(record, `expected runtime record for ${workerId}`);
+	record.state.status = status;
+	record.state.lastEventAt = lastEventAt;
+	if (status === "error") record.state.error = "stale failure";
+}
 
 function taskInput(taskId: string, title: string, profileName = "reviewer") {
 	return {
@@ -145,6 +164,137 @@ test("launchWorker rejects controlled spawn failures and removes the broken work
 		/Worker launch failed for worker-spawn-fail: spawn ENOENT/,
 	);
 	assert.equal(manager.hasWorker("worker-spawn-fail"), false);
+});
+
+test("refreshStats does not advance worker activity recency", async () => {
+	const originalDateNow = Date.now;
+	let now = 1_000;
+	Date.now = () => now;
+	try {
+		const manager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+
+		await manager.launchWorker({
+			workerId: "worker-recency",
+			profileName: "reviewer",
+			task: taskInput("task-recency", "Recency check"),
+			cwd: process.cwd(),
+			tools: ["read"],
+			extensionMode: "worker-minimal",
+		});
+		await manager.promptWorker("worker-recency", "finish quietly");
+		await waitForMicrotasks();
+		await waitForMicrotasks();
+
+		const before = manager.getWorker("worker-recency")?.state;
+		assert.equal(before?.status, "idle");
+		assert.equal(before?.lastEventAt, 1_000);
+
+		now += 10 * 60 * 1_000;
+		await manager.refreshStats("worker-recency");
+		const after = manager.getWorker("worker-recency")?.state;
+		assert.equal(after?.usage.inputTokens, 10);
+		assert.equal(after?.lastEventAt, before?.lastEventAt);
+	} finally {
+		Date.now = originalDateNow;
+	}
+});
+
+test("refreshState preserves stale unreachable terminal statuses without advancing recency", async () => {
+	const originalDateNow = Date.now;
+	let now = 1_000;
+	Date.now = () => now;
+	try {
+		const transports = new Map<string, MockWorkerTransport>();
+		const manager = new WorkerManager(() => {
+			const transport = new MockWorkerTransport({ initialState: { isStreaming: true } });
+			transports.set(`worker-terminal-${transports.size + 1}`, transport);
+			return new MockWorkerHandle(transport);
+		});
+		const terminalStatuses: WorkerStatus[] = ["error", "aborted", "exited"];
+
+		for (const [index, status] of terminalStatuses.entries()) {
+			const workerId = `worker-terminal-${index + 1}`;
+			await manager.launchWorker({
+				workerId,
+				profileName: "reviewer",
+				task: taskInput(`task-terminal-${index + 1}`, `Terminal ${status}`),
+				cwd: process.cwd(),
+				tools: ["read"],
+				extensionMode: "worker-minimal",
+			});
+			setRuntimeStatus(manager, workerId, status, now);
+		}
+
+		now += 10 * 60 * 1_000;
+		for (const [index, status] of terminalStatuses.entries()) {
+			const workerId = `worker-terminal-${index + 1}`;
+			await manager.refreshState(workerId);
+			const after = manager.getWorker(workerId)?.state;
+			assert.equal(after?.status, status);
+			assert.equal(after?.lastEventAt, 1_000);
+		}
+
+		const teamState = createDefaultTeamState();
+		for (const worker of manager.listWorkers()) {
+			teamState.activeWorkers[worker.workerId] = worker.state;
+		}
+		const plainLines = buildTeamWidgetLines(teamState, { now }).map(stripAnsi);
+		assert.ok(
+			!plainLines.some((line) => terminalStatuses.some((status) => line.includes(`Terminal ${status}`))),
+			`stale terminal workers should remain hidden; got:\n${plainLines.join("\n")}`,
+		);
+		assert.ok(plainLines.some((line) => line.includes("3 old hidden")), `expected hidden summary; got:\n${plainLines.join("\n")}`);
+	} finally {
+		Date.now = originalDateNow;
+	}
+});
+
+test("refreshState advances recency only on live worker_state status changes", async () => {
+	const originalDateNow = Date.now;
+	let now = 1_000;
+	Date.now = () => now;
+	try {
+		const transport = new MockWorkerTransport();
+		const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+		await manager.launchWorker({
+			workerId: "worker-state-recency",
+			profileName: "reviewer",
+			task: taskInput("task-state-recency", "State recency"),
+			cwd: process.cwd(),
+			tools: ["read"],
+			extensionMode: "worker-minimal",
+		});
+		await manager.promptWorker("worker-state-recency", "finish quietly");
+		await waitForMicrotasks();
+		await waitForMicrotasks();
+
+		const afterComplete = manager.getWorker("worker-state-recency")?.state;
+		assert.equal(afterComplete?.status, "idle");
+		assert.equal(afterComplete?.lastEventAt, 1_000);
+
+		now = 2_000;
+		transport.setState({ isStreaming: true });
+		await manager.refreshState("worker-state-recency");
+		const afterRunning = manager.getWorker("worker-state-recency")?.state;
+		assert.equal(afterRunning?.status, "running");
+		assert.equal(afterRunning?.lastEventAt, 2_000);
+
+		now = 3_000;
+		transport.setState({ isStreaming: false });
+		await manager.refreshState("worker-state-recency");
+		const afterIdle = manager.getWorker("worker-state-recency")?.state;
+		assert.equal(afterIdle?.status, "idle");
+		assert.equal(afterIdle?.lastEventAt, 3_000);
+
+		now = 4_000;
+		await manager.refreshState("worker-state-recency");
+		const afterSameStatus = manager.getWorker("worker-state-recency")?.state;
+		assert.equal(afterSameStatus?.status, "idle");
+		assert.equal(afterSameStatus?.lastEventAt, 3_000);
+	} finally {
+		Date.now = originalDateNow;
+	}
 });
 
 test("refreshStats clears nullable context percent and remaining after compaction", async () => {
@@ -477,6 +627,7 @@ test("reuseWorker resets per-task state, sends a fresh prompt, and emits a state
 
 	const afterReuse = manager.getWorker("worker-reuse-1");
 	assert.equal(afterReuse?.state.status, "idle");
+	assert.doesNotMatch(manager.getWorkerTranscript("worker-reuse-1") ?? "", /transcript truncated/);
 	assert.equal(afterReuse?.state.currentTask?.taskId, "task-reuse-2");
 	assert.equal(afterReuse?.state.currentTask?.title, "Second task");
 	const promptCommands = transports[0]?.commands.filter((cmd) => cmd.type === "prompt") ?? [];
@@ -702,6 +853,31 @@ test("assistant ring buffer accepts a newline-heavy chunk without bypassing the 
 	assert.ok(chunks.some((chunk) => chunk.text.includes("\n")), "chunk should preserve newlines as delivered");
 });
 
+test("assistant transcript storage caps retained text and exposes truncation in transcript reads", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-transcript-cap",
+		profileName: "reviewer",
+		task: taskInput("task-transcript-cap", "Transcript cap"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-transcript-cap", "go");
+	await waitForMicrotasks();
+	const huge = `${"older\n".repeat(30_000)}tail-marker`;
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: huge } });
+	await waitForMicrotasks();
+
+	const transcript = manager.getWorkerTranscript("worker-transcript-cap") ?? "";
+	assert.match(transcript, /^\[transcript truncated: showing retained tail; omitted /);
+	assert.match(transcript, /tail-marker$/);
+	assert.doesNotMatch(transcript, /^older\nolder/);
+	assert.ok(Buffer.byteLength(transcript, "utf8") < Buffer.byteLength(huge, "utf8"), "copied transcript should be smaller than full stream");
+});
+
 test("assistant ring buffer caps line and byte budget", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
@@ -738,6 +914,370 @@ test("assistant ring buffer caps line and byte budget", async () => {
 	assert.ok(chunks.length <= 4096, `expected chunk cap respected, got ${chunks.length}`);
 	const last = chunks[chunks.length - 1];
 	assert.ok(last.index >= 299, `expected monotonic indexes preserved across cap, last=${last.index}`);
+});
+
+test("activity stream pairs tool start and end into bounded command entries while preserving raw console", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-activity-tool",
+		profileName: "reviewer",
+		task: taskInput("task-activity-tool", "Activity tool"),
+		cwd: process.cwd(),
+		tools: ["bash"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-activity-tool", "run command");
+	await waitForMicrotasks();
+
+	transport.writeEvent({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: { command: "npm test" } });
+	transport.writeEvent({
+		type: "tool_execution_end",
+		toolCallId: "call-1",
+		toolName: "bash",
+		result: { content: [{ type: "text", text: "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight" }] },
+		isError: false,
+	});
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-activity-tool") ?? [];
+	const command = activity.find((event) => event.toolCallId === "call-1");
+	assert.ok(command);
+	assert.equal(command.actionKind, "command");
+	assert.equal(command.status, "completed");
+	assert.equal(command.label, "Ran npm test");
+	assert.equal(command.command, "npm test");
+	assert.match(command.outputSnippet ?? "", /one\ntwo/);
+	assert.doesNotMatch(command.outputSnippet ?? "", /seven/);
+	assert.equal(command.hiddenLineCount, 2);
+	assert.equal(command.sourceEvent, "worker_tool_finished");
+
+	const consoleEvents = manager.getWorkerConsole("worker-activity-tool") ?? [];
+	assert.ok(consoleEvents.some((event) => event.kind === "tool_start" && event.text.includes("npm test")));
+	assert.ok(consoleEvents.some((event) => event.kind === "tool_end" && event.text.includes("one")));
+});
+
+test("activity stream extracts process and final-answer summaries without adding persisted fields", async () => {
+	const finalAnswerBody = [
+		"headline: implemented activity lane",
+		"risks:",
+		"- overlay wiring remains separate",
+		"next_recommendation: hand off to UI lane",
+	].join("\n");
+	const transport = new MockWorkerTransport({
+		promptText: `mapping runtime state\n<final_answer>\n${finalAnswerBody}\n</final_answer>`,
+	});
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+	const observed: string[] = [];
+	const off = manager.onActivityEvent((workerId, event) => observed.push(`${workerId}:${event.actionKind}:${event.label}`));
+
+	await manager.launchWorker({
+		workerId: "worker-activity-final",
+		profileName: "reviewer",
+		task: taskInput("task-activity-final", "Activity final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-activity-final", "summarize");
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	manager.getWorkerActivity("worker-activity-final");
+	const worker = manager.getWorker("worker-activity-final");
+	const activity = manager.getWorkerActivity("worker-activity-final") ?? [];
+	const processEntry = activity.find((event) => event.actionKind === "process");
+	const finalEntry = activity.find((event) => event.actionKind === "final_summary");
+	assert.ok(processEntry);
+	assert.match(processEntry.summary ?? "", /Working on:/);
+	assert.ok(finalEntry);
+	assert.equal(finalEntry.label, "Final answer");
+	assert.equal(finalEntry.finalSummaryFields?.headline, "implemented activity lane");
+	assert.deepEqual(finalEntry.finalSummaryFields?.risks, ["overlay wiring remains separate"]);
+	assert.equal(finalEntry.finalSummaryFields?.nextRecommendation, "hand off to UI lane");
+	assert.match(finalEntry.summary ?? "", /implemented activity lane/);
+	assert.equal((worker?.state as Record<string, unknown>).activity, undefined);
+	assert.ok(observed.some((event) => event.includes("worker-activity-final:final_summary:Final answer")));
+	off();
+});
+
+test("activity stream classifies streamed final-answer deltas instead of exposing raw tags as Thinking", async () => {
+	const finalAnswerBody = [
+		"headline: streamed final summary",
+		"risks:",
+		"- none",
+		"next_recommendation: reviewer spot-check",
+	].join("\n");
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-stream-final",
+		profileName: "reviewer",
+		task: taskInput("task-stream-final", "Stream final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-stream-final", "stream a final answer");
+	await waitForMicrotasks();
+
+	transport.writeEvent({
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "text_delta",
+			delta: `\n<final_answer>\n${finalAnswerBody}\n</final_answer>\n${".".repeat(260)}`,
+		},
+	});
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-stream-final") ?? [];
+	const finalEntry = activity.find((event) => event.actionKind === "final_summary");
+	assert.ok(finalEntry);
+	assert.equal(finalEntry.finalSummaryFields?.headline, "streamed final summary");
+	const rawTaggedThinking = activity.find((event) => event.actionKind === "process" && /<\/?final[_\s-]?answer>/i.test(event.summary ?? ""));
+	assert.equal(rawTaggedThinking, undefined);
+});
+
+test("activity stream preserves split streamed final-answer blocks across read-side flushes", async () => {
+	const finalAnswerBody = [
+		"headline: split stream summary",
+		"risks:",
+		"- flush boundary handled",
+		"next_recommendation: merge after review",
+	].join("\n");
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-split-final",
+		profileName: "reviewer",
+		task: taskInput("task-split-final", "Split final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-split-final", "stream split final answer");
+	await waitForMicrotasks();
+
+	manager.getWorkerActivity("worker-split-final");
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "\n<final_answer>\nheadline: split" } });
+	await waitForMicrotasks();
+	manager.getWorkerActivity("worker-split-final");
+	transport.writeEvent({
+		type: "message_update",
+		assistantMessageEvent: { type: "text_delta", delta: ` stream summary\n${finalAnswerBody.split("\n").slice(1).join("\n")}\n</final_answer>` },
+	});
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-split-final") ?? [];
+	const finalEntries = activity.filter((event) => event.actionKind === "final_summary");
+	assert.equal(finalEntries.length, 1);
+	assert.equal(finalEntries[0].finalSummaryFields?.headline, "split stream summary");
+	assert.equal(finalEntries[0].finalSummaryFields?.nextRecommendation, "merge after review");
+	assert.equal(manager.getWorker("worker-split-final")?.state.finalAnswer, finalAnswerBody);
+	const rawTaggedThinking = activity.find((event) => event.actionKind === "process" && /<\/?final[_\s-]?answer>/i.test(event.summary ?? ""));
+	assert.equal(rawTaggedThinking, undefined);
+});
+
+test("activity stream dedupes streamed and canonical final-answer summaries", async () => {
+	const finalAnswer = [
+		"headline: one canonical summary",
+		"risks:",
+		"- duplicate suppressed",
+		"next_recommendation: ship once",
+	].join("\n");
+	const finalAnswerText = `<final_answer>\n${finalAnswer}\n</final_answer>`;
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-dedupe-final",
+		profileName: "reviewer",
+		task: taskInput("task-dedupe-final", "Dedupe final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-dedupe-final", "stream then end");
+	await waitForMicrotasks();
+
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: finalAnswerText } });
+	await waitForMicrotasks();
+	manager.getWorkerActivity("worker-dedupe-final");
+	transport.completePrompt(`preamble\n${finalAnswerText}\ntrailing`);
+	await waitForMicrotasks();
+
+	const finalEntries = (manager.getWorkerActivity("worker-dedupe-final") ?? []).filter((event) => event.actionKind === "final_summary");
+	assert.equal(finalEntries.length, 1);
+	assert.equal(finalEntries[0].finalSummaryFields?.headline, "one canonical summary");
+});
+
+test("activity getters do not flush token-sized streamed thinking into durable process rows", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-read-stable",
+		profileName: "reviewer",
+		task: taskInput("task-read-stable", "Read stability"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-read-stable", "stream tiny deltas");
+	await waitForMicrotasks();
+	for (const delta of ["a", "b", "c", "d", "e"]) {
+		transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta } });
+		manager.getWorkerActivity("worker-read-stable");
+		manager.getWorkerConsole("worker-read-stable");
+	}
+	await waitForMicrotasks();
+
+	const activityBeforeBoundary = manager.getWorkerActivity("worker-read-stable") ?? [];
+	assert.equal(activityBeforeBoundary.filter((event) => event.actionKind === "process" && event.label === "Thinking").length, 0);
+	transport.writeEvent({ type: "tool_execution_start", toolCallId: "boundary", toolName: "read", args: { path: "x.ts" } });
+	await waitForMicrotasks();
+	const activityAfterBoundary = manager.getWorkerActivity("worker-read-stable") ?? [];
+	const thinking = activityAfterBoundary.filter((event) => event.actionKind === "process" && event.label === "Thinking");
+	assert.equal(thinking.length, 1);
+	assert.match(thinking[0].summary ?? "", /abcde$/);
+});
+
+test("activity reads can discover final answers without emitting token-sized thinking", async () => {
+	const finalAnswer = [
+		"headline: read-side final freshness",
+		"risks:",
+		"- none",
+		"next_recommendation: copy inspect can read it",
+	].join("\n");
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-read-final",
+		profileName: "reviewer",
+		task: taskInput("task-read-final", "Read final"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-read-final", "stream final");
+	await waitForMicrotasks();
+	transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: `<final_answer>\n${finalAnswer}\n</final_answer>` } });
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-read-final") ?? [];
+	const finalEntry = activity.find((event) => event.actionKind === "final_summary");
+	assert.ok(finalEntry);
+	assert.equal(finalEntry.finalSummaryFields?.headline, "read-side final freshness");
+	assert.equal(manager.getWorker("worker-read-final")?.state.finalAnswer, finalAnswer);
+	assert.equal(activity.find((event) => event.actionKind === "process" && event.label === "Thinking"), undefined);
+});
+
+test("activity cap prunes pending tool mappings and preserves standalone finishes", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-pruned-finish",
+		profileName: "reviewer",
+		task: taskInput("task-pruned-finish", "Pruned finish"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-pruned-finish", "many tools");
+	await waitForMicrotasks();
+	for (let i = 0; i < 620; i += 1) {
+		transport.writeEvent({ type: "tool_execution_start", toolCallId: `pruned-${i}`, toolName: "read", args: { path: `file-${i}.ts` } });
+	}
+	transport.writeEvent({
+		type: "tool_execution_end",
+		toolCallId: "pruned-0",
+		toolName: "read",
+		result: { content: [{ type: "text", text: "old start finished after pruning" }] },
+		isError: false,
+	});
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-pruned-finish") ?? [];
+	assert.ok(activity.length <= 500);
+	const finish = activity.find((event) => event.toolCallId === "pruned-0");
+	assert.ok(finish);
+	assert.equal(finish.status, "completed");
+	assert.equal(finish.outputSnippet, "old start finished after pruning");
+	assert.equal(finish.label, "read finished");
+});
+
+test("activity stream remains bounded independently from console events", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-activity-cap",
+		profileName: "reviewer",
+		task: taskInput("task-activity-cap", "Activity cap"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.promptWorker("worker-activity-cap", "many events");
+	await waitForMicrotasks();
+	for (let i = 0; i < 620; i += 1) {
+		transport.writeEvent({ type: "tool_execution_start", toolCallId: `call-${i}`, toolName: "read", args: { path: `file-${i}.ts` } });
+	}
+	await waitForMicrotasks();
+
+	const activity = manager.getWorkerActivity("worker-activity-cap") ?? [];
+	const consoleEvents = manager.getWorkerConsole("worker-activity-cap") ?? [];
+	assert.ok(activity.length <= 500, `activity buffer should be capped, got ${activity.length}`);
+	assert.ok(consoleEvents.length <= 500, `console buffer should be capped, got ${consoleEvents.length}`);
+	assert.ok(activity.at(-1)?.summary?.includes("file-619.ts"));
+	assert.ok(consoleEvents.at(-1)?.text.includes("file-619.ts"));
+});
+
+test("activity stream keeps IDs unique after cap pruning so tool finishes patch the intended row", async () => {
+	const originalDateNow = Date.now;
+	Date.now = () => 123_456;
+	try {
+		const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+		const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+		await manager.launchWorker({
+			workerId: "worker-activity-id-cap",
+			profileName: "reviewer",
+			task: taskInput("task-activity-id-cap", "Activity id cap"),
+			cwd: process.cwd(),
+			tools: ["read"],
+			extensionMode: "worker-minimal",
+		});
+		await manager.promptWorker("worker-activity-id-cap", "many same-ms events");
+		await waitForMicrotasks();
+		for (let i = 0; i < 620; i += 1) {
+			transport.writeEvent({ type: "tool_execution_start", toolCallId: `same-ms-${i}`, toolName: "read", args: { path: `file-${i}.ts` } });
+		}
+		transport.writeEvent({
+			type: "tool_execution_end",
+			toolCallId: "same-ms-619",
+			toolName: "read",
+			result: { content: [{ type: "text", text: "latest finished" }] },
+			isError: false,
+		});
+		await waitForMicrotasks();
+
+		const activity = manager.getWorkerActivity("worker-activity-id-cap") ?? [];
+		const ids = activity.map((event) => event.id);
+		assert.equal(new Set(ids).size, ids.length, "retained activity IDs must remain unique after cap pruning");
+		const latest = activity.find((event) => event.toolCallId === "same-ms-619");
+		assert.ok(latest);
+		assert.equal(latest.status, "completed");
+		assert.equal(latest.outputSnippet, "latest finished");
+		const incorrectlyPatched = activity.find((event) => event.toolCallId !== "same-ms-619" && event.outputSnippet === "latest finished");
+		assert.equal(incorrectlyPatched, undefined);
+	} finally {
+		Date.now = originalDateNow;
+	}
 });
 
 test("applyNormalizedEvent captures <final_answer> contents on message_end", async () => {

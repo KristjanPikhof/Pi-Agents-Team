@@ -124,3 +124,10 @@ test("buildTeamDashboardText keeps print fallback useful when no workers are tra
 	assert.match(text, /Print mode stays summary-only/);
 	assert.match(text, /No tracked workers\./);
 });
+
+test("buildTeamDashboardText omits the Cost tab when cost display is disabled", () => {
+	const state = createDefaultTeamState();
+	const text = buildTeamDashboardText(state, { displayCost: false });
+	assert.match(text, /Workers \/ Inspect \/ Console tabs/);
+	assert.doesNotMatch(text, /Workers \/ Inspect \/ Console \/ Cost tabs/);
+});
