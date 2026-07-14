@@ -12,7 +12,7 @@ Pi main session acts as the coordinator, while background RPC workers execute th
 
 ## Install
 
-Install from npm:
+Install the published package from npm:
 
 ```bash
 pi install npm:pi-agents-team
@@ -24,41 +24,20 @@ pi install npm:pi-agents-team
 pi -e npm:pi-agents-team
 ```
 
-You can also install from Git using one of the options below.
+The npm package ships native ESM JavaScript and TypeScript declarations. Its package export and Pi extension entry both resolve to `dist/extensions/index.js`; the packaged prompts and profiles also live under `dist/`. Direct Git package installs are not supported because `dist/` is ignored in the repository and Pi's Git install flow does not build it.
 
-### Option 1: Git via `pi install`
+### Run a local checkout
+
+Use the TypeScript entrypoint when developing from source:
 
 ```bash
-# SSH (the git: prefix is required for git@host:path shorthand)
-pi install git:git@github.com:KristjanPikhof/pi-agents-team
-
-# HTTPS (prefix optional for protocol URLs)
-pi install https://github.com/KristjanPikhof/pi-agents-team
+git clone git@github.com:KristjanPikhof/pi-agents-team.git
+cd pi-agents-team
+npm install
+pi -e ./extensions/index.ts
 ```
 
-### Option 2: Edit settings.json by hand
-
-Add an entry to the `packages` array. Pi installs any missing packages the next time a session starts.
-
-**Global**, in `~/.pi/agent/settings.json`:
-
-```json
-{
-  "packages": [
-    "git:git@github.com:KristjanPikhof/pi-agents-team"
-  ]
-}
-```
-
-**Project-local**, in `.pi/settings.json` (shared with your team via git):
-
-```json
-{
-  "packages": [
-    "git:git@github.com:KristjanPikhof/pi-agents-team"
-  ]
-}
-```
+Pi loads this local-development shim through `jiti`, so a build is not required before each run. Use `npm run build` when you need to inspect or validate the compiled package output in `dist/`.
 
 ## Operator commands
 

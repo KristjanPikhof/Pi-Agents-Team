@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildCopyPayload } from "../ui/copy-payload";
-import { formatCommandWarning } from "../ui/display-grammar";
-import { copyToClipboard } from "../util/clipboard";
-import { formatUnknownWorker, suggestTargets } from "../util/suggest";
-import type { CommandRegistrationContext } from "./team";
+import { buildCopyPayload } from "../ui/copy-payload.js";
+import { formatCommandWarning } from "../ui/display-grammar.js";
+import { copyToClipboard } from "../util/clipboard.js";
+import { formatUnknownWorker, suggestTargets } from "../util/suggest.js";
+import type { CommandRegistrationContext } from "./team.js";
 
 export function registerCopyCommand(pi: ExtensionAPI, dependencies: CommandRegistrationContext): void {
 	pi.registerCommand("team-copy", {

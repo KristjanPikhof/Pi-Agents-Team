@@ -1,28 +1,28 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config.js";
 import {
 	createPersistedStateSnapshot,
 	markRestoredWorkersExited,
 	restorePersistedTeamState,
-} from "../../src/control-plane/persistence";
-import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts";
-import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager";
-import { loadActiveTeamConfig } from "../../src/project-config/loader";
-import { registerCopyCommand } from "../../src/commands/copy";
-import { registerTeamCommand } from "../../src/commands/team";
-import { registerTeamEnableCommand } from "../../src/commands/team-enable";
-import { registerTeamInitCommand } from "../../src/commands/team-init";
-import { registerTeamResultCommand } from "../../src/commands/team-result";
-import { registerTeamSteerCommand } from "../../src/commands/team-steer";
-import { registerTeamStopCommand } from "../../src/commands/team-stop";
-import { registerTeamAutocomplete } from "../../src/ui/autocomplete";
-import { buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget";
-import { formatRelayToast, formatWorkerLabel, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar";
-import { formatAgentMessageResult, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters";
-import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers";
-import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer";
-import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types";
+} from "../../src/control-plane/persistence.js";
+import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts.js";
+import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager.js";
+import { loadActiveTeamConfig } from "../../src/project-config/loader.js";
+import { registerCopyCommand } from "../../src/commands/copy.js";
+import { registerTeamCommand } from "../../src/commands/team.js";
+import { registerTeamEnableCommand } from "../../src/commands/team-enable.js";
+import { registerTeamInitCommand } from "../../src/commands/team-init.js";
+import { registerTeamResultCommand } from "../../src/commands/team-result.js";
+import { registerTeamSteerCommand } from "../../src/commands/team-steer.js";
+import { registerTeamStopCommand } from "../../src/commands/team-stop.js";
+import { registerTeamAutocomplete } from "../../src/ui/autocomplete.js";
+import { buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget.js";
+import { formatRelayToast, formatWorkerLabel, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar.js";
+import { formatAgentMessageResult, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters.js";
+import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers.js";
+import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer.js";
+import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types.js";
 
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),

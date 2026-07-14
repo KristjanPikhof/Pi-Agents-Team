@@ -31,15 +31,15 @@
   "bugs": {
     "url": "https://github.com/KristjanPikhof/pi-agents-team/issues"
   },
-  "main": "./extensions/index.ts",
+  "main": "./dist/extensions/index.js",
   "exports": {
-    ".": "./extensions/index.ts"
+    ".": {
+      "types": "./dist/extensions/index.d.ts",
+      "default": "./dist/extensions/index.js"
+    }
   },
   "files": [
-    "extensions/",
-    "src/",
-    "prompts/",
-    "profiles/",
+    "dist",
     "README.md",
     "LICENSE"
   ],
@@ -51,15 +51,18 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test tests/*.test.ts tests/**/*.test.ts",
     "check": "npm run typecheck && npm test",
+    "build": "node scripts/build-publish.mjs",
+    "build:publish": "node scripts/build-publish.mjs",
+    "prepack": "npm run build:publish",
     "prepublishOnly": "npm run check",
     "smoke:runtime": "tsx scripts/smoke/runtime-worker.ts",
     "smoke:team": "tsx scripts/smoke/team-flow.ts"
   },
   "pi": {
     "extensions": [
-      "./extensions/index.ts"
+      "./dist/extensions/index.js"
     ],
     "prompts": []
   },

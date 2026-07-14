@@ -23,8 +23,8 @@ User
   ↓
 Main Pi session (orchestrator)
   ↓
-Package entrypoint (extensions/index.ts)
-  │   └─ delegates to internal implementation entrypoint (extensions/pi-agent-team/index.ts)
+Package entrypoint (dist/extensions/index.js for npm; extensions/index.ts for local development)
+  │   └─ delegates to the matching compiled/source internal implementation entrypoint
   ├─ Control plane
   │   ├─ TeamManager            (coordinates delegation, snapshots, waits)
   │   ├─ TaskRegistry           (active workers + task metadata)
@@ -98,6 +98,12 @@ After launch-setting checks, reuse refreshes worker stats and rejects saturated 
 While the worker runs, RPC events flow through the event normalizer into `applyNormalizedEvent`, which mutates the worker's `WorkerRuntimeState` (status, textBuffer, lastToolName, usage, requested/effective thinking levels, lastSummary, pendingRelayQuestions, finalAnswer) and emits a snapshot. `TeamManager` upserts the snapshot into the registry and re-emits `state_change`, which drives both persistence and UI listeners.
 
 ## Key decisions
+
+### Installed packages use compiled output
+
+The supported installed distribution is the npm package. Its package export and Pi extension entry both target `dist/extensions/index.js`, with declarations at `dist/extensions/index.d.ts`. The publish build also copies `prompts/` and `profiles/` under `dist/`, preserving the runtime-relative asset layout.
+
+Local development takes a separate path: `pi -e ./extensions/index.ts` loads the source shim through `jiti`. `npm run build` and `npm run build:publish` both regenerate `dist/`; `prepack` invokes `build:publish` before npm creates the package. Generated `dist/` remains ignored because it is a packaging artifact, which is also why direct Git package installation is unsupported.
 
 ### Pi RPC is the worker transport
 
