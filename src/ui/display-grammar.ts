@@ -1,4 +1,4 @@
-import { compareWorkerIds, type WorkerRuntimeState, type WorkerStatus } from "../types";
+import { compareWorkerIds, type WorkerRuntimeState, type WorkerStatus } from "../types.js";
 
 export type WorkerAttentionPriority = "needs_reply" | "needs_recovery" | "in_progress" | "completed_or_idle";
 

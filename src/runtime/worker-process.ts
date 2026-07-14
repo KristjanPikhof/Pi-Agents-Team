@@ -2,7 +2,7 @@ import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:ch
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import type { Readable, Writable } from "node:stream";
-import type { ThinkingLevel, WorkerExtensionMode, WorkerProjectTrustOverride } from "../types";
+import type { ThinkingLevel, WorkerExtensionMode, WorkerProjectTrustOverride } from "../types.js";
 
 const require = createRequire(import.meta.url);
 const crossSpawn = require("cross-spawn") as typeof nodeSpawn;

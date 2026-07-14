@@ -48,7 +48,7 @@ import {
 	TEAM_PROJECT_SCHEMA_VERSION,
 	TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED,
 	TEAM_SCAFFOLD_VERSION,
-} from "./project-config/versions";
+} from "./project-config/versions.js";
 export { TEAM_PROJECT_SCHEMA_VERSION, TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED, TEAM_SCAFFOLD_VERSION };
 export const DEFAULT_MODEL_SENTINEL = "default" as const;
 export const DEFAULT_PROMPT_SENTINEL = "default" as const;

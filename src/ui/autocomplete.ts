@@ -3,7 +3,7 @@ import type {
 	AutocompleteProvider,
 	AutocompleteSuggestions,
 } from "@earendil-works/pi-tui";
-import type { TeamConfig, WorkerRuntimeState } from "../types";
+import type { TeamConfig, WorkerRuntimeState } from "../types.js";
 
 const MAX_TEAM_AUTOCOMPLETE_ITEMS = 20;
 
