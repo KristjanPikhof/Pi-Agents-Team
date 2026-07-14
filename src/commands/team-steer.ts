@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { AgentMessageResult } from "../control-plane/team-manager";
-import { formatCommandWarning } from "../ui/display-grammar";
-import { formatUnknownWorker, suggestTargets } from "../util/suggest";
-import type { CommandRegistrationContext } from "./team";
+import type { AgentMessageResult } from "../control-plane/team-manager.js";
+import { formatCommandWarning } from "../ui/display-grammar.js";
+import { formatUnknownWorker, suggestTargets } from "../util/suggest.js";
+import type { CommandRegistrationContext } from "./team.js";
 
 interface ParsedArgs {
 	target?: string;

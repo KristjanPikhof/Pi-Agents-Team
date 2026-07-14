@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { formatCommandWarning } from "../ui/display-grammar";
-import { formatWorkerDetail as formatSharedWorkerDetail } from "../ui/tool-formatters";
-import { formatUnknownWorker, suggestTargets } from "../util/suggest";
-import type { CommandRegistrationContext } from "./team";
+import { formatCommandWarning } from "../ui/display-grammar.js";
+import { formatWorkerDetail as formatSharedWorkerDetail } from "../ui/tool-formatters.js";
+import { formatUnknownWorker, suggestTargets } from "../util/suggest.js";
+import type { CommandRegistrationContext } from "./team.js";
 
 function stripFinalAnswerBlocks(transcript?: string): string | undefined {
 	const sanitized = transcript?.replace(/<final_answer>[\s\S]*?<\/final_answer>/gi, "").trim();

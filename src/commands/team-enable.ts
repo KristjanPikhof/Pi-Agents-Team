@@ -2,13 +2,13 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Value } from "typebox/value";
-import { TeamProjectConfigSchema } from "../config";
-import { findNearestProjectConfigPath, getProjectConfigPathForScope } from "../project-config/loader";
-import { formatCommandWarning } from "../ui/display-grammar";
-import type { LoadedTeamProjectConfig } from "../types";
-import { TEAM_PROJECT_SCHEMA_VERSION } from "../types";
-import { atomicWriteFileSync } from "../util/backup";
-import type { RoutingMode, TeamManager } from "../control-plane/team-manager";
+import { TeamProjectConfigSchema } from "../config.js";
+import { findNearestProjectConfigPath, getProjectConfigPathForScope } from "../project-config/loader.js";
+import { formatCommandWarning } from "../ui/display-grammar.js";
+import type { LoadedTeamProjectConfig } from "../types.js";
+import { TEAM_PROJECT_SCHEMA_VERSION } from "../types.js";
+import { atomicWriteFileSync } from "../util/backup.js";
+import type { RoutingMode, TeamManager } from "../control-plane/team-manager.js";
 
 export interface TeamEnableCommandDependencies {
 	getTeamManager: () => TeamManager;

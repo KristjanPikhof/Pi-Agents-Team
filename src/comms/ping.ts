@@ -1,5 +1,5 @@
-import type { RelayQuestion, WorkerRuntimeState } from "../types";
-import { formatContextBudget } from "../ui/usage-format";
+import type { RelayQuestion, WorkerRuntimeState } from "../types.js";
+import { formatContextBudget } from "../ui/usage-format.js";
 
 export interface WorkerPingSnapshot {
 	workerId: string;

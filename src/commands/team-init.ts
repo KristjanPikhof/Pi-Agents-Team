@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { atomicWriteFileSync, backupExisting, formatBackupTimestamp } from "../util/backup";
-import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG } from "../config";
-import { formatCommandWarning } from "../ui/display-grammar";
-import { getProjectConfigPathForScope } from "../project-config/loader";
+import { atomicWriteFileSync, backupExisting, formatBackupTimestamp } from "../util/backup.js";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG } from "../config.js";
+import { formatCommandWarning } from "../ui/display-grammar.js";
+import { getProjectConfigPathForScope } from "../project-config/loader.js";
 import {
 	DEFAULT_MODEL_SENTINEL,
 	DEFAULT_PROMPT_SENTINEL,
@@ -14,7 +14,7 @@ import {
 	type TeamConfigScope,
 	type TeamProfileSpec,
 	type TeamProjectConfigFile,
-} from "../types";
+} from "../types.js";
 
 interface InitCommandDependencies {
 	emitText: (ctx: ExtensionContext, text: string) => void;

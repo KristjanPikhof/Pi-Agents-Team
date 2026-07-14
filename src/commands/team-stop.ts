@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { WorkerRuntimeState, WorkerStatus } from "../types";
-import { formatCommandWarning } from "../ui/display-grammar";
-import { formatUnknownWorker, suggestTargets } from "../util/suggest";
-import type { CommandRegistrationContext } from "./team";
+import type { WorkerRuntimeState, WorkerStatus } from "../types.js";
+import { formatCommandWarning } from "../ui/display-grammar.js";
+import { formatUnknownWorker, suggestTargets } from "../util/suggest.js";
+import type { CommandRegistrationContext } from "./team.js";
 
 const UNREACHABLE_TERMINAL: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
 	"completed",
