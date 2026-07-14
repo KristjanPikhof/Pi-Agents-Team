@@ -18,8 +18,8 @@ import {
 	type TeamConfig,
 	type TeamDashboardEntry,
 	type WorkerRuntimeState,
-} from "./types";
-import { createZeroWorkerUsageAggregate, normalizeWorkerUsageAggregate } from "./usage";
+} from "./types.js";
+import { createZeroWorkerUsageAggregate, normalizeWorkerUsageAggregate } from "./usage.js";
 
 // Re-export so consumers (/team-init, loader) can import from config.ts alongside DEFAULT_TEAM_CONFIG.
 export { TEAM_SCAFFOLD_VERSION };

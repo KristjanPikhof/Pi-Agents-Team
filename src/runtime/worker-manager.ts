@@ -5,18 +5,18 @@ import {
 	createWorkerStateEvent,
 	normalizeRpcEvent,
 	type NormalizedWorkerEvent,
-} from "./event-normalizer";
-import { RpcClient, type RpcSessionState, type RpcSessionStats } from "./rpc-client";
+} from "./event-normalizer.js";
+import { RpcClient, type RpcSessionState, type RpcSessionStats } from "./rpc-client.js";
 import {
 	spawnWorkerProcess,
 	type SpawnWorkerProcess,
 	type WorkerProcessHandle,
 	type WorkerProcessOptions,
-} from "./worker-process";
-import { buildWorkerSummaryFromText, extractRelayQuestions } from "../comms/summary";
-import { extractFinalAnswer, parseFinalAnswerSummaryFields } from "./final-answer";
-export { extractFinalAnswer } from "./final-answer";
-import { THINKING_LEVELS } from "../types";
+} from "./worker-process.js";
+import { buildWorkerSummaryFromText, extractRelayQuestions } from "../comms/summary.js";
+import { extractFinalAnswer, parseFinalAnswerSummaryFields } from "./final-answer.js";
+export { extractFinalAnswer } from "./final-answer.js";
+import { THINKING_LEVELS } from "../types.js";
 import type {
 	DelegatedTaskInput,
 	ThinkingLevel,
@@ -26,7 +26,7 @@ import type {
 	WorkerStatus,
 	WorkerSummary,
 	WorkerUsageStats,
-} from "../types";
+} from "../types.js";
 
 const REUSABLE_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>(["idle", "waiting_followup"]);
 const UNREACHABLE_TERMINAL_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([

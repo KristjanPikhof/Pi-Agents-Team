@@ -1,9 +1,8 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { Value } from "typebox/value";
-import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, TeamProjectConfigSchema } from "../config.js";
 import {
 	DEFAULT_MODEL_SENTINEL,
 	DEFAULT_PROMPT_SENTINEL,
@@ -33,7 +32,8 @@ import {
 	type TeamProjectConfigLayer,
 	type ThinkingLevelConfigWarning,
 	type WorkerWritePolicy,
-} from "../types";
+} from "../types.js";
+import { isRecursiveOrchestratorExtensionSource } from "../safety/self-extension.js";
 
 function clonePathScope(pathScope: TeamPathScope | undefined): TeamPathScope | undefined {
 	if (!pathScope) return undefined;
@@ -142,77 +142,12 @@ function realpathOrSelf(path: string): string {
 	}
 }
 
-const SELF_EXTENSION_PACKAGE_NAME = "pi-agents-team";
-const SELF_EXTENSION_ENTRYPOINTS = [
-	"extensions/index.ts",
-	"extensions/pi-agent-team/index.ts",
-] as const;
-const SELF_EXTENSION_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const SELF_EXTENSION_PATHS: ReadonlySet<string> = new Set(
-	SELF_EXTENSION_ENTRYPOINTS.flatMap((entrypoint) => {
-		const path = resolve(SELF_EXTENSION_PACKAGE_ROOT, entrypoint);
-		const realPath = realpathOrSelf(path);
-		return realPath === path ? [path] : [path, realPath];
-	}),
-);
-
-function isSelfPackageExtensionSource(source: string): boolean {
-	const spec = source.startsWith("npm:") ? source.slice("npm:".length) : source;
-	const escapedName = SELF_EXTENSION_PACKAGE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	if (new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec)) return true;
-	return getExtensionSourceTail(source) === SELF_EXTENSION_PACKAGE_NAME;
-}
-
-function getExtensionSourceTail(source: string): string | undefined {
-	let spec = source.trim();
-	if (spec.startsWith("npm:")) spec = spec.slice("npm:".length);
-	if (spec.startsWith("git+")) spec = spec.slice("git+".length);
-	if (spec.startsWith("git:")) spec = spec.slice("git:".length);
-	try {
-		const url = new URL(spec);
-		spec = url.pathname;
-	} catch {
-		const scpLikeMatch = /^[^@/\s]+@[^:\s]+:(.+)$/.exec(spec);
-		if (scpLikeMatch?.[1]) spec = scpLikeMatch[1];
-	}
-	spec = spec.split(/[?#]/, 1)[0] ?? spec;
-	const tail = spec.split(/[\\/]/).filter((part) => part.length > 0).at(-1);
-	return tail?.replace(/\.git$/i, "").replace(/@[^@/]+$/, "");
-}
-
-function isPathLikeExtensionSource(source: string): boolean {
-	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return true;
-	if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) return true;
-	if (source === "extensions") return true;
-	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
-	if (source.startsWith("@")) return false;
-	return /[\\/]/.test(source);
-}
-
 function isLocalExtensionPathSource(source: string): boolean {
 	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return false;
 	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("git+")) return false;
 	if (source.startsWith("http://") || source.startsWith("https://")) return false;
 	if (source.startsWith("@")) return false;
 	return source === "." || source === ".." || source === "extensions" || source.startsWith("./") || source.startsWith("../") || /[\\/]/.test(source);
-}
-
-function isSameOrAncestorPath(candidate: string, target: string): boolean {
-	const rel = relative(candidate, target);
-	return rel === "" || (rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel));
-}
-
-function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
-	const trimmed = source.trim();
-	if (trimmed.length === 0) return false;
-	if (isSelfPackageExtensionSource(trimmed)) return true;
-	if (!isPathLikeExtensionSource(trimmed)) return false;
-
-	const resolved = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed);
-	const realResolved = realpathOrSelf(resolved);
-	return [...SELF_EXTENSION_PATHS].some(
-		(selfPath) => isSameOrAncestorPath(resolved, selfPath) || isSameOrAncestorPath(realResolved, selfPath),
-	);
 }
 
 interface ResolvedPath {

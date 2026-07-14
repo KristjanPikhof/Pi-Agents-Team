@@ -1,13 +1,13 @@
 import { EventEmitter } from "node:events";
-import { DEFAULT_TEAM_CONFIG } from "../config";
-import { TaskRegistry } from "./task-registry";
-import { resolveWorkerMessageDelivery, type WorkerMessageDeliveryResolved } from "../comms/agent-messaging";
-import { buildPassivePing } from "../comms/ping";
-import { buildWorkerTaskPrompt } from "../prompts/contracts";
-import { WorkerManager, type AssistantChunk, type ManagedWorkerRecord, type WorkerActivityEvent, type WorkerConsoleEvent } from "../runtime/worker-manager";
-import { applyLaunchPolicy } from "../safety/launch-policy";
-import { isPathWithinProjectRoot } from "../safety/path-scope";
-import { aggregateWorkerUsage } from "../usage";
+import { DEFAULT_TEAM_CONFIG } from "../config.js";
+import { TaskRegistry } from "./task-registry.js";
+import { resolveWorkerMessageDelivery, type WorkerMessageDeliveryResolved } from "../comms/agent-messaging.js";
+import { buildPassivePing } from "../comms/ping.js";
+import { buildWorkerTaskPrompt } from "../prompts/contracts.js";
+import { WorkerManager, type AssistantChunk, type ManagedWorkerRecord, type WorkerActivityEvent, type WorkerConsoleEvent } from "../runtime/worker-manager.js";
+import { applyLaunchPolicy } from "../safety/launch-policy.js";
+import { isPathWithinProjectRoot } from "../safety/path-scope.js";
+import { aggregateWorkerUsage } from "../usage.js";
 import type {
 	DelegatedTaskInput,
 	PersistedTeamState,
@@ -19,7 +19,7 @@ import type {
 	WorkerRuntimeState,
 	WorkerStatus,
 	WorkerUsageAggregate,
-} from "../types";
+} from "../types.js";
 
 const TERMINAL_STATUSES: ReadonlySet<WorkerStatus> = new Set<WorkerStatus>([
 	"idle",

@@ -1,5 +1,5 @@
-import type { RpcEvent, RpcSessionState } from "./rpc-client";
-import type { ThinkingLevel } from "../types";
+import type { RpcEvent, RpcSessionState } from "./rpc-client.js";
+import type { ThinkingLevel } from "../types.js";
 
 export interface WorkerStartedEvent {
 	type: "worker_started";
