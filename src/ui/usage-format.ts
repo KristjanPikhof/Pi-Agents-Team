@@ -1,4 +1,4 @@
-import type { WorkerUsageAggregate, WorkerUsageStats } from "../types";
+import type { WorkerUsageAggregate, WorkerUsageStats } from "../types.js";
 
 /**
  * Format token counts for narrow status surfaces.
