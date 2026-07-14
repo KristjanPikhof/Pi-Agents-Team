@@ -432,6 +432,9 @@ test("loadActiveTeamConfig v4: recursive self-extension sources are rejected", (
 		"./extensions/pi-agent-team/index.ts",
 		resolve(process.cwd(), "extensions/index.ts"),
 		resolve(process.cwd(), "extensions/pi-agent-team/index.ts"),
+		resolve(process.cwd(), "dist/extensions/index.js"),
+		resolve(process.cwd(), "dist/extensions/pi-agent-team/index.js"),
+		resolve(process.cwd(), "dist/extensions/../extensions/index.js"),
 	];
 
 	for (const source of sources) {

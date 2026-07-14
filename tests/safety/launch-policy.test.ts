@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import { resolveProfile } from "../../src/profiles/loader";
 import { applyLaunchPolicy } from "../../src/safety/launch-policy";
 import type { TeamProfileSpec } from "../../src/types";
@@ -70,4 +71,26 @@ test("applyLaunchPolicy keeps model cascade independent from thinkingLevel casca
 
 	assert.equal(plan.model, "orchestrator/fallback-model");
 	assert.equal(plan.thinkingLevel, "minimal");
+});
+
+test("applyLaunchPolicy rejects source and compiled orchestrator entries", () => {
+	for (const extension of [
+		resolve(process.cwd(), "extensions/index.ts"),
+		resolve(process.cwd(), "dist/extensions/index.js"),
+		resolve(process.cwd(), "dist/extensions/pi-agent-team/index.js"),
+	]) {
+		const profile = { ...resolveProfile("reviewer"), extensions: [extension] };
+		assert.throws(
+			() => applyLaunchPolicy({ cwd: process.cwd(), profile }),
+			/Recursive orchestrator extension source/,
+			extension,
+		);
+	}
+});
+
+test("applyLaunchPolicy allows a non-self extension alongside compiled-layout protection", () => {
+	const extension = resolve(process.cwd(), "dist/extensions/custom-provider.js");
+	const profile = { ...resolveProfile("reviewer"), extensions: [extension] };
+	const plan = applyLaunchPolicy({ cwd: process.cwd(), profile });
+	assert.deepEqual(plan.workerExtensions, [extension]);
 });
