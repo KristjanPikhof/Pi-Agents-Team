@@ -620,10 +620,24 @@ export class WorkerManager {
 
 	async abortWorker(workerId: string): Promise<void> {
 		const record = this.requireWorker(workerId);
-		await record.client.abort();
+		const timestamp = Date.now();
+		// Pi emits agent_settled before the abort RPC response. Establish terminal
+		// precedence first so that event cannot expose a transient successful idle.
 		record.awaitingSettlement = false;
 		record.state.status = "aborted";
+		record.state.lastEventAt = timestamp;
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer || "Aborted");
+		try {
+			await record.client.abort();
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			this.applyNormalizedEvent(record, {
+				type: "worker_error",
+				error: `Abort failed: ${errorMessage}`,
+				timestamp: Date.now(),
+			});
+			throw error;
+		}
 	}
 
 	async refreshState(workerId: string): Promise<RpcSessionState> {
@@ -826,6 +840,8 @@ export class WorkerManager {
 		switch (event.type) {
 			case "worker_started":
 			case "worker_running":
+				if (UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) break;
+				record.awaitingSettlement = true;
 				record.state.status = "running";
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: "running" });
