@@ -218,7 +218,9 @@ export class CompactPersistenceJournal {
 		for (const [workerId, previous] of this.previousWorkers) {
 			if (currentIds.has(workerId)) continue;
 			const payload = { workerId: previous.workerId, usage: previous.usage, lastEventAt: previous.lastEventAt };
-			records.push({ version: TEAM_PERSISTENCE_VERSION, kind: "worker_pruned", recordId: recordId("prune", payload), workerId: previous.workerId, usage: previous.usage });
+			const record: TeamPersistenceRecord = { version: TEAM_PERSISTENCE_VERSION, kind: "worker_pruned", recordId: recordId("prune", payload), workerId: previous.workerId, usage: previous.usage };
+			if (Buffer.byteLength(JSON.stringify(record), "utf8") > MAX_RECORD_BYTES) throw new Error(`Compact persistence record exceeded ${MAX_RECORD_BYTES} bytes`);
+			records.push(record);
 			this.persistedFingerprints.delete(workerId);
 		}
 		this.previousWorkers.clear();
