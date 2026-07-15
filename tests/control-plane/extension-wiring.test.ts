@@ -300,6 +300,128 @@ test("extension counts persistence growth only after synchronous append succeeds
 	}
 });
 
+test("middle append failure retries only the uncommitted suffix in order", () => {
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	const attempted: string[] = [];
+	const written: string[] = [];
+	let calls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {}, registerCommand() {}, on() {}, sendMessage() {},
+			appendEntry(_type: string, data: any) {
+				calls += 1;
+				attempted.push(data.recordId);
+				if (calls === 2) throw new Error("middle failure");
+				written.push(data.recordId);
+			},
+		} as any);
+		const state = createDefaultTeamState();
+		for (const workerId of ["w1", "w2", "w3"]) {
+			state.activeWorkers[workerId] = { ...makeWidgetState().activeWorkers.w1!, workerId, status: "completed" };
+		}
+		const listener = listeners.at(-1)!;
+		assert.throws(() => listener(state), /middle failure/);
+		listener(state);
+		assert.equal(written.length, 3);
+		assert.deepEqual(attempted, [written[0], written[1], written[1], written[2]], "committed prefix is not retried");
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("teardown flush retries a final pending transition without another state event", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	const writes: unknown[] = [];
+	let calls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+			appendEntry(_type: string, data: unknown) {
+				calls += 1;
+				if (calls === 1) throw new Error("initial failure");
+				writes.push(data);
+			},
+		} as any);
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		assert.throws(() => listeners.at(-1)!(state), /initial failure/);
+		await handlers.get("session_shutdown")?.({}, { hasUI: false } as any);
+		assert.equal(calls, 2);
+		assert.equal(writes.length, 1, "teardown performs one successful final retry");
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("persistent teardown append failure is bounded and warns once", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	const errors: string[] = [];
+	let calls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	const originalConsoleError = console.error;
+	try {
+		console.error = (message?: unknown) => { errors.push(String(message)); };
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+			appendEntry() { calls += 1; throw new Error("persistent failure"); },
+		} as any);
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		assert.throws(() => listeners.at(-1)!(state), /persistent failure/);
+		await handlers.get("session_shutdown")?.({}, { hasUI: false } as any);
+		assert.equal(calls, 2, "flush makes one bounded retry");
+		assert.equal(errors.filter((message) => message.includes("final retry")).length, 1);
+	} finally {
+		console.error = originalConsoleError;
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("ephemeral sessions suppress physical persistence growth warnings", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const warnings: string[] = [];
+	const seedRecord = {
+		version: 2, kind: "worker_pruned", recordId: "seed", workerId: "w1",
+		usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+	};
+	const branch = Array.from({ length: _testing.PERSISTENCE_RECORD_WARNING_THRESHOLD }, () => ({
+		type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: seedRecord,
+	}));
+	extension({
+		registerTool() {}, registerCommand() {}, appendEntry() {}, sendMessage() {},
+		on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+	} as any);
+	const ctx = {
+		cwd: process.cwd(), hasUI: true,
+		ui: {
+			notify(message: string, level: string) { if (level === "warning" && message.includes("append-only")) warnings.push(message); },
+			setStatus() {}, setWidget() {}, setTitle() {}, addAutocompleteProvider() {},
+		},
+		sessionManager: { isPersisted: () => false, getBranch: () => branch, getEntries: () => branch },
+	} as any;
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	assert.deepEqual(warnings, []);
+	await handlers.get("session_shutdown")?.({}, ctx);
+});
+
 test("extension restores only the active Pi branch and does not checkpoint on startup", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const tools: RegisteredTool[] = [];
