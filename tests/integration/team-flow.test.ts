@@ -24,13 +24,37 @@ test("team flow delegates, steers, pings, follows up, and exposes relay state en
 	});
 
 	await teamManager.messageWorker(result.worker.workerId, "Narrow the scope while you are running", "steer");
+	const relayWait = teamManager.waitForTerminal([result.worker.workerId], { timeoutMs: 500 });
 	transport?.completePrompt();
 	await waitForMicrotasks();
 	await waitForMicrotasks();
 
-	const ping = await teamManager.pingWorkers({ mode: "active" });
-	assert.equal(ping.length, 1);
-	assert.equal(ping[0]?.worker.pendingRelayQuestions.length, 1);
+	const relayWake = await relayWait;
+	assert.equal(relayWake.reason, "relay_raised", "relay wake remains available before settlement");
+	const beforeSettlement = await teamManager.pingWorkers({ mode: "active" });
+	assert.equal(beforeSettlement.length, 1);
+	assert.equal(beforeSettlement[0]?.worker.status, "running");
+	assert.equal(beforeSettlement[0]?.worker.pendingRelayQuestions.length, 1);
+	assert.equal(
+		(await teamManager.waitForTerminal([result.worker.workerId], { timeoutMs: 20 })).reason,
+		"timeout",
+		"agent_end must not complete the team wait",
+	);
+	await assert.rejects(
+		teamManager.delegateTask({
+			title: "Premature reuse",
+			goal: "must remain unavailable",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			reuseWorkerId: result.worker.workerId,
+		}),
+		/Cannot reuse worker.*running/,
+	);
+
+	transport?.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	assert.equal((await teamManager.waitForTerminal([result.worker.workerId], { timeoutMs: 20 })).reason, "all_terminal");
 
 	await teamManager.messageWorker(result.worker.workerId, "Thanks, next step please", "follow_up");
 	const listed = teamManager.listWorkers();

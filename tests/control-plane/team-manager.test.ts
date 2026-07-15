@@ -26,6 +26,11 @@ function createMockWorkerManager(options?: ConstructorParameters<typeof MockWork
 	return { workerManager, transports };
 }
 
+async function settleWorker(workerManager: WorkerManager, workerId: string): Promise<void> {
+	const transport = (workerManager as any).workers.get(workerId)?.handle?.transport as MockWorkerTransport | undefined;
+	await settleTransport(transport);
+}
+
 function workerSnapshot(workerId: string, status: WorkerRuntimeState["status"], usage: WorkerRuntimeState["usage"]): WorkerRuntimeState {
 	return {
 		workerId,
@@ -1095,7 +1100,7 @@ test("delegateTask with reuseWorkerId rejects when inherited orchestrator thinki
 		orchestratorThinkingLevel: "low",
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	await teamManager.delegateTask({
 		title: "Reuse same inherited level",
@@ -1105,6 +1110,7 @@ test("delegateTask with reuseWorkerId rejects when inherited orchestrator thinki
 		orchestratorThinkingLevel: "low",
 		reuseWorkerId: first.worker.workerId,
 	});
+	await settleWorker(workerManager, first.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1180,7 +1186,7 @@ test("delegateTask with reuseWorkerId rejects when launch-affecting fields diffe
 		model: "provider/model-a",
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1210,7 +1216,7 @@ test("delegateTask with reuseWorkerId rejects when project trust launch override
 		projectTrustRoot: projectRoot,
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1246,7 +1252,7 @@ test("delegateTask with reuseWorkerId rejects when rpc command or args differ", 
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	config.rpc.command = "pi-b";
 	config.rpc.args = ["--mode", "rpc", "--no-session", "--custom"];
@@ -1286,7 +1292,7 @@ test("delegateTask with reuseWorkerId rejects when worker extensions differ", as
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	const reviewer = config.profiles.find((profile) => profile.name === "reviewer");
 	assert.ok(reviewer);
@@ -1316,7 +1322,7 @@ test("delegateTask with reuseWorkerId rejects when skills/tools/cwd differ", asy
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, noSkills.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1355,7 +1361,7 @@ test("delegateTask with reuseWorkerId rejects cross-profile reuse", async () => 
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, reviewer.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1383,8 +1389,7 @@ test("closeWorker disposes idle worker, marks exited; rejects running workers", 
 	// flip to idle by completing
 	const transport = (workerManager as any).workers.get(idle.worker.workerId)?.handle?.transport as MockWorkerTransport;
 	transport?.completePrompt();
-	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleTransport(transport);
 	assert.equal(teamManager.getWorkerStatus(idle.worker.workerId)?.status, "idle");
 
 	const closed = await teamManager.closeWorker(idle.worker.workerId);
@@ -1418,7 +1423,7 @@ test("pruneTerminalWorkers disposes the live RPC client of an idle worker before
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, idle.worker.workerId);
 	assert.equal(teamManager.getWorkerStatus(idle.worker.workerId)?.status, "idle");
 	assert.ok(workerManager.hasWorker(idle.worker.workerId));
 
