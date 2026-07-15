@@ -762,6 +762,113 @@ test("cancelled or aborted root-origin navigation permits later same-branch term
 	}
 });
 
+test("tree away and back restores fresh and reused running workers as detached without provisional cancellation", async () => {
+	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+	const handlers = new Map<string, Handler>();
+	const listeners: Array<(state: PersistedTeamState) => void> = [];
+	const tools: RegisteredTool[] = [];
+	const sessionManager = SessionManager.inMemory(process.cwd());
+	const anchorId = sessionManager.appendCustomEntry("anchor", {});
+	let disposeCalls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	const originalDispose = TeamManager.prototype.dispose;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: PersistedTeamState) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		TeamManager.prototype.dispose = async function () {
+			disposeCalls += 1;
+		};
+		extension({
+			registerTool(tool: RegisteredTool) {
+				tools.push(tool);
+			},
+			registerCommand() {},
+			on(event: string, handler: Handler) {
+				handlers.set(event, handler);
+			},
+			appendEntry(type: string, data: unknown) {
+				sessionManager.appendCustomEntry(type, data);
+			},
+			sendMessage() {},
+		} as unknown as ExtensionAPI);
+		const ctx = {
+			cwd: process.cwd(),
+			hasUI: false,
+			sessionManager,
+		} as unknown as ExtensionContext;
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		const disposeBaseline = disposeCalls;
+
+		const state = createDefaultTeamState();
+		const fresh = structuredClone(makeWidgetState().activeWorkers.w1!);
+		fresh.workerId = "w-fresh";
+		fresh.profileName = "fresh";
+		const reused = structuredClone(fresh);
+		reused.workerId = "w-reused";
+		reused.profileName = "reused";
+		reused.usage.inputTokens = 777;
+		reused.lastSummary = {
+			workerId: reused.workerId,
+			taskId: "prior-task",
+			headline: "prior durable summary",
+			status: "idle",
+			readFiles: ["prior.ts"],
+			changedFiles: [],
+			risks: ["retain context"],
+			relayQuestionCount: 0,
+			updatedAt: reused.lastEventAt - 1,
+		};
+		state.activeWorkers[fresh.workerId] = fresh;
+		state.activeWorkers[reused.workerId] = reused;
+		listeners.at(-1)!(state);
+
+		await handlers.get("session_before_tree")?.({
+			preparation: { oldLeafId: anchorId },
+			signal: undefined,
+		}, ctx);
+		const originLeafId = sessionManager.getLeafId();
+		assert.ok(originLeafId);
+		assert.notEqual(originLeafId, anchorId);
+		assert.equal(disposeCalls, disposeBaseline, "provisional navigation does not dispose or cancel workers");
+		const recordsBeforeCancelledContinuation = sessionManager.getBranch()
+			.filter((item) => item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType)
+			.length;
+		assert.deepEqual(Object.values(state.activeWorkers).map((item) => item.status), ["running", "running"]);
+		listeners.at(-1)!(state);
+		assert.equal(disposeCalls, disposeBaseline);
+		assert.equal(
+			sessionManager.getBranch()
+				.filter((item) => item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType)
+				.length,
+			recordsBeforeCancelledContinuation,
+			"a cancelled provisional flow keeps workers live without duplicating detached snapshots",
+		);
+
+		sessionManager.branch(anchorId);
+		const awayLeafId = sessionManager.appendCustomEntry("away", {});
+		await handlers.get("session_tree")?.({ oldLeafId: originLeafId, newLeafId: awayLeafId }, ctx);
+		const awayStatus = await statusTool.execute!("call", {});
+		assert.deepEqual(awayStatus.details.workers, []);
+		assert.equal(disposeCalls, disposeBaseline + 1, "runtime replacement begins only after confirmed navigation");
+
+		sessionManager.branch(originLeafId);
+		await handlers.get("session_tree")?.({ oldLeafId: awayLeafId, newLeafId: originLeafId }, ctx);
+		const restoredStatus = await statusTool.execute!("call", {});
+		const restoredWorkers = restoredStatus.details.workers as WorkerRuntimeState[];
+		assert.deepEqual(restoredWorkers.map((item) => item.workerId).sort(), ["w-fresh", "w-reused"]);
+		assert.deepEqual(restoredWorkers.map((item) => item.status), ["exited", "exited"]);
+		const restoredReused = restoredWorkers.find((item) => item.workerId === "w-reused");
+		assert.equal(restoredReused?.usage.inputTokens, 777);
+		assert.equal(restoredReused?.lastSummary?.headline, "prior durable summary");
+		assert.equal(restoredReused?.lastSummary?.status, "exited");
+	} finally {
+		TeamManager.prototype.dispose = originalDispose;
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
 test("extension restores only the active Pi branch and does not checkpoint on startup", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const tools: RegisteredTool[] = [];
