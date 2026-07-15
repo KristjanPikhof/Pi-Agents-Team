@@ -577,7 +577,7 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	function currentLeafId(): string | null | undefined {
-		const sessionManager = activeContext?.sessionManager as (typeof activeContext.sessionManager & { getLeafId?: () => string | null }) | undefined;
+		const sessionManager = activeContext?.sessionManager as { getLeafId?: () => string | null } | undefined;
 		return sessionManager?.getLeafId?.();
 	}
 
@@ -960,6 +960,7 @@ export default function (pi: ExtensionAPI): void {
 			await replaceTeamManager(activeProjectConfig.config);
 			const { state, markedCount, persistenceMeasurement } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
+			provisionalTreeNavigation = undefined;
 			persistenceGrowth.replace(persistenceMeasurement, isPersistedSession(ctx));
 			restoredWorkerIds.clear();
 			for (const workerId of Object.keys(teamState.activeWorkers)) restoredWorkerIds.add(workerId);
@@ -996,19 +997,27 @@ export default function (pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("session_before_tree", async (_event, ctx) => {
-		// Pi fires this while appendEntry still targets the old leaf. Make one
-		// bounded attempt there. An unresolved suffix is then dropped and the next
-		// teardown flush suppressed so it can never leak onto the selected leaf.
+	pi.on("session_before_tree", async (event, ctx) => {
+		// Pi fires this before summary generation and before moving the leaf. Keep
+		// unresolved data provisional: cancellation/abort emits no session_tree, so
+		// it must remain retryable on this origin branch without warning or loss.
 		activeContext = ctx;
-		if (attemptBoundedPersistenceFlush()) return;
-		persistenceJournal.discardPending();
-		suppressNextTeardownFlush = true;
-		warnPersistenceFailure(PERSISTENCE_TREE_DROP_WARNING);
+		const leafId = currentLeafId();
+		provisionalTreeNavigation = {
+			originLeafId: leafId !== undefined ? leafId : event.preparation.oldLeafId,
+			confirmed: false,
+		};
+		attemptBoundedPersistenceFlush();
 	});
 
-	pi.on("session_tree", async (_event, ctx) => {
+	pi.on("session_tree", async (event, ctx) => {
 		activeContext = ctx;
+		// This event is the first confirmation that Pi has moved the leaf. Isolate
+		// the unresolved old suffix now—not during the provisional before hook.
+		const hadUnresolvedOldRecords = persistenceJournal.hasPending();
+		provisionalTreeNavigation = { originLeafId: event.oldLeafId, confirmed: true };
+		persistenceJournal.discardPending();
+		if (hadUnresolvedOldRecords) warnPersistenceFailure(PERSISTENCE_TREE_DROP_WARNING);
 		reloading = true;
 		try {
 			await replaceTeamManager(activeProjectConfig.config);
@@ -1018,9 +1027,11 @@ export default function (pi: ExtensionAPI): void {
 			restoredWorkerIds.clear();
 			for (const workerId of Object.keys(teamState.activeWorkers)) restoredWorkerIds.add(workerId);
 			persistenceJournal.reset(teamState, activeProjectConfig.config);
+			provisionalTreeNavigation = undefined;
 			teamManager.restore(teamState);
 			renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 		} finally {
+			provisionalTreeNavigation = undefined;
 			reloading = false;
 		}
 	});
