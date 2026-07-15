@@ -177,7 +177,7 @@ Use omission for inheritance:
 | `"thinkingLevel": "default"` | Invalid. The field is dropped and a warning toast is shown. |
 | `"thinkingLevel": ""` | Invalid. The field is dropped and a warning toast is shown. |
 
-Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-coding-agent/docs/models.md:208` for `thinkingLevelMap`, `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:177` and `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:280` for `get_state.thinkingLevel` plus `set_thinking_level`, and `node_modules/@earendil-works/pi-coding-agent/docs/settings.md:20` for `defaultThinkingLevel`. `xhigh` and `max` are model/provider-dependent, and Pi may clamp unsupported levels to the closest supported effective level.
+Pi owns the actual model support matrix. In the installed Pi documentation, see the model registry's thinking-level mapping in `docs/models.md`, the `get_state` response and Thinking Level commands in `docs/rpc.md`, and the thinking-level setting in `docs/settings.md`. `xhigh` and `max` are model/provider-dependent, and Pi may clamp unsupported levels to the closest supported effective level.
 
 ### Per-role access fields
 
