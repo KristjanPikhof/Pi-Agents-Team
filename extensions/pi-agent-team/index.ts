@@ -197,14 +197,15 @@ function activeBranchWithPersistenceTail(
 
 	const childrenByParent = new Map<string | null, PersistenceSessionEntry[]>();
 	for (const entry of sessionManager.getEntries()) {
-		if ((typeof entry.parentId !== "string" && entry.parentId !== null)
+		const entryParentId = entry.parentId;
+		if ((typeof entryParentId !== "string" && entryParentId !== null)
 			|| entry.type !== "custom"
 			|| entry.customType !== stateCustomType
 			|| !isRecognizedCompactPersistenceRecord(entry.data)
 			|| typeof entry.id !== "string") continue;
-		const children = childrenByParent.get(entry.parentId) ?? [];
+		const children = childrenByParent.get(entryParentId) ?? [];
 		children.push(entry);
-		childrenByParent.set(entry.parentId, children);
+		childrenByParent.set(entryParentId, children);
 	}
 
 	const visited = new Set(branch.flatMap((entry) => typeof entry.id === "string" ? [entry.id] : []));

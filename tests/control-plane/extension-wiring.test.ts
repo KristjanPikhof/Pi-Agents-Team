@@ -73,6 +73,55 @@ function assistantMessage(text: string): Parameters<SessionManager["appendMessag
 	};
 }
 
+test("persistence tail discovery stops at ambiguous valid siblings", () => {
+	const customType = DEFAULT_TEAM_CONFIG.persistence.stateCustomType;
+	const record = (recordId: string) => ({
+		version: 2, kind: "worker_terminal", recordId,
+		worker: {
+			workerId: recordId, profileName: "fixer", status: "completed",
+			startedAt: 1, lastEventAt: 2,
+			usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+		},
+	});
+	const anchor = { type: "message", id: "anchor", parentId: null };
+	const siblings = ["left", "right"].map((id) => ({
+		type: "custom", id, parentId: "anchor", customType, data: record(id),
+	}));
+	const branch = _testing.activeBranchWithPersistenceTail({
+		getLeafId: () => "anchor",
+		getBranch: () => [anchor],
+		getEntries: () => [anchor, ...siblings],
+	}, customType);
+	assert.deepEqual(branch, [anchor], "neither sibling is an authoritative continuation of the active branch");
+});
+
+test("persistence tail discovery indexes a large tail in one linear pass", () => {
+	const customType = DEFAULT_TEAM_CONFIG.persistence.stateCustomType;
+	const count = 20_000;
+	let parentReads = 0;
+	const entries = Array.from({ length: count }, (_, index) => ({
+		type: "custom",
+		id: `record-${index}`,
+		get parentId() { parentReads += 1; return index === 0 ? "anchor" : `record-${index - 1}`; },
+		customType,
+		data: {
+			version: 2, kind: "worker_terminal", recordId: `record-${index}`,
+			worker: {
+				workerId: `worker-${index}`, profileName: "fixer", status: "completed",
+				startedAt: 1, lastEventAt: 2,
+				usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+			},
+		},
+	}));
+	const branch = _testing.activeBranchWithPersistenceTail({
+		getLeafId: () => "anchor",
+		getBranch: () => [{ type: "message", id: "anchor", parentId: null }],
+		getEntries: () => entries,
+	}, customType);
+	assert.equal(branch.length, count + 1);
+	assert.ok(parentReads <= count * 2, `parentId was read ${parentReads} times for ${count} entries`);
+});
+
 test("extension mismatch notifier emits exactly one non-fatal session warning", () => {
 	const warnings: string[] = [];
 	const notifier = _testing.createPiVersionMismatchNotifier((message) => warnings.push(message));
@@ -390,7 +439,7 @@ test("leaf-advance append failure is resolved once and later durable state gets 
 	}
 });
 
-test("partial persisted tail after leaf mutation is truncated before a reload-safe sibling retry", async () => {
+test("partial persisted tail is truncated and persistence fails closed until reload", async () => {
 	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
 	const handlers = new Map<string, Handler>();
 	const listeners: Array<(state: PersistedTeamState) => void> = [];
@@ -450,17 +499,24 @@ test("partial persisted tail after leaf mutation is truncated before a reload-sa
 		assert.doesNotThrow(() => listener(state));
 		assert.equal(sessionManager.getLeafId(), anchorId, "non-durable phantom leaf is rolled back to the safe parent");
 		assert.equal(statSync(sessionFile).size, originalFileSize, "partial JSONL bytes are truncated to the pre-append boundary");
-		assert.equal(warnings.filter((message) => message.includes("without a durable session-file tail")).length, 1);
-
-		listener(state);
-		assert.notEqual(sessionManager.getLeafId(), anchorId);
-		const reloaded = SessionManager.open(sessionFile, sessionDir);
-		const restored = restorePersistedTeamState(reloaded.getBranch(), DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
-		assert.equal(restored.activeWorkers.w1?.status, "completed");
+		assert.equal(warnings.filter((message) => message.includes("disabled for the active session")).length, 1);
 		assert.equal(
-			reloaded.getBranch().filter((item) =>
+			sessionManager.getEntries().filter((item) =>
 				item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType).length,
 			1,
+			"the failed entry remains indexed in memory and therefore cannot be treated as rolled back",
+		);
+
+		listener(state);
+		assert.equal(sessionManager.getLeafId(), anchorId, "same-session retry remains blocked");
+		assert.equal(statSync(sessionFile).size, originalFileSize);
+		const reloaded = SessionManager.open(sessionFile, sessionDir);
+		const restored = restorePersistedTeamState(reloaded.getBranch(), DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
+		assert.equal(restored.activeWorkers.w1, undefined, "clean reload agrees with disk and contains no phantom state");
+		assert.equal(
+			reloaded.getEntries().filter((item) =>
+				item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType).length,
+			0,
 		);
 	} finally {
 		TeamManager.prototype.onStateChange = originalOnStateChange;
