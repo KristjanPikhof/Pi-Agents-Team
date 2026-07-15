@@ -855,6 +855,21 @@ test("TeamManager applies thinking level precedence, including explicit and inhe
 	assert.equal(captures[4]?.thinkingLevel, "medium");
 });
 
+test("built-in role thinking defaults remain unchanged and max stays opt-in", () => {
+	assert.deepEqual(
+		DEFAULT_TEAM_CONFIG.profiles.map(({ name, thinkingLevel }) => [name, thinkingLevel]),
+		[
+			["explorer", "low"],
+			["librarian", "medium"],
+			["oracle", "high"],
+			["designer", "medium"],
+			["fixer", "medium"],
+			["reviewer", "high"],
+			["observer", "low"],
+		],
+	);
+});
+
 test("TeamManager maps same-project trust decisions to worker launch overrides", async () => {
 	const captures: Array<{ projectTrust?: string }> = [];
 	const workerManager = new WorkerManager((options) => {
