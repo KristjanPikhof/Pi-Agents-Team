@@ -200,15 +200,11 @@ function recordId(kind: string, payload: unknown): string {
 
 export class CompactPersistenceJournal {
 	private previousWorkers = new Map<string, CompactPersistedWorker>();
-	private persistedFingerprints = new Map<string, string>();
 
 	reset(state: PersistedTeamState, config: TeamConfig): void {
 		this.previousWorkers.clear();
-		this.persistedFingerprints.clear();
 		for (const worker of Object.values(state.activeWorkers)) {
-			const compact = compactWorker(worker, config);
-			this.previousWorkers.set(worker.workerId, compact);
-			if (TERMINAL_WORKER_STATUSES.has(worker.status)) this.persistedFingerprints.set(worker.workerId, JSON.stringify(compact));
+			this.previousWorkers.set(worker.workerId, compactWorker(worker, config));
 		}
 	}
 
@@ -221,19 +217,18 @@ export class CompactPersistenceJournal {
 			const record: TeamPersistenceRecord = { version: TEAM_PERSISTENCE_VERSION, kind: "worker_pruned", recordId: recordId("prune", payload), workerId: previous.workerId, usage: previous.usage };
 			if (Buffer.byteLength(JSON.stringify(record), "utf8") > MAX_RECORD_BYTES) throw new Error(`Compact persistence record exceeded ${MAX_RECORD_BYTES} bytes`);
 			records.push(record);
-			this.persistedFingerprints.delete(workerId);
 		}
-		this.previousWorkers.clear();
+		const previousWorkers = this.previousWorkers;
+		this.previousWorkers = new Map();
 		for (const worker of Object.values(state.activeWorkers)) {
 			const compact = compactWorker(worker, config);
 			this.previousWorkers.set(worker.workerId, compact);
 			if (!TERMINAL_WORKER_STATUSES.has(worker.status)) continue;
-			const fingerprint = JSON.stringify(compact);
-			if (this.persistedFingerprints.get(worker.workerId) === fingerprint) continue;
+			const previous = previousWorkers.get(worker.workerId);
+			if (previous && TERMINAL_WORKER_STATUSES.has(previous.status) && previous.status === compact.status) continue;
 			const record: TeamPersistenceRecord = { version: TEAM_PERSISTENCE_VERSION, kind: "worker_terminal", recordId: recordId("terminal", compact), worker: compact };
 			if (Buffer.byteLength(JSON.stringify(record), "utf8") > MAX_RECORD_BYTES) throw new Error(`Compact persistence record exceeded ${MAX_RECORD_BYTES} bytes`);
 			records.push(record);
-			this.persistedFingerprints.set(worker.workerId, fingerprint);
 		}
 		return records;
 	}

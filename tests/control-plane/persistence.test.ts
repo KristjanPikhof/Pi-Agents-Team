@@ -80,6 +80,9 @@ test("compact journal ignores runtime churn and appends one capped allowlisted t
 		assert.doesNotMatch(json, new RegExp(secret.replace("/", "\\/")));
 	}
 	assert.deepEqual(journal.collect(state, DEFAULT_TEAM_CONFIG), [], "duplicate settlement is a no-op");
+	state.activeWorkers.w1.usage.inputTokens = 999;
+	state.activeWorkers.w1.lastEventAt += 1;
+	assert.deepEqual(journal.collect(state, DEFAULT_TEAM_CONFIG), [], "terminal stats churn is not durable");
 });
 
 test("v2 replay is deterministic and prune retains usage exactly once", () => {
