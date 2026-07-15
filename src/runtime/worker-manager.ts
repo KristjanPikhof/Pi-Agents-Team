@@ -401,7 +401,7 @@ export class WorkerManager {
 			cwd: options.cwd,
 			env: options.env,
 		});
-		this.assertSupportedWorkerVersion(version);
+		this.assertSupportedWorkerVersion(version, options.workerId);
 		if (version.mismatch && version.workerVersion) {
 			this.emitter.emit("pi_version_mismatch", {
 				type: "pi_version_mismatch",
@@ -1102,9 +1102,10 @@ export class WorkerManager {
 		};
 	}
 
-	private assertSupportedWorkerVersion(version: PiVersionProbeResult): void {
+	private assertSupportedWorkerVersion(version: PiVersionProbeResult, workerId: string): void {
 		if (!version.supported) {
-			throw new Error(version.message ?? `Cannot launch Pi worker: unsupported Pi version from ${version.command}.`);
+			const detail = version.message ?? `Cannot launch Pi worker: unsupported Pi version from ${version.command}.`;
+			throw new Error(`Worker launch failed for ${workerId}: ${detail}`);
 		}
 	}
 
