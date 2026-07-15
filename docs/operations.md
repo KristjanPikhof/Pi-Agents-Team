@@ -45,7 +45,7 @@ Prune controls the dashboard, not the physical file. Reload, prune, tree navigat
 
 Persisted sessions warn inclusively when the active branch reaches either 10,000 recognized compact records or 64 MiB of recognized compact payload bytes. The byte count covers JSON payloads only. It excludes Pi's JSONL framing, legacy v1 entries, malformed or future-version entries, inactive branches, other entry types, and the total session file size. A warning is deduplicated while the branch stays above a threshold and rearms after measurement drops below both thresholds, such as after switching to a smaller branch. Ephemeral sessions suppress this physical-growth warning.
 
-Append failures keep the failed record and untouched suffix for retry. Shutdown disposes workers while the persistence listener is still attached, then performs a final bounded flush. If data is still unsaved, look for this warning:
+Writes follow `prepare → synchronous append → commit`. Append failures keep the failed record and untouched suffix for retry, while the latest observed terminal summary and usage remain available for a later prune. Each flush is limited to two batches: the retained suffix, then one batch derived from the latest state. Shutdown disposes workers while the persistence listener is still attached, then performs a final bounded flush. If data is still unsaved, look for this warning:
 
 ```text
 Pi Agents Team: a compact persistence append still failed during final retry; the uncommitted transition could not be saved before teardown.
