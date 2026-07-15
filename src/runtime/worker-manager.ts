@@ -1105,8 +1105,10 @@ export class WorkerManager {
 				});
 				break;
 			case "worker_extension_error":
-				// Pi extension errors are diagnostic-only. They must not clear the
-				// settlement guard or terminate an otherwise live RPC session.
+				// Extension failures are terminal for the active prompt cycle, just
+				// like RPC errors, and must take precedence over late settlement.
+				record.awaitingSettlement = false;
+				record.state.status = "error";
 				record.state.error = event.error;
 				record.state.lastSummary = buildSummary(record.state, event.error);
 				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
