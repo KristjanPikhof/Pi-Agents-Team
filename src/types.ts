@@ -1,4 +1,5 @@
 export const TEAM_STATE_VERSION = 1 as const;
+export const TEAM_PERSISTENCE_VERSION = 2 as const;
 
 export const TEAM_SESSION_MODES = ["orchestrator", "worker"] as const;
 export type TeamSessionMode = (typeof TEAM_SESSION_MODES)[number];
@@ -422,6 +423,41 @@ export interface TeamConfig {
 	};
 	profiles: TeamProfileSpec[];
 }
+
+export interface CompactPersistedWorkerSummary {
+	headline: string;
+	status: WorkerStatus;
+	readFiles: string[];
+	changedFiles: string[];
+	risks: string[];
+	nextRecommendation?: string;
+	updatedAt: number;
+}
+
+export interface CompactPersistedWorker {
+	workerId: string;
+	profileName: string;
+	status: WorkerStatus;
+	startedAt: number;
+	lastEventAt: number;
+	lastSummary?: CompactPersistedWorkerSummary;
+	usage: WorkerUsageStats;
+}
+
+export type TeamPersistenceRecord =
+	| {
+			version: typeof TEAM_PERSISTENCE_VERSION;
+			kind: "worker_terminal";
+			recordId: string;
+			worker: CompactPersistedWorker;
+	  }
+	| {
+			version: typeof TEAM_PERSISTENCE_VERSION;
+			kind: "worker_pruned";
+			recordId: string;
+			workerId: string;
+			usage: WorkerUsageStats;
+	  };
 
 export interface PersistedTeamState {
 	version: typeof TEAM_STATE_VERSION;
