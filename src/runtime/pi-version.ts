@@ -123,7 +123,7 @@ export async function probeWorkerPiVersion(
 			result = { stdout: "", stderr: "", code: null, error: error instanceof Error ? error : new Error(String(error)) };
 		}
 		if (result.error || result.code !== 0) {
-			const detail = result.error?.message ?? result.stderr.trim() || `exit code ${result.code}`;
+			const detail = result.error?.message ?? (result.stderr.trim() || `exit code ${result.code}`);
 			return {
 				...common,
 				supported: false,
