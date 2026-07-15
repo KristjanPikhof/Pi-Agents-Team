@@ -37,9 +37,12 @@ async function main(): Promise<void> {
 	const workerId = `smoke-${Date.now()}`;
 	const cwd = process.cwd();
 	const lifecycle: string[] = [];
+	let statusAtAgentEnd: string | undefined;
 	let resolved = false;
 	const unsubscribe = manager.onEvent((worker, event) => {
-		if (worker.workerId === workerId) lifecycle.push(event.type);
+		if (worker.workerId !== workerId) return;
+		lifecycle.push(event.type);
+		if (event.type === "worker_agent_end") statusAtAgentEnd = worker.state.status;
 	});
 
 	try {
@@ -87,8 +90,8 @@ async function main(): Promise<void> {
 
 		const agentEndIndex = lifecycle.indexOf("worker_agent_end");
 		const idleIndex = lifecycle.indexOf("worker_idle");
-		if (agentEndIndex < 0 || idleIndex <= agentEndIndex) {
-			throw new Error(`Expected worker_idle only after worker_agent_end; observed ${lifecycle.join(" -> ")}`);
+		if (agentEndIndex < 0 || idleIndex <= agentEndIndex || statusAtAgentEnd !== "running") {
+			throw new Error(`Expected running at worker_agent_end and idle only afterward; observed status=${statusAtAgentEnd}, ${lifecycle.join(" -> ")}`);
 		}
 		const worker = manager.getWorker(workerId);
 		if (worker?.state.status !== "idle" || !worker.state.lastSummary) {
@@ -99,7 +102,7 @@ async function main(): Promise<void> {
 		console.log("Runtime smoke complete:");
 		console.log(`Pi command: ${command}`);
 		console.log(`Pi version: ${version.workerVersion} (minimum ${MINIMUM_WORKER_PI_VERSION})`);
-		console.log(`Lifecycle: ${lifecycle.join(" -> ")}`);
+		console.log(`Settlement: worker_agent_end status=${statusAtAgentEnd} -> worker_idle`);
 		console.log(`Final result: ${worker.state.lastSummary.headline}`);
 		console.log(`Tokens: ${worker.state.usage.inputTokens}/${worker.state.usage.outputTokens}`);
 	} finally {

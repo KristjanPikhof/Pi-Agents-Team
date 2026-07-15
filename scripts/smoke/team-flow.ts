@@ -38,10 +38,13 @@ async function main(): Promise<void> {
 	config.rpc.command = command;
 	const teamManager = new TeamManager({ config, workerManager });
 	const lifecycle: string[] = [];
+	const statusesAtAgentEnd: string[] = [];
 	let workerId: string | undefined;
 	let completed = false;
 	const unsubscribe = workerManager.onEvent((worker, event) => {
-		if (!workerId || worker.workerId === workerId) lifecycle.push(event.type);
+		if (workerId && worker.workerId !== workerId) return;
+		lifecycle.push(event.type);
+		if (event.type === "worker_agent_end") statusesAtAgentEnd.push(worker.state.status);
 	});
 
 	try {
@@ -62,8 +65,8 @@ async function main(): Promise<void> {
 		}
 		const firstAgentEnd = lifecycle.indexOf("worker_agent_end");
 		const firstIdle = lifecycle.indexOf("worker_idle");
-		if (firstAgentEnd < 0 || firstIdle <= firstAgentEnd) {
-			throw new Error(`First task became idle before settlement ordering: ${lifecycle.join(" -> ")}`);
+		if (firstAgentEnd < 0 || firstIdle <= firstAgentEnd || statusesAtAgentEnd[0] !== "running") {
+			throw new Error(`First task did not remain running at agent_end: ${lifecycle.join(" -> ")}`);
 		}
 		const firstResult = teamManager.getWorkerResult(workerId);
 		if (firstResult?.worker.status !== "idle" || !firstResult.worker.finalAnswer) {
@@ -87,8 +90,12 @@ async function main(): Promise<void> {
 		if (secondResult?.worker.status !== "idle" || !secondResult.worker.finalAnswer) {
 			throw new Error("Reused settled task did not expose a final result");
 		}
-		if (lifecycle.filter((event) => event === "worker_idle").length !== 2) {
-			throw new Error(`Expected one settled idle per task; observed ${lifecycle.join(" -> ")}`);
+		if (
+			lifecycle.filter((event) => event === "worker_idle").length !== 2
+			|| statusesAtAgentEnd.length !== 2
+			|| statusesAtAgentEnd.some((status) => status !== "running")
+		) {
+			throw new Error(`Expected each task to remain running at agent_end and idle once after settlement; observed ${lifecycle.join(" -> ")}`);
 		}
 
 		completed = true;
@@ -97,9 +104,9 @@ async function main(): Promise<void> {
 		console.log(`Pi version: ${version.workerVersion} (minimum ${MINIMUM_WORKER_PI_VERSION})`);
 		console.log(`Worker: ${workerId} (reused same RPC process)`);
 		console.log(`Waits: ${firstWait.reason}, ${secondWait.reason}`);
-		console.log(`Lifecycle: ${lifecycle.join(" -> ")}`);
-		console.log(`First result: ${firstResult.worker.finalAnswer.headline}`);
-		console.log(`Reused result: ${secondResult.worker.finalAnswer.headline}`);
+		console.log(`Settlement: agent_end statuses=${statusesAtAgentEnd.join(",")} -> 2 worker_idle events`);
+		console.log(`First result: ${firstResult.worker.lastSummary?.headline ?? firstResult.worker.finalAnswer}`);
+		console.log(`Reused result: ${secondResult.worker.lastSummary?.headline ?? secondResult.worker.finalAnswer}`);
 	} finally {
 		unsubscribe();
 		await teamManager.dispose();
