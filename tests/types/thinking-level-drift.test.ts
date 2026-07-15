@@ -10,8 +10,12 @@ type Exact<A, B> =
 			: false
 		: false;
 
-const thinkingLevelDriftCheck: Exact<ThinkingLevel, UpstreamThinkingLevel> = true;
+type Pi0806ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
-test("local ThinkingLevel stays in lockstep with Pi upstream", () => {
-	assert.equal(thinkingLevelDriftCheck, true);
+const localThinkingLevelDriftCheck: Exact<ThinkingLevel, Pi0806ThinkingLevel> = true;
+const upstreamThinkingLevelDriftCheck: Exact<UpstreamThinkingLevel, Pi0806ThinkingLevel> = true;
+
+test("local and upstream ThinkingLevel stay locked to the Pi 0.80.6 contract", () => {
+	assert.equal(localThinkingLevelDriftCheck, true);
+	assert.equal(upstreamThinkingLevelDriftCheck, true);
 });
