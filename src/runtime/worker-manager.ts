@@ -8,6 +8,12 @@ import {
 } from "./event-normalizer.js";
 import { RpcClient, type RpcSessionState, type RpcSessionStats } from "./rpc-client.js";
 import {
+	HOST_PI_VERSION,
+	probeWorkerPiVersion,
+	type PiVersionProbeResult,
+	type ProbeWorkerPiVersion,
+} from "./pi-version.js";
+import {
 	spawnWorkerProcess,
 	type SpawnWorkerProcess,
 	type WorkerProcessHandle,
@@ -60,6 +66,14 @@ export interface ManagedWorkerRecord {
 	client: RpcClient;
 	handle: WorkerProcessHandle;
 	state: WorkerRuntimeState;
+}
+
+export interface WorkerPiVersionMismatchEvent {
+	type: "pi_version_mismatch";
+	hostVersion: string;
+	workerVersion: string;
+	command: string;
+	message: string;
 }
 
 export interface WorkerConsoleEvent {
@@ -345,17 +359,57 @@ function createWorkerProcessOptions(options: LaunchWorkerOptions): WorkerProcess
 export class WorkerManager {
 	private readonly workers = new Map<string, WorkerRuntimeRecord>();
 	private readonly emitter = new EventEmitter();
+	private readonly probeVersion: ProbeWorkerPiVersion;
 
-	constructor(private readonly spawnProcess: SpawnWorkerProcess = spawnWorkerProcess) {}
+	constructor(
+		private readonly spawnProcess: SpawnWorkerProcess = spawnWorkerProcess,
+		probeVersion?: ProbeWorkerPiVersion,
+	) {
+		// Tests and embedders that inject a fake process launcher must not
+		// accidentally execute the developer's machine-global `pi` binary.
+		this.probeVersion = probeVersion ?? (spawnProcess === spawnWorkerProcess
+			? probeWorkerPiVersion
+			: async (options) => ({
+				command: options.command ?? "pi",
+				versionArgs: ["--version"],
+				hostVersion: HOST_PI_VERSION,
+				minimumVersion: HOST_PI_VERSION,
+				workerVersion: HOST_PI_VERSION,
+				supported: true,
+				mismatch: false,
+			}));
+	}
 
 	onEvent(listener: (worker: ManagedWorkerRecord, event: NormalizedWorkerEvent) => void): () => void {
 		this.emitter.on("event", listener);
 		return () => this.emitter.off("event", listener);
 	}
 
+	onPiVersionMismatch(listener: (event: WorkerPiVersionMismatchEvent) => void): () => void {
+		this.emitter.on("pi_version_mismatch", listener);
+		return () => this.emitter.off("pi_version_mismatch", listener);
+	}
+
 	async launchWorker(options: LaunchWorkerOptions): Promise<ManagedWorkerRecord> {
 		if (this.workers.has(options.workerId)) {
 			throw new Error(`Worker already exists: ${options.workerId}`);
+		}
+
+		const version = await this.probeVersion({
+			command: options.command,
+			baseArgs: options.baseArgs,
+			cwd: options.cwd,
+			env: options.env,
+		});
+		this.assertSupportedWorkerVersion(version);
+		if (version.mismatch && version.workerVersion) {
+			this.emitter.emit("pi_version_mismatch", {
+				type: "pi_version_mismatch",
+				hostVersion: version.hostVersion,
+				workerVersion: version.workerVersion,
+				command: version.command,
+				message: `Pi Agents Team: host Pi ${version.hostVersion} is launching worker Pi ${version.workerVersion} via ${version.command}; the supported version mismatch is non-fatal.`,
+			} satisfies WorkerPiVersionMismatchEvent);
 		}
 
 		const handle = this.spawnProcess(createWorkerProcessOptions(options));
@@ -1046,6 +1100,12 @@ export class WorkerManager {
 			contextPercent,
 			contextRemainingTokens,
 		};
+	}
+
+	private assertSupportedWorkerVersion(version: PiVersionProbeResult): void {
+		if (!version.supported) {
+			throw new Error(version.message ?? `Cannot launch Pi worker: unsupported Pi version from ${version.command}.`);
+		}
 	}
 
 	private requireWorker(workerId: string): WorkerRuntimeRecord {
