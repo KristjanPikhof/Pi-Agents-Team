@@ -162,6 +162,11 @@ function updateDelegateTaskProfileDescription(config: TeamConfig): void {
 		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
 }
 
+function isPersistedSession(ctx: ExtensionContext): boolean {
+	const sessionManager = ctx.sessionManager as typeof ctx.sessionManager & { isPersisted?: () => boolean };
+	return typeof sessionManager.isPersisted !== "function" || sessionManager.isPersisted() !== false;
+}
+
 function restoreLatestState(
 	ctx: ExtensionContext,
 	startReason: "startup" | "reload" | "new" | "resume" | "fork",
@@ -921,7 +926,7 @@ export default function (pi: ExtensionAPI): void {
 			await replaceTeamManager(activeProjectConfig.config);
 			const { state, markedCount, persistenceMeasurement } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
-			persistenceGrowth.replace(persistenceMeasurement);
+			persistenceGrowth.replace(persistenceMeasurement, isPersistedSession(ctx));
 			restoredWorkerIds.clear();
 			for (const workerId of Object.keys(teamState.activeWorkers)) restoredWorkerIds.add(workerId);
 			persistenceJournal.reset(teamState, activeProjectConfig.config);
@@ -964,7 +969,7 @@ export default function (pi: ExtensionAPI): void {
 			await replaceTeamManager(activeProjectConfig.config);
 			const { state, persistenceMeasurement } = restoreLatestState(ctx, "reload", activeProjectConfig.config);
 			teamState = state;
-			persistenceGrowth.replace(persistenceMeasurement);
+			persistenceGrowth.replace(persistenceMeasurement, isPersistedSession(ctx));
 			restoredWorkerIds.clear();
 			for (const workerId of Object.keys(teamState.activeWorkers)) restoredWorkerIds.add(workerId);
 			persistenceJournal.reset(teamState, activeProjectConfig.config);

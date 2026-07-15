@@ -126,6 +126,20 @@ test("Unicode-heavy records are deterministically UTF-8 bounded without split su
 	assert.ok(first);
 	assert.ok(Buffer.byteLength(JSON.stringify(first), "utf8") <= 16 * 1024);
 	assert.doesNotMatch(JSON.stringify(first), /�/);
+	assert.deepEqual(firstJournal.collect(state, config), [], "canonical fitted state does not re-emit forever");
+});
+
+test("terminal summary timestamp-only refresh is ignored but substantive revision retains its timestamp", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("completed");
+	const journal = new CompactPersistenceJournal();
+	journal.collect(state, DEFAULT_TEAM_CONFIG);
+	state.activeWorkers.w1.lastSummary!.updatedAt = 999;
+	assert.deepEqual(journal.collect(state, DEFAULT_TEAM_CONFIG), []);
+	state.activeWorkers.w1.lastSummary!.headline = "substantive";
+	const [revision] = journal.collect(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(revision?.kind, "worker_terminal");
+	if (revision?.kind === "worker_terminal") assert.equal(revision.worker.lastSummary?.updatedAt, 999);
 });
 
 test("10,000 non-durable mutations add no measured growth; durable transitions do", () => {
