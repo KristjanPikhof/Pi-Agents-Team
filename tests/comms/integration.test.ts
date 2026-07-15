@@ -28,6 +28,7 @@ test("communication flow supports steer while running, follow-up while idle, pas
 	assert.ok(transports[0]?.commands.some((command) => command.type === "steer"));
 
 	transports[0]?.completePrompt();
+	transports[0]?.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	await waitForMicrotasks();
 

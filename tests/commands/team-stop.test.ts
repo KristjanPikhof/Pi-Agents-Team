@@ -67,7 +67,8 @@ test("/team-stop <id> on a running worker takes the cancel path → exited", asy
 });
 
 test("/team-stop <id> on an idle worker takes the close path → exited", async () => {
-	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const transport = new MockWorkerTransport();
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(transport));
 	const teamManager = new TeamManager({ workerManager });
 
 	const delegated = await teamManager.delegateTask({
@@ -77,6 +78,7 @@ test("/team-stop <id> on an idle worker takes the close path → exited", async 
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
+	transport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(teamManager.getWorkerStatus(delegated.worker.workerId)?.status, "idle");
 
@@ -140,6 +142,7 @@ test("/team-stop all stops a mix of running, idle, and terminal workers without 
 		cwd: process.cwd(),
 	});
 	transports[1]?.completePrompt();
+	transports[1]?.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	await waitForMicrotasks();
 
