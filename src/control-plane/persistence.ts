@@ -26,6 +26,11 @@ export interface MarkRestoredWorkersExitedResult {
 	markedCount: number;
 }
 
+export interface CompactPersistenceMeasurement {
+	recordCount: number;
+	payloadBytes: number;
+}
+
 const LIVE_WORKER_STATUSES: readonly WorkerStatus[] = ["running", "starting", "idle", "waiting_followup"];
 const TERMINAL_WORKER_STATUSES: ReadonlySet<WorkerStatus> = new Set(["idle", "completed", "aborted", "error", "exited"]);
 const WORKER_STATUS_SET: ReadonlySet<string> = new Set(WORKER_STATUSES);
@@ -155,6 +160,33 @@ function isLegacySnapshot(value: unknown): boolean {
 	return isRecord(value) && value.version === 1 && isRecord(value.activeWorkers);
 }
 
+/** True only for replayable records in the current compact format. */
+export function isRecognizedCompactPersistenceRecord(value: unknown): value is TeamPersistenceRecord {
+	if (!isRecord(value) || value.version !== TEAM_PERSISTENCE_VERSION || typeof value.recordId !== "string") return false;
+	if (value.kind === "worker_terminal") return sanitizeCompactWorker(value.worker) !== undefined;
+	return value.kind === "worker_pruned" && typeof value.workerId === "string" && isRecord(value.usage);
+}
+
+/** UTF-8 bytes occupied by the compact record payload, not session framing or total file bytes. */
+export function compactPersistenceRecordPayloadBytes(record: TeamPersistenceRecord): number {
+	return Buffer.byteLength(JSON.stringify(record), "utf8");
+}
+
+export function measureCompactPersistence(
+	entries: Iterable<SessionLikeEntry>,
+	stateCustomType: string,
+): CompactPersistenceMeasurement {
+	let recordCount = 0;
+	let payloadBytes = 0;
+	for (const entry of entries) {
+		if (entry.type !== "custom" || entry.customType !== stateCustomType) continue;
+		if (!isRecognizedCompactPersistenceRecord(entry.data)) continue;
+		recordCount += 1;
+		payloadBytes += compactPersistenceRecordPayloadBytes(entry.data);
+	}
+	return { recordCount, payloadBytes };
+}
+
 function sanitizeLegacyState(raw: unknown): PersistedTeamState {
 	const legacy = normalizePersistedTeamState(raw);
 	const state = createDefaultTeamState();
@@ -189,8 +221,7 @@ export function restorePersistedTeamState(entries: Iterable<SessionLikeEntry>, s
 		}
 		// Unknown, malformed, and future-version records are inert. In particular,
 		// they must not erase the valid replay prefix as an alleged legacy snapshot.
-		if (!isRecord(value) || value.version !== TEAM_PERSISTENCE_VERSION || typeof value.recordId !== "string") continue;
-		if (value.kind !== "worker_terminal" && value.kind !== "worker_pruned") continue;
+		if (!isRecognizedCompactPersistenceRecord(value)) continue;
 		if (appliedRecords.has(value.recordId)) continue;
 
 		if (value.kind === "worker_terminal") {
@@ -236,7 +267,7 @@ function recordId(kind: string, payload: unknown): string {
 }
 
 function recordBytes(record: TeamPersistenceRecord): number {
-	return Buffer.byteLength(JSON.stringify(record), "utf8");
+	return compactPersistenceRecordPayloadBytes(record);
 }
 
 function terminalRecord(source: CompactPersistedWorker): TeamPersistenceRecord {

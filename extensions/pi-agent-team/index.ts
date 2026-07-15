@@ -3,8 +3,11 @@ import { Type } from "typebox";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config.js";
 import {
 	CompactPersistenceJournal,
+	compactPersistenceRecordPayloadBytes,
 	markRestoredWorkersExited,
+	measureCompactPersistence,
 	restorePersistedTeamState,
+	type CompactPersistenceMeasurement,
 } from "../../src/control-plane/persistence.js";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts.js";
 import { TeamManager, isTerminalWorkerStatus, type AgentResult } from "../../src/control-plane/team-manager.js";
@@ -86,6 +89,39 @@ type ExtensionContextWithProjectTrust = ExtensionContext & {
 };
 
 const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshnessToasts");
+const PERSISTENCE_RECORD_WARNING_THRESHOLD = 10_000;
+const PERSISTENCE_BYTE_WARNING_THRESHOLD = 64 * 1024 * 1024;
+const PERSISTENCE_GROWTH_WARNING = "Pi Agents Team: this active branch contains at least 10,000 compact persistence records or 64 MiB of compact record payloads. Pi sessions are append-only; consider starting a new session. Reload, prune, and branch navigation do not shrink the physical session file. Measured compact payload bytes are not the total session file size.";
+
+function createPersistenceGrowthMonitor(notify: (message: string) => void) {
+	let measurement: CompactPersistenceMeasurement = { recordCount: 0, payloadBytes: 0 };
+	let warningLatched = false;
+	const evaluate = () => {
+		const aboveThreshold = measurement.recordCount >= PERSISTENCE_RECORD_WARNING_THRESHOLD
+			|| measurement.payloadBytes >= PERSISTENCE_BYTE_WARNING_THRESHOLD;
+		if (!aboveThreshold) {
+			warningLatched = false;
+			return;
+		}
+		if (warningLatched) return;
+		warningLatched = true;
+		notify(PERSISTENCE_GROWTH_WARNING);
+	};
+	return {
+		replace(next: CompactPersistenceMeasurement): void {
+			measurement = { ...next };
+			evaluate();
+		},
+		recordAppended(payloadBytes: number): void {
+			measurement.recordCount += 1;
+			measurement.payloadBytes += payloadBytes;
+			evaluate();
+		},
+		snapshot(): CompactPersistenceMeasurement {
+			return { ...measurement };
+		},
+	};
+}
 
 function getProcessStableScaffoldFreshnessToasts(): Set<string> {
 	const store = globalThis as typeof globalThis & Record<symbol, unknown>;
@@ -123,16 +159,15 @@ function restoreLatestState(
 	ctx: ExtensionContext,
 	startReason: "startup" | "reload" | "new" | "resume" | "fork",
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
-): { state: PersistedTeamState; markedCount: number } {
+): { state: PersistedTeamState; markedCount: number; persistenceMeasurement: CompactPersistenceMeasurement } {
 	const sessionManager = ctx.sessionManager as typeof ctx.sessionManager & {
 		getBranch?: () => Iterable<{ type: string; customType?: string; data?: unknown }>;
 	};
-	const restoredState = restorePersistedTeamState(
-		sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries(),
-		config.persistence.stateCustomType,
-	);
+	const branch = Array.from(sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries());
+	const restoredState = restorePersistedTeamState(branch, config.persistence.stateCustomType);
+	const persistenceMeasurement = measureCompactPersistence(branch, config.persistence.stateCustomType);
 	const { state, markedCount } = markRestoredWorkersExited(restoredState, startReason);
-	return { state, markedCount };
+	return { state, markedCount, persistenceMeasurement };
 }
 
 function applyUi(
@@ -308,6 +343,10 @@ function createPiVersionMismatchNotifier(notify: (message: string) => void): {
 }
 
 export const _testing = {
+	createPersistenceGrowthMonitor,
+	PERSISTENCE_BYTE_WARNING_THRESHOLD,
+	PERSISTENCE_GROWTH_WARNING,
+	PERSISTENCE_RECORD_WARNING_THRESHOLD,
 	buildPiVersionMismatchToast,
 	createPiVersionMismatchNotifier,
 	emitPiVersionMismatchWarning,
@@ -349,6 +388,10 @@ export default function (pi: ExtensionAPI): void {
 	let activeContext: ExtensionContext | undefined;
 	let detachTeamManagerListener = () => {};
 	const persistenceJournal = new CompactPersistenceJournal();
+	const persistenceGrowth = createPersistenceGrowthMonitor((message) => {
+		if (activeContext?.hasUI) activeContext.ui.notify(message, "warning");
+		else console.error(message);
+	});
 	const restoredWorkerIds = new Set<string>();
 	// Gate for session_start swap window — tool bodies reject during reload so
 	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
@@ -531,6 +574,7 @@ export default function (pi: ExtensionAPI): void {
 				for (const record of records) {
 					pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
 					persistenceJournal.commit(record);
+					persistenceGrowth.recordAppended(compactPersistenceRecordPayloadBytes(record));
 				}
 			}
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
@@ -847,8 +891,9 @@ export default function (pi: ExtensionAPI): void {
 			});
 			updateDelegateTaskProfileDescription(activeProjectConfig.config);
 			await replaceTeamManager(activeProjectConfig.config);
-			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
+			const { state, markedCount, persistenceMeasurement } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
+			persistenceGrowth.replace(persistenceMeasurement);
 			restoredWorkerIds.clear();
 			for (const workerId of Object.keys(teamState.activeWorkers)) restoredWorkerIds.add(workerId);
 			persistenceJournal.reset(teamState, activeProjectConfig.config);
@@ -889,8 +934,9 @@ export default function (pi: ExtensionAPI): void {
 		reloading = true;
 		try {
 			await replaceTeamManager(activeProjectConfig.config);
-			const { state } = restoreLatestState(ctx, "reload", activeProjectConfig.config);
+			const { state, persistenceMeasurement } = restoreLatestState(ctx, "reload", activeProjectConfig.config);
 			teamState = state;
+			persistenceGrowth.replace(persistenceMeasurement);
 			restoredWorkerIds.clear();
 			for (const workerId of Object.keys(teamState.activeWorkers)) restoredWorkerIds.add(workerId);
 			persistenceJournal.reset(teamState, activeProjectConfig.config);
