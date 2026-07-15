@@ -3,12 +3,17 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+	version?: string;
 	main?: string;
 	exports?: { "."?: { types?: string; default?: string } };
 	files?: string[];
 	pi?: { extensions?: string[]; prompts?: string[] };
 	peerDependencies?: Record<string, string>;
 	devDependencies?: Record<string, string>;
+};
+const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8")) as {
+	version?: string;
+	packages?: { ""?: { version?: string } };
 };
 
 test("package manifest exposes only the compiled extension and dist-contained assets", () => {
@@ -42,5 +47,7 @@ test("package manifest locks the Pi 0.80.6 development and peer baseline", () =>
 		{ codingAgent: ">=0.80.6", tui: ">=0.80.6" },
 	);
 	assert.ok(existsSync("package-lock.json"), "npm lock must be present");
+	assert.equal(packageLock.version, packageJson.version, "top-level lock version must match package version");
+	assert.equal(packageLock.packages?.[""]?.version, packageJson.version, "root lock package must match package version");
 	assert.ok(!existsSync("bun.lock"), "stale Bun lock must not coexist with npm lock");
 });
