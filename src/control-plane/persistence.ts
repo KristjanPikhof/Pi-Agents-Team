@@ -295,12 +295,19 @@ function terminalRecord(source: CompactPersistedWorker): TeamPersistenceRecord {
 }
 
 function durableWorkerValue(worker: CompactPersistedWorker): unknown {
+	const summary = worker.lastSummary
+		? {
+			...worker.lastSummary,
+			// Refresh timestamps alone do not change the durable result.
+			updatedAt: undefined,
+		}
+		: undefined;
 	return {
 		workerId: worker.workerId,
 		profileName: worker.profileName,
 		status: worker.status,
 		startedAt: worker.startedAt,
-		lastSummary: worker.lastSummary,
+		lastSummary: summary,
 		usage: worker.usage,
 	};
 }
@@ -321,7 +328,13 @@ export class CompactPersistenceJournal {
 	reset(state: PersistedTeamState, config: TeamConfig): void {
 		this.previousWorkers.clear();
 		this.pending.clear();
-		for (const worker of Object.values(state.activeWorkers)) this.previousWorkers.set(worker.workerId, compactWorker(worker, config));
+		for (const worker of Object.values(state.activeWorkers)) {
+			const compact = compactWorker(worker, config);
+			const canonical = TERMINAL_WORKER_STATUSES.has(worker.status)
+				? (terminalRecord(compact) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>).worker
+				: compact;
+			this.previousWorkers.set(worker.workerId, canonical);
+		}
 	}
 
 	prepare(state: PersistedTeamState, config: TeamConfig): TeamPersistenceRecord[] {
@@ -350,8 +363,10 @@ export class CompactPersistenceJournal {
 				this.previousWorkers.set(worker.workerId, compact);
 				continue;
 			}
-			if (previous && TERMINAL_WORKER_STATUSES.has(previous.status) && durableEqual(previous, compact)) continue;
 			const record = terminalRecord(compact) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>;
+			// Compare the canonical fitted payload that commit stores. Comparing the
+			// oversized source against fitted state would emit this same record forever.
+			if (previous && TERMINAL_WORKER_STATUSES.has(previous.status) && durableEqual(previous, record.worker)) continue;
 			this.pending.set(record.recordId, { record, worker: record.worker });
 		}
 		return [...this.pending.values()].map((transition) => transition.record);
