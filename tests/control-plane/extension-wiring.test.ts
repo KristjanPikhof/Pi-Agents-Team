@@ -439,9 +439,8 @@ test("leaf-advance append failure is resolved once and later durable state gets 
 	}
 });
 
-test("partial persisted tail is truncated and persistence fails closed until reload", async () => {
+test("partial persisted tail stays blocked across a same-manager factory reload and clears for a reopened manager", async () => {
 	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
-	const handlers = new Map<string, Handler>();
 	const listeners: Array<(state: PersistedTeamState) => void> = [];
 	const warnings: string[] = [];
 	const sessionDir = mkdtempSync(join(tmpdir(), "pi-agent-team-persisted-append-"));
@@ -460,46 +459,45 @@ test("partial persisted tail is truncated and persistence fails closed until rel
 		}
 		originalPersist(entry);
 	};
+	const makeContext = (manager: SessionManager) => ({
+		cwd: process.cwd(),
+		hasUI: true,
+		ui: {
+			notify(message: string, level: string) {
+				if (level === "warning") warnings.push(message);
+			},
+			setStatus() {},
+			setWidget() {},
+			setTitle() {},
+			addAutocompleteProvider() {},
+		},
+		sessionManager: manager,
+	}) as unknown as ExtensionContext;
 	const originalOnStateChange = TeamManager.prototype.onStateChange;
 	try {
 		TeamManager.prototype.onStateChange = function (listener: (state: PersistedTeamState) => void) {
 			listeners.push(listener);
 			return () => {};
 		};
+		const firstHandlers = new Map<string, Handler>();
 		extension({
-			registerTool() {},
-			registerCommand() {},
-			on(event: string, handler: Handler) {
-				handlers.set(event, handler);
-			},
-			appendEntry(type: string, data: unknown) {
-				sessionManager.appendCustomEntry(type, data);
-			},
-			sendMessage() {},
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: Handler) { firstHandlers.set(event, handler); },
+			appendEntry(type: string, data: unknown) { sessionManager.appendCustomEntry(type, data); },
 		} as unknown as ExtensionAPI);
-		const ctx = {
-			cwd: process.cwd(),
-			hasUI: true,
-			ui: {
-				notify(message: string, level: string) {
-					if (level === "warning") warnings.push(message);
-				},
-				setStatus() {},
-				setWidget() {},
-				setTitle() {},
-				addAutocompleteProvider() {},
-			},
-			sessionManager,
-		} as unknown as ExtensionContext;
-		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		const ctx = makeContext(sessionManager);
+		await firstHandlers.get("session_start")?.({ reason: "startup" }, ctx);
 
 		const state = createDefaultTeamState();
 		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
-		const listener = listeners.at(-1)!;
-		assert.doesNotThrow(() => listener(state));
+		const firstListener = listeners.at(-1)!;
+		assert.doesNotThrow(() => firstListener(state));
 		assert.equal(sessionManager.getLeafId(), anchorId, "non-durable phantom leaf is rolled back to the safe parent");
 		assert.equal(statSync(sessionFile).size, originalFileSize, "partial JSONL bytes are truncated to the pre-append boundary");
-		assert.equal(warnings.filter((message) => message.includes("disabled for the active session")).length, 1);
+		const integrityWarning = warnings.find((message) => message.includes("compact persistence is disabled"));
+		assert.ok(integrityWarning);
+		assert.match(integrityWarning, /Restart Pi, reopen the session, or start a new session/);
+		assert.match(integrityWarning, /plain \/reload is not sufficient/);
 		assert.equal(
 			sessionManager.getEntries().filter((item) =>
 				item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType).length,
@@ -507,17 +505,49 @@ test("partial persisted tail is truncated and persistence fails closed until rel
 			"the failed entry remains indexed in memory and therefore cannot be treated as rolled back",
 		);
 
-		listener(state);
-		assert.equal(sessionManager.getLeafId(), anchorId, "same-session retry remains blocked");
+		firstListener(state);
+		assert.equal(sessionManager.getLeafId(), anchorId, "same-factory retry remains blocked");
 		assert.equal(statSync(sessionFile).size, originalFileSize);
-		const reloaded = SessionManager.open(sessionFile, sessionDir);
-		const restored = restorePersistedTeamState(reloaded.getBranch(), DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
-		assert.equal(restored.activeWorkers.w1, undefined, "clean reload agrees with disk and contains no phantom state");
+
+		const reloadHandlers = new Map<string, Handler>();
+		let sameManagerReloadAppendCalls = 0;
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: Handler) { reloadHandlers.set(event, handler); },
+			appendEntry() { sameManagerReloadAppendCalls += 1; },
+		} as unknown as ExtensionAPI);
+		await reloadHandlers.get("session_start")?.({ reason: "reload" }, ctx);
+		listeners.at(-1)!(state);
+		assert.equal(sameManagerReloadAppendCalls, 0, "a second extension factory cannot bypass the same SessionManager integrity block");
 		assert.equal(
-			reloaded.getEntries().filter((item) =>
+			warnings.filter((message) => message.includes("plain /reload is not sufficient")).length,
+			2,
+			"the rebuilt factory repeats actionable recovery guidance instead of implying another /reload is safe",
+		);
+		assert.equal(statSync(sessionFile).size, originalFileSize);
+
+		const reopened = SessionManager.open(sessionFile, sessionDir);
+		const restored = restorePersistedTeamState(reopened.getBranch(), DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
+		assert.equal(restored.activeWorkers.w1, undefined, "a reopened manager agrees with disk and contains no phantom state");
+		assert.equal(
+			reopened.getEntries().filter((item) =>
 				item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType).length,
 			0,
 		);
+
+		const reopenedHandlers = new Map<string, Handler>();
+		let reopenedAppendCalls = 0;
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: Handler) { reopenedHandlers.set(event, handler); },
+			appendEntry(type: string, data: unknown) {
+				reopenedAppendCalls += 1;
+				reopened.appendCustomEntry(type, data);
+			},
+		} as unknown as ExtensionAPI);
+		await reopenedHandlers.get("session_start")?.({ reason: "resume" }, makeContext(reopened));
+		listeners.at(-1)!(state);
+		assert.equal(reopenedAppendCalls, 1, "a genuinely reopened SessionManager receives fresh persistence state");
 	} finally {
 		TeamManager.prototype.onStateChange = originalOnStateChange;
 	}

@@ -91,6 +91,7 @@ type ExtensionContextWithProjectTrust = ExtensionContext & {
 };
 
 const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshnessToasts");
+const PERSISTENCE_INTEGRITY_BLOCKED_MANAGERS_KEY = Symbol.for("pi-agents-team.persistenceIntegrityBlockedManagers");
 const PERSISTENCE_RECORD_WARNING_THRESHOLD = 10_000;
 const PERSISTENCE_BYTE_WARNING_THRESHOLD = 64 * 1024 * 1024;
 const PERSISTENCE_GROWTH_WARNING = "Pi Agents Team: this active branch contains at least 10,000 compact persistence records or 64 MiB of compact record payloads. Pi sessions are append-only; consider starting a new session. Reload, prune, and branch navigation do not shrink the physical session file. Measured compact payload bytes are not the total session file size.";
@@ -98,9 +99,8 @@ const PERSISTENCE_FLUSH_WARNING = "Pi Agents Team: a compact persistence append 
 const PERSISTENCE_TREE_DROP_WARNING = "Pi Agents Team: compact persistence still failed before tree navigation; unresolved old-branch records were isolated and will not be written onto the new branch.";
 const PERSISTENCE_LIVE_WARNING = "Pi Agents Team: a compact persistence append failed; the bounded uncommitted suffix was retained for a later retry.";
 const PERSISTENCE_AMBIGUOUS_APPEND_WARNING = "Pi Agents Team: a compact persistence append threw after Pi advanced the session leaf; the durably confirmed tail record was treated as accepted and will not be retried beneath that leaf.";
-const PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING = "Pi Agents Team: compact persistence is disabled for the active session because its disk and in-memory state may differ or the session-file boundary could not be captured or restored safely; reload the session before retrying persistence.";
+const PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING = "Pi Agents Team: compact persistence is disabled because this session manager's disk and in-memory state may differ or the session-file boundary could not be captured or restored safely. Restart Pi, reopen the session, or start a new session before retrying persistence; plain /reload is not sufficient.";
 const PERSISTENCE_TAIL_READ_BYTES = 32 * 1024;
-const UNKNOWN_PERSISTED_SESSION_FILE = "<unknown-persisted-session-file>";
 
 function createPersistenceGrowthMonitor(notify: (message: string) => void) {
 	let measurement: CompactPersistenceMeasurement = { recordCount: 0, payloadBytes: 0 };
@@ -146,6 +146,16 @@ function getProcessStableScaffoldFreshnessToasts(): Set<string> {
 	const freshnessToasts = new Set<string>();
 	store[SCAFFOLD_FRESHNESS_TOASTS_KEY] = freshnessToasts;
 	return freshnessToasts;
+}
+
+function getProcessStablePersistenceIntegrityBlocks(): WeakSet<object> {
+	const store = globalThis as typeof globalThis & Record<symbol, unknown>;
+	const existing = store[PERSISTENCE_INTEGRITY_BLOCKED_MANAGERS_KEY];
+	if (existing instanceof WeakSet) return existing as WeakSet<object>;
+
+	const blockedManagers = new WeakSet<object>();
+	store[PERSISTENCE_INTEGRITY_BLOCKED_MANAGERS_KEY] = blockedManagers;
+	return blockedManagers;
 }
 
 function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
@@ -543,7 +553,10 @@ export default function (pi: ExtensionAPI): void {
 		preexistingEntryIds: ReadonlySet<string>;
 	};
 	let provisionalTreeNavigation: ProvisionalTreeNavigation | undefined;
-	let persistenceIntegrityBlockedFile: string | undefined;
+	// Pi /reload rebuilds this factory but retains the SessionManager. Keep the
+	// fail-closed latch process-stable and identity-scoped; WeakSet GC naturally
+	// releases it once a genuinely replaced/reopened manager becomes unreachable.
+	const persistenceIntegrityBlockedManagers = getProcessStablePersistenceIntegrityBlocks();
 	const restoredWorkerIds = new Set<string>();
 	// Gate for session_start swap window — tool bodies reject during reload so
 	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
@@ -748,12 +761,6 @@ export default function (pi: ExtensionAPI): void {
 		} | undefined;
 	}
 
-	function currentPersistenceFileIdentity(): string | undefined {
-		const sessionManager = currentSessionManager();
-		if (sessionManager?.isPersisted?.() === false) return undefined;
-		return sessionManager?.getSessionFile?.() ?? UNKNOWN_PERSISTED_SESSION_FILE;
-	}
-
 	function currentLeafId(): string | null | undefined {
 		return currentSessionManager()?.getLeafId?.();
 	}
@@ -796,10 +803,10 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	function appendPreparedPersistence(maxBatches = 2): boolean {
-		const currentFileIdentity = currentPersistenceFileIdentity();
-		if (persistenceIntegrityBlockedFile !== undefined) {
-			if (persistenceIntegrityBlockedFile === currentFileIdentity) return false;
-			persistenceIntegrityBlockedFile = undefined;
+		const sessionManagerAtStart = currentSessionManager();
+		if (sessionManagerAtStart && persistenceIntegrityBlockedManagers.has(sessionManagerAtStart)) {
+			warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING);
+			return false;
 		}
 
 		for (let batch = 0; batch < maxBatches; batch += 1) {
@@ -814,7 +821,7 @@ export default function (pi: ExtensionAPI): void {
 					: undefined;
 				const fileBoundary = captureSessionFileBoundary(sessionFileBeforeAppend);
 				if (explicitlyPersisted && (!sessionFileBeforeAppend || !fileBoundary)) {
-					persistenceIntegrityBlockedFile = sessionFileBeforeAppend ?? UNKNOWN_PERSISTED_SESSION_FILE;
+					persistenceIntegrityBlockedManagers.add(sessionManagerBeforeAppend);
 					warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING);
 					return false;
 				}
@@ -862,9 +869,8 @@ export default function (pi: ExtensionAPI): void {
 						} catch {
 							// The integrity block below is required regardless of leaf repair.
 						}
-						persistenceIntegrityBlockedFile = sessionFile
-							?? sessionFileBeforeAppend
-							?? UNKNOWN_PERSISTED_SESSION_FILE;
+						if (sessionManager) persistenceIntegrityBlockedManagers.add(sessionManager);
+						else if (sessionManagerBeforeAppend) persistenceIntegrityBlockedManagers.add(sessionManagerBeforeAppend);
 						warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING);
 						return false;
 					}
