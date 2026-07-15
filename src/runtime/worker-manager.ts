@@ -1110,9 +1110,13 @@ export class WorkerManager {
 				break;
 			case "worker_extension_error":
 				// Pi extension errors are diagnostic-only. They must not clear the
-				// settlement guard or terminate an otherwise live RPC session.
-				record.state.error = event.error;
-				record.state.lastSummary = buildSummary(record.state, event.error);
+				// settlement guard or terminate an otherwise live RPC session. Once a
+				// worker is unreachable, its terminal cause and summary are authoritative;
+				// keep the late diagnostic visible without replacing either one.
+				if (!UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) {
+					record.state.error = event.error;
+					record.state.lastSummary = buildSummary(record.state, event.error);
+				}
 				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
 				this.appendActivity(record, {
 					id: this.nextActivityId(record, event.type, event.timestamp),
