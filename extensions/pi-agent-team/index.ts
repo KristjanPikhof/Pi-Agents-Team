@@ -594,6 +594,10 @@ export default function (pi: ExtensionAPI): void {
 		const sessionManager = currentSessionManager();
 		const leafId = sessionManager?.getLeafId?.();
 		if (leafId === undefined || leafId === navigation.appendLeafId) return;
+		// Null is the conceptual root ancestor. While navigation is only
+		// provisional, any successor remains on that root-origin branch; Pi moves
+		// the leaf and emits session_tree synchronously before worker events run.
+		if (navigation.appendLeafId === null && !navigation.confirmed) return;
 		if (navigation.appendLeafId !== null) {
 			const branch = sessionManager?.getBranch?.();
 			if (branch && Array.from(branch).some((entry) => entry.id === navigation.appendLeafId)) return;
