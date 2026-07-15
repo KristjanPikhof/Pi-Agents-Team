@@ -165,7 +165,7 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	assert.equal(abortedWorker?.state.status, "aborted");
 });
 
-test("agent_end, retries, queued continuations, and refresh stay running until one settlement", async () => {
+test("agent_end, compaction, retries, queued continuations, and refresh stay running until one settlement", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = await launchRuntimeTestWorker("worker-settlement", transport);
 	const events: string[] = [];
@@ -180,8 +180,11 @@ test("agent_end, retries, queued continuations, and refresh stay running until o
 	assert.ok(events.includes("worker_agent_end"));
 	assert.equal(events.filter((type) => type === "worker_idle").length, 0);
 
+	transport.setState({ isStreaming: false, isCompacting: true });
 	await manager.refreshState("worker-settlement");
 	assert.equal(manager.getWorker("worker-settlement")?.state.status, "running");
+	assert.equal((manager.getWorker("worker-settlement")?.state as Record<string, unknown>).awaitingSettlement, undefined);
+	transport.setState({ isCompacting: false });
 
 	transport.writeEvent({ type: "agent_start" });
 	transport.writeEvent({ type: "agent_end", messages: [] });
