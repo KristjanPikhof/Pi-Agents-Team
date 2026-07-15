@@ -201,7 +201,7 @@ test("agent_end, compaction, retries, queued continuations, and refresh stay run
 	assert.equal(events.filter((type) => type === "worker_idle").length, 1);
 });
 
-test("abort, error, exit, and prompt rejection take precedence over late settlement", async () => {
+test("abort, RPC parse error, exit, and prompt rejection take precedence over late settlement", async () => {
 	let abortTransport!: MockWorkerTransport;
 	abortTransport = new MockWorkerTransport({
 		autoCompletePrompt: false,
@@ -221,29 +221,71 @@ test("abort, error, exit, and prompt rejection take precedence over late settlem
 
 	const errorTransport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const errorManager = await launchRuntimeTestWorker("worker-late-error", errorTransport);
+	const errorEvents: string[] = [];
+	errorManager.onEvent((_worker, event) => errorEvents.push(event.type));
 	await errorManager.promptWorker("worker-late-error", "error me");
-	errorTransport.writeEvent({ type: "extension_error", error: "runtime failed" });
+	await waitForMicrotasks();
+	errorTransport.stdout.write("{not valid RPC JSON}\n");
+	await waitForMicrotasks();
+	assert.equal(errorManager.getWorker("worker-late-error")?.state.status, "error");
+	assert.match(errorManager.getWorker("worker-late-error")?.state.error ?? "", /Failed to parse RPC line/);
+	assert.ok(errorEvents.includes("worker_error"));
 	errorTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(errorManager.getWorker("worker-late-error")?.state.status, "error");
+	assert.equal(errorEvents.filter((type) => type === "worker_idle").length, 0);
 
 	const exitTransport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const exitManager = await launchRuntimeTestWorker("worker-late-exit", exitTransport);
+	const exitEvents: string[] = [];
+	exitManager.onEvent((_worker, event) => exitEvents.push(event.type));
 	await exitManager.promptWorker("worker-late-exit", "exit me");
 	exitTransport.emit("exit", 0, null);
 	await waitForMicrotasks();
 	exitTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(exitManager.getWorker("worker-late-exit")?.state.status, "exited");
+	assert.equal(exitEvents.filter((type) => type === "worker_idle").length, 0);
 
 	const rejectTransport = new MockWorkerTransport({ rejectPrompt: "rejected" });
 	const rejectManager = await launchRuntimeTestWorker("worker-late-reject", rejectTransport);
+	const rejectEvents: string[] = [];
+	rejectManager.onEvent((_worker, event) => rejectEvents.push(event.type));
 	await assert.rejects(rejectManager.promptWorker("worker-late-reject", "reject me"), /rejected/);
 	rejectTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(rejectManager.getWorker("worker-late-reject")?.state.status, "error");
+	assert.equal(rejectEvents.filter((type) => type === "worker_idle").length, 0);
 });
 
+test("extension errors remain diagnostic until agent settlement transitions the worker to idle", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = await launchRuntimeTestWorker("worker-extension-diagnostic", transport);
+	await manager.promptWorker("worker-extension-diagnostic", "report extension diagnostics");
+	await waitForMicrotasks();
+
+	const lifecycle: Array<{ type: string; status: WorkerStatus; error?: string }> = [];
+	manager.onEvent((worker, event) => {
+		lifecycle.push({ type: event.type, status: worker.state.status, error: worker.state.error });
+	});
+
+	transport.writeEvent({ type: "extension_error", error: "provider extension warning" });
+	await waitForMicrotasks();
+
+	const diagnostic = manager.getWorker("worker-extension-diagnostic")?.state;
+	assert.equal(diagnostic?.status, "running");
+	assert.equal(diagnostic?.error, undefined);
+	assert.deepEqual(lifecycle, [
+		{ type: "worker_extension_error", status: "running", error: undefined },
+	]);
+
+	transport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+
+	assert.equal(manager.getWorker("worker-extension-diagnostic")?.state.status, "idle");
+	assert.deepEqual(lifecycle.map((entry) => entry.type), ["worker_extension_error", "worker_idle"]);
+	assert.equal(lifecycle.filter((entry) => entry.type === "worker_idle").length, 1);
+});
 test("direct or extension agent_start arms settlement before a non-streaming state refresh", async () => {
 	for (const priorStatus of ["starting", "idle"] as const) {
 		const transport = new MockWorkerTransport({ autoCompletePrompt: false });
