@@ -229,10 +229,25 @@ test("persistence growth warning uses inclusive thresholds, deduplicates, and re
 	});
 });
 
-test("extension commits persistence only after synchronous append succeeds", () => {
+test("extension counts persistence growth only after synchronous append succeeds", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
 	const writes: unknown[] = [];
+	const warnings: string[] = [];
 	let failNextAppend = true;
+	const seedRecord = {
+		version: 2,
+		kind: "worker_terminal",
+		recordId: "seed",
+		worker: {
+			workerId: "w1", profileName: "fixer", status: "completed",
+			startedAt: 1, lastEventAt: 2,
+			usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+		},
+	};
+	const branch = Array.from({ length: _testing.PERSISTENCE_RECORD_WARNING_THRESHOLD - 1 }, () => ({
+		type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: seedRecord,
+	}));
 	const originalOnStateChange = TeamManager.prototype.onStateChange;
 	try {
 		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) {
@@ -242,7 +257,7 @@ test("extension commits persistence only after synchronous append succeeds", () 
 		extension({
 			registerTool() {},
 			registerCommand() {},
-			on() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
 			appendEntry(_type: string, data: unknown) {
 				if (failNextAppend) {
 					failNextAppend = false;
@@ -252,15 +267,34 @@ test("extension commits persistence only after synchronous append succeeds", () 
 			},
 			sendMessage() {},
 		} as any);
+		const ctx = {
+			cwd: process.cwd(), hasUI: true,
+			ui: {
+				notify(message: string, level: string) { if (level === "warning" && message.includes("append-only")) warnings.push(message); },
+				setStatus() {}, setWidget() {}, setTitle() {}, addAutocompleteProvider() {},
+			},
+			sessionManager: { getBranch: () => branch, getEntries: () => branch },
+		} as any;
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		assert.deepEqual(warnings, [], "9,999 active-branch records are below threshold");
+
 		const state = createDefaultTeamState();
-		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		state.activeWorkers.w1 = {
+			workerId: "w1", profileName: "fixer", sessionMode: "worker", status: "completed",
+			requestedThinkingLevel: "off", effectiveThinkingLevel: "off",
+			startedAt: 1, lastEventAt: 2, pendingRelayQuestions: [],
+			usage: { ...seedRecord.worker.usage, inputTokens: 1 },
+		};
 		const listener = listeners.at(-1);
 		assert.ok(listener);
 		assert.throws(() => listener(state), /simulated append failure/);
+		assert.deepEqual(warnings, [], "failed append is not counted toward threshold");
 		listener(state);
 		assert.equal(writes.length, 1, "failed transition is retried and then committed");
+		assert.equal(warnings.length, 1, "successful 10,000th append triggers warning");
 		listener(state);
 		assert.equal(writes.length, 1, "committed transition is not duplicated");
+		assert.equal(warnings.length, 1, "warning remains deduplicated");
 	} finally {
 		TeamManager.prototype.onStateChange = originalOnStateChange;
 	}
