@@ -380,6 +380,11 @@ export class CompactPersistenceJournal {
 		this.pending.delete(record.recordId);
 	}
 
+	/** Drop only uncommitted records; used to prevent cross-branch retries. */
+	discardPending(): void {
+		this.pending.clear();
+	}
+
 	/** Compatibility helper for non-I/O callers; append wiring must use prepare/commit. */
 	collect(state: PersistedTeamState, config: TeamConfig): TeamPersistenceRecord[] {
 		const records = this.prepare(state, config);

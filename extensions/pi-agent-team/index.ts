@@ -93,6 +93,7 @@ const PERSISTENCE_RECORD_WARNING_THRESHOLD = 10_000;
 const PERSISTENCE_BYTE_WARNING_THRESHOLD = 64 * 1024 * 1024;
 const PERSISTENCE_GROWTH_WARNING = "Pi Agents Team: this active branch contains at least 10,000 compact persistence records or 64 MiB of compact record payloads. Pi sessions are append-only; consider starting a new session. Reload, prune, and branch navigation do not shrink the physical session file. Measured compact payload bytes are not the total session file size.";
 const PERSISTENCE_FLUSH_WARNING = "Pi Agents Team: a compact persistence append still failed during final retry; the uncommitted transition could not be saved before teardown.";
+const PERSISTENCE_TREE_DROP_WARNING = "Pi Agents Team: compact persistence still failed before tree navigation; unresolved old-branch records were isolated and will not be written onto the new branch.";
 
 function createPersistenceGrowthMonitor(notify: (message: string) => void) {
 	let measurement: CompactPersistenceMeasurement = { recordCount: 0, payloadBytes: 0 };
@@ -404,7 +405,8 @@ export default function (pi: ExtensionAPI): void {
 		if (activeContext?.hasUI) activeContext.ui.notify(message, "warning");
 		else console.error(message);
 	});
-	let persistenceFlushWarned = false;
+	const persistenceFailureWarnings = new Set<string>();
+	let suppressNextTeardownFlush = false;
 	const restoredWorkerIds = new Set<string>();
 	// Gate for session_start swap window — tool bodies reject during reload so
 	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
@@ -573,7 +575,7 @@ export default function (pi: ExtensionAPI): void {
 		piVersionMismatchNotifier.notify(event);
 	}
 
-	function appendPreparedPersistence(maxBatches = Number.POSITIVE_INFINITY): void {
+	function appendPreparedPersistence(maxBatches = 2): void {
 		for (let batch = 0; batch < maxBatches; batch += 1) {
 			const records = persistenceJournal.prepare(teamState, activeProjectConfig.config);
 			if (records.length === 0) return;
@@ -585,17 +587,26 @@ export default function (pi: ExtensionAPI): void {
 		}
 	}
 
-	function flushPendingPersistence(): void {
+	function warnPersistenceFailure(message: string): void {
+		if (persistenceFailureWarnings.has(message)) return;
+		persistenceFailureWarnings.add(message);
+		if (activeContext?.hasUI) activeContext.ui.notify(message, "warning");
+		else console.error(message);
+	}
+
+	function attemptBoundedPersistenceFlush(): boolean {
 		try {
-			// At most one pending suffix plus one candidate batch derived from the
-			// latest state. A persistent append failure is attempted only once here.
+			// Finite invariant: one retained suffix plus one batch derived from the
+			// latest state. A persistent failure is attempted only once per flush.
 			appendPreparedPersistence(2);
+			return true;
 		} catch {
-			if (persistenceFlushWarned) return;
-			persistenceFlushWarned = true;
-			if (activeContext?.hasUI) activeContext.ui.notify(PERSISTENCE_FLUSH_WARNING, "warning");
-			else console.error(PERSISTENCE_FLUSH_WARNING);
+			return false;
 		}
+	}
+
+	function flushPendingPersistence(): void {
+		if (!attemptBoundedPersistenceFlush()) warnPersistenceFailure(PERSISTENCE_FLUSH_WARNING);
 	}
 
 	function attachTeamManagerListener(manager: TeamManager): void {
@@ -605,7 +616,8 @@ export default function (pi: ExtensionAPI): void {
 			teamState = state;
 			// appendEntry is synchronous: advance only after acceptance. On a middle
 			// failure the failed record and untouched suffix remain pending in order.
-			appendPreparedPersistence();
+			// Two batches cover that suffix plus the latest current-state candidate.
+			appendPreparedPersistence(2);
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 
 			if (hasAnimatedWorkers(teamState)) {
@@ -665,7 +677,8 @@ export default function (pi: ExtensionAPI): void {
 		detachTeamManagerListener = () => {
 			if (detached) return;
 			detached = true;
-			flushPendingPersistence();
+			if (suppressNextTeardownFlush) suppressNextTeardownFlush = false;
+			else flushPendingPersistence();
 			detachStateListener();
 			detachWorkerEventListener();
 			detachVersionMismatchListener();
@@ -960,6 +973,17 @@ export default function (pi: ExtensionAPI): void {
 		} finally {
 			reloading = false;
 		}
+	});
+
+	pi.on("session_before_tree", async (_event, ctx) => {
+		// Pi fires this while appendEntry still targets the old leaf. Make one
+		// bounded attempt there. An unresolved suffix is then dropped and the next
+		// teardown flush suppressed so it can never leak onto the selected leaf.
+		activeContext = ctx;
+		if (attemptBoundedPersistenceFlush()) return;
+		persistenceJournal.discardPending();
+		suppressNextTeardownFlush = true;
+		warnPersistenceFailure(PERSISTENCE_TREE_DROP_WARNING);
 	});
 
 	pi.on("session_tree", async (_event, ctx) => {
