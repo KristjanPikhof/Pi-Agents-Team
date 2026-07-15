@@ -891,6 +891,9 @@ export class WorkerManager {
 		// refresh. Closing its handle makes that launch settle before disposal does.
 		await Promise.allSettled(pending.map((launch) => launch.handle?.dispose()));
 		await Promise.allSettled(pending.map((launch) => launch.promise));
+		for (const record of this.workers.values()) {
+			record.closing = true;
+		}
 		for (const workerId of Array.from(this.workers.keys())) {
 			await this.shutdownWorker(workerId);
 		}
@@ -1090,6 +1093,7 @@ export class WorkerManager {
 			case "worker_idle":
 				record.awaitingSettlement = false;
 				record.state.status = "idle";
+				record.state.error = undefined;
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: record.state.status });
