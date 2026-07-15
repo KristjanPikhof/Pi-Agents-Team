@@ -98,40 +98,18 @@ export function comparePiVersions(left: ParsedPiVersion, right: ParsedPiVersion)
 	return 0;
 }
 
-const NODE_OPTIONS_WITH_VALUE = new Set([
-	"-r",
-	"--require",
-	"--loader",
-	"--experimental-loader",
-	"--import",
-	"--conditions",
-	"--inspect-port",
-]);
-
-function versionPrefix(command: string, baseArgs: string[] | undefined): string[] {
-	if (!baseArgs) return [];
-	const commandName = basename(command).toLowerCase().replace(/\.exe$/, "");
-	if (commandName === "node" || commandName === "bun" || commandName === "deno") {
-		const prefix: string[] = [];
-		for (let index = 0; index < baseArgs.length; index += 1) {
-			const arg = baseArgs[index];
-			if (arg === "--") {
-				prefix.push(arg);
-				if (baseArgs[index + 1]) prefix.push(baseArgs[index + 1]);
-				break;
-			}
-			prefix.push(arg);
-			if (NODE_OPTIONS_WITH_VALUE.has(arg) && baseArgs[index + 1]) {
-				prefix.push(baseArgs[index + 1]);
-				index += 1;
-				continue;
-			}
-			if (!arg.startsWith("-")) break;
-		}
-		return prefix;
-	}
-	const firstPiOption = baseArgs.findIndex((arg) => arg.startsWith("-"));
-	return firstPiOption === -1 ? [...baseArgs] : baseArgs.slice(0, firstPiOption);
+/**
+ * Build the version invocation from the launch contract rather than attempting
+ * to parse the wrapper runtime's options. Everything before Pi's explicit RPC
+ * mode boundary is the immutable executable prefix (wrapper flags, their
+ * values, and the Pi CLI entrypoint); RPC/session flags from the boundary on
+ * are replaced by --version.
+ */
+export function buildPiVersionArgs(baseArgs: string[] | undefined): string[] {
+	if (!baseArgs) return ["--version"];
+	const rpcBoundary = baseArgs.findIndex((arg) => arg === "--mode" || arg.startsWith("--mode="));
+	const versionPrefix = rpcBoundary === -1 ? baseArgs : baseArgs.slice(0, rpcBoundary);
+	return [...versionPrefix, "--version"];
 }
 
 function executableCandidates(command: string, env: NodeJS.ProcessEnv): string[] {
@@ -205,7 +183,7 @@ export async function probeWorkerPiVersion(
 	run: RunPiVersionCommand = runPiVersionCommand,
 ): Promise<PiVersionProbeResult> {
 	const command = options.command ?? "pi";
-	const versionArgs = [...versionPrefix(command, options.baseArgs), "--version"];
+	const versionArgs = buildPiVersionArgs(options.baseArgs);
 	const key = commandCacheKey(command, versionArgs, options.cwd, options.env);
 	const existing = probeCache.get(key);
 	if (existing) return existing;

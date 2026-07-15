@@ -84,20 +84,53 @@ test("caches probes and coalesces concurrent first probes by command", async () 
 	assert.equal(calls, 1);
 });
 
-test("keeps wrapper options and the custom CLI entrypoint while replacing Pi RPC flags with --version", async () => {
-	let observed: string[] = [];
-	await probeWorkerPiVersion(
-		{
+test("preserves arbitrary value-taking wrapper options through the explicit Pi RPC boundary", async () => {
+	const wrapperPrefixes = [
+		["--enable-source-maps"],
+		["--env-file", "/tmp/worker.env"],
+		["--env-file-if-exists", "/tmp/optional.env"],
+		["--require", "/tmp/register.cjs"],
+		["--loader", "tsx"],
+		["--conditions", "development"],
+		["--inspect-port", "9330"],
+	];
+	for (const wrapperArgs of wrapperPrefixes) {
+		clearPiVersionProbeCache();
+		let observed: string[] = [];
+		const cliEntry = "/tmp/pi-cli.js";
+		await probeWorkerPiVersion(
+			{
+				command: process.execPath,
+				baseArgs: [...wrapperArgs, cliEntry, "--mode", "rpc", "--no-session"],
+				cwd: "/tmp",
+			},
+			async ({ args }) => {
+				observed = args;
+				return { stdout: "0.80.6", stderr: "", code: 0 };
+			},
+		);
+		assert.deepEqual(observed, [...wrapperArgs, cliEntry, "--version"]);
+	}
+});
+
+test("real node --env-file wrapper probes the installed Pi CLI rather than Node", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-env-file-"));
+	const envFile = join(root, "worker.env");
+	const piCli = join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+	await writeFile(envFile, "PI_VERSION_PROBE_REGRESSION=1\n");
+	try {
+		const result = await probeWorkerPiVersion({
 			command: process.execPath,
-			baseArgs: ["--enable-source-maps", "dist/cli.js", "--mode", "rpc", "--no-session"],
-			cwd: "/tmp",
-		},
-		async ({ args }) => {
-			observed = args;
-			return { stdout: "0.80.6", stderr: "", code: 0 };
-		},
-	);
-	assert.deepEqual(observed, ["--enable-source-maps", "dist/cli.js", "--version"]);
+			baseArgs: ["--env-file", envFile, piCli, "--mode", "rpc", "--no-session"],
+			cwd: process.cwd(),
+		});
+		assert.deepEqual(result.versionArgs, ["--env-file", envFile, piCli, "--version"]);
+		assert.equal(result.workerVersion, HOST_PI_VERSION);
+		assert.notEqual(result.workerVersion, process.version.replace(/^v/, ""));
+		assert.equal(result.supported, true);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 test("keys bare-command probes by the executable resolved from cwd and PATH", async () => {
