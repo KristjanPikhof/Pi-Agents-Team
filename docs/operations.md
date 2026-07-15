@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0` and Pi `>=0.80.6`. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
+Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.80.7`, while supported hosts and workers retain a Pi `>=0.80.6` minimum. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
 
 Install dependencies and run the checks:
 

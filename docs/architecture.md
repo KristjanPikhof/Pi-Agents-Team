@@ -116,6 +116,7 @@ Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, f
 The probe keeps a promise cache keyed by the resolved command and any CLI entrypoint prefix. Concurrent first launches share that promise, and later launches reuse the result rather than spawning another version check. This applies to the default and custom worker commands, so injected test launchers must also inject a probe and never fall through to a machine-global `pi`.
 
 Exact host/worker patch equality is not required. A supported worker version that differs from the host emits one non-fatal warning per extension session; an exact match emits none. This is a minimum-version gate, not an upper-bound policy.
+Repository development dependencies and validation use exactly Pi `0.80.7`. That tested version does not raise the supported host or worker minimum: both remain Pi `>=0.80.6`.
 
 ### Workers launch with reduced discovery
 
@@ -201,7 +202,7 @@ prompt accepted
 
 `awaitingSettlement` is an internal `WorkerRuntimeRecord` guard. It is deliberately absent from `WorkerRuntimeState`, public status/result unions, persistence snapshots, and project config. While the guard is set, a `get_state` refresh with `isStreaming: false` remains `running`; refresh cannot bypass settlement and expose early completion.
 
-Terminal failures take precedence over successful settlement. Abort, extension/RPC error, prompt rejection, and process exit clear the guard and set `aborted`, `error`, or `exited`; a late `agent_settled` cannot overwrite those statuses. Extension errors are sticky terminal failures: the runtime records `error`, disposes the RPC handle, sends SIGTERM through process teardown, and rejects late exit or settlement attempts to mark the worker successful. The first valid settlement clears the guard and emits idle. Duplicate `agent_settled` events and other idle events received without an active guard are ignored, so one prompt cycle produces at most one successful completion transition.
+Terminal failures take precedence over successful settlement. Abort, fatal RPC/transport error, prompt rejection, and process exit clear the guard and set `aborted`, `error`, or `exited`; a late `agent_settled` cannot overwrite those statuses. Pi's `extension_error` is different: it normalizes to the diagnostic-only `worker_extension_error`, records the error for inspection, and leaves the settlement guard and live RPC session intact. A later valid `agent_settled` can therefore complete that run successfully. The first valid settlement clears the guard and emits idle. Duplicate `agent_settled` events and other idle events received without an active guard are ignored, so one prompt cycle produces at most one successful completion transition.
 
 This timing carries through the control plane. Between `agent_end` and `agent_settled`, `wait_for_agents` cannot return `all_terminal`, `agent_result` is not terminal-ready, completion notifications do not fire, and `reuseWorkerId` is rejected because the worker is still `running`. After settlement, waits can resolve `all_terminal`, the result is ready, one completion notification can fire, and the live idle RPC session becomes eligible for same-settings reuse. Relay wake behavior is independent and remains available while the worker runs.
 
