@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG, normalizePersistedTeamState } from "../config.js";
 import { addWorkerUsageToAggregate } from "../usage.js";
 import {
@@ -192,10 +193,7 @@ export function markRestoredWorkersExited(
 }
 
 function recordId(kind: string, payload: unknown): string {
-	const text = JSON.stringify(payload);
-	let hash = 2166136261;
-	for (let index = 0; index < text.length; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
-	return `${kind}:${(hash >>> 0).toString(36)}:${text.length}`;
+	return `${kind}:${createHash("sha256").update(JSON.stringify(payload)).digest("base64url")}`;
 }
 
 export class CompactPersistenceJournal {
