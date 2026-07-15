@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import extension, { _testing } from "../../extensions/pi-agent-team/index";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
-import { TeamManager } from "../../src/control-plane/team-manager";
+import { TeamManager, type AgentResult } from "../../src/control-plane/team-manager";
 import type { WorkerRuntimeState } from "../../src/types";
 
 interface RegisteredTool {
@@ -142,22 +142,25 @@ test("agent_result hides provisional final answers until terminal settlement", a
 		usage: { turns: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
 		finalAnswer: "headline: provisional answer",
 	};
+	const agentResult: AgentResult = { worker };
 	const originalResolveWorkerId = TeamManager.prototype.resolveWorkerId;
 	const originalGetWorkerResult = TeamManager.prototype.getWorkerResult;
 	try {
 		TeamManager.prototype.resolveWorkerId = () => "w1";
-		TeamManager.prototype.getWorkerResult = () => ({ worker });
+		TeamManager.prototype.getWorkerResult = () => agentResult;
 
 		const beforeSettlement = await resultTool.execute("call-1", { workerId: "w1" });
 		assert.match(beforeSettlement.content[0].text, /Final result is not ready/);
 		assert.match(beforeSettlement.content[0].text, /wait_for_agents/);
 		assert.doesNotMatch(beforeSettlement.content[0].text, /provisional answer/);
 		assert.deepEqual(beforeSettlement.details, { workerId: "w1", status: "running", ready: false });
+		assert.equal("worker" in beforeSettlement.details, false);
+		assert.equal("finalAnswer" in beforeSettlement.details, false);
 
 		worker.status = "completed";
 		const afterSettlement = await resultTool.execute("call-2", { workerId: "w1" });
 		assert.match(afterSettlement.content[0].text, /Result:\nheadline: provisional answer/);
-		assert.equal(afterSettlement.details.worker.finalAnswer, "headline: provisional answer");
+		assert.strictEqual(afterSettlement.details, agentResult);
 	} finally {
 		TeamManager.prototype.resolveWorkerId = originalResolveWorkerId;
 		TeamManager.prototype.getWorkerResult = originalGetWorkerResult;
@@ -180,7 +183,7 @@ test("agent_result preserves terminal failure result behavior", async () => {
 	const originalGetWorkerResult = TeamManager.prototype.getWorkerResult;
 	try {
 		for (const status of ["error", "aborted", "exited"] as const) {
-			TeamManager.prototype.getWorkerResult = () => ({
+			const terminalResult: AgentResult = {
 				worker: {
 					workerId: "w1",
 					profileName: "fixer",
@@ -192,10 +195,11 @@ test("agent_result preserves terminal failure result behavior", async () => {
 					usage: { turns: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
 					error: "terminal failure",
 				},
-			});
+			};
+			TeamManager.prototype.getWorkerResult = () => terminalResult;
 			const output = await resultTool.execute("call", { workerId: "w1" });
 			assert.match(output.content[0].text, new RegExp(`Status: ${status}`));
-			assert.equal(output.details.worker.status, status);
+			assert.strictEqual(output.details, terminalResult);
 		}
 	} finally {
 		TeamManager.prototype.getWorkerResult = originalGetWorkerResult;

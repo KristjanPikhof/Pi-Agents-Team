@@ -7,7 +7,7 @@ import {
 	restorePersistedTeamState,
 } from "../../src/control-plane/persistence.js";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts.js";
-import { TeamManager, isTerminalWorkerStatus } from "../../src/control-plane/team-manager.js";
+import { TeamManager, isTerminalWorkerStatus, type AgentResult } from "../../src/control-plane/team-manager.js";
 import { loadActiveTeamConfig } from "../../src/project-config/loader.js";
 import { registerCopyCommand } from "../../src/commands/copy.js";
 import { registerTeamCommand } from "../../src/commands/team.js";
@@ -62,6 +62,10 @@ const PingAgentsSchema = Type.Object({
 const WorkerIdSchema = Type.Object({
 	workerId: Type.String({ description: "Target worker id" }),
 });
+
+type AgentResultDetails =
+	| { workerId: string; status: WorkerRuntimeState["status"]; ready: false }
+	| AgentResult;
 
 const WaitForAgentsSchema = Type.Object({
 	workerIds: Type.Optional(Type.Array(Type.String(), { description: "Worker ids to wait on. Omit to wait on every tracked worker." })),
@@ -695,7 +699,7 @@ export default function (pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerTool({
+	pi.registerTool<typeof WorkerIdSchema, AgentResultDetails>({
 		name: "agent_result",
 		label: "Agent Result",
 		description: "Get a terminal worker's final deliverable as compact plain text: worker title, optional task/status/error/relay lines, scan-friendly summary sections when available, then Result: followed by the verbatim contents of the worker's <final_answer>…</final_answer> block. Results remain unavailable until agent settlement; wait_for_agents before retrying. Terminal error/aborted/exited workers remain readable. This is the authoritative answer — synthesize directly from it. If the final_answer block is missing after settlement, steer or re-delegate with a clearer final_answer instruction instead of reading files yourself.",
