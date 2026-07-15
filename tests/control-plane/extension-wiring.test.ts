@@ -206,6 +206,41 @@ test("agent_result preserves terminal failure result behavior", async () => {
 	}
 });
 
+test("extension restores only the active Pi branch and does not checkpoint on startup", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const tools: RegisteredTool[] = [];
+	const writes: unknown[] = [];
+	const active = createDefaultTeamState();
+	active.activeWorkers.w1 = {
+		...makeWidgetState().activeWorkers.w1!,
+		status: "completed",
+		finalAnswer: "legacy final answer must be discarded",
+	};
+	const inactive = createDefaultTeamState();
+	inactive.activeWorkers.w9 = { ...active.activeWorkers.w1, workerId: "w9" };
+
+	extension({
+		registerTool(tool: RegisteredTool) { tools.push(tool); },
+		registerCommand() {},
+		on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+		appendEntry(_type: string, data: unknown) { writes.push(data); },
+		sendMessage() {},
+	} as any);
+	const ctx = {
+		cwd: process.cwd(), hasUI: false,
+		sessionManager: {
+			getEntries: () => [{ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: inactive }],
+			getBranch: () => [{ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: active }],
+		},
+	} as any;
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	assert.deepEqual(writes, [], "session restore must not append a checkpoint");
+	const result = await tools.find((tool) => tool.name === "agent_result")!.execute!("call", { workerId: "w1" });
+	assert.match(result.content[0].text, /live-session-only/);
+	await assert.rejects(() => tools.find((tool) => tool.name === "agent_result")!.execute!("call", { workerId: "w9" }), /Unknown worker/);
+	await handlers.get("session_shutdown")?.({}, ctx);
+});
+
 test("extension registers natural autocomplete provider when UI API is available", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const autocompleteFactories: Array<(current: any) => any> = [];

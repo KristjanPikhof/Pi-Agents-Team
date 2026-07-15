@@ -876,6 +876,23 @@ export default function (pi: ExtensionAPI): void {
 		}
 	});
 
+	pi.on("session_tree", async (_event, ctx) => {
+		activeContext = ctx;
+		reloading = true;
+		try {
+			await replaceTeamManager(activeProjectConfig.config);
+			const { state } = restoreLatestState(ctx, "reload", activeProjectConfig.config);
+			teamState = state;
+			restoredWorkerIds.clear();
+			for (const workerId of Object.keys(teamState.activeWorkers)) restoredWorkerIds.add(workerId);
+			persistenceJournal.reset(teamState, activeProjectConfig.config);
+			teamManager.restore(teamState);
+			renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+		} finally {
+			reloading = false;
+		}
+	});
+
 	pi.on("agent_start", async (_event, ctx) => {
 		activeContext = ctx;
 		orchestratorWorking = true;
