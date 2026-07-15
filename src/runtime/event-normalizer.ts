@@ -64,6 +64,12 @@ export interface WorkerErrorEvent {
 	timestamp: number;
 }
 
+export interface WorkerExtensionErrorEvent {
+	type: "worker_extension_error";
+	error: string;
+	timestamp: number;
+}
+
 export interface WorkerStateEvent {
 	type: "worker_state";
 	state: RpcSessionState;
@@ -100,6 +106,7 @@ export type NormalizedWorkerEvent =
 	| WorkerAgentEndEvent
 	| WorkerIdleEvent
 	| WorkerErrorEvent
+	| WorkerExtensionErrorEvent
 	| WorkerStateEvent
 	| WorkerThinkingClampedEvent
 	| WorkerExitEvent;
@@ -171,7 +178,7 @@ export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
 		case "extension_error":
 			return [
 				{
-					type: "worker_error",
+					type: "worker_extension_error",
 					error: typeof event.error === "string" ? event.error : "Unknown extension error",
 					timestamp: now(),
 				},
