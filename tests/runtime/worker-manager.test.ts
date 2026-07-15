@@ -202,13 +202,22 @@ test("agent_end, compaction, retries, queued continuations, and refresh stay run
 });
 
 test("abort, error, exit, and prompt rejection take precedence over late settlement", async () => {
-	const abortTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	let abortTransport!: MockWorkerTransport;
+	abortTransport = new MockWorkerTransport({
+		autoCompletePrompt: false,
+		onCommand(command) {
+			// Pi 0.80.6 emits settlement before acknowledging the abort RPC.
+			if (command.type === "abort") abortTransport.writeEvent({ type: "agent_settled" });
+		},
+	});
 	const abortManager = await launchRuntimeTestWorker("worker-late-abort", abortTransport);
+	const abortEvents: string[] = [];
+	abortManager.onEvent((_worker, event) => abortEvents.push(event.type));
 	await abortManager.promptWorker("worker-late-abort", "abort me");
 	await abortManager.abortWorker("worker-late-abort");
-	abortTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(abortManager.getWorker("worker-late-abort")?.state.status, "aborted");
+	assert.equal(abortEvents.filter((type) => type === "worker_idle").length, 0);
 
 	const errorTransport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const errorManager = await launchRuntimeTestWorker("worker-late-error", errorTransport);
@@ -233,6 +242,37 @@ test("abort, error, exit, and prompt rejection take precedence over late settlem
 	rejectTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(rejectManager.getWorker("worker-late-reject")?.state.status, "error");
+});
+
+test("direct or extension agent_start arms settlement before a non-streaming state refresh", async () => {
+	for (const priorStatus of ["starting", "idle"] as const) {
+		const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+		const workerId = `worker-direct-start-${priorStatus}`;
+		const manager = await launchRuntimeTestWorker(workerId, transport);
+		const events: string[] = [];
+		manager.onEvent((_worker, event) => events.push(event.type));
+
+		if (priorStatus === "idle") {
+			await manager.promptWorker(workerId, "establish a settled reusable session");
+			transport.writeEvent({ type: "agent_settled" });
+			await waitForMicrotasks();
+			assert.equal(manager.getWorker(workerId)?.state.status, "idle");
+		}
+
+		transport.setState({ isStreaming: false, isCompacting: false });
+		transport.writeEvent({ type: "agent_start" });
+		await waitForMicrotasks();
+		assert.equal(manager.getWorker(workerId)?.state.status, "running");
+		await manager.refreshState(workerId);
+		assert.equal(manager.getWorker(workerId)?.state.status, "running");
+		assert.equal(events.filter((type) => type === "worker_idle").length, priorStatus === "idle" ? 1 : 0);
+
+		transport.writeEvent({ type: "agent_settled" });
+		await waitForMicrotasks();
+		assert.equal(manager.getWorker(workerId)?.state.status, "idle");
+		assert.equal(events.filter((type) => type === "worker_idle").length, priorStatus === "idle" ? 2 : 1);
+		await manager.dispose();
+	}
 });
 
 test("launchWorker rejects controlled spawn failures and removes the broken worker", async () => {
