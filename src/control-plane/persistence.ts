@@ -329,7 +329,7 @@ export class CompactPersistenceJournal {
 	commit(record: TeamPersistenceRecord): void {
 		const transition = this.pending.get(record.recordId);
 		if (!transition) return;
-		if (transition.record.kind === "worker_terminal") this.previousWorkers.set(transition.worker.workerId, transition.worker);
+		if ("worker" in transition) this.previousWorkers.set(transition.worker.workerId, transition.worker);
 		else this.previousWorkers.delete(transition.workerId);
 		this.pending.delete(record.recordId);
 	}

@@ -206,6 +206,43 @@ test("agent_result preserves terminal failure result behavior", async () => {
 	}
 });
 
+test("extension commits persistence only after synchronous append succeeds", () => {
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	const writes: unknown[] = [];
+	let failNextAppend = true;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {},
+			registerCommand() {},
+			on() {},
+			appendEntry(_type: string, data: unknown) {
+				if (failNextAppend) {
+					failNextAppend = false;
+					throw new Error("simulated append failure");
+				}
+				writes.push(data);
+			},
+			sendMessage() {},
+		} as any);
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		const listener = listeners.at(-1);
+		assert.ok(listener);
+		assert.throws(() => listener(state), /simulated append failure/);
+		listener(state);
+		assert.equal(writes.length, 1, "failed transition is retried and then committed");
+		listener(state);
+		assert.equal(writes.length, 1, "committed transition is not duplicated");
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
 test("extension restores only the active Pi branch and does not checkpoint on startup", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const tools: RegisteredTool[] = [];
