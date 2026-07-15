@@ -18,7 +18,13 @@ Install the published package from npm:
 pi install npm:pi-agents-team
 ```
 
-`pi install` persists the package source in your Pi settings, so future sessions load it automatically. For project-local package activation, run `pi config -l` in the project and add `npm:pi-agents-team` to Pi's local `packages` setting. This controls whether Pi loads the package for that project. It is separate from `<project>/.pi/agent/agents-team.json`, which configures team roles after the package is active.
+`pi install` persists the package source in your Pi settings, so future sessions load it automatically. For project-local package activation, run:
+
+```bash
+pi install -l npm:pi-agents-team
+```
+
+Use `pi config -l` only to enable or disable local packages or override local resources. Package activation is separate from `<project>/.pi/agent/agents-team.json`, which configures team roles after the package is active.
 
 To try the extension for one run without writing settings, launch Pi with `-e` instead:
 
