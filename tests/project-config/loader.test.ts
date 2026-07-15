@@ -741,6 +741,23 @@ test("loadActiveTeamConfig strips invalid role thinkingLevel and records a warni
 	assert.equal(reviewer?.thinkingLevel, undefined, "invalid thinkingLevel is stripped from only that role");
 });
 
+test("loadActiveTeamConfig accepts max thinkingLevel without warning", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-thinking-max-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			oracle: { thinkingLevel: "max", prompt: "default" },
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.deepEqual(result.thinkingLevelWarnings, []);
+	const oracle = result.config.profiles.find((profile) => profile.name === "oracle");
+	assert.equal(oracle?.thinkingLevel, "max");
+});
+
 test("loadActiveTeamConfig retains valid role thinkingLevel", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-thinking-valid-"));
 	mkdirSync(join(root, "app"), { recursive: true });

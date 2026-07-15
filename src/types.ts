@@ -28,7 +28,7 @@ export function isPackagedProfileName(name: string): name is TeamProfileName {
 	return (TEAM_PROFILE_NAMES as readonly string[]).includes(name);
 }
 
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 export const WORKER_EXTENSION_MODES = ["inherit", "disable", "worker-minimal"] as const;
