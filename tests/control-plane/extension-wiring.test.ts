@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import extension, { _testing } from "../../extensions/pi-agent-team/index";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { TeamManager, type AgentResult } from "../../src/control-plane/team-manager";
 import { restorePersistedTeamState } from "../../src/control-plane/persistence";
-import type { WorkerRuntimeState } from "../../src/types";
+import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
 interface RegisteredTool {
 	name: string;
@@ -289,7 +289,7 @@ test("extension counts persistence growth only after synchronous append succeeds
 		};
 		const listener = listeners.at(-1);
 		assert.ok(listener);
-		assert.throws(() => listener(state), /simulated append failure/);
+		assert.doesNotThrow(() => listener(state), "live append failure stays outside the state/RPC callback");
 		assert.deepEqual(warnings, [], "failed append is not counted toward threshold");
 		listener(state);
 		assert.equal(writes.length, 1, "failed transition is retried and then committed");
@@ -297,6 +297,74 @@ test("extension counts persistence growth only after synchronous append succeeds
 		listener(state);
 		assert.equal(writes.length, 1, "committed transition is not duplicated");
 		assert.equal(warnings.length, 1, "warning remains deduplicated");
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("leaf-advance append failure is resolved once and later durable state gets a fresh record", async () => {
+	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+	const handlers = new Map<string, Handler>();
+	const listeners: Array<(state: PersistedTeamState) => void> = [];
+	const warnings: string[] = [];
+	const sessionManager = SessionManager.inMemory(process.cwd());
+	sessionManager.appendCustomEntry("anchor", {});
+	let appendCalls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: PersistedTeamState) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {},
+			registerCommand() {},
+			on(event: string, handler: Handler) {
+				handlers.set(event, handler);
+			},
+			appendEntry(type: string, data: unknown) {
+				appendCalls += 1;
+				sessionManager.appendCustomEntry(type, data);
+				if (appendCalls === 1) throw new Error("append reported failure after leaf advance");
+			},
+			sendMessage() {},
+		} as unknown as ExtensionAPI);
+		const ctx = {
+			cwd: process.cwd(),
+			hasUI: true,
+			ui: {
+				notify(message: string, level: string) {
+					if (level === "warning") warnings.push(message);
+				},
+				setStatus() {},
+				setWidget() {},
+				setTitle() {},
+				addAutocompleteProvider() {},
+			},
+			sessionManager,
+		} as unknown as ExtensionContext;
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		const listener = listeners.at(-1)!;
+		assert.doesNotThrow(() => listener(state));
+		const leafAfterAmbiguousAppend = sessionManager.getLeafId();
+		assert.ok(leafAfterAmbiguousAppend);
+		assert.equal(appendCalls, 1);
+		assert.equal(warnings.filter((message) => message.includes("advanced the session leaf")).length, 1);
+
+		listener(state);
+		assert.equal(appendCalls, 1, "the exact ambiguous record is committed instead of retried beneath itself");
+		state.activeWorkers.w1.usage.inputTokens += 1;
+		listener(state);
+		assert.equal(appendCalls, 2, "a later durable revision remains eligible for a fresh append");
+		const records = sessionManager.getBranch()
+			.filter((item) => item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
+		assert.deepEqual(records.map((item) => {
+			const data = item.data;
+			return data && typeof data === "object" && "kind" in data ? data.kind : undefined;
+		}), ["worker_terminal", "worker_terminal"]);
 	} finally {
 		TeamManager.prototype.onStateChange = originalOnStateChange;
 	}
@@ -327,7 +395,7 @@ test("middle append failure retries only the uncommitted suffix in order", () =>
 			state.activeWorkers[workerId] = { ...makeWidgetState().activeWorkers.w1!, workerId, status: "completed" };
 		}
 		const listener = listeners.at(-1)!;
-		assert.throws(() => listener(state), /middle failure/);
+		assert.doesNotThrow(() => listener(state));
 		listener(state);
 		assert.equal(written.length, 3);
 		assert.deepEqual(attempted, [written[0], written[1], written[1], written[2]], "committed prefix is not retried");
@@ -360,7 +428,7 @@ test("teardown flush retries a final pending transition without another state ev
 				writes.push(data);
 			},
 		} as any);
-		assert.throws(() => listeners.at(-1)!(state), /initial failure/);
+		assert.doesNotThrow(() => listeners.at(-1)!(state));
 		await handlers.get("session_shutdown")?.({}, { hasUI: false } as any);
 		assert.equal(calls, 2);
 		assert.equal(writes.length, 1, "teardown performs one successful final retry");
@@ -428,7 +496,7 @@ test("persistent teardown append failure is bounded and warns once", async () =>
 		} as any);
 		const state = createDefaultTeamState();
 		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
-		assert.throws(() => listeners.at(-1)!(state), /persistent failure/);
+		assert.doesNotThrow(() => listeners.at(-1)!(state));
 		await handlers.get("session_shutdown")?.({}, { hasUI: false } as any);
 		assert.equal(calls, 2, "flush makes one bounded retry");
 		assert.equal(errors.filter((message) => message.includes("final retry")).length, 1);
@@ -492,7 +560,7 @@ test("tree navigation retries pending persistence once on the old leaf, never th
 		} as any;
 		const state = createDefaultTeamState();
 		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
-		assert.throws(() => listeners.at(-1)!(state), /old leaf initial failure/);
+		assert.doesNotThrow(() => listeners.at(-1)!(state));
 		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
 		assert.deepEqual(appendedLeaves, ["old"], "bounded pre-tree retry still targets the old leaf");
 		leaf = "new";
@@ -566,14 +634,14 @@ test("persistent pre-tree failure is warned and isolated from the new leaf", asy
 		} as any;
 		const state = createDefaultTeamState();
 		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
-		assert.throws(() => listeners.at(-1)!(state), /persistent old failure/);
+		assert.doesNotThrow(() => listeners.at(-1)!(state));
 		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
 		assert.deepEqual(attempts, ["old", "old"], "pre-tree processing makes one bounded retry");
 		assert.equal(warnings.filter((message) => message.includes("old-branch records were isolated")).length, 0, "provisional failure is not warned or dropped");
-		assert.throws(() => listeners.at(-1)!(state), /persistent old failure/, "intervening old-leaf state event may retry");
+		assert.doesNotThrow(() => listeners.at(-1)!(state), "intervening old-leaf state event may retry");
 		assert.deepEqual(attempts, ["old", "old", "old"]);
 		leaf = "new";
-		assert.throws(() => listeners.at(-1)!(state), /active branch changed/, "append-boundary guard closes the pre-session_tree window");
+		assert.doesNotThrow(() => listeners.at(-1)!(state), "append-boundary guard failure stays outside the callback");
 		await handlers.get("session_tree")?.({ oldLeafId: "old", newLeafId: "new" }, ctx);
 		assert.deepEqual(attempts, ["old", "old", "old"], "unresolved old record is never attempted at the new leaf");
 		assert.equal(warnings.filter((message) => message.includes("old-branch records were isolated")).length, 1, "confirmed navigation warns once");
@@ -608,7 +676,7 @@ test("cancelled tree navigation retains pending data for shutdown retry on the o
 			cwd: process.cwd(), hasUI: false,
 			sessionManager: { getLeafId: () => "old", getBranch: () => [], getEntries: () => [] },
 		} as any;
-		assert.throws(() => listeners.at(-1)!(state), /provisional failure/);
+		assert.doesNotThrow(() => listeners.at(-1)!(state));
 		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
 		// A later handler cancels: Pi emits no session_tree.
 		await handlers.get("session_shutdown")?.({}, ctx);
@@ -643,7 +711,7 @@ test("aborted tree flow keeps provisional data eligible for a later old-leaf sta
 		} as any;
 		const state = createDefaultTeamState();
 		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
-		assert.throws(() => listeners.at(-1)!(state), /summary aborted/);
+		assert.doesNotThrow(() => listeners.at(-1)!(state));
 		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
 		// Summary abort emits no session_tree; an ordinary state event remains safe.
 		listeners.at(-1)!(state);
