@@ -42,8 +42,6 @@ Both build commands run `scripts/build-publish.mjs`. The script clears `dist/`, 
 
 ## Test discipline
 
-The current test count is **56**. If your change reduces that without a corresponding deletion, something regressed.
-
 Unit tests lean on `MockWorkerTransport` / `MockWorkerHandle` in `tests/runtime/test-helpers.ts` instead of spawning real `pi` processes. Use `setState(patch)` to drive `isStreaming` from outside; `autoCompletePrompt: false` lets tests emit the exit event manually via `completePrompt()`. When you change the transport shape, check which tests rely on `autoCompletePrompt`, `promptText`, and `setState`. Those are the only seams for testing runtime behavior without a real Pi process.
 
 ## Before opening a PR
