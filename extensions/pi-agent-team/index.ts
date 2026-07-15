@@ -637,13 +637,16 @@ export default function (pi: ExtensionAPI): void {
 					const sessionManager = currentSessionManager();
 					const leafAfterFailure = sessionManager?.getLeafId?.();
 					const leafEntry = leafAfterFailure ? sessionManager?.getEntry?.(leafAfterFailure) : undefined;
-					const entryData = leafEntry?.data as { recordId?: unknown } | undefined;
+					const entryData = leafEntry?.data;
+					const entryRecordId = entryData && typeof entryData === "object" && "recordId" in entryData
+						? entryData.recordId
+						: undefined;
 					const advancedToAttemptedRecord = leafBeforeAppend !== undefined
 						&& leafAfterFailure !== undefined
 						&& leafAfterFailure !== leafBeforeAppend
 						&& leafEntry?.type === "custom"
 						&& leafEntry.customType === activeProjectConfig.config.persistence.stateCustomType
-						&& entryData?.recordId === record.recordId;
+						&& entryRecordId === record.recordId;
 					if (!advancedToAttemptedRecord) return false;
 
 					// Pi 0.80.6/0.80.7 update SessionManager's leaf before synchronous
