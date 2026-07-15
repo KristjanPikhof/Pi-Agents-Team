@@ -846,6 +846,7 @@ test("tree away and back restores fresh and reused running workers as detached w
 			"a cancelled provisional flow keeps workers live without duplicating detached snapshots",
 		);
 
+		const statusTool = tools.find((tool) => tool.name === "agent_status")!;
 		sessionManager.branch(anchorId);
 		const awayLeafId = sessionManager.appendCustomEntry("away", {});
 		await handlers.get("session_tree")?.({ oldLeafId: originLeafId, newLeafId: awayLeafId }, ctx);
@@ -856,7 +857,7 @@ test("tree away and back restores fresh and reused running workers as detached w
 		sessionManager.branch(originLeafId);
 		await handlers.get("session_tree")?.({ oldLeafId: awayLeafId, newLeafId: originLeafId }, ctx);
 		const restoredStatus = await statusTool.execute!("call", {});
-		const restoredWorkers = restoredStatus.details.workers as WorkerRuntimeState[];
+		const restoredWorkers: WorkerRuntimeState[] = restoredStatus.details.workers;
 		assert.deepEqual(restoredWorkers.map((item) => item.workerId).sort(), ["w-fresh", "w-reused"]);
 		assert.deepEqual(restoredWorkers.map((item) => item.status), ["exited", "exited"]);
 		const restoredReused = restoredWorkers.find((item) => item.workerId === "w-reused");
