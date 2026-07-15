@@ -92,25 +92,25 @@ test("session_start emits each invalid thinkingLevel warning once per process", 
 	assert.equal(warningToasts.length, 1);
 });
 
-test("thinking clamp toast includes worker, requested/effective values, model, and stable dedup key", () => {
+test("max clamp toast includes requested/effective values and keeps a stable dedup key", () => {
 	const event = {
 		type: "thinking_clamped" as const,
 		workerId: "w7",
 		profileName: "fixer",
 		modelLabel: "provider/model",
-		requested: "high" as const,
-		effective: "low" as const,
+		requested: "max" as const,
+		effective: "xhigh" as const,
 		timestamp: 123,
 	};
 
-	assert.equal(_testing.thinkingClampToastKey(event), "w7\0high\0low");
+	assert.equal(_testing.thinkingClampToastKey(event), "w7\0max\0xhigh");
 	assert.equal(
 		_testing.buildThinkingClampToast(event),
-		"Pi Agents Team: worker w7 (fixer) requested thinkingLevel high; Pi clamped to low for model provider/model because the model lacks support. Edit agents-team.json or change model.",
+		"Pi Agents Team: worker w7 (fixer) requested thinkingLevel max; Pi clamped to xhigh for model provider/model because the model lacks support. Edit agents-team.json or change model.",
 	);
 	assert.equal(
 		_testing.thinkingClampToastKey({ ...event, profileName: "reviewer", modelLabel: "other/model", timestamp: 456 }),
-		"w7\0high\0low",
+		"w7\0max\0xhigh",
 	);
 });
 

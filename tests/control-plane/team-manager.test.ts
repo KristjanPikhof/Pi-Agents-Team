@@ -793,7 +793,7 @@ test("TeamManager applies model precedence: tool param, role model, orchestrator
 	assert.equal(captures[3]?.model, undefined);
 });
 
-test("TeamManager applies thinking level precedence: tool param, role level, orchestrator level, then medium", async () => {
+test("TeamManager applies thinking level precedence, including explicit and inherited max", async () => {
 	const captures: Array<{ thinkingLevel?: string }> = [];
 	const workerManager = new WorkerManager((options) => {
 		captures.push({ thinkingLevel: options.thinkingLevel });
@@ -803,7 +803,7 @@ test("TeamManager applies thinking level precedence: tool param, role level, orc
 		config: {
 			...DEFAULT_TEAM_CONFIG,
 			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) => {
-				if (profile.name === "oracle") return { ...profile, thinkingLevel: "high" };
+				if (profile.name === "oracle") return { ...profile, thinkingLevel: "max" };
 				if (profile.name === "reviewer") return { ...profile, thinkingLevel: undefined as never };
 				return profile;
 			}),
@@ -812,25 +812,33 @@ test("TeamManager applies thinking level precedence: tool param, role level, orc
 	});
 
 	await teamManager.delegateTask({
-		title: "Explicit thinking",
-		goal: "tool param wins",
+		title: "Explicit max thinking",
+		goal: "tool max wins",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		thinkingLevel: "max",
+		orchestratorThinkingLevel: "low",
+	});
+	await teamManager.delegateTask({
+		title: "Role max thinking",
+		goal: "role max wins over orchestrator thinking",
+		profileName: "oracle",
+		cwd: process.cwd(),
+		orchestratorThinkingLevel: "low",
+	});
+	await teamManager.delegateTask({
+		title: "Inherited max thinking",
+		goal: "orchestrator max wins when role has none",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		orchestratorThinkingLevel: "max",
+	});
+	await teamManager.delegateTask({
+		title: "Explicit non-max thinking",
+		goal: "existing non-max tool param still wins",
 		profileName: "reviewer",
 		cwd: process.cwd(),
 		thinkingLevel: "low",
-		orchestratorThinkingLevel: "xhigh",
-	});
-	await teamManager.delegateTask({
-		title: "Role thinking",
-		goal: "role thinking wins over orchestrator thinking",
-		profileName: "oracle",
-		cwd: process.cwd(),
-		orchestratorThinkingLevel: "xhigh",
-	});
-	await teamManager.delegateTask({
-		title: "Orchestrator thinking",
-		goal: "orchestrator thinking wins when role has none",
-		profileName: "reviewer",
-		cwd: process.cwd(),
 		orchestratorThinkingLevel: "xhigh",
 	});
 	await teamManager.delegateTask({
@@ -840,10 +848,11 @@ test("TeamManager applies thinking level precedence: tool param, role level, orc
 		cwd: process.cwd(),
 	});
 
-	assert.equal(captures[0]?.thinkingLevel, "low");
-	assert.equal(captures[1]?.thinkingLevel, "high");
-	assert.equal(captures[2]?.thinkingLevel, "xhigh");
-	assert.equal(captures[3]?.thinkingLevel, "medium");
+	assert.equal(captures[0]?.thinkingLevel, "max");
+	assert.equal(captures[1]?.thinkingLevel, "max");
+	assert.equal(captures[2]?.thinkingLevel, "max");
+	assert.equal(captures[3]?.thinkingLevel, "low");
+	assert.equal(captures[4]?.thinkingLevel, "medium");
 });
 
 test("TeamManager maps same-project trust decisions to worker launch overrides", async () => {
