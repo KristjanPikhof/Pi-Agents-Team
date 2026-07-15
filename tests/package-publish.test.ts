@@ -49,7 +49,15 @@ test("a clean publish artifact installs and imports in an offline consumer", { t
 
 		await writeFile(
 			join(consumer, "package.json"),
-			JSON.stringify({ name: "publish-contract-consumer", private: true, type: "module" }),
+			JSON.stringify({
+				name: "publish-contract-consumer",
+				private: true,
+				type: "module",
+				dependencies: {
+					"@earendil-works/pi-coding-agent": "0.80.6",
+					"@earendil-works/pi-tui": "0.80.6",
+				},
+			}),
 		);
 		const tarball = join(artifacts, tarballs[0]!);
 		runNpm(
@@ -67,6 +75,12 @@ test("a clean publish artifact installs and imports in an offline consumer", { t
 			version?: string;
 		};
 		assert.equal(installedManifest.version, sourceManifest.version);
+		for (const piPackage of ["pi-coding-agent", "pi-tui"]) {
+			const manifest = JSON.parse(
+				await readFile(join(consumer, "node_modules", "@earendil-works", piPackage, "package.json"), "utf8"),
+			) as { version?: string };
+			assert.equal(manifest.version, "0.80.6", `${piPackage} consumer baseline drifted`);
+		}
 
 		const imported = spawnSync(
 			process.execPath,
