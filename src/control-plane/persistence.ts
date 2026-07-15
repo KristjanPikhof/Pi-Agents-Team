@@ -32,11 +32,19 @@ export interface CompactPersistenceMeasurement {
 }
 
 const LIVE_WORKER_STATUSES: readonly WorkerStatus[] = ["running", "starting", "idle", "waiting_followup"];
-const TERMINAL_WORKER_STATUSES: ReadonlySet<WorkerStatus> = new Set(["idle", "completed", "aborted", "error", "exited"]);
-const WORKER_STATUS_SET: ReadonlySet<string> = new Set(WORKER_STATUSES);
+const TERMINAL_WORKER_STATUS: Partial<Record<WorkerStatus, true>> = {
+	idle: true,
+	completed: true,
+	aborted: true,
+	error: true,
+	exited: true,
+};
 const MAX_ID_BYTES = 256;
+const MAX_RECORD_ID_BYTES = 256;
 const MAX_SUMMARY_TEXT_BYTES = 512;
+const MAX_SUMMARY_ITEMS = 64;
 const MAX_RECORD_BYTES = 16 * 1024;
+const MAX_PERSISTED_NUMBER = Number.MAX_SAFE_INTEGER;
 
 const REASON_MESSAGE: Record<SessionStartReason, string> = {
 	startup: "Pi Agents Team session restored; relaunch required for live worker control.",
@@ -46,12 +54,18 @@ const REASON_MESSAGE: Record<SessionStartReason, string> = {
 	new: "Pi Agents Team new session started; prior workers are no longer attached.",
 };
 
+function isPersistableTerminalStatus(status: unknown): status is WorkerStatus {
+	return typeof status === "string" && TERMINAL_WORKER_STATUS[status as WorkerStatus] === true;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function finite(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+	return typeof value === "number" && Number.isFinite(value) && value >= 0
+		? Math.min(value, MAX_PERSISTED_NUMBER)
+		: 0;
 }
 
 function compactUsage(usage: Partial<WorkerUsageStats> | undefined): WorkerUsageStats {
@@ -72,20 +86,21 @@ function compactUsage(usage: Partial<WorkerUsageStats> | undefined): WorkerUsage
 /** Truncate only at Unicode code-point boundaries, using the serialized UTF-8 budget. */
 function cap(value: unknown, maxBytes = MAX_SUMMARY_TEXT_BYTES): string {
 	if (typeof value !== "string" || maxBytes <= 0) return "";
-	let result = "";
+	const characters: string[] = [];
 	let bytes = 0;
 	for (const character of value) {
 		const characterBytes = Buffer.byteLength(character, "utf8");
 		if (bytes + characterBytes > maxBytes) break;
-		result += character;
+		characters.push(character);
 		bytes += characterBytes;
 	}
-	return result;
+	return characters.join("");
 }
 
 function compactStrings(value: unknown, maxItems: number): string[] {
 	if (!Array.isArray(value)) return [];
-	return value.slice(0, Math.max(0, Math.floor(maxItems))).map((item) => cap(item));
+	const configuredLimit = Number.isFinite(maxItems) ? Math.max(0, Math.floor(maxItems)) : 0;
+	return value.slice(0, Math.min(configuredLimit, MAX_SUMMARY_ITEMS)).map((item) => cap(item));
 }
 
 function compactWorker(worker: WorkerRuntimeState, config: TeamConfig): CompactPersistedWorker {
@@ -97,7 +112,7 @@ function compactWorker(worker: WorkerRuntimeState, config: TeamConfig): CompactP
 		startedAt: finite(worker.startedAt),
 		lastEventAt: finite(worker.lastEventAt),
 		lastSummary: summary ? {
-			headline: cap(summary.headline, config.summaries.maxHeadlineLength),
+			headline: cap(summary.headline, Math.min(config.summaries.maxHeadlineLength, MAX_SUMMARY_TEXT_BYTES)),
 			status: worker.status,
 			readFiles: compactStrings(summary.readFiles, config.summaries.maxItemsPerWorker),
 			changedFiles: compactStrings(summary.changedFiles, config.summaries.maxChangedFiles),
@@ -109,28 +124,111 @@ function compactWorker(worker: WorkerRuntimeState, config: TeamConfig): CompactP
 	};
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	if (!isRecord(value)) return false;
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactKeys(value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): boolean {
+	const allowed = new Set([...required, ...optional]);
+	const keys = Object.keys(value);
+	return required.every((key) => Object.hasOwn(value, key))
+		&& keys.every((key) => allowed.has(key));
+}
+
+function isBoundedString(value: unknown, maxBytes: number, allowEmpty = true): value is string {
+	return typeof value === "string"
+		&& (allowEmpty || value.length > 0)
+		&& Buffer.byteLength(value, "utf8") <= maxBytes;
+}
+
+function isBoundedNumber(value: unknown): value is number {
+	return typeof value === "number"
+		&& Number.isFinite(value)
+		&& value >= 0
+		&& value <= MAX_PERSISTED_NUMBER;
+}
+
+function sanitizeUsage(value: unknown): WorkerUsageStats | undefined {
+	if (!isPlainRecord(value)) return undefined;
+	const required = ["turns", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "costUsd"] as const;
+	const optional = ["contextTokens", "contextWindow", "contextPercent", "contextRemainingTokens"] as const;
+	if (!hasExactKeys(value, required, optional)) return undefined;
+	for (const key of required) {
+		if (!isBoundedNumber(value[key])) return undefined;
+	}
+	const usage: WorkerUsageStats = {
+		turns: value.turns as number,
+		inputTokens: value.inputTokens as number,
+		outputTokens: value.outputTokens as number,
+		cacheReadTokens: value.cacheReadTokens as number,
+		cacheWriteTokens: value.cacheWriteTokens as number,
+		costUsd: value.costUsd as number,
+	};
+	for (const key of optional) {
+		if (!Object.hasOwn(value, key)) continue;
+		if (!isBoundedNumber(value[key])) return undefined;
+		usage[key] = value[key] as number;
+	}
+	return usage;
+}
+
+function sanitizeStringArray(value: unknown): string[] | undefined {
+	if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > MAX_SUMMARY_ITEMS) return undefined;
+	const keys = Object.keys(value);
+	if (keys.length !== value.length || keys.some((key, index) => key !== String(index))) return undefined;
+	if (!value.every((item) => isBoundedString(item, MAX_SUMMARY_TEXT_BYTES))) return undefined;
+	return [...value];
+}
+
 function sanitizeCompactWorker(value: unknown): CompactPersistedWorker | undefined {
-	if (!isRecord(value) || typeof value.workerId !== "string" || typeof value.profileName !== "string") return undefined;
-	if (typeof value.status !== "string" || !WORKER_STATUS_SET.has(value.status)) return undefined;
-	const summary = isRecord(value.lastSummary) && typeof value.lastSummary.status === "string" && WORKER_STATUS_SET.has(value.lastSummary.status)
-		? {
-			headline: cap(value.lastSummary.headline),
-			status: value.lastSummary.status as WorkerStatus,
-			readFiles: compactStrings(value.lastSummary.readFiles, 64),
-			changedFiles: compactStrings(value.lastSummary.changedFiles, 64),
-			risks: compactStrings(value.lastSummary.risks, 64),
-			nextRecommendation: typeof value.lastSummary.nextRecommendation === "string" ? cap(value.lastSummary.nextRecommendation) : undefined,
-			updatedAt: finite(value.lastSummary.updatedAt),
-		}
-		: undefined;
+	if (!isPlainRecord(value)) return undefined;
+	if (!hasExactKeys(
+		value,
+		["workerId", "profileName", "status", "startedAt", "lastEventAt", "usage"],
+		["lastSummary"],
+	)) return undefined;
+	if (!isBoundedString(value.workerId, MAX_ID_BYTES, false) || !isBoundedString(value.profileName, MAX_ID_BYTES, false)) return undefined;
+	if (!isBoundedNumber(value.startedAt) || !isBoundedNumber(value.lastEventAt)) return undefined;
+	const usage = sanitizeUsage(value.usage);
+	if (!usage) return undefined;
+	if (!isPersistableTerminalStatus(value.status)) return undefined;
+	let lastSummary: CompactPersistedWorker["lastSummary"];
+	if (Object.hasOwn(value, "lastSummary") && value.lastSummary !== undefined) {
+		if (!isPlainRecord(value.lastSummary)) return undefined;
+		if (!hasExactKeys(
+			value.lastSummary,
+			["headline", "status", "readFiles", "changedFiles", "risks", "updatedAt"],
+			["nextRecommendation"],
+		)) return undefined;
+		if (value.lastSummary.status !== value.status) return undefined;
+		if (!isBoundedString(value.lastSummary.headline, MAX_SUMMARY_TEXT_BYTES)) return undefined;
+		const readFiles = sanitizeStringArray(value.lastSummary.readFiles);
+		const changedFiles = sanitizeStringArray(value.lastSummary.changedFiles);
+		const risks = sanitizeStringArray(value.lastSummary.risks);
+		if (!readFiles || !changedFiles || !risks || !isBoundedNumber(value.lastSummary.updatedAt)) return undefined;
+		if (Object.hasOwn(value.lastSummary, "nextRecommendation")
+			&& value.lastSummary.nextRecommendation !== undefined
+			&& !isBoundedString(value.lastSummary.nextRecommendation, MAX_SUMMARY_TEXT_BYTES)) return undefined;
+		lastSummary = {
+			headline: value.lastSummary.headline,
+			status: value.status as WorkerStatus,
+			readFiles,
+			changedFiles,
+			risks,
+			nextRecommendation: value.lastSummary.nextRecommendation as string | undefined,
+			updatedAt: value.lastSummary.updatedAt,
+		};
+	}
 	return {
-		workerId: cap(value.workerId, MAX_ID_BYTES),
-		profileName: cap(value.profileName, MAX_ID_BYTES),
+		workerId: value.workerId,
+		profileName: value.profileName,
 		status: value.status as WorkerStatus,
-		startedAt: finite(value.startedAt),
-		lastEventAt: finite(value.lastEventAt),
-		lastSummary: summary,
-		usage: compactUsage(isRecord(value.usage) ? value.usage : undefined),
+		startedAt: value.startedAt,
+		lastEventAt: value.lastEventAt,
+		lastSummary,
+		usage,
 	};
 }
 
@@ -162,9 +260,18 @@ function isLegacySnapshot(value: unknown): boolean {
 
 /** True only for replayable records in the current compact format. */
 export function isRecognizedCompactPersistenceRecord(value: unknown): value is TeamPersistenceRecord {
-	if (!isRecord(value) || value.version !== TEAM_PERSISTENCE_VERSION || typeof value.recordId !== "string") return false;
-	if (value.kind === "worker_terminal") return sanitizeCompactWorker(value.worker) !== undefined;
-	return value.kind === "worker_pruned" && typeof value.workerId === "string" && isRecord(value.usage);
+	if (!isPlainRecord(value) || value.version !== TEAM_PERSISTENCE_VERSION) return false;
+	if (!isBoundedString(value.recordId, MAX_RECORD_ID_BYTES, false)) return false;
+	if (value.kind === "worker_terminal") {
+		if (!hasExactKeys(value, ["version", "kind", "recordId", "worker"])) return false;
+		if (!sanitizeCompactWorker(value.worker)) return false;
+	} else if (value.kind === "worker_pruned") {
+		if (!hasExactKeys(value, ["version", "kind", "recordId", "workerId", "usage"])) return false;
+		if (!isBoundedString(value.workerId, MAX_ID_BYTES, false) || !sanitizeUsage(value.usage)) return false;
+	} else {
+		return false;
+	}
+	return Buffer.byteLength(JSON.stringify(value), "utf8") <= MAX_RECORD_BYTES;
 }
 
 /** UTF-8 bytes occupied by the compact record payload, not session framing or total file bytes. */
@@ -262,7 +369,16 @@ export function markRestoredWorkersExited(state: PersistedTeamState, reasonOrSta
 	return { state: nextState, markedCount };
 }
 
-function recordId(kind: string, payload: unknown): string {
+export interface CompactPersistenceJournalInstrumentation {
+	onRecordHash?(kind: "terminal" | "prune"): void;
+}
+
+function recordId(
+	kind: "terminal" | "prune",
+	payload: unknown,
+	instrumentation?: CompactPersistenceJournalInstrumentation,
+): string {
+	instrumentation?.onRecordHash?.(kind);
 	return `${kind}:${createHash("sha256").update(JSON.stringify(payload)).digest("base64url")}`;
 }
 
@@ -270,97 +386,168 @@ function recordBytes(record: TeamPersistenceRecord): number {
 	return compactPersistenceRecordPayloadBytes(record);
 }
 
-function terminalRecord(source: CompactPersistedWorker): TeamPersistenceRecord {
+function terminalRecord(
+	source: CompactPersistedWorker,
+	instrumentation?: CompactPersistenceJournalInstrumentation,
+): Extract<TeamPersistenceRecord, { kind: "worker_terminal" }> {
 	const worker = structuredClone(source);
-	const build = (): TeamPersistenceRecord => ({
+	const build = (): Extract<TeamPersistenceRecord, { kind: "worker_terminal" }> => ({
 		version: TEAM_PERSISTENCE_VERSION,
 		kind: "worker_terminal",
-		recordId: recordId("terminal", worker),
+		recordId: recordId("terminal", worker, instrumentation),
 		worker,
 	});
 	let record = build();
-	// Configured list limits may be arbitrarily large. Remove tail items in a
-	// stable order until the complete JSON record (including its hash) fits.
-	while (recordBytes(record) > MAX_RECORD_BYTES && worker.lastSummary) {
-		const summary = worker.lastSummary;
-		if (summary.risks.length) summary.risks.pop();
-		else if (summary.readFiles.length) summary.readFiles.pop();
-		else if (summary.changedFiles.length) summary.changedFiles.pop();
-		else if (summary.nextRecommendation) summary.nextRecommendation = undefined;
-		else if (Buffer.byteLength(summary.headline, "utf8") > 0) summary.headline = cap(summary.headline, Math.floor(Buffer.byteLength(summary.headline, "utf8") / 2));
-		else worker.lastSummary = undefined;
+	if (recordBytes(record) <= MAX_RECORD_BYTES) return record;
+
+	const summary = worker.lastSummary;
+	if (summary) {
+		for (const field of ["risks", "readFiles", "changedFiles"] as const) {
+			const values = [...summary[field]];
+			if (values.length === 0) continue;
+			summary[field] = [];
+			if (recordBytes(build()) > MAX_RECORD_BYTES) continue;
+
+			let low = 1;
+			let high = values.length;
+			let retained = 0;
+			while (low <= high) {
+				const middle = Math.floor((low + high) / 2);
+				summary[field] = values.slice(0, middle);
+				if (recordBytes(build()) <= MAX_RECORD_BYTES) {
+					retained = middle;
+					low = middle + 1;
+				} else {
+					high = middle - 1;
+				}
+			}
+			summary[field] = values.slice(0, retained);
+			record = build();
+			if (recordBytes(record) <= MAX_RECORD_BYTES) return record;
+		}
+
+		summary.nextRecommendation = undefined;
 		record = build();
+		if (recordBytes(record) <= MAX_RECORD_BYTES) return record;
+		summary.headline = "";
+		record = build();
+		if (recordBytes(record) <= MAX_RECORD_BYTES) return record;
+		worker.lastSummary = undefined;
+		record = build();
+	}
+	if (recordBytes(record) > MAX_RECORD_BYTES) {
+		throw new Error("Compact persistence terminal record exceeds the enforced byte budget.");
 	}
 	return record;
 }
 
-function durableWorkerValue(worker: CompactPersistedWorker): unknown {
-	const summary = worker.lastSummary
-		? {
-			...worker.lastSummary,
-			// Refresh timestamps alone do not change the durable result.
-			updatedAt: undefined,
-		}
-		: undefined;
-	return {
-		workerId: worker.workerId,
-		profileName: worker.profileName,
-		status: worker.status,
-		startedAt: worker.startedAt,
-		lastSummary: summary,
-		usage: worker.usage,
-	};
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+	return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function sameUsage(left: WorkerUsageStats, right: WorkerUsageStats): boolean {
+	return left.turns === right.turns
+		&& left.inputTokens === right.inputTokens
+		&& left.outputTokens === right.outputTokens
+		&& left.cacheReadTokens === right.cacheReadTokens
+		&& left.cacheWriteTokens === right.cacheWriteTokens
+		&& left.costUsd === right.costUsd
+		&& left.contextTokens === right.contextTokens
+		&& left.contextWindow === right.contextWindow
+		&& left.contextPercent === right.contextPercent
+		&& left.contextRemainingTokens === right.contextRemainingTokens;
 }
 
 function durableEqual(left: CompactPersistedWorker, right: CompactPersistedWorker): boolean {
-	return JSON.stringify(durableWorkerValue(left)) === JSON.stringify(durableWorkerValue(right));
+	if (left.workerId !== right.workerId
+		|| left.profileName !== right.profileName
+		|| left.status !== right.status
+		|| left.startedAt !== right.startedAt
+		|| !sameUsage(left.usage, right.usage)) return false;
+	const leftSummary = left.lastSummary;
+	const rightSummary = right.lastSummary;
+	if (!leftSummary || !rightSummary) return leftSummary === rightSummary;
+	return leftSummary.headline === rightSummary.headline
+		&& leftSummary.status === rightSummary.status
+		&& sameStrings(leftSummary.readFiles, rightSummary.readFiles)
+		&& sameStrings(leftSummary.changedFiles, rightSummary.changedFiles)
+		&& sameStrings(leftSummary.risks, rightSummary.risks)
+		&& leftSummary.nextRecommendation === rightSummary.nextRecommendation;
 }
 
 type PendingTransition =
-	| { record: Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>; worker: CompactPersistedWorker }
+	| {
+			record: Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>;
+			worker: CompactPersistedWorker;
+			detached?: boolean;
+	  }
 	| { record: Extract<TeamPersistenceRecord, { kind: "worker_pruned" }>; workerId: string };
 
 /** Compact v2 transition journal with append-before-commit semantics. */
 export class CompactPersistenceJournal {
 	private previousWorkers = new Map<string, CompactPersistedWorker>();
 	private observedWorkers = new Map<string, CompactPersistedWorker>();
+	private observedSources = new Map<string, CompactPersistedWorker>();
+	private observedRecords = new Map<string, Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>>();
 	private pending = new Map<string, PendingTransition>();
+
+	constructor(private readonly instrumentation?: CompactPersistenceJournalInstrumentation) {}
 
 	reset(state: PersistedTeamState, config: TeamConfig): void {
 		this.previousWorkers.clear();
 		this.observedWorkers.clear();
+		this.observedSources.clear();
+		this.observedRecords.clear();
 		this.pending.clear();
 		for (const worker of Object.values(state.activeWorkers)) {
 			const compact = compactWorker(worker, config);
-			const canonical = TERMINAL_WORKER_STATUSES.has(worker.status)
-				? (terminalRecord(compact) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>).worker
-				: compact;
-			this.previousWorkers.set(worker.workerId, canonical);
-			this.observedWorkers.set(worker.workerId, canonical);
+			this.observedSources.set(worker.workerId, compact);
+			if (isPersistableTerminalStatus(worker.status)) {
+				const record = terminalRecord(compact, this.instrumentation);
+				this.previousWorkers.set(worker.workerId, record.worker);
+				this.observedWorkers.set(worker.workerId, record.worker);
+				this.observedRecords.set(worker.workerId, record);
+			} else {
+				this.previousWorkers.set(worker.workerId, compact);
+				this.observedWorkers.set(worker.workerId, compact);
+			}
 		}
 	}
 
 	private observeCurrentWorkers(state: PersistedTeamState, config: TeamConfig): void {
-		const replacements = new Map<string, PendingTransition>();
 		for (const worker of Object.values(state.activeWorkers)) {
 			const compact = compactWorker(worker, config);
-			const canonical = TERMINAL_WORKER_STATUSES.has(worker.status)
-				? (terminalRecord(compact) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>).worker
-				: compact;
-			this.observedWorkers.set(worker.workerId, canonical);
+			const priorSource = this.observedSources.get(worker.workerId);
+			this.observedSources.set(worker.workerId, compact);
+			if (!isPersistableTerminalStatus(worker.status)) {
+				this.observedWorkers.set(worker.workerId, compact);
+				this.observedRecords.delete(worker.workerId);
+				continue;
+			}
+			if (priorSource
+				&& isPersistableTerminalStatus(priorSource.status)
+				&& durableEqual(priorSource, compact)
+				&& this.observedWorkers.has(worker.workerId)
+				&& this.observedRecords.has(worker.workerId)) continue;
+			const record = terminalRecord(compact, this.instrumentation);
+			this.observedWorkers.set(worker.workerId, record.worker);
+			this.observedRecords.set(worker.workerId, record);
 		}
+
+		const replacements = new Map<string, PendingTransition>();
 		for (const transition of this.pending.values()) {
 			if (!("worker" in transition)) {
 				replacements.set(transition.record.recordId, transition);
 				continue;
 			}
-			const observed = this.observedWorkers.get(transition.worker.workerId);
-			if (!observed || !TERMINAL_WORKER_STATUSES.has(observed.status) || durableEqual(transition.worker, observed)) {
+			const workerId = transition.worker.workerId;
+			const observed = this.observedWorkers.get(workerId);
+			const observedRecord = this.observedRecords.get(workerId);
+			if (!observed || !isPersistableTerminalStatus(observed.status) || !observedRecord || durableEqual(transition.worker, observed)) {
 				replacements.set(transition.record.recordId, transition);
 				continue;
 			}
-			const record = terminalRecord(observed) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>;
-			replacements.set(record.recordId, { record, worker: record.worker });
+			replacements.set(observedRecord.recordId, { record: observedRecord, worker: observedRecord.worker });
 		}
 		this.pending = replacements;
 	}
@@ -379,27 +566,48 @@ export class CompactPersistenceJournal {
 			const record: Extract<TeamPersistenceRecord, { kind: "worker_pruned" }> = {
 				version: TEAM_PERSISTENCE_VERSION,
 				kind: "worker_pruned",
-				recordId: recordId("prune", payload),
+				recordId: recordId("prune", payload, this.instrumentation),
 				workerId: latest.workerId,
 				usage: latest.usage,
 			};
+			if (recordBytes(record) > MAX_RECORD_BYTES) {
+				throw new Error("Compact persistence prune record exceeds the enforced byte budget.");
+			}
 			this.pending.set(record.recordId, { record, workerId });
 		}
 
 		for (const worker of Object.values(state.activeWorkers)) {
-			const compact = compactWorker(worker, config);
+			const observed = this.observedWorkers.get(worker.workerId);
+			if (!observed) continue;
 			const previous = this.previousWorkers.get(worker.workerId);
-			if (!TERMINAL_WORKER_STATUSES.has(worker.status)) {
+			if (!isPersistableTerminalStatus(worker.status)) {
 				// Runtime-only churn needs no append, but remains the source for a
 				// later terminal/prune transition.
-				this.previousWorkers.set(worker.workerId, compact);
+				this.previousWorkers.set(worker.workerId, observed);
 				continue;
 			}
-			const record = terminalRecord(compact) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>;
-			// Compare the canonical fitted payload that commit stores. Comparing the
-			// oversized source against fitted state would emit this same record forever.
-			if (previous && TERMINAL_WORKER_STATUSES.has(previous.status) && durableEqual(previous, record.worker)) continue;
+			const record = this.observedRecords.get(worker.workerId);
+			if (!record) continue;
+			if (previous && isPersistableTerminalStatus(previous.status) && durableEqual(previous, record.worker)) continue;
 			this.pending.set(record.recordId, { record, worker: record.worker });
+		}
+		return [...this.pending.values()].map((transition) => transition.record);
+	}
+
+	/**
+	 * Stage bounded detached snapshots on the current branch before Pi replaces
+	 * the runtime after confirmed tree navigation. This never mutates or cancels
+	 * the live workers; cancelled navigation can continue using them.
+	 */
+	prepareDetachedWorkers(state: PersistedTeamState, config: TeamConfig): TeamPersistenceRecord[] {
+		this.observeCurrentWorkers(state, config);
+		for (const worker of Object.values(state.activeWorkers)) {
+			if (!LIVE_WORKER_STATUSES.includes(worker.status)) continue;
+			const detached = compactWorker({ ...worker, status: "exited" }, config);
+			const record = terminalRecord(detached, this.instrumentation);
+			const previous = this.previousWorkers.get(worker.workerId);
+			if (previous && isPersistableTerminalStatus(previous.status) && durableEqual(previous, record.worker)) continue;
+			this.pending.set(record.recordId, { record, worker: record.worker, detached: true });
 		}
 		return [...this.pending.values()].map((transition) => transition.record);
 	}
@@ -409,12 +617,21 @@ export class CompactPersistenceJournal {
 		if (!transition) return;
 		if ("worker" in transition) {
 			this.previousWorkers.set(transition.worker.workerId, transition.worker);
-			this.observedWorkers.set(transition.worker.workerId, transition.worker);
+			if (!transition.detached) {
+				this.observedWorkers.set(transition.worker.workerId, transition.worker);
+			}
 		} else {
 			this.previousWorkers.delete(transition.workerId);
 			this.observedWorkers.delete(transition.workerId);
+			this.observedSources.delete(transition.workerId);
+			this.observedRecords.delete(transition.workerId);
 		}
 		this.pending.delete(record.recordId);
+	}
+
+	/** Resolve an append whose Pi leaf advanced before the call threw. */
+	resolveAmbiguousAppend(record: TeamPersistenceRecord): void {
+		this.commit(record);
 	}
 
 	hasPending(): boolean {
