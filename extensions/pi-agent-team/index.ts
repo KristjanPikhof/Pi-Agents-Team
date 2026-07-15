@@ -92,11 +92,17 @@ const SCAFFOLD_FRESHNESS_TOASTS_KEY = Symbol.for("pi-agents-team.scaffoldFreshne
 const PERSISTENCE_RECORD_WARNING_THRESHOLD = 10_000;
 const PERSISTENCE_BYTE_WARNING_THRESHOLD = 64 * 1024 * 1024;
 const PERSISTENCE_GROWTH_WARNING = "Pi Agents Team: this active branch contains at least 10,000 compact persistence records or 64 MiB of compact record payloads. Pi sessions are append-only; consider starting a new session. Reload, prune, and branch navigation do not shrink the physical session file. Measured compact payload bytes are not the total session file size.";
+const PERSISTENCE_FLUSH_WARNING = "Pi Agents Team: a compact persistence append still failed during final retry; the uncommitted transition could not be saved before teardown.";
 
 function createPersistenceGrowthMonitor(notify: (message: string) => void) {
 	let measurement: CompactPersistenceMeasurement = { recordCount: 0, payloadBytes: 0 };
 	let warningLatched = false;
+	let warningEnabled = true;
 	const evaluate = () => {
+		if (!warningEnabled) {
+			warningLatched = false;
+			return;
+		}
 		const aboveThreshold = measurement.recordCount >= PERSISTENCE_RECORD_WARNING_THRESHOLD
 			|| measurement.payloadBytes >= PERSISTENCE_BYTE_WARNING_THRESHOLD;
 		if (!aboveThreshold) {
@@ -108,8 +114,9 @@ function createPersistenceGrowthMonitor(notify: (message: string) => void) {
 		notify(PERSISTENCE_GROWTH_WARNING);
 	};
 	return {
-		replace(next: CompactPersistenceMeasurement): void {
+		replace(next: CompactPersistenceMeasurement, enabled = true): void {
 			measurement = { ...next };
+			warningEnabled = enabled;
 			evaluate();
 		},
 		recordAppended(payloadBytes: number): void {
@@ -392,6 +399,7 @@ export default function (pi: ExtensionAPI): void {
 		if (activeContext?.hasUI) activeContext.ui.notify(message, "warning");
 		else console.error(message);
 	});
+	let persistenceFlushWarned = false;
 	const restoredWorkerIds = new Set<string>();
 	// Gate for session_start swap window — tool bodies reject during reload so
 	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
@@ -560,23 +568,39 @@ export default function (pi: ExtensionAPI): void {
 		piVersionMismatchNotifier.notify(event);
 	}
 
+	function appendPreparedPersistence(maxBatches = Number.POSITIVE_INFINITY): void {
+		for (let batch = 0; batch < maxBatches; batch += 1) {
+			const records = persistenceJournal.prepare(teamState, activeProjectConfig.config);
+			if (records.length === 0) return;
+			for (const record of records) {
+				pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
+				persistenceJournal.commit(record);
+				persistenceGrowth.recordAppended(compactPersistenceRecordPayloadBytes(record));
+			}
+		}
+	}
+
+	function flushPendingPersistence(): void {
+		try {
+			// At most one pending suffix plus one candidate batch derived from the
+			// latest state. A persistent append failure is attempted only once here.
+			appendPreparedPersistence(2);
+		} catch {
+			if (persistenceFlushWarned) return;
+			persistenceFlushWarned = true;
+			if (activeContext?.hasUI) activeContext.ui.notify(PERSISTENCE_FLUSH_WARNING, "warning");
+			else console.error(PERSISTENCE_FLUSH_WARNING);
+		}
+	}
+
 	function attachTeamManagerListener(manager: TeamManager): void {
 		detachTeamManagerListener();
 		resetUiTracking();
 		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
-			// appendEntry is synchronous: advance the journal only after each
-			// individual record is accepted. A throw leaves that record pending so
-			// the next state notification retries the exact transition.
-			for (;;) {
-				const records = persistenceJournal.prepare(teamState, activeProjectConfig.config);
-				if (records.length === 0) break;
-				for (const record of records) {
-					pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
-					persistenceJournal.commit(record);
-					persistenceGrowth.recordAppended(compactPersistenceRecordPayloadBytes(record));
-				}
-			}
+			// appendEntry is synchronous: advance only after acceptance. On a middle
+			// failure the failed record and untouched suffix remain pending in order.
+			appendPreparedPersistence();
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 
 			if (hasAnimatedWorkers(teamState)) {
@@ -632,7 +656,11 @@ export default function (pi: ExtensionAPI): void {
 			}
 		}) ?? (() => {});
 		const detachVersionMismatchListener = workerEvents?.onPiVersionMismatch(notifyPiVersionMismatch) ?? (() => {});
+		let detached = false;
 		detachTeamManagerListener = () => {
+			if (detached) return;
+			detached = true;
+			flushPendingPersistence();
 			detachStateListener();
 			detachWorkerEventListener();
 			detachVersionMismatchListener();
