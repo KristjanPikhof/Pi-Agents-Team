@@ -3,6 +3,7 @@ import { createDefaultTeamState, DEFAULT_TEAM_CONFIG, normalizePersistedTeamStat
 import { addWorkerUsageToAggregate } from "../usage.js";
 import {
 	TEAM_PERSISTENCE_VERSION,
+	WORKER_STATUSES,
 	type CompactPersistedWorker,
 	type PersistedTeamState,
 	type TeamConfig,
@@ -27,8 +28,9 @@ export interface MarkRestoredWorkersExitedResult {
 
 const LIVE_WORKER_STATUSES: readonly WorkerStatus[] = ["running", "starting", "idle", "waiting_followup"];
 const TERMINAL_WORKER_STATUSES: ReadonlySet<WorkerStatus> = new Set(["idle", "completed", "aborted", "error", "exited"]);
-const MAX_ID_LENGTH = 256;
-const MAX_SUMMARY_TEXT_LENGTH = 512;
+const WORKER_STATUS_SET: ReadonlySet<string> = new Set(WORKER_STATUSES);
+const MAX_ID_BYTES = 256;
+const MAX_SUMMARY_TEXT_BYTES = 512;
 const MAX_RECORD_BYTES = 16 * 1024;
 
 const REASON_MESSAGE: Record<SessionStartReason, string> = {
@@ -62,28 +64,68 @@ function compactUsage(usage: Partial<WorkerUsageStats> | undefined): WorkerUsage
 	return result;
 }
 
-function cap(value: unknown, max = MAX_SUMMARY_TEXT_LENGTH): string {
-	return typeof value === "string" ? value.slice(0, max) : "";
+/** Truncate only at Unicode code-point boundaries, using the serialized UTF-8 budget. */
+function cap(value: unknown, maxBytes = MAX_SUMMARY_TEXT_BYTES): string {
+	if (typeof value !== "string" || maxBytes <= 0) return "";
+	let result = "";
+	let bytes = 0;
+	for (const character of value) {
+		const characterBytes = Buffer.byteLength(character, "utf8");
+		if (bytes + characterBytes > maxBytes) break;
+		result += character;
+		bytes += characterBytes;
+	}
+	return result;
+}
+
+function compactStrings(value: unknown, maxItems: number): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.slice(0, Math.max(0, Math.floor(maxItems))).map((item) => cap(item));
 }
 
 function compactWorker(worker: WorkerRuntimeState, config: TeamConfig): CompactPersistedWorker {
 	const summary = worker.lastSummary;
 	return {
-		workerId: cap(worker.workerId, MAX_ID_LENGTH),
-		profileName: cap(worker.profileName, MAX_ID_LENGTH),
+		workerId: cap(worker.workerId, MAX_ID_BYTES),
+		profileName: cap(worker.profileName, MAX_ID_BYTES),
 		status: worker.status,
 		startedAt: finite(worker.startedAt),
 		lastEventAt: finite(worker.lastEventAt),
 		lastSummary: summary ? {
 			headline: cap(summary.headline, config.summaries.maxHeadlineLength),
 			status: worker.status,
-			readFiles: summary.readFiles.slice(0, config.summaries.maxItemsPerWorker).map((item) => cap(item)),
-			changedFiles: summary.changedFiles.slice(0, config.summaries.maxChangedFiles).map((item) => cap(item)),
-			risks: summary.risks.slice(0, config.summaries.maxItemsPerWorker).map((item) => cap(item)),
+			readFiles: compactStrings(summary.readFiles, config.summaries.maxItemsPerWorker),
+			changedFiles: compactStrings(summary.changedFiles, config.summaries.maxChangedFiles),
+			risks: compactStrings(summary.risks, config.summaries.maxItemsPerWorker),
 			nextRecommendation: summary.nextRecommendation ? cap(summary.nextRecommendation) : undefined,
 			updatedAt: finite(summary.updatedAt),
 		} : undefined,
 		usage: compactUsage(worker.usage),
+	};
+}
+
+function sanitizeCompactWorker(value: unknown): CompactPersistedWorker | undefined {
+	if (!isRecord(value) || typeof value.workerId !== "string" || typeof value.profileName !== "string") return undefined;
+	if (typeof value.status !== "string" || !WORKER_STATUS_SET.has(value.status)) return undefined;
+	const summary = isRecord(value.lastSummary) && typeof value.lastSummary.status === "string" && WORKER_STATUS_SET.has(value.lastSummary.status)
+		? {
+			headline: cap(value.lastSummary.headline),
+			status: value.lastSummary.status as WorkerStatus,
+			readFiles: compactStrings(value.lastSummary.readFiles, 64),
+			changedFiles: compactStrings(value.lastSummary.changedFiles, 64),
+			risks: compactStrings(value.lastSummary.risks, 64),
+			nextRecommendation: typeof value.lastSummary.nextRecommendation === "string" ? cap(value.lastSummary.nextRecommendation) : undefined,
+			updatedAt: finite(value.lastSummary.updatedAt),
+		}
+		: undefined;
+	return {
+		workerId: cap(value.workerId, MAX_ID_BYTES),
+		profileName: cap(value.profileName, MAX_ID_BYTES),
+		status: value.status as WorkerStatus,
+		startedAt: finite(value.startedAt),
+		lastEventAt: finite(value.lastEventAt),
+		lastSummary: summary,
+		usage: compactUsage(isRecord(value.usage) ? value.usage : undefined),
 	};
 }
 
@@ -109,9 +151,8 @@ function restoredWorker(worker: CompactPersistedWorker): WorkerRuntimeState {
 	};
 }
 
-function isV2Record(value: unknown): value is TeamPersistenceRecord {
-	if (!isRecord(value) || value.version !== TEAM_PERSISTENCE_VERSION || typeof value.recordId !== "string") return false;
-	return value.kind === "worker_terminal" || value.kind === "worker_pruned";
+function isLegacySnapshot(value: unknown): boolean {
+	return isRecord(value) && value.version === 1 && isRecord(value.activeWorkers);
 }
 
 function sanitizeLegacyState(raw: unknown): PersistedTeamState {
@@ -134,40 +175,41 @@ function sanitizeLegacyState(raw: unknown): PersistedTeamState {
 	return normalizePersistedTeamState(state);
 }
 
-export function restorePersistedTeamState(
-	entries: Iterable<SessionLikeEntry>,
-	stateCustomType: string,
-): PersistedTeamState {
+export function restorePersistedTeamState(entries: Iterable<SessionLikeEntry>, stateCustomType: string): PersistedTeamState {
 	let state = createDefaultTeamState();
 	const appliedRecords = new Set<string>();
 
 	for (const entry of entries) {
 		if (entry.type !== "custom" || entry.customType !== stateCustomType) continue;
-		if (!isV2Record(entry.data)) {
-			state = sanitizeLegacyState(entry.data);
+		const value = entry.data;
+		if (isLegacySnapshot(value)) {
+			state = sanitizeLegacyState(value);
 			appliedRecords.clear();
 			continue;
 		}
-		const record = entry.data;
-		if (appliedRecords.has(record.recordId)) continue;
-		appliedRecords.add(record.recordId);
-		if (record.kind === "worker_terminal" && isRecord(record.worker)) {
-			const worker = record.worker as unknown as CompactPersistedWorker;
-			if (typeof worker.workerId === "string" && typeof worker.profileName === "string") {
-				state.activeWorkers[worker.workerId] = restoredWorker(worker);
-			}
-		} else if (record.kind === "worker_pruned" && typeof record.workerId === "string") {
-			delete state.activeWorkers[record.workerId];
-			state.prunedWorkerUsageTotals = addWorkerUsageToAggregate(state.prunedWorkerUsageTotals, compactUsage(record.usage));
+		// Unknown, malformed, and future-version records are inert. In particular,
+		// they must not erase the valid replay prefix as an alleged legacy snapshot.
+		if (!isRecord(value) || value.version !== TEAM_PERSISTENCE_VERSION || typeof value.recordId !== "string") continue;
+		if (value.kind !== "worker_terminal" && value.kind !== "worker_pruned") continue;
+		if (appliedRecords.has(value.recordId)) continue;
+
+		if (value.kind === "worker_terminal") {
+			const worker = sanitizeCompactWorker(value.worker);
+			if (!worker) continue;
+			appliedRecords.add(value.recordId);
+			state.activeWorkers[worker.workerId] = restoredWorker(worker);
+		} else {
+			if (typeof value.workerId !== "string" || !isRecord(value.usage)) continue;
+			appliedRecords.add(value.recordId);
+			const workerId = cap(value.workerId, MAX_ID_BYTES);
+			delete state.activeWorkers[workerId];
+			state.prunedWorkerUsageTotals = addWorkerUsageToAggregate(state.prunedWorkerUsageTotals, compactUsage(value.usage));
 		}
 	}
 	return normalizePersistedTeamState(state);
 }
 
-export function markRestoredWorkersExited(
-	state: PersistedTeamState,
-	reasonOrStartReason: string | SessionStartReason = "reload",
-): MarkRestoredWorkersExitedResult {
+export function markRestoredWorkersExited(state: PersistedTeamState, reasonOrStartReason: string | SessionStartReason = "reload"): MarkRestoredWorkersExitedResult {
 	const nextState = normalizePersistedTeamState(state);
 	const timestamp = Date.now();
 	const reason = reasonOrStartReason in REASON_MESSAGE
@@ -179,11 +221,8 @@ export function markRestoredWorkersExited(
 			worker.status = "exited";
 			worker.error = reason;
 			worker.lastEventAt = timestamp;
-			if (worker.lastSummary) {
-				worker.lastSummary.status = "exited";
-				worker.lastSummary.headline = reason;
-				worker.lastSummary.updatedAt = timestamp;
-			}
+			// A restored summary is the worker's durable result, not an activity
+			// message. Preserve it verbatim while detaching the unavailable runtime.
 			markedCount += 1;
 		}
 	}
@@ -196,38 +235,109 @@ function recordId(kind: string, payload: unknown): string {
 	return `${kind}:${createHash("sha256").update(JSON.stringify(payload)).digest("base64url")}`;
 }
 
+function recordBytes(record: TeamPersistenceRecord): number {
+	return Buffer.byteLength(JSON.stringify(record), "utf8");
+}
+
+function terminalRecord(source: CompactPersistedWorker): TeamPersistenceRecord {
+	const worker = structuredClone(source);
+	const build = (): TeamPersistenceRecord => ({
+		version: TEAM_PERSISTENCE_VERSION,
+		kind: "worker_terminal",
+		recordId: recordId("terminal", worker),
+		worker,
+	});
+	let record = build();
+	// Configured list limits may be arbitrarily large. Remove tail items in a
+	// stable order until the complete JSON record (including its hash) fits.
+	while (recordBytes(record) > MAX_RECORD_BYTES && worker.lastSummary) {
+		const summary = worker.lastSummary;
+		if (summary.risks.length) summary.risks.pop();
+		else if (summary.readFiles.length) summary.readFiles.pop();
+		else if (summary.changedFiles.length) summary.changedFiles.pop();
+		else if (summary.nextRecommendation) summary.nextRecommendation = undefined;
+		else if (Buffer.byteLength(summary.headline, "utf8") > 0) summary.headline = cap(summary.headline, Math.floor(Buffer.byteLength(summary.headline, "utf8") / 2));
+		else worker.lastSummary = undefined;
+		record = build();
+	}
+	return record;
+}
+
+function durableWorkerValue(worker: CompactPersistedWorker): unknown {
+	return {
+		workerId: worker.workerId,
+		profileName: worker.profileName,
+		status: worker.status,
+		startedAt: worker.startedAt,
+		lastSummary: worker.lastSummary,
+		usage: worker.usage,
+	};
+}
+
+function durableEqual(left: CompactPersistedWorker, right: CompactPersistedWorker): boolean {
+	return JSON.stringify(durableWorkerValue(left)) === JSON.stringify(durableWorkerValue(right));
+}
+
+type PendingTransition =
+	| { record: Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>; worker: CompactPersistedWorker }
+	| { record: Extract<TeamPersistenceRecord, { kind: "worker_pruned" }>; workerId: string };
+
+/** Compact v2 transition journal with append-before-commit semantics. */
 export class CompactPersistenceJournal {
 	private previousWorkers = new Map<string, CompactPersistedWorker>();
+	private pending = new Map<string, PendingTransition>();
 
 	reset(state: PersistedTeamState, config: TeamConfig): void {
 		this.previousWorkers.clear();
-		for (const worker of Object.values(state.activeWorkers)) {
-			this.previousWorkers.set(worker.workerId, compactWorker(worker, config));
-		}
+		this.pending.clear();
+		for (const worker of Object.values(state.activeWorkers)) this.previousWorkers.set(worker.workerId, compactWorker(worker, config));
 	}
 
-	collect(state: PersistedTeamState, config: TeamConfig): TeamPersistenceRecord[] {
-		const records: TeamPersistenceRecord[] = [];
+	prepare(state: PersistedTeamState, config: TeamConfig): TeamPersistenceRecord[] {
+		if (this.pending.size) return [...this.pending.values()].map((transition) => transition.record);
+
 		const currentIds = new Set(Object.keys(state.activeWorkers));
 		for (const [workerId, previous] of this.previousWorkers) {
 			if (currentIds.has(workerId)) continue;
 			const payload = { workerId: previous.workerId, usage: previous.usage, lastEventAt: previous.lastEventAt };
-			const record: TeamPersistenceRecord = { version: TEAM_PERSISTENCE_VERSION, kind: "worker_pruned", recordId: recordId("prune", payload), workerId: previous.workerId, usage: previous.usage };
-			if (Buffer.byteLength(JSON.stringify(record), "utf8") > MAX_RECORD_BYTES) throw new Error(`Compact persistence record exceeded ${MAX_RECORD_BYTES} bytes`);
-			records.push(record);
+			const record: Extract<TeamPersistenceRecord, { kind: "worker_pruned" }> = {
+				version: TEAM_PERSISTENCE_VERSION,
+				kind: "worker_pruned",
+				recordId: recordId("prune", payload),
+				workerId: previous.workerId,
+				usage: previous.usage,
+			};
+			this.pending.set(record.recordId, { record, workerId });
 		}
-		const previousWorkers = this.previousWorkers;
-		this.previousWorkers = new Map();
+
 		for (const worker of Object.values(state.activeWorkers)) {
 			const compact = compactWorker(worker, config);
-			this.previousWorkers.set(worker.workerId, compact);
-			if (!TERMINAL_WORKER_STATUSES.has(worker.status)) continue;
-			const previous = previousWorkers.get(worker.workerId);
-			if (previous && TERMINAL_WORKER_STATUSES.has(previous.status) && previous.status === compact.status) continue;
-			const record: TeamPersistenceRecord = { version: TEAM_PERSISTENCE_VERSION, kind: "worker_terminal", recordId: recordId("terminal", compact), worker: compact };
-			if (Buffer.byteLength(JSON.stringify(record), "utf8") > MAX_RECORD_BYTES) throw new Error(`Compact persistence record exceeded ${MAX_RECORD_BYTES} bytes`);
-			records.push(record);
+			const previous = this.previousWorkers.get(worker.workerId);
+			if (!TERMINAL_WORKER_STATUSES.has(worker.status)) {
+				// Runtime-only churn needs no append, but remains the source for a
+				// later terminal/prune transition.
+				this.previousWorkers.set(worker.workerId, compact);
+				continue;
+			}
+			if (previous && TERMINAL_WORKER_STATUSES.has(previous.status) && durableEqual(previous, compact)) continue;
+			const record = terminalRecord(compact) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>;
+			this.pending.set(record.recordId, { record, worker: record.worker });
 		}
+		return [...this.pending.values()].map((transition) => transition.record);
+	}
+
+	commit(record: TeamPersistenceRecord): void {
+		const transition = this.pending.get(record.recordId);
+		if (!transition) return;
+		if (transition.record.kind === "worker_terminal") this.previousWorkers.set(transition.worker.workerId, transition.worker);
+		else this.previousWorkers.delete(transition.workerId);
+		this.pending.delete(record.recordId);
+	}
+
+	/** Compatibility helper for non-I/O callers; append wiring must use prepare/commit. */
+	collect(state: PersistedTeamState, config: TeamConfig): TeamPersistenceRecord[] {
+		const records = this.prepare(state, config);
+		for (const record of records) this.commit(record);
 		return records;
 	}
 }
