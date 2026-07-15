@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config.js";
 import {
-	createPersistedStateSnapshot,
+	CompactPersistenceJournal,
 	markRestoredWorkersExited,
 	restorePersistedTeamState,
 } from "../../src/control-plane/persistence.js";
@@ -124,8 +124,11 @@ function restoreLatestState(
 	startReason: "startup" | "reload" | "new" | "resume" | "fork",
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
 ): { state: PersistedTeamState; markedCount: number } {
+	const sessionManager = ctx.sessionManager as typeof ctx.sessionManager & {
+		getBranch?: () => Iterable<{ type: string; customType?: string; data?: unknown }>;
+	};
 	const restoredState = restorePersistedTeamState(
-		ctx.sessionManager.getEntries(),
+		sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries(),
 		config.persistence.stateCustomType,
 	);
 	const { state, markedCount } = markRestoredWorkersExited(restoredState, startReason);
@@ -176,10 +179,6 @@ function clearUi(ctx: ExtensionContext | undefined, config: TeamConfig = DEFAULT
 	if (!ctx?.hasUI) return;
 	ctx.ui.setStatus(config.ui.statusKey, undefined);
 	ctx.ui.setWidget(config.ui.widgetKey, undefined);
-}
-
-function persistSnapshot(pi: ExtensionAPI, state: PersistedTeamState, config: TeamConfig = DEFAULT_TEAM_CONFIG): void {
-	pi.appendEntry(config.persistence.stateCustomType, createPersistedStateSnapshot(state));
 }
 
 function emitCommandOutput(
@@ -349,6 +348,8 @@ export default function (pi: ExtensionAPI): void {
 	let teamState = createDefaultTeamState(activeProjectConfig.config);
 	let activeContext: ExtensionContext | undefined;
 	let detachTeamManagerListener = () => {};
+	const persistenceJournal = new CompactPersistenceJournal();
+	const restoredWorkerIds = new Set<string>();
 	// Gate for session_start swap window — tool bodies reject during reload so
 	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
 	// resolve against a disposed TeamManager.
@@ -521,7 +522,9 @@ export default function (pi: ExtensionAPI): void {
 		resetUiTracking();
 		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
-			persistSnapshot(pi, teamState, activeProjectConfig.config);
+			for (const record of persistenceJournal.collect(teamState, activeProjectConfig.config)) {
+				pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
+			}
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 
 			if (hasAnimatedWorkers(teamState)) {
@@ -721,9 +724,13 @@ export default function (pi: ExtensionAPI): void {
 					},
 				};
 			}
+			const compactResult = formatWorkerCompact(result.worker);
+			const restoredResultNote = !result.worker.finalAnswer?.trim() && restoredWorkerIds.has(result.worker.workerId)
+				? "\n\nResult note: Full final answers are live-session-only and are unavailable after session restore; use the retained summary and usage above."
+				: "";
 			return {
-				content: [{ type: "text", text: formatWorkerCompact(result.worker) }],
-				details: result,
+				content: [{ type: "text", text: compactResult + restoredResultNote }],
+				details: result as any,
 			};
 		},
 	});
@@ -834,13 +841,15 @@ export default function (pi: ExtensionAPI): void {
 			await replaceTeamManager(activeProjectConfig.config);
 			const { state, markedCount } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
+			restoredWorkerIds.clear();
+			for (const workerId of Object.keys(teamState.activeWorkers)) restoredWorkerIds.add(workerId);
+			persistenceJournal.reset(teamState, activeProjectConfig.config);
 			teamManager.restore(teamState);
 			registerTeamAutocomplete(ctx, {
 				getWorkers: () => teamManager.listWorkers(),
 				getProfiles: () => activeProjectConfig.config.profiles,
 			});
 			renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
-			persistSnapshot(pi, teamState, activeProjectConfig.config);
 
 			if (!ctx.hasUI) return;
 
@@ -911,7 +920,6 @@ export default function (pi: ExtensionAPI): void {
 		detachTeamManagerListener();
 		await teamManager.dispose();
 		teamState = teamManager.snapshot();
-		persistSnapshot(pi, teamState, activeProjectConfig.config);
 		clearUi(ctx, activeProjectConfig.config);
 		orchestratorWorking = false;
 		activeContext = undefined;
