@@ -131,10 +131,9 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function hasExactKeys(value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): boolean {
-	const allowed = new Set([...required, ...optional]);
 	const keys = Object.keys(value);
 	return required.every((key) => Object.hasOwn(value, key))
-		&& keys.every((key) => allowed.has(key));
+		&& keys.every((key) => required.includes(key) || optional.includes(key));
 }
 
 function isBoundedString(value: unknown, maxBytes: number, allowEmpty = true): value is string {
@@ -190,10 +189,10 @@ function sanitizeCompactWorker(value: unknown): CompactPersistedWorker | undefin
 		["lastSummary"],
 	)) return undefined;
 	if (!isBoundedString(value.workerId, MAX_ID_BYTES, false) || !isBoundedString(value.profileName, MAX_ID_BYTES, false)) return undefined;
+	if (!isPersistableTerminalStatus(value.status)) return undefined;
 	if (!isBoundedNumber(value.startedAt) || !isBoundedNumber(value.lastEventAt)) return undefined;
 	const usage = sanitizeUsage(value.usage);
 	if (!usage) return undefined;
-	if (!isPersistableTerminalStatus(value.status)) return undefined;
 	let lastSummary: CompactPersistedWorker["lastSummary"];
 	if (Object.hasOwn(value, "lastSummary") && value.lastSummary !== undefined) {
 		if (!isPlainRecord(value.lastSummary)) return undefined;
