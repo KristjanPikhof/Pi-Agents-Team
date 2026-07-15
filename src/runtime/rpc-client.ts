@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import type { Readable, Writable } from "node:stream";
+import type { RpcSessionState as PiRpcSessionState } from "@earendil-works/pi-coding-agent";
 
 export interface RpcCommandBase {
 	type: string;
@@ -20,7 +21,7 @@ export type RpcEvent = Record<string, unknown> & { type: string };
 
 export interface RpcSessionState {
 	model: unknown;
-	thinkingLevel: string;
+	thinkingLevel: PiRpcSessionState["thinkingLevel"];
 	isStreaming: boolean;
 	isCompacting: boolean;
 	steeringMode: string;
