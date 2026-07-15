@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0` and Pi `>=0.79.2`.
+Requires Node `>=22.19.0` and Pi `>=0.80.6`. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
 
 Install dependencies and run the checks:
 
@@ -45,7 +45,7 @@ In TUI sessions with Pi's autocomplete provider API, the editor also understands
 | `@` | tracked workers by id, role, status, or task title | `@w1` |
 | `$` | configured worker roles | `$reviewer` |
 
-Suggestions appear at the start of a token after whitespace. File completion is suppressed inside those `@` / `$` tokens so paths and team references do not fight each other. Older Pi versions without the provider API simply skip this enhancement; command-specific completions still work.
+Suggestions appear at the start of a token after whitespace. File completion is suppressed inside those `@` / `$` tokens so paths and team references do not fight each other.
 
 - `/team` opens the interactive dashboard overlay in TUI mode, or prints a compact refreshed dashboard summary in RPC/non-TUI mode. Treat it as the full live worker registry: running, queued, idle/reusable, recent terminal, error, and retained-cost state are all reachable there rather than through separate status commands.
 - Top tabs (`1` Workers · `2` Inspect · `3` Console · `4` Cost) are jumped with the number row, or `tab` / `shift+tab` to cycle. The overlay is a single right-anchored stack panel; switch to `Workers` to change selection, then use `Inspect` or `Console` for the selected worker.
@@ -174,7 +174,7 @@ To clear every worker row: `/team-stop all` to stop every live worker, then `p` 
 
 ## See aggregate token usage and cost
 
-Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per currently tracked worker (turns, input/output tokens, cost) plus a `Σ` aggregate row. The `Σ` row includes active workers and retained usage from workers that were later pruned; when retained usage exists, the Cost tab adds a concise `retained/pruned` note so the aggregate is not confused with the visible per-worker rows. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
+Open `/team` and press `4` (or cycle to the **Cost** tab) to see one row per currently tracked worker (turns, input/output tokens, cost) plus a `Σ` aggregate row. Worker cost is the value Pi reports through RPC, including Pi's model/provider tier and long-context pricing. Pi Agents Team does not recompute cost from token counters; it retains, sums, and formats Pi-reported worker values. The `Σ` row includes active workers and retained usage from workers that were later pruned; when retained usage exists, the Cost tab adds a concise `retained/pruned` note so the aggregate is not confused with the visible per-worker rows. The orchestrator's own token usage stays in Pi's footer bar (`↑ input ↓ output $cost`), so the Cost tab focuses on the agent team.
 
 Large token counts are abbreviated to keep the overlay and footer readable: `k` means thousands (1,000), and `m` means millions (1,000,000). For example, `in=143.5k` is about 143,500 input tokens and `out=1.3m` is about 1,300,000 output tokens.
 
@@ -307,7 +307,7 @@ The orchestrator may answer directly for trivial, already-known, or tiny bounded
 
 If a profile can write files (today, only `fixer`), provide an explicit writable path scope. Launch policy rejects write-capable tasks without one.
 
-When Pi exposes Project Trust, workers launched inside the trusted project root inherit the orchestrator's current trust decision as an explicit Pi CLI override: trusted projects launch with `--approve`, untrusted projects launch with `--no-approve`, and unrelated worker cwd values receive no override. Older Pi versions do not expose a trust decision, so no trust flag is passed and behavior matches older releases. Reuse treats this as a launch setting; a worker spawned with one trust mode cannot be reused for a task that would require the other.
+Workers launched inside the trusted project root inherit the orchestrator's current Project Trust decision as an explicit Pi CLI override: trusted projects launch with `--approve`, untrusted projects launch with `--no-approve`, and unrelated worker cwd values receive no override. Reuse treats this as a launch setting; a worker spawned with one trust mode cannot be reused for a task that would require the other.
 
 By default, delegated path scopes may include `/tmp`, sibling repos, or other absolute paths. If you need to restrict delegated worker scopes to the discovered project root / current cwd, opt out via `agents-team.json`:
 
@@ -319,7 +319,7 @@ By default, delegated path scopes may include `/tmp`, sibling repos, or other ab
 
 That only restricts delegated worker path-scope containment. The main orchestrator session and worker prompt-file containment are unchanged; prompt files must remain inside the project/current cwd.
 
-The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. Worker-complete and relay toasts are UI-only hints; the tool loop is the authority. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
+The orchestrator should pair every `delegate_task` with a `wait_for_agents` call, then `agent_result` per worker, and synthesize a single answer. It should not loop `ping_agents`, should not sleep in bash, and should not run investigation tools itself while workers are active. Pi's `agent_end` event is only a model-loop boundary. Successful idle, wait completion, result readiness, and reuse occur at `agent_settled`; waits therefore stay active between those events. Worker-complete and relay toasts are UI-only hints; the tool loop is the authority. See [`../prompts/orchestrator.md`](../prompts/orchestrator.md).
 
 ### Orchestrator tool output examples
 
@@ -457,7 +457,11 @@ What you see:
 - Delegation still works if global/built-in config is otherwise active.
 - After trusting the project, reload/restart the Pi session so the local config is read and frozen for the session.
 
-Older Pi versions do not expose the trust API; the extension preserves the previous behavior and reads project config at session start.
+### A worker is rejected before RPC launch
+
+Before the first launch for a Pi command, the extension runs that command with `--version`. Pi versions older than `0.80.6`, missing version output, and unparseable version output are fatal because the worker RPC contract cannot be verified. Fix the selected Pi command or upgrade it, then delegate again.
+
+A parseable worker version at or above `0.80.6` is supported even when it differs from the host Pi version. The extension emits one non-fatal mismatch warning per session and continues; exact patch equality is not required.
 
 ### Delegation is disabled because `agents-team.json` is invalid
 
@@ -477,7 +481,7 @@ Soft warnings don't disable delegation (the config keeps working):
 - `schemaVersion` doesn't match the current schema. The active layer falls back to built-ins and you get a toast pointing at `/team-init --force`. See [`profiles.md`](profiles.md) "Version bumps."
 - The active config's `scaffoldVersion` is stale, or a current-schema active config is missing `scaffoldVersion`. This is a freshness nudge only: the active file keeps loading. Run `/team-init <local|global> --force` for the active scope when you want to refresh the scaffold; the previous file is backed up first.
 - A prompt string that doesn't resolve to a file. It gets treated as inline prompt text, which is usually what you want. If you actually meant a path, fix the typo.
-- A role has an invalid `thinkingLevel`. The extension drops only that field, keeps the rest of the role, and emits a toast such as `invalid thinkingLevel ... field dropped`. Fix the value to one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, then reload.
+- A role has an invalid `thinkingLevel`. The extension drops only that field, keeps the rest of the role, and emits a toast such as `invalid thinkingLevel ... field dropped`. Fix the value to one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, then reload.
 
 See [`profiles.md`](profiles.md) for the full role shape and prompt-resolution rules.
 
@@ -485,7 +489,7 @@ See [`profiles.md`](profiles.md) for the full role shape and prompt-resolution r
 
 Expected when a role requests a thinking level that the selected model does not support. Pi starts the worker anyway and reports the effective level through RPC; the extension shows a toast such as `requested thinkingLevel high; Pi clamped to low`.
 
-To fix it, either set that role's `thinkingLevel` to a supported value or pick a model family that supports the requested level. `xhigh` is especially model-dependent.
+To fix it, either set that role's `thinkingLevel` to a supported value or pick a model family that supports the requested level. `xhigh` and the opt-in `max` level are model/provider-dependent.
 
 ### A worker fails immediately with an API-key error
 
