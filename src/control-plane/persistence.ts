@@ -380,6 +380,10 @@ export class CompactPersistenceJournal {
 		this.pending.delete(record.recordId);
 	}
 
+	hasPending(): boolean {
+		return this.pending.size > 0;
+	}
+
 	/** Drop only uncommitted records; used to prevent cross-branch retries. */
 	discardPending(): void {
 		this.pending.clear();

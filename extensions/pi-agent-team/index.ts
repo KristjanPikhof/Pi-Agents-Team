@@ -406,7 +406,8 @@ export default function (pi: ExtensionAPI): void {
 		else console.error(message);
 	});
 	const persistenceFailureWarnings = new Set<string>();
-	let suppressNextTeardownFlush = false;
+	type ProvisionalTreeNavigation = { originLeafId: string | null; confirmed: boolean };
+	let provisionalTreeNavigation: ProvisionalTreeNavigation | undefined;
 	const restoredWorkerIds = new Set<string>();
 	// Gate for session_start swap window — tool bodies reject during reload so
 	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
@@ -575,11 +576,27 @@ export default function (pi: ExtensionAPI): void {
 		piVersionMismatchNotifier.notify(event);
 	}
 
+	function currentLeafId(): string | null | undefined {
+		const sessionManager = activeContext?.sessionManager as (typeof activeContext.sessionManager & { getLeafId?: () => string | null }) | undefined;
+		return sessionManager?.getLeafId?.();
+	}
+
+	function assertPersistenceAppendStillOnOriginLeaf(): void {
+		const navigation = provisionalTreeNavigation;
+		if (!navigation) return;
+		const leafId = currentLeafId();
+		if (leafId === undefined || leafId === navigation.originLeafId) return;
+		throw new Error("Refusing to append an old-branch compact persistence record after the active leaf changed.");
+	}
+
 	function appendPreparedPersistence(maxBatches = 2): void {
 		for (let batch = 0; batch < maxBatches; batch += 1) {
 			const records = persistenceJournal.prepare(teamState, activeProjectConfig.config);
 			if (records.length === 0) return;
 			for (const record of records) {
+				// Keep this guard adjacent to appendEntry: prepare may have run while an
+				// asynchronous tree summary was still moving the active leaf.
+				assertPersistenceAppendStillOnOriginLeaf();
 				pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
 				persistenceJournal.commit(record);
 				persistenceGrowth.recordAppended(compactPersistenceRecordPayloadBytes(record));
@@ -614,9 +631,8 @@ export default function (pi: ExtensionAPI): void {
 		resetUiTracking();
 		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
-			// A state event after a failed before-tree flush means navigation did not
-			// immediately replace this listener (for example, another hook cancelled).
-			suppressNextTeardownFlush = false;
+			// During an async tree summary, retries remain legal only while the leaf
+			// guard at appendEntry still observes the recorded origin branch.
 			// appendEntry is synchronous: advance only after acceptance. On a middle
 			// failure the failed record and untouched suffix remain pending in order.
 			// Two batches cover that suffix plus the latest current-state candidate.
@@ -680,8 +696,10 @@ export default function (pi: ExtensionAPI): void {
 		detachTeamManagerListener = () => {
 			if (detached) return;
 			detached = true;
-			if (suppressNextTeardownFlush) suppressNextTeardownFlush = false;
-			else flushPendingPersistence();
+			// session_tree confirms Pi already changed leaves. The handler isolates
+			// old pending data before replacement, and this old listener must not
+			// derive or append another old-branch candidate at the new leaf.
+			if (!provisionalTreeNavigation?.confirmed) flushPendingPersistence();
 			detachStateListener();
 			detachWorkerEventListener();
 			detachVersionMismatchListener();
