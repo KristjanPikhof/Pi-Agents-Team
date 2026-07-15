@@ -7,6 +7,7 @@ import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const projectRoot = resolve(import.meta.dirname, "..");
+const NPM_SUBPROCESS_TIMEOUT_MS = 45_000;
 
 function runNpm(args: string[], cwd: string) {
 	const npmCli = process.env.npm_execpath;
@@ -16,11 +17,12 @@ function runNpm(args: string[], cwd: string) {
 		cwd,
 		encoding: "utf8",
 		env: { ...process.env, NO_UPDATE_NOTIFIER: "1" },
+		timeout: NPM_SUBPROCESS_TIMEOUT_MS,
 	});
 	assert.equal(
 		result.status,
 		0,
-		`npm ${args.join(" ")} failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+		`npm ${args.join(" ")} failed (timeout=${NPM_SUBPROCESS_TIMEOUT_MS}ms; status=${String(result.status)}; signal=${String(result.signal)}; error=${result.error?.message ?? "none"})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
 	);
 	return result;
 }
