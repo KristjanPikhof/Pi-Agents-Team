@@ -33,6 +33,42 @@ test("notification wording helpers use compact/action-oriented copy", () => {
 	assert.equal(formatCommandWarning("Unknown worker: w99"), "Warning — Unknown worker: w99");
 });
 
+test("supported Pi mismatch is visible once in headless modes and remains a UI warning", () => {
+	const message = "Pi Agents Team: host Pi 0.80.6 is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal.";
+	const event = {
+		type: "pi_version_mismatch" as const,
+		hostVersion: "0.80.6",
+		workerVersion: "0.81.0",
+		command: "custom-pi",
+		message,
+	};
+	const stderr: string[] = [];
+	const notifications: Array<{ message: string; level: string }> = [];
+	const originalConsoleError = console.error;
+	try {
+		console.error = (value?: unknown) => stderr.push(String(value));
+		const headless = _testing.createPiVersionMismatchNotifier((warning) => {
+			_testing.emitPiVersionMismatchWarning({ hasUI: false } as any, warning);
+		});
+		headless.notify(event);
+		headless.notify(event);
+		assert.deepEqual(stderr, [message]);
+
+		const ui = _testing.createPiVersionMismatchNotifier((warning) => {
+			_testing.emitPiVersionMismatchWarning({
+				hasUI: true,
+				ui: { notify: (value: string, level: string) => notifications.push({ message: value, level }) },
+			} as any, warning);
+		});
+		ui.notify(event);
+		ui.notify(event);
+		assert.deepEqual(notifications, [{ message, level: "warning" }]);
+		assert.deepEqual(stderr, [message], "UI warnings must not also write to stderr");
+	} finally {
+		console.error = originalConsoleError;
+	}
+});
+
 test("thinkingLevel warning toast lists valid values and keys by scope/profile/bad value", () => {
 	const warning = { scope: "project" as const, profileName: "reviewer", badValue: "turbo" };
 
