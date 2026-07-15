@@ -279,8 +279,26 @@ function buildPiVersionMismatchToast(event: WorkerPiVersionMismatchEvent): strin
 	return event.message;
 }
 
+function createPiVersionMismatchNotifier(notify: (message: string) => void): {
+	notify(event: WorkerPiVersionMismatchEvent): void;
+	reset(): void;
+} {
+	let warned = false;
+	return {
+		notify(event) {
+			if (warned) return;
+			warned = true;
+			notify(buildPiVersionMismatchToast(event));
+		},
+		reset() {
+			warned = false;
+		},
+	};
+}
+
 export const _testing = {
 	buildPiVersionMismatchToast,
+	createPiVersionMismatchNotifier,
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
 	getOrchestratorThinkingLevel,
@@ -330,7 +348,9 @@ export default function (pi: ExtensionAPI): void {
 	const toastedScaffoldStale = getProcessStableScaffoldFreshnessToasts();
 	const toastedThinkingLevelWarnings = new Map<string, true>();
 	const toastedThinkingClamps = new Map<string, true>();
-	let toastedPiVersionMismatch = false;
+	const piVersionMismatchNotifier = createPiVersionMismatchNotifier((message) => {
+		if (activeContext?.hasUI) activeContext.ui.notify(message, "warning");
+	});
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 	const lastRelayCount = new Map<string, number>();
 	const pendingStartedTransitions: Array<{ workerId: string; profileName: string }> = [];
@@ -480,9 +500,8 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	function notifyPiVersionMismatch(event: WorkerPiVersionMismatchEvent): void {
-		if (!activeContext?.hasUI || toastedPiVersionMismatch) return;
-		toastedPiVersionMismatch = true;
-		activeContext.ui.notify(buildPiVersionMismatchToast(event), "warning");
+		if (!activeContext?.hasUI) return;
+		piVersionMismatchNotifier.notify(event);
 	}
 
 	function attachTeamManagerListener(manager: TeamManager): void {
@@ -781,7 +800,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", async (event, ctx) => {
 		stopTipRotation();
 		activeContext = ctx;
-		toastedPiVersionMismatch = false;
+		piVersionMismatchNotifier.reset();
 		reloading = true;
 		try {
 			activeProjectConfig = loadActiveTeamConfig({

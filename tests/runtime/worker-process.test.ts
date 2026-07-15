@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildWorkerProcessArgs, resolveWorkerSpawnImplementation, spawnWorkerProcess } from "../../src/runtime/worker-process";
+import { WorkerManager } from "../../src/runtime/worker-manager";
+import { HOST_PI_VERSION, type ProbeWorkerPiVersion } from "../../src/runtime/pi-version";
+import { MockWorkerHandle, MockWorkerTransport } from "./test-helpers";
 
 test("buildWorkerProcessArgs maps trusted project decision to --approve", () => {
 	const args = buildWorkerProcessArgs({ cwd: process.cwd(), projectTrust: "approve" });
@@ -113,6 +116,68 @@ test("resolveWorkerSpawnImplementation uses cross-spawn on Windows", () => {
 	assert.equal(resolveWorkerSpawnImplementation("win32"), "cross-spawn");
 	assert.equal(resolveWorkerSpawnImplementation("darwin"), "node:child_process");
 	assert.equal(resolveWorkerSpawnImplementation("linux"), "node:child_process");
+});
+
+test("WorkerManager rejects an unsupported worker before RPC process launch", async () => {
+	let launches = 0;
+	const manager = new WorkerManager(
+		() => {
+			launches += 1;
+			return new MockWorkerHandle(new MockWorkerTransport());
+		},
+		async () => ({
+			command: "old-pi",
+			versionArgs: ["--version"],
+			hostVersion: HOST_PI_VERSION,
+			minimumVersion: "0.80.6",
+			workerVersion: "0.80.5",
+			supported: false,
+			mismatch: false,
+			message: "Cannot launch Pi worker: old-pi is Pi 0.80.5, but RPC workers require Pi 0.80.6 or newer. Update the selected worker command or rpc.command.",
+		}),
+	);
+	await assert.rejects(
+		manager.launchWorker({ workerId: "old", profileName: "fixer", task: {} as any, cwd: process.cwd() }),
+		/RPC workers require Pi 0\.80\.6 or newer/,
+	);
+	assert.equal(launches, 0);
+});
+
+test("WorkerManager injects the selected command into preflight and emits mismatch diagnostics", async () => {
+	const probes: Array<{ command?: string; baseArgs?: string[] }> = [];
+	const probe: ProbeWorkerPiVersion = async (options) => {
+		probes.push(options);
+		return {
+			command: options.command ?? "pi",
+			versionArgs: ["--version"],
+			hostVersion: HOST_PI_VERSION,
+			minimumVersion: "0.80.6",
+			workerVersion: "0.81.0",
+			supported: true,
+			mismatch: true,
+		};
+	};
+	const manager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()), probe);
+	const warnings: string[] = [];
+	manager.onPiVersionMismatch((event) => warnings.push(event.message));
+	await manager.launchWorker({
+		workerId: "newer",
+		profileName: "fixer",
+		task: {} as any,
+		cwd: process.cwd(),
+		command: "custom-pi",
+		baseArgs: ["--mode", "rpc", "--no-session"],
+	});
+	assert.deepEqual(probes, [{ command: "custom-pi", baseArgs: ["--mode", "rpc", "--no-session"], cwd: process.cwd(), env: undefined }]);
+	assert.deepEqual(warnings, ["Pi Agents Team: host Pi 0.80.6 is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal."]);
+	await manager.dispose();
+});
+
+test("injected worker launchers do not probe the machine-global Pi by default", async () => {
+	const manager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	await manager.launchWorker({ workerId: "injected", profileName: "fixer", task: {} as any, cwd: process.cwd(), command: "custom-test-pi" });
+	assert.equal(manager.hasWorker("injected"), true);
+	await manager.dispose();
 });
 
 test("spawnWorkerProcess converts child_process spawn errors into waitForExit failure info", async () => {
