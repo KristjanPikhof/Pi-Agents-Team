@@ -122,6 +122,21 @@ test("does not retain raw environment or CLI credential values in cache keys", (
 	assert.notEqual(first, second);
 });
 
+test("does not expose a sensitive resolved PATH directory in cache keys", async () => {
+	const secret = "sensitive-resolved-directory-name";
+	const root = await mkdtemp(join(tmpdir(), `${secret}-`));
+	const executable = join(root, "pi");
+	await writeFile(executable, "resolved");
+	try {
+		const key = buildPiVersionProbeCacheKey("pi", ["--version"], root, { PATH: root });
+		assert.match(key, /^pi-version-probe:v1:[0-9a-f]{64}$/);
+		assert.doesNotMatch(key, new RegExp(secret));
+		assert.doesNotMatch(key, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("invalidates a successful probe when the resolved executable is replaced", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-version-replace-"));
 	const executable = join(root, "pi");

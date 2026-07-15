@@ -177,8 +177,13 @@ function environmentIdentity(suppliedEnv?: NodeJS.ProcessEnv): string {
 
 export function buildPiVersionProbeCacheKey(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
 	const resolvedCwd = resolve(cwd);
-	const invocationIdentity = fingerprint(JSON.stringify({ args, environment: environmentIdentity(env) }));
-	return `${resolveCommandIdentity(command, resolvedCwd, env)}\0cwd:${resolvedCwd}\0invocation:${invocationIdentity}`;
+	const identity = JSON.stringify({
+		command: resolveCommandIdentity(command, resolvedCwd, env),
+		cwd: resolvedCwd,
+		args,
+		environment: environmentIdentity(env),
+	});
+	return `pi-version-probe:v1:${fingerprint(identity)}`;
 }
 
 function appendCapped(current: string, chunk: unknown): string {
