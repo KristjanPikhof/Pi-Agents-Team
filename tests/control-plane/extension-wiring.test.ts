@@ -218,6 +218,7 @@ test("extension restores only the active Pi branch and does not checkpoint on st
 	};
 	const inactive = createDefaultTeamState();
 	inactive.activeWorkers.w9 = { ...active.activeWorkers.w1, workerId: "w9" };
+	let activeBranch = active;
 
 	extension({
 		registerTool(tool: RegisteredTool) { tools.push(tool); },
@@ -230,7 +231,7 @@ test("extension restores only the active Pi branch and does not checkpoint on st
 		cwd: process.cwd(), hasUI: false,
 		sessionManager: {
 			getEntries: () => [{ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: inactive }],
-			getBranch: () => [{ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: active }],
+			getBranch: () => [{ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: activeBranch }],
 		},
 	} as any;
 	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
@@ -238,6 +239,13 @@ test("extension restores only the active Pi branch and does not checkpoint on st
 	const result = await tools.find((tool) => tool.name === "agent_result")!.execute!("call", { workerId: "w1" });
 	assert.match(result.content[0].text, /live-session-only/);
 	await assert.rejects(() => tools.find((tool) => tool.name === "agent_result")!.execute!("call", { workerId: "w9" }), /Unknown worker/);
+
+	activeBranch = inactive;
+	await handlers.get("session_tree")?.({}, ctx);
+	await assert.rejects(() => tools.find((tool) => tool.name === "agent_result")!.execute!("call", { workerId: "w1" }), /Unknown worker/);
+	const branchResult = await tools.find((tool) => tool.name === "agent_result")!.execute!("call", { workerId: "w9" });
+	assert.match(branchResult.content[0].text, /live-session-only/);
+	assert.deepEqual(writes, [], "tree navigation restore must not append a checkpoint");
 	await handlers.get("session_shutdown")?.({}, ctx);
 });
 
