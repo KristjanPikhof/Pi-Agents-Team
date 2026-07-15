@@ -614,6 +614,9 @@ export default function (pi: ExtensionAPI): void {
 		resetUiTracking();
 		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
+			// A state event after a failed before-tree flush means navigation did not
+			// immediately replace this listener (for example, another hook cancelled).
+			suppressNextTeardownFlush = false;
 			// appendEntry is synchronous: advance only after acceptance. On a middle
 			// failure the failed record and untouched suffix remain pending in order.
 			// Two batches cover that suffix plus the latest current-state candidate.

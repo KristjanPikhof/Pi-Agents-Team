@@ -422,6 +422,85 @@ test("ephemeral sessions suppress physical persistence growth warnings", async (
 	await handlers.get("session_shutdown")?.({}, ctx);
 });
 
+test("tree navigation retries pending persistence once on the old leaf, never the new leaf", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	const appendedLeaves: string[] = [];
+	let leaf = "old";
+	let calls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+			appendEntry() {
+				calls += 1;
+				if (calls === 1) throw new Error("old leaf initial failure");
+				appendedLeaves.push(leaf);
+			},
+		} as any);
+		const ctx = {
+			cwd: process.cwd(), hasUI: false,
+			sessionManager: { getBranch: () => [], getEntries: () => [] },
+		} as any;
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		assert.throws(() => listeners.at(-1)!(state), /old leaf initial failure/);
+		await handlers.get("session_before_tree")?.({ preparation: {}, signal: undefined }, ctx);
+		assert.deepEqual(appendedLeaves, ["old"], "bounded pre-tree retry still targets the old leaf");
+		leaf = "new";
+		await handlers.get("session_tree")?.({ oldLeafId: "old", newLeafId: "new" }, ctx);
+		assert.deepEqual(appendedLeaves, ["old"], "post-tree replacement does not repeat the old transition");
+		await handlers.get("session_shutdown")?.({}, ctx);
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("persistent pre-tree failure is warned and isolated from the new leaf", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	const attempts: string[] = [];
+	const warnings: string[] = [];
+	let leaf = "old";
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+			appendEntry() { attempts.push(leaf); throw new Error("persistent old failure"); },
+		} as any);
+		const ctx = {
+			cwd: process.cwd(), hasUI: true,
+			ui: {
+				notify(message: string, level: string) { if (level === "warning") warnings.push(message); },
+				setStatus() {}, setWidget() {}, setTitle() {}, addAutocompleteProvider() {},
+			},
+			sessionManager: { getBranch: () => [], getEntries: () => [] },
+		} as any;
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		assert.throws(() => listeners.at(-1)!(state), /persistent old failure/);
+		await handlers.get("session_before_tree")?.({ preparation: {}, signal: undefined }, ctx);
+		assert.deepEqual(attempts, ["old", "old"], "pre-tree processing makes one bounded retry");
+		assert.equal(warnings.filter((message) => message.includes("old-branch records were isolated")).length, 1);
+		leaf = "new";
+		await handlers.get("session_tree")?.({ oldLeafId: "old", newLeafId: "new" }, ctx);
+		assert.deepEqual(attempts, ["old", "old"], "unresolved old record is never attempted at the new leaf");
+		await handlers.get("session_shutdown")?.({}, ctx);
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
 test("extension restores only the active Pi branch and does not checkpoint on startup", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const tools: RegisteredTool[] = [];
