@@ -29,6 +29,7 @@ export const TOOL_SECTION_LABELS = {
 } as const;
 
 const FINAL_ANSWER_MISSING_MESSAGE = "No final answer block extracted yet.";
+const FINAL_ANSWER_NOT_READY_MESSAGE = "Final result is not ready. Wait for terminal settlement with wait_for_agents, then call agent_result again.";
 const ANSI_PATTERN = /(?:\x1B\][\s\S]*?(?:\x07|\x1B\\)|\x1BP[\s\S]*?\x1B\\|\x1B[\^_][\s\S]*?\x1B\\|\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]))/g;
 const DEFAULT_TRUNCATE_WIDTH = 120;
 const SUMMARY_ITEM_LIMIT = 5;
@@ -294,6 +295,14 @@ export function formatWaitForAgentsResult(result: WaitForAgentsFormatInput): str
 	}
 	appendWaitWorkers(lines, result.workers);
 	return lines.join("\n");
+}
+
+export function formatAgentResultNotReady(worker: WorkerRuntimeState): string {
+	return [
+		formatWorkerResultTitle(worker),
+		`${TOOL_SECTION_LABELS.status}: ${worker.status} (${formatWorkerStatusLabel(worker)})`,
+		`${TOOL_SECTION_LABELS.finalAnswerNote}: ${FINAL_ANSWER_NOT_READY_MESSAGE}`,
+	].join("\n");
 }
 
 export function formatWorkerCompact(worker: WorkerRuntimeState): string {

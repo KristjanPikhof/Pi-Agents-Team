@@ -5,10 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import extension, { _testing } from "../../extensions/pi-agent-team/index";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
+import { TeamManager } from "../../src/control-plane/team-manager";
+import type { WorkerRuntimeState } from "../../src/types";
 
 interface RegisteredTool {
 	name: string;
 	renderCall?: (...args: any[]) => unknown;
+	execute?: (...args: any[]) => Promise<any>;
 }
 
 interface RegisteredCommand {
@@ -112,6 +115,91 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(events.includes("agent_end"));
 	assert.ok(events.includes("agent_settled"));
 	assert.ok(events.includes("before_agent_start"));
+});
+
+test("agent_result hides provisional final answers until terminal settlement", async () => {
+	const tools: RegisteredTool[] = [];
+	extension({
+		registerTool(tool: RegisteredTool) {
+			tools.push(tool);
+		},
+		registerCommand() {},
+		on() {},
+		appendEntry() {},
+		sendMessage() {},
+	} as any);
+
+	const resultTool = tools.find((tool) => tool.name === "agent_result");
+	assert.ok(resultTool?.execute);
+	const worker: WorkerRuntimeState = {
+		workerId: "w1",
+		profileName: "fixer",
+		sessionMode: "worker",
+		status: "running",
+		startedAt: 1,
+		lastEventAt: 2,
+		pendingRelayQuestions: [],
+		usage: { turns: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+		finalAnswer: "headline: provisional answer",
+	};
+	const originalResolveWorkerId = TeamManager.prototype.resolveWorkerId;
+	const originalGetWorkerResult = TeamManager.prototype.getWorkerResult;
+	try {
+		TeamManager.prototype.resolveWorkerId = () => "w1";
+		TeamManager.prototype.getWorkerResult = () => ({ worker });
+
+		const beforeSettlement = await resultTool.execute("call-1", { workerId: "w1" });
+		assert.match(beforeSettlement.content[0].text, /Final result is not ready/);
+		assert.match(beforeSettlement.content[0].text, /wait_for_agents/);
+		assert.doesNotMatch(beforeSettlement.content[0].text, /provisional answer/);
+		assert.deepEqual(beforeSettlement.details, { workerId: "w1", status: "running", ready: false });
+
+		worker.status = "completed";
+		const afterSettlement = await resultTool.execute("call-2", { workerId: "w1" });
+		assert.match(afterSettlement.content[0].text, /Result:\nheadline: provisional answer/);
+		assert.equal(afterSettlement.details.worker.finalAnswer, "headline: provisional answer");
+	} finally {
+		TeamManager.prototype.resolveWorkerId = originalResolveWorkerId;
+		TeamManager.prototype.getWorkerResult = originalGetWorkerResult;
+	}
+});
+
+test("agent_result preserves terminal failure result behavior", async () => {
+	const tools: RegisteredTool[] = [];
+	extension({
+		registerTool(tool: RegisteredTool) {
+			tools.push(tool);
+		},
+		registerCommand() {},
+		on() {},
+		appendEntry() {},
+		sendMessage() {},
+	} as any);
+	const resultTool = tools.find((tool) => tool.name === "agent_result");
+	assert.ok(resultTool?.execute);
+	const originalGetWorkerResult = TeamManager.prototype.getWorkerResult;
+	try {
+		for (const status of ["error", "aborted", "exited"] as const) {
+			TeamManager.prototype.getWorkerResult = () => ({
+				worker: {
+					workerId: "w1",
+					profileName: "fixer",
+					sessionMode: "worker",
+					status,
+					startedAt: 1,
+					lastEventAt: 2,
+					pendingRelayQuestions: [],
+					usage: { turns: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
+					error: "terminal failure",
+				},
+			});
+			const output = await resultTool.execute("call", { workerId: "w1" });
+			assert.match(output.content[0].text, new RegExp(`Status: ${status}`));
+			assert.equal(output.details.worker.status, status);
+		}
+	} finally {
+		TeamManager.prototype.getWorkerResult = originalGetWorkerResult;
+	}
 });
 
 test("extension registers natural autocomplete provider when UI API is available", async () => {

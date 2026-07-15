@@ -19,7 +19,7 @@ import { registerTeamStopCommand } from "../../src/commands/team-stop.js";
 import { registerTeamAutocomplete } from "../../src/ui/autocomplete.js";
 import { buildTeamStatusLine, buildTeamWidgetLines, getTeamStatusTip, hasAnimatedWorkers } from "../../src/ui/status-widget.js";
 import { formatRelayToast, formatWorkerLabel, formatWorkerStartedToast, formatWorkerTerminalToast, formatWorkersStartedToast, formatWorkersTerminalToast } from "../../src/ui/display-grammar.js";
-import { formatAgentMessageResult, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters.js";
+import { formatAgentMessageResult, formatAgentResultNotReady, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters.js";
 import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers.js";
 import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer.js";
 import type { WorkerPiVersionMismatchEvent } from "../../src/runtime/worker-manager.js";
@@ -279,6 +279,14 @@ function buildPiVersionMismatchToast(event: WorkerPiVersionMismatchEvent): strin
 	return event.message;
 }
 
+function emitPiVersionMismatchWarning(ctx: ExtensionContext | undefined, message: string): void {
+	if (ctx?.hasUI) {
+		ctx.ui.notify(message, "warning");
+		return;
+	}
+	console.error(message);
+}
+
 function createPiVersionMismatchNotifier(notify: (message: string) => void): {
 	notify(event: WorkerPiVersionMismatchEvent): void;
 	reset(): void;
@@ -299,6 +307,7 @@ function createPiVersionMismatchNotifier(notify: (message: string) => void): {
 export const _testing = {
 	buildPiVersionMismatchToast,
 	createPiVersionMismatchNotifier,
+	emitPiVersionMismatchWarning,
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
 	getOrchestratorThinkingLevel,
@@ -349,7 +358,7 @@ export default function (pi: ExtensionAPI): void {
 	const toastedThinkingLevelWarnings = new Map<string, true>();
 	const toastedThinkingClamps = new Map<string, true>();
 	const piVersionMismatchNotifier = createPiVersionMismatchNotifier((message) => {
-		if (activeContext?.hasUI) activeContext.ui.notify(message, "warning");
+		emitPiVersionMismatchWarning(activeContext, message);
 	});
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 	const lastRelayCount = new Map<string, number>();
@@ -500,7 +509,6 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	function notifyPiVersionMismatch(event: WorkerPiVersionMismatchEvent): void {
-		if (!activeContext?.hasUI) return;
 		piVersionMismatchNotifier.notify(event);
 	}
 
@@ -690,7 +698,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "agent_result",
 		label: "Agent Result",
-		description: "Get the worker's final deliverable as compact plain text: worker title, optional task/status/error/relay lines, scan-friendly summary sections when available, then Result: followed by the verbatim contents of the worker's <final_answer>…</final_answer> block. This is the authoritative answer — synthesize directly from it. If the final_answer block is missing, the result says so; steer or re-delegate with a clearer final_answer instruction instead of reading files yourself.",
+		description: "Get a terminal worker's final deliverable as compact plain text: worker title, optional task/status/error/relay lines, scan-friendly summary sections when available, then Result: followed by the verbatim contents of the worker's <final_answer>…</final_answer> block. Results remain unavailable until agent settlement; wait_for_agents before retrying. Terminal error/aborted/exited workers remain readable. This is the authoritative answer — synthesize directly from it. If the final_answer block is missing after settlement, steer or re-delegate with a clearer final_answer instruction instead of reading files yourself.",
 		parameters: WorkerIdSchema,
 		renderCall: renderAgentToolCallTitle("agent_result"),
 		async execute(_toolCallId, params) {
@@ -698,6 +706,16 @@ export default function (pi: ExtensionAPI): void {
 			const result = teamManager.getWorkerResult(workerId);
 			if (!result) {
 				throw new Error(`Unknown worker: ${params.workerId}`);
+			}
+			if (!isTerminalWorkerStatus(result.worker.status)) {
+				return {
+					content: [{ type: "text", text: formatAgentResultNotReady(result.worker) }],
+					details: {
+						workerId: result.worker.workerId,
+						status: result.worker.status,
+						ready: false,
+					},
+				};
 			}
 			return {
 				content: [{ type: "text", text: formatWorkerCompact(result.worker) }],
