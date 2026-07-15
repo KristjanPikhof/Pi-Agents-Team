@@ -10,7 +10,7 @@ type Exact<A, B> =
 			: false
 		: false;
 
-type Pi0806ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+type Pi0806ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 const localThinkingLevelDriftCheck: Exact<ThinkingLevel, Pi0806ThinkingLevel> = true;
 const upstreamThinkingLevelDriftCheck: Exact<UpstreamThinkingLevel, Pi0806ThinkingLevel> = true;
