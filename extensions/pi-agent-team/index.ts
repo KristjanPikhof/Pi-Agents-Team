@@ -94,6 +94,8 @@ const PERSISTENCE_BYTE_WARNING_THRESHOLD = 64 * 1024 * 1024;
 const PERSISTENCE_GROWTH_WARNING = "Pi Agents Team: this active branch contains at least 10,000 compact persistence records or 64 MiB of compact record payloads. Pi sessions are append-only; consider starting a new session. Reload, prune, and branch navigation do not shrink the physical session file. Measured compact payload bytes are not the total session file size.";
 const PERSISTENCE_FLUSH_WARNING = "Pi Agents Team: a compact persistence append still failed during final retry; the uncommitted transition could not be saved before teardown.";
 const PERSISTENCE_TREE_DROP_WARNING = "Pi Agents Team: compact persistence still failed before tree navigation; unresolved old-branch records were isolated and will not be written onto the new branch.";
+const PERSISTENCE_LIVE_WARNING = "Pi Agents Team: a compact persistence append failed; the bounded uncommitted suffix was retained for a later retry.";
+const PERSISTENCE_AMBIGUOUS_APPEND_WARNING = "Pi Agents Team: a compact persistence append threw after Pi advanced the session leaf; the in-memory record was treated as accepted and will not be retried beneath that leaf.";
 
 function createPersistenceGrowthMonitor(notify: (message: string) => void) {
 	let measurement: CompactPersistenceMeasurement = { recordCount: 0, payloadBytes: 0 };
@@ -580,8 +582,16 @@ export default function (pi: ExtensionAPI): void {
 		piVersionMismatchNotifier.notify(event);
 	}
 
-	function currentSessionManager(): { getLeafId?: () => string | null; getBranch?: () => Iterable<{ id?: string }> } | undefined {
-		return activeContext?.sessionManager as { getLeafId?: () => string | null; getBranch?: () => Iterable<{ id?: string }> } | undefined;
+	function currentSessionManager(): {
+		getLeafId?: () => string | null;
+		getBranch?: () => Iterable<{ id?: string }>;
+		getEntry?: (id: string) => { type?: string; customType?: string; data?: unknown } | undefined;
+	} | undefined {
+		return activeContext?.sessionManager as {
+			getLeafId?: () => string | null;
+			getBranch?: () => Iterable<{ id?: string }>;
+			getEntry?: (id: string) => { type?: string; customType?: string; data?: unknown } | undefined;
+		} | undefined;
 	}
 
 	function currentLeafId(): string | null | undefined {
@@ -612,20 +622,45 @@ export default function (pi: ExtensionAPI): void {
 		if (leafId !== undefined) navigation.appendLeafId = leafId;
 	}
 
-	function appendPreparedPersistence(maxBatches = 2): void {
+	function appendPreparedPersistence(maxBatches = 2): boolean {
 		for (let batch = 0; batch < maxBatches; batch += 1) {
 			const records = persistenceJournal.prepare(teamState, activeProjectConfig.config);
-			if (records.length === 0) return;
+			if (records.length === 0) return true;
 			for (const record of records) {
-				// Keep this guard adjacent to appendEntry: prepare may have run while an
-				// asynchronous tree summary was still moving the active leaf.
-				assertPersistenceAppendStillOnOriginBranch();
-				pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
+				const leafBeforeAppend = currentLeafId();
+				try {
+					// Keep this guard adjacent to appendEntry: prepare may have run while an
+					// asynchronous tree summary was still moving the active leaf.
+					assertPersistenceAppendStillOnOriginBranch();
+					pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
+				} catch {
+					const sessionManager = currentSessionManager();
+					const leafAfterFailure = sessionManager?.getLeafId?.();
+					const leafEntry = leafAfterFailure ? sessionManager?.getEntry?.(leafAfterFailure) : undefined;
+					const entryData = leafEntry?.data as { recordId?: unknown } | undefined;
+					const advancedToAttemptedRecord = leafBeforeAppend !== undefined
+						&& leafAfterFailure !== undefined
+						&& leafAfterFailure !== leafBeforeAppend
+						&& leafEntry?.type === "custom"
+						&& leafEntry.customType === activeProjectConfig.config.persistence.stateCustomType
+						&& entryData?.recordId === record.recordId;
+					if (!advancedToAttemptedRecord) return false;
+
+					// Pi 0.80.6/0.80.7 update SessionManager's leaf before synchronous
+					// persistence and extension emission complete. Treat the exact
+					// leaf entry as accepted so this record is never duplicated below it.
+					observePersistenceAppendLeaf();
+					persistenceJournal.resolveAmbiguousAppend(record);
+					persistenceGrowth.recordAppended(compactPersistenceRecordPayloadBytes(record));
+					warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_APPEND_WARNING);
+					continue;
+				}
 				observePersistenceAppendLeaf();
 				persistenceJournal.commit(record);
 				persistenceGrowth.recordAppended(compactPersistenceRecordPayloadBytes(record));
 			}
 		}
+		return !persistenceJournal.hasPending();
 	}
 
 	function warnPersistenceFailure(message: string): void {
@@ -639,8 +674,7 @@ export default function (pi: ExtensionAPI): void {
 		try {
 			// Finite invariant: one retained suffix plus one batch derived from the
 			// latest state. A persistent failure is attempted only once per flush.
-			appendPreparedPersistence(2);
-			return true;
+			return appendPreparedPersistence(2);
 		} catch {
 			return false;
 		}
@@ -655,12 +689,10 @@ export default function (pi: ExtensionAPI): void {
 		resetUiTracking();
 		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
-			// During an async tree summary, retries remain legal only while the leaf
-			// guard at appendEntry still observes the recorded origin branch.
-			// appendEntry is synchronous: advance only after acceptance. On a middle
-			// failure the failed record and untouched suffix remain pending in order.
-			// Two batches cover that suffix plus the latest current-state candidate.
-			appendPreparedPersistence(2);
+			// Persistence is best-effort at this callback boundary. Pi invokes state
+			// listeners inside successful RPC lifecycle transitions, so append I/O
+			// must never escape and relabel a settled worker as worker_error.
+			if (!attemptBoundedPersistenceFlush()) warnPersistenceFailure(PERSISTENCE_LIVE_WARNING);
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 
 			if (hasAnimatedWorkers(teamState)) {
@@ -1022,9 +1054,10 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_before_tree", async (event, ctx) => {
-		// Pi fires this before summary generation and before moving the leaf. Keep
-		// unresolved data provisional: cancellation/abort emits no session_tree, so
-		// it must remain retryable on this origin branch without warning or loss.
+		// Pi fires this before summary generation and before moving the leaf.
+		// Persist detached representations of live workers on the origin branch,
+		// but do not dispose or cancel their runtimes: cancellation/abort emits no
+		// session_tree and those workers must remain usable.
 		activeContext = ctx;
 		const leafId = currentLeafId();
 		const originLeafId = leafId !== undefined ? leafId : event.preparation.oldLeafId;
@@ -1033,6 +1066,7 @@ export default function (pi: ExtensionAPI): void {
 			appendLeafId: originLeafId,
 			confirmed: false,
 		};
+		persistenceJournal.prepareDetachedWorkers(teamState, activeProjectConfig.config);
 		attemptBoundedPersistenceFlush();
 	});
 
