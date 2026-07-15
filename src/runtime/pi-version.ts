@@ -107,14 +107,24 @@ export function comparePiVersions(left: ParsedPiVersion, right: ParsedPiVersion)
  */
 export function buildPiVersionArgs(baseArgs: string[] | undefined): string[] {
 	if (!baseArgs) return ["--version"];
-	const rpcBoundary = baseArgs.findIndex((arg) => arg === "--mode" || arg.startsWith("--mode="));
+	let rpcBoundary = -1;
+	for (let index = 0; index < baseArgs.length; index += 1) {
+		if (baseArgs[index] === "--mode" && baseArgs[index + 1] === "rpc") rpcBoundary = index;
+		if (baseArgs[index] === "--mode=rpc") rpcBoundary = index;
+	}
 	const versionPrefix = rpcBoundary === -1 ? baseArgs : baseArgs.slice(0, rpcBoundary);
 	return [...versionPrefix, "--version"];
 }
 
+function environmentValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+	if (process.platform !== "win32") return env[name];
+	const matchingKey = Object.keys(env).sort().find((key) => key.toLowerCase() === name.toLowerCase());
+	return matchingKey === undefined ? undefined : env[matchingKey];
+}
+
 function executableCandidates(command: string, env: NodeJS.ProcessEnv): string[] {
 	if (process.platform !== "win32" || extname(command)) return [command];
-	const pathExt = env.PATHEXT ?? env.PathExt ?? ".COM;.EXE;.BAT;.CMD";
+	const pathExt = environmentValue(env, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
 	return [command, ...pathExt.split(";").filter(Boolean).map((extension) => `${command}${extension.toLowerCase()}`)];
 }
 
@@ -123,7 +133,7 @@ function resolveCommandIdentity(command: string, cwd: string, suppliedEnv?: Node
 	if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
 		return resolve(cwd, command);
 	}
-	const pathValue = env.PATH ?? env.Path ?? env.Pathname ?? (process.platform === "win32" ? "" : "/usr/bin:/bin");
+	const pathValue = environmentValue(env, "PATH") ?? (process.platform === "win32" ? "" : "/usr/bin:/bin");
 	for (const directory of pathValue.split(delimiter)) {
 		if (!directory) continue;
 		for (const candidate of executableCandidates(command, env)) {
@@ -134,8 +144,19 @@ function resolveCommandIdentity(command: string, cwd: string, suppliedEnv?: Node
 	return `unresolved:${command}\0cwd:${resolve(cwd)}\0path:${pathValue}`;
 }
 
+function environmentIdentity(suppliedEnv?: NodeJS.ProcessEnv): string {
+	const env = suppliedEnv ?? process.env;
+	const entries = Object.keys(env).sort().flatMap((key) => {
+		const value = env[key];
+		if (value === undefined) return [];
+		return [[process.platform === "win32" ? key.toLowerCase() : key, value] as const];
+	});
+	return JSON.stringify(entries);
+}
+
 function commandCacheKey(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
-	return `${resolveCommandIdentity(command, cwd, env)}\0${args.join("\0")}`;
+	const resolvedCwd = resolve(cwd);
+	return `${resolveCommandIdentity(command, resolvedCwd, env)}\0cwd:${resolvedCwd}\0env:${environmentIdentity(env)}\0${args.join("\0")}`;
 }
 
 function appendCapped(current: string, chunk: unknown): string {
@@ -149,32 +170,90 @@ function diagnostic(value: string): string {
 	return trimmed.length <= DIAGNOSTIC_LIMIT_CHARS ? trimmed : `${trimmed.slice(0, DIAGNOSTIC_LIMIT_CHARS)}… [truncated]`;
 }
 
+function formatArgv(command: string, args: string[]): string {
+	return diagnostic([command, ...args].map((arg) => JSON.stringify(arg)).join(" "));
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+function signalProcessGroup(pid: number | undefined, child: ReturnType<typeof nodeSpawn>, signal: NodeJS.Signals): void {
+	if (pid === undefined) {
+		child.kill(signal);
+		return;
+	}
+	try {
+		process.kill(-pid, signal);
+	} catch {
+		child.kill(signal);
+	}
+}
+
+async function terminateProcessTree(child: ReturnType<typeof nodeSpawn>): Promise<void> {
+	if (process.platform === "win32") {
+		if (child.pid === undefined) {
+			child.kill();
+			return;
+		}
+		await Promise.race([
+			new Promise<void>((resolveTaskkill) => {
+				const killer = crossSpawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+				killer.once("error", () => {
+					child.kill();
+					resolveTaskkill();
+				});
+				killer.once("close", () => resolveTaskkill());
+			}),
+			delay(500),
+		]);
+		return;
+	}
+
+	signalProcessGroup(child.pid, child, "SIGTERM");
+	await delay(250);
+	signalProcessGroup(child.pid, child, "SIGKILL");
+}
+
 export const runPiVersionCommand: RunPiVersionCommand = ({ command, args, cwd, env, timeoutMs }) => new Promise((resolveResult) => {
 	const spawn = process.platform === "win32" ? crossSpawn : nodeSpawn;
-	const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+	const child = spawn(command, args, {
+		cwd,
+		env,
+		stdio: ["ignore", "pipe", "pipe"],
+		...(process.platform === "win32" ? {} : { detached: true }),
+	});
 	let stdout = "";
 	let stderr = "";
 	let settled = false;
-	let forceKillTimer: NodeJS.Timeout | undefined;
-	const timeout = setTimeout(() => {
-		child.kill("SIGTERM");
-		forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 250);
-		forceKillTimer.unref?.();
-		settle({ stdout, stderr, code: null, error: new Error(`version probe timed out after ${timeoutMs}ms`) });
-	}, timeoutMs);
-	timeout.unref?.();
+	let timedOut = false;
+	let childClosed = false;
+	let closeCode: number | null = null;
+	let resolveClose!: () => void;
+	const closed = new Promise<void>((resolveClosed) => { resolveClose = resolveClosed; });
 	const settle = (result: PiVersionCommandResult) => {
 		if (settled) return;
 		settled = true;
 		clearTimeout(timeout);
 		resolveResult(result);
 	};
+	const timeout = setTimeout(() => {
+		timedOut = true;
+		void (async () => {
+			await terminateProcessTree(child);
+			if (!childClosed) await Promise.race([closed, delay(500)]);
+			settle({ stdout, stderr, code: null, error: new Error(`version probe timed out after ${timeoutMs}ms`) });
+		})();
+	}, timeoutMs);
+	timeout.unref?.();
 	child.stdout?.on("data", (chunk) => { stdout = appendCapped(stdout, chunk); });
 	child.stderr?.on("data", (chunk) => { stderr = appendCapped(stderr, chunk); });
 	child.on("error", (error) => settle({ stdout, stderr, code: null, error }));
 	child.on("close", (code) => {
-		if (forceKillTimer) clearTimeout(forceKillTimer);
-		settle({ stdout, stderr, code });
+		childClosed = true;
+		closeCode = code;
+		resolveClose();
+		if (!timedOut) settle({ stdout, stderr, code: closeCode });
 	});
 });
 
@@ -207,13 +286,14 @@ export async function probeWorkerPiVersion(
 		} catch (error) {
 			result = { stdout: "", stderr: "", code: null, error: error instanceof Error ? error : new Error(String(error)) };
 		}
+		const argv = formatArgv(command, versionArgs);
 		if (result.error || result.code !== 0) {
 			const detail = diagnostic(result.error?.message ?? (result.stderr.trim() || `exit code ${result.code}`));
 			return {
 				...common,
 				supported: false,
 				mismatch: false,
-				message: `Cannot launch Pi worker: failed to run ${basename(command)} --version (${detail}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
+				message: `Cannot launch Pi worker: failed to run ${basename(command)} --version (argv: ${argv}; ${detail}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
 			};
 		}
 		const parsed = parsePiVersion(result.stdout);
@@ -223,7 +303,7 @@ export async function probeWorkerPiVersion(
 				...common,
 				supported: false,
 				mismatch: false,
-				message: `Cannot launch Pi worker: ${basename(command)} --version returned an unparseable version (${JSON.stringify(shown)}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
+				message: `Cannot launch Pi worker: ${basename(command)} --version returned an unparseable version (${JSON.stringify(shown)}; argv: ${argv}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
 			};
 		}
 		const minimum = parsePiVersion(MINIMUM_WORKER_PI_VERSION)!;

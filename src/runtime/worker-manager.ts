@@ -148,6 +148,12 @@ export interface WorkerLaunchSnapshot {
 	allowSkills: boolean;
 }
 
+interface PendingWorkerLaunch {
+	cancelled: boolean;
+	handle?: WorkerProcessHandle;
+	promise?: Promise<ManagedWorkerRecord>;
+}
+
 interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	textBuffer: string;
 	console: WorkerConsoleEvent[];
@@ -359,8 +365,10 @@ function createWorkerProcessOptions(options: LaunchWorkerOptions): WorkerProcess
 
 export class WorkerManager {
 	private readonly workers = new Map<string, WorkerRuntimeRecord>();
+	private readonly pendingLaunches = new Map<string, PendingWorkerLaunch>();
 	private readonly emitter = new EventEmitter();
 	private readonly probeVersion: ProbeWorkerPiVersion;
+	private disposed = false;
 
 	constructor(
 		private readonly spawnProcess: SpawnWorkerProcess = spawnWorkerProcess,
@@ -391,17 +399,40 @@ export class WorkerManager {
 		return () => this.emitter.off("pi_version_mismatch", listener);
 	}
 
-	async launchWorker(options: LaunchWorkerOptions): Promise<ManagedWorkerRecord> {
-		if (this.workers.has(options.workerId)) {
-			throw new Error(`Worker already exists: ${options.workerId}`);
+	launchWorker(options: LaunchWorkerOptions): Promise<ManagedWorkerRecord> {
+		if (this.disposed) {
+			return Promise.reject(new Error("WorkerManager is disposed; cannot launch workers"));
+		}
+		if (this.workers.has(options.workerId) || this.pendingLaunches.has(options.workerId)) {
+			return Promise.reject(new Error(`Worker already exists: ${options.workerId}`));
 		}
 
+		// Reserve the id synchronously, before version preflight yields, so two
+		// same-id callers cannot both reach spawn.
+		const pending: PendingWorkerLaunch = { cancelled: false };
+		this.pendingLaunches.set(options.workerId, pending);
+		const promise = this.launchReservedWorker(options, pending).finally(() => {
+			if (this.pendingLaunches.get(options.workerId) === pending) {
+				this.pendingLaunches.delete(options.workerId);
+			}
+		});
+		pending.promise = promise;
+		return promise;
+	}
+
+	private async launchReservedWorker(
+		options: LaunchWorkerOptions,
+		pending: PendingWorkerLaunch,
+	): Promise<ManagedWorkerRecord> {
 		const version = await this.probeVersion({
 			command: options.command,
 			baseArgs: options.baseArgs,
 			cwd: options.cwd,
 			env: options.env,
 		});
+		if (pending.cancelled || this.disposed) {
+			throw new Error(`Worker launch cancelled for ${options.workerId}: WorkerManager is disposed`);
+		}
 		this.assertSupportedWorkerVersion(version, options.workerId);
 		if (version.mismatch && version.workerVersion) {
 			this.emitter.emit("pi_version_mismatch", {
@@ -414,6 +445,7 @@ export class WorkerManager {
 		}
 
 		const handle = this.spawnProcess(createWorkerProcessOptions(options));
+		pending.handle = handle;
 		const client = new RpcClient(handle.transport);
 		const requestedThinkingLevel = options.thinkingLevel ?? "medium";
 		const record: WorkerRuntimeRecord = {
@@ -630,13 +662,41 @@ export class WorkerManager {
 		try {
 			await record.client.abort();
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			this.applyNormalizedEvent(record, {
-				type: "worker_error",
-				error: `Abort failed: ${errorMessage}`,
-				timestamp: Date.now(),
+			const abortMessage = error instanceof Error ? error.message : String(error);
+			let shutdownMessage: string | undefined;
+			try {
+				// TeamManager cannot reach its follow-up shutdown when abort rejects.
+				// Dispose here so operator cancellation never strands the RPC process.
+				await record.handle.dispose();
+			} catch (shutdownError) {
+				shutdownMessage = shutdownError instanceof Error ? shutdownError.message : String(shutdownError);
+			}
+			const detail = shutdownMessage
+				? `Abort RPC failed: ${abortMessage}; process shutdown also failed: ${shutdownMessage}`
+				: `Abort RPC failed: ${abortMessage}; worker process was terminated`;
+			const failedAt = Date.now();
+			record.awaitingSettlement = false;
+			record.state.status = shutdownMessage ? "error" : "aborted";
+			record.state.error = detail;
+			record.state.lastEventAt = failedAt;
+			record.state.lastSummary = buildSummary(record.state, detail);
+			this.appendConsole(record, { ts: failedAt, kind: "error", text: detail });
+			this.appendActivity(record, {
+				id: this.nextActivityId(record, "worker_error", failedAt),
+				ts: failedAt,
+				updatedAt: failedAt,
+				actionKind: "error",
+				status: "error",
+				label: "Abort failed",
+				summary: trimSummary(detail, 260),
+				sourceEvent: "worker_error",
 			});
-			throw error;
+			this.emitter.emit("event", this.snapshot(workerId), {
+				type: "worker_error",
+				error: detail,
+				timestamp: failedAt,
+			} satisfies NormalizedWorkerEvent);
+			throw new Error(detail);
 		}
 	}
 
@@ -820,12 +880,38 @@ export class WorkerManager {
 	}
 
 	async dispose(): Promise<void> {
+		if (this.disposed) {
+			await Promise.allSettled(Array.from(this.pendingLaunches.values(), (pending) => pending.promise));
+			return;
+		}
+		this.disposed = true;
+		const pending = Array.from(this.pendingLaunches.values());
+		for (const launch of pending) launch.cancelled = true;
+		// A launch may already have spawned and be blocked in its initial RPC
+		// refresh. Closing its handle makes that launch settle before disposal does.
+		await Promise.allSettled(pending.map((launch) => launch.handle?.dispose()));
+		await Promise.allSettled(pending.map((launch) => launch.promise));
 		for (const workerId of Array.from(this.workers.keys())) {
 			await this.shutdownWorker(workerId);
 		}
 	}
 
 	private applyNormalizedEvent(record: WorkerRuntimeRecord, event: NormalizedWorkerEvent): void {
+		if (
+			UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)
+			&& (
+				event.type === "worker_started"
+				|| event.type === "worker_running"
+				|| event.type === "worker_text_delta"
+				|| event.type === "worker_message"
+				|| event.type === "worker_tool_started"
+				|| event.type === "worker_tool_finished"
+				|| event.type === "worker_queue_updated"
+				|| event.type === "worker_agent_end"
+			)
+		) {
+			return;
+		}
 		if (
 			event.type === "worker_idle"
 			&& (!record.awaitingSettlement || UNREACHABLE_TERMINAL_STATUSES.has(record.state.status))
@@ -1015,6 +1101,23 @@ export class WorkerManager {
 					status: "info",
 					label: "Worker idle",
 					summary: record.state.status,
+					sourceEvent: event.type,
+				});
+				break;
+			case "worker_extension_error":
+				// Pi extension errors are diagnostic-only. They must not clear the
+				// settlement guard or terminate an otherwise live RPC session.
+				record.state.error = event.error;
+				record.state.lastSummary = buildSummary(record.state, event.error);
+				this.appendConsole(record, { ts: event.timestamp, kind: "error", text: event.error });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "error",
+					status: "error",
+					label: "Extension error",
+					summary: trimSummary(event.error, 260),
 					sourceEvent: event.type,
 				});
 				break;
