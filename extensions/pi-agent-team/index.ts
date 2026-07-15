@@ -399,14 +399,18 @@ export default function (pi: ExtensionAPI): void {
 	});
 	let teamState = createDefaultTeamState(activeProjectConfig.config);
 	let activeContext: ExtensionContext | undefined;
-	let detachTeamManagerListener = () => {};
+	let detachTeamManagerListener = (_flushPersistence?: boolean) => {};
 	const persistenceJournal = new CompactPersistenceJournal();
 	const persistenceGrowth = createPersistenceGrowthMonitor((message) => {
 		if (activeContext?.hasUI) activeContext.ui.notify(message, "warning");
 		else console.error(message);
 	});
 	const persistenceFailureWarnings = new Set<string>();
-	type ProvisionalTreeNavigation = { originLeafId: string | null; confirmed: boolean };
+	type ProvisionalTreeNavigation = {
+		originLeafId: string | null;
+		appendLeafId: string | null;
+		confirmed: boolean;
+	};
 	let provisionalTreeNavigation: ProvisionalTreeNavigation | undefined;
 	const restoredWorkerIds = new Set<string>();
 	// Gate for session_start swap window — tool bodies reject during reload so
@@ -576,17 +580,32 @@ export default function (pi: ExtensionAPI): void {
 		piVersionMismatchNotifier.notify(event);
 	}
 
-	function currentLeafId(): string | null | undefined {
-		const sessionManager = activeContext?.sessionManager as { getLeafId?: () => string | null } | undefined;
-		return sessionManager?.getLeafId?.();
+	function currentSessionManager(): { getLeafId?: () => string | null; getBranch?: () => Iterable<{ id?: string }> } | undefined {
+		return activeContext?.sessionManager as { getLeafId?: () => string | null; getBranch?: () => Iterable<{ id?: string }> } | undefined;
 	}
 
-	function assertPersistenceAppendStillOnOriginLeaf(): void {
+	function currentLeafId(): string | null | undefined {
+		return currentSessionManager()?.getLeafId?.();
+	}
+
+	function assertPersistenceAppendStillOnOriginBranch(): void {
+		const navigation = provisionalTreeNavigation;
+		if (!navigation) return;
+		const sessionManager = currentSessionManager();
+		const leafId = sessionManager?.getLeafId?.();
+		if (leafId === undefined || leafId === navigation.appendLeafId) return;
+		if (navigation.appendLeafId !== null) {
+			const branch = sessionManager?.getBranch?.();
+			if (branch && Array.from(branch).some((entry) => entry.id === navigation.appendLeafId)) return;
+		}
+		throw new Error("Refusing to append an old-branch compact persistence record after the active branch changed.");
+	}
+
+	function observePersistenceAppendLeaf(): void {
 		const navigation = provisionalTreeNavigation;
 		if (!navigation) return;
 		const leafId = currentLeafId();
-		if (leafId === undefined || leafId === navigation.originLeafId) return;
-		throw new Error("Refusing to append an old-branch compact persistence record after the active leaf changed.");
+		if (leafId !== undefined) navigation.appendLeafId = leafId;
 	}
 
 	function appendPreparedPersistence(maxBatches = 2): void {
@@ -596,8 +615,9 @@ export default function (pi: ExtensionAPI): void {
 			for (const record of records) {
 				// Keep this guard adjacent to appendEntry: prepare may have run while an
 				// asynchronous tree summary was still moving the active leaf.
-				assertPersistenceAppendStillOnOriginLeaf();
+				assertPersistenceAppendStillOnOriginBranch();
 				pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
+				observePersistenceAppendLeaf();
 				persistenceJournal.commit(record);
 				persistenceGrowth.recordAppended(compactPersistenceRecordPayloadBytes(record));
 			}
@@ -693,13 +713,13 @@ export default function (pi: ExtensionAPI): void {
 		}) ?? (() => {});
 		const detachVersionMismatchListener = workerEvents?.onPiVersionMismatch(notifyPiVersionMismatch) ?? (() => {});
 		let detached = false;
-		detachTeamManagerListener = () => {
+		detachTeamManagerListener = (flushPersistence = true) => {
 			if (detached) return;
 			detached = true;
 			// session_tree confirms Pi already changed leaves. The handler isolates
 			// old pending data before replacement, and this old listener must not
 			// derive or append another old-branch candidate at the new leaf.
-			if (!provisionalTreeNavigation?.confirmed) flushPendingPersistence();
+			if (flushPersistence && !provisionalTreeNavigation?.confirmed) flushPendingPersistence();
 			detachStateListener();
 			detachWorkerEventListener();
 			detachVersionMismatchListener();
@@ -1003,8 +1023,10 @@ export default function (pi: ExtensionAPI): void {
 		// it must remain retryable on this origin branch without warning or loss.
 		activeContext = ctx;
 		const leafId = currentLeafId();
+		const originLeafId = leafId !== undefined ? leafId : event.preparation.oldLeafId;
 		provisionalTreeNavigation = {
-			originLeafId: leafId !== undefined ? leafId : event.preparation.oldLeafId,
+			originLeafId,
+			appendLeafId: originLeafId,
 			confirmed: false,
 		};
 		attemptBoundedPersistenceFlush();
@@ -1015,7 +1037,7 @@ export default function (pi: ExtensionAPI): void {
 		// This event is the first confirmation that Pi has moved the leaf. Isolate
 		// the unresolved old suffix now—not during the provisional before hook.
 		const hadUnresolvedOldRecords = persistenceJournal.hasPending();
-		provisionalTreeNavigation = { originLeafId: event.oldLeafId, confirmed: true };
+		provisionalTreeNavigation = { originLeafId: event.oldLeafId, appendLeafId: event.oldLeafId, confirmed: true };
 		persistenceJournal.discardPending();
 		if (hadUnresolvedOldRecords) warnPersistenceFailure(PERSISTENCE_TREE_DROP_WARNING);
 		reloading = true;
@@ -1077,11 +1099,17 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		stopSpinner();
 		stopTipRotation();
-		detachTeamManagerListener();
-		await teamManager.dispose();
-		teamState = teamManager.snapshot();
-		clearUi(ctx, activeProjectConfig.config);
-		orchestratorWorking = false;
-		activeContext = undefined;
+		try {
+			// Keep the listener attached: disposal may synchronously publish exited
+			// terminal workers that must become compact persistence records.
+			await teamManager.dispose();
+		} finally {
+			teamState = teamManager.snapshot();
+			flushPendingPersistence();
+			detachTeamManagerListener(false);
+			clearUi(ctx, activeProjectConfig.config);
+			orchestratorWorking = false;
+			activeContext = undefined;
+		}
 	});
 }

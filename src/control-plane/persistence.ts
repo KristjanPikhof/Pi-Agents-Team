@@ -323,10 +323,12 @@ type PendingTransition =
 /** Compact v2 transition journal with append-before-commit semantics. */
 export class CompactPersistenceJournal {
 	private previousWorkers = new Map<string, CompactPersistedWorker>();
+	private observedWorkers = new Map<string, CompactPersistedWorker>();
 	private pending = new Map<string, PendingTransition>();
 
 	reset(state: PersistedTeamState, config: TeamConfig): void {
 		this.previousWorkers.clear();
+		this.observedWorkers.clear();
 		this.pending.clear();
 		for (const worker of Object.values(state.activeWorkers)) {
 			const compact = compactWorker(worker, config);
@@ -334,22 +336,52 @@ export class CompactPersistenceJournal {
 				? (terminalRecord(compact) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>).worker
 				: compact;
 			this.previousWorkers.set(worker.workerId, canonical);
+			this.observedWorkers.set(worker.workerId, canonical);
 		}
 	}
 
+	private observeCurrentWorkers(state: PersistedTeamState, config: TeamConfig): void {
+		const replacements = new Map<string, PendingTransition>();
+		for (const worker of Object.values(state.activeWorkers)) {
+			const compact = compactWorker(worker, config);
+			const canonical = TERMINAL_WORKER_STATUSES.has(worker.status)
+				? (terminalRecord(compact) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>).worker
+				: compact;
+			this.observedWorkers.set(worker.workerId, canonical);
+		}
+		for (const transition of this.pending.values()) {
+			if (!("worker" in transition)) {
+				replacements.set(transition.record.recordId, transition);
+				continue;
+			}
+			const observed = this.observedWorkers.get(transition.worker.workerId);
+			if (!observed || !TERMINAL_WORKER_STATUSES.has(observed.status) || durableEqual(transition.worker, observed)) {
+				replacements.set(transition.record.recordId, transition);
+				continue;
+			}
+			const record = terminalRecord(observed) as Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>;
+			replacements.set(record.recordId, { record, worker: record.worker });
+		}
+		this.pending = replacements;
+	}
+
 	prepare(state: PersistedTeamState, config: TeamConfig): TeamPersistenceRecord[] {
+		// Observation is independent of append success: revisions that arrive while
+		// a transition is pending replace its retry payload with the latest canonical state.
+		this.observeCurrentWorkers(state, config);
 		if (this.pending.size) return [...this.pending.values()].map((transition) => transition.record);
 
 		const currentIds = new Set(Object.keys(state.activeWorkers));
 		for (const [workerId, previous] of this.previousWorkers) {
 			if (currentIds.has(workerId)) continue;
-			const payload = { workerId: previous.workerId, usage: previous.usage, lastEventAt: previous.lastEventAt };
+			const latest = this.observedWorkers.get(workerId) ?? previous;
+			const payload = { workerId: latest.workerId, usage: latest.usage, lastEventAt: latest.lastEventAt };
 			const record: Extract<TeamPersistenceRecord, { kind: "worker_pruned" }> = {
 				version: TEAM_PERSISTENCE_VERSION,
 				kind: "worker_pruned",
 				recordId: recordId("prune", payload),
-				workerId: previous.workerId,
-				usage: previous.usage,
+				workerId: latest.workerId,
+				usage: latest.usage,
 			};
 			this.pending.set(record.recordId, { record, workerId });
 		}
@@ -375,8 +407,13 @@ export class CompactPersistenceJournal {
 	commit(record: TeamPersistenceRecord): void {
 		const transition = this.pending.get(record.recordId);
 		if (!transition) return;
-		if ("worker" in transition) this.previousWorkers.set(transition.worker.workerId, transition.worker);
-		else this.previousWorkers.delete(transition.workerId);
+		if ("worker" in transition) {
+			this.previousWorkers.set(transition.worker.workerId, transition.worker);
+			this.observedWorkers.set(transition.worker.workerId, transition.worker);
+		} else {
+			this.previousWorkers.delete(transition.workerId);
+			this.observedWorkers.delete(transition.workerId);
+		}
 		this.pending.delete(record.recordId);
 	}
 
