@@ -98,8 +98,7 @@ const PERSISTENCE_FLUSH_WARNING = "Pi Agents Team: a compact persistence append 
 const PERSISTENCE_TREE_DROP_WARNING = "Pi Agents Team: compact persistence still failed before tree navigation; unresolved old-branch records were isolated and will not be written onto the new branch.";
 const PERSISTENCE_LIVE_WARNING = "Pi Agents Team: a compact persistence append failed; the bounded uncommitted suffix was retained for a later retry.";
 const PERSISTENCE_AMBIGUOUS_APPEND_WARNING = "Pi Agents Team: a compact persistence append threw after Pi advanced the session leaf; the durably confirmed tail record was treated as accepted and will not be retried beneath that leaf.";
-const PERSISTENCE_AMBIGUOUS_RECOVERY_WARNING = "Pi Agents Team: a compact persistence append advanced Pi's in-memory leaf without a durable session-file tail; the file boundary and leaf were restored and the transition remains pending for a safe sibling retry.";
-const PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING = "Pi Agents Team: compact persistence retry is blocked because the active session-file boundary could not be captured or restored safely.";
+const PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING = "Pi Agents Team: compact persistence is disabled for the active session because its disk and in-memory state may differ or the session-file boundary could not be captured or restored safely; reload the session before retrying persistence.";
 const PERSISTENCE_TAIL_READ_BYTES = 32 * 1024;
 const UNKNOWN_PERSISTED_SESSION_FILE = "<unknown-persisted-session-file>";
 
@@ -196,24 +195,29 @@ function activeBranchWithPersistenceTail(
 	const leafId = sessionManager.getLeafId?.();
 	if (leafId === undefined) return branch;
 
-	const entries = Array.from(sessionManager.getEntries());
+	const childrenByParent = new Map<string | null, PersistenceSessionEntry[]>();
+	for (const entry of sessionManager.getEntries()) {
+		if ((typeof entry.parentId !== "string" && entry.parentId !== null)
+			|| entry.type !== "custom"
+			|| entry.customType !== stateCustomType
+			|| !isRecognizedCompactPersistenceRecord(entry.data)
+			|| typeof entry.id !== "string") continue;
+		const children = childrenByParent.get(entry.parentId) ?? [];
+		children.push(entry);
+		childrenByParent.set(entry.parentId, children);
+	}
+
 	const visited = new Set(branch.flatMap((entry) => typeof entry.id === "string" ? [entry.id] : []));
 	let parentId: string | null = leafId;
 	while (true) {
-		let next: PersistenceSessionEntry | undefined;
-		for (const entry of entries) {
-			if (entry.parentId !== parentId
-				|| entry.type !== "custom"
-				|| entry.customType !== stateCustomType
-				|| !isRecognizedCompactPersistenceRecord(entry.data)
-				|| typeof entry.id !== "string"
-				|| visited.has(entry.id)) continue;
-			next = entry;
-		}
-		if (!next?.id) break;
+		const candidates = (childrenByParent.get(parentId) ?? []).filter((entry) => !visited.has(entry.id!));
+		// Multiple valid children are distinct branches. There is no ordering signal
+		// that makes one of those siblings the active persistence tail.
+		if (candidates.length !== 1) break;
+		const next = candidates[0]!;
 		branch.push(next);
-		visited.add(next.id);
-		parentId = next.id;
+		visited.add(next.id!);
+		parentId = next.id!;
 	}
 	return branch;
 }
@@ -478,6 +482,7 @@ function createPiVersionMismatchNotifier(notify: (message: string) => void): {
 }
 
 export const _testing = {
+	activeBranchWithPersistenceTail,
 	createPersistenceGrowthMonitor,
 	PERSISTENCE_BYTE_WARNING_THRESHOLD,
 	PERSISTENCE_GROWTH_WARNING,
@@ -845,24 +850,21 @@ export default function (pi: ExtensionAPI): void {
 								record.recordId,
 							));
 					if (!durablyConfirmed) {
-						const fileRestored = !persisted || restoreSessionFileBoundary(fileBoundary);
-						let leafRestored = false;
+						// Truncating the partial write cannot remove the attempted entry from
+						// SessionManager's private index. Move its leaf back when possible so
+						// ordinary session writes remain rooted at a durable parent, but fail
+						// closed: only a clean reload can make memory match disk again.
+						restoreSessionFileBoundary(fileBoundary);
 						try {
 							if (leafBeforeAppend === null) sessionManager?.resetLeaf?.();
 							else sessionManager?.branch?.(leafBeforeAppend);
-							leafRestored = sessionManager?.getLeafId?.() === leafBeforeAppend;
 						} catch {
-							leafRestored = false;
+							// The integrity block below is required regardless of leaf repair.
 						}
-						if (!fileRestored || !leafRestored) {
-							persistenceIntegrityBlockedFile = sessionFile
-								?? sessionFileBeforeAppend
-								?? UNKNOWN_PERSISTED_SESSION_FILE;
-							warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING);
-							return false;
-						}
-						if (provisionalTreeNavigation) provisionalTreeNavigation.appendLeafId = leafBeforeAppend;
-						warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_RECOVERY_WARNING);
+						persistenceIntegrityBlockedFile = sessionFile
+							?? sessionFileBeforeAppend
+							?? UNKNOWN_PERSISTED_SESSION_FILE;
+						warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING);
 						return false;
 					}
 
