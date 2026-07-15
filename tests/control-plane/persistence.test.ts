@@ -80,9 +80,50 @@ test("compact journal ignores runtime churn and appends one capped allowlisted t
 		assert.doesNotMatch(json, new RegExp(secret.replace("/", "\\/")));
 	}
 	assert.deepEqual(journal.collect(state, DEFAULT_TEAM_CONFIG), [], "duplicate settlement is a no-op");
-	state.activeWorkers.w1.usage.inputTokens = 999;
 	state.activeWorkers.w1.lastEventAt += 1;
-	assert.deepEqual(journal.collect(state, DEFAULT_TEAM_CONFIG), [], "terminal stats churn is not durable");
+	assert.deepEqual(journal.collect(state, DEFAULT_TEAM_CONFIG), [], "terminal activity timestamp churn is not durable");
+	state.activeWorkers.w1.usage.inputTokens = 999;
+	const [usageRevision] = journal.collect(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(usageRevision?.kind, "worker_terminal", "terminal usage revisions are durable");
+	state.activeWorkers.w1.lastSummary!.headline = "revised result";
+	const [summaryRevision] = journal.collect(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(summaryRevision?.kind, "worker_terminal", "terminal summary revisions are durable");
+});
+
+test("prepare requires append commit and retries an uncommitted transition exactly", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("running");
+	const journal = new CompactPersistenceJournal();
+	journal.reset(state, DEFAULT_TEAM_CONFIG);
+	state.activeWorkers.w1.status = "completed";
+	state.activeWorkers.w1.lastSummary!.status = "completed";
+	const [first] = journal.prepare(state, DEFAULT_TEAM_CONFIG);
+	assert.ok(first);
+	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), [first], "failed append remains pending");
+	journal.commit(first);
+	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), []);
+});
+
+test("Unicode-heavy records are deterministically UTF-8 bounded without split surrogates", () => {
+	const state = createDefaultTeamState();
+	const unicodeWorker = worker("completed");
+	unicodeWorker.lastSummary!.headline = "😀".repeat(10_000);
+	unicodeWorker.lastSummary!.readFiles = Array.from({ length: 200 }, (_, index) => `${index}-${"界".repeat(1_000)}`);
+	unicodeWorker.lastSummary!.changedFiles = [...unicodeWorker.lastSummary!.readFiles];
+	unicodeWorker.lastSummary!.risks = [...unicodeWorker.lastSummary!.readFiles];
+	state.activeWorkers.w1 = unicodeWorker;
+	const config = structuredClone(DEFAULT_TEAM_CONFIG);
+	config.summaries.maxHeadlineLength = 100_000;
+	config.summaries.maxItemsPerWorker = 1_000;
+	config.summaries.maxChangedFiles = 1_000;
+	const firstJournal = new CompactPersistenceJournal();
+	const secondJournal = new CompactPersistenceJournal();
+	const [first] = firstJournal.collect(state, config);
+	const [second] = secondJournal.collect(state, config);
+	assert.deepEqual(first, second);
+	assert.ok(first);
+	assert.ok(Buffer.byteLength(JSON.stringify(first), "utf8") <= 16 * 1024);
+	assert.doesNotMatch(JSON.stringify(first), /�/);
 });
 
 test("v2 replay is deterministic and prune retains usage exactly once", () => {
@@ -125,13 +166,30 @@ test("legacy snapshots remain readable but non-durable payloads are discarded", 
 	assert.deepEqual(restored.relayQueue, []);
 });
 
-test("markRestoredWorkersExited converts live workers and maps branch reasons", () => {
+test("malformed and future same-type records do not reset valid replay state", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("completed");
+	const journal = new CompactPersistenceJournal();
+	const [terminal] = journal.collect(state, DEFAULT_TEAM_CONFIG);
+	assert.ok(terminal);
+	const restored = restorePersistedTeamState([
+		entry(terminal),
+		entry({ version: 2, kind: "worker_terminal", recordId: "bad", worker: { workerId: 7 } }),
+		entry({ version: 999, kind: "worker_terminal", recordId: "future", worker: {} }),
+		entry({ version: 2, kind: "unexpected", recordId: "unknown" }),
+	], DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
+	assert.equal(restored.activeWorkers.w1?.lastSummary?.headline, "done");
+});
+
+test("markRestoredWorkersExited detaches live workers without overwriting their saved summary", () => {
 	const base = createDefaultTeamState();
-	base.activeWorkers.w1 = worker("running");
+	base.activeWorkers.w1 = worker("idle");
+	const savedSummary = structuredClone(base.activeWorkers.w1.lastSummary);
 	const { state: resumed, markedCount } = markRestoredWorkersExited(base, "resume");
 	assert.equal(markedCount, 1);
 	assert.equal(resumed.activeWorkers.w1?.status, "exited");
 	assert.match(resumed.activeWorkers.w1?.error ?? "", /resumed/);
+	assert.deepEqual(resumed.activeWorkers.w1?.lastSummary, savedSummary);
 
 	const forkBase = createDefaultTeamState();
 	forkBase.activeWorkers.w1 = worker("running");
