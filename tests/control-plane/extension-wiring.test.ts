@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -51,6 +51,26 @@ function makeWidgetState() {
 		},
 	};
 	return state;
+}
+
+function assistantMessage(text: string): Parameters<SessionManager["appendMessage"]>[0] {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text }],
+		api: "anthropic-messages",
+		provider: "anthropic",
+		model: "test-model",
+		usage: {
+			input: 1,
+			output: 1,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 2,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: Date.now(),
+	};
 }
 
 test("extension mismatch notifier emits exactly one non-fatal session warning", () => {
@@ -366,6 +386,229 @@ test("leaf-advance append failure is resolved once and later durable state gets 
 			return data && typeof data === "object" && "kind" in data ? data.kind : undefined;
 		}), ["worker_terminal", "worker_terminal"]);
 	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("partial persisted tail after leaf mutation is truncated before a reload-safe sibling retry", async () => {
+	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+	const handlers = new Map<string, Handler>();
+	const listeners: Array<(state: PersistedTeamState) => void> = [];
+	const warnings: string[] = [];
+	const sessionDir = mkdtempSync(join(tmpdir(), "pi-agent-team-persisted-append-"));
+	const sessionManager = SessionManager.create(process.cwd(), sessionDir);
+	const anchorId = sessionManager.appendMessage(assistantMessage("durable anchor"));
+	const sessionFile = sessionManager.getSessionFile();
+	assert.ok(sessionFile);
+	const originalFileSize = statSync(sessionFile).size;
+	const originalPersist = sessionManager._persist.bind(sessionManager);
+	let failPersist = true;
+	sessionManager._persist = (entry) => {
+		if (failPersist) {
+			failPersist = false;
+			appendFileSync(sessionFile, "{\"partial\":");
+			throw new Error("partial disk write failed after SessionManager mutation");
+		}
+		originalPersist(entry);
+	};
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: PersistedTeamState) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {},
+			registerCommand() {},
+			on(event: string, handler: Handler) {
+				handlers.set(event, handler);
+			},
+			appendEntry(type: string, data: unknown) {
+				sessionManager.appendCustomEntry(type, data);
+			},
+			sendMessage() {},
+		} as unknown as ExtensionAPI);
+		const ctx = {
+			cwd: process.cwd(),
+			hasUI: true,
+			ui: {
+				notify(message: string, level: string) {
+					if (level === "warning") warnings.push(message);
+				},
+				setStatus() {},
+				setWidget() {},
+				setTitle() {},
+				addAutocompleteProvider() {},
+			},
+			sessionManager,
+		} as unknown as ExtensionContext;
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		const listener = listeners.at(-1)!;
+		assert.doesNotThrow(() => listener(state));
+		assert.equal(sessionManager.getLeafId(), anchorId, "non-durable phantom leaf is rolled back to the safe parent");
+		assert.equal(statSync(sessionFile).size, originalFileSize, "partial JSONL bytes are truncated to the pre-append boundary");
+		assert.equal(warnings.filter((message) => message.includes("without a durable session-file tail")).length, 1);
+
+		listener(state);
+		assert.notEqual(sessionManager.getLeafId(), anchorId);
+		const reloaded = SessionManager.open(sessionFile, sessionDir);
+		const restored = restorePersistedTeamState(reloaded.getBranch(), DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
+		assert.equal(restored.activeWorkers.w1?.status, "completed");
+		assert.equal(
+			reloaded.getBranch().filter((item) =>
+				item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType).length,
+			1,
+		);
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("failed phantom-leaf rollback remains blocked across before_tree and session_tree", async () => {
+	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+	const handlers = new Map<string, Handler>();
+	const listeners: Array<(state: PersistedTeamState) => void> = [];
+	const warnings: string[] = [];
+	const sessionDir = mkdtempSync(join(tmpdir(), "pi-agent-team-blocked-repair-"));
+	const sessionManager = SessionManager.create(process.cwd(), sessionDir);
+	const anchorId = sessionManager.appendMessage(assistantMessage("durable anchor"));
+	const sessionFile = sessionManager.getSessionFile();
+	assert.ok(sessionFile);
+	const originalFileSize = statSync(sessionFile).size;
+	const originalPersist = sessionManager._persist.bind(sessionManager);
+	sessionManager._persist = () => {
+		appendFileSync(sessionFile, "{\"partial\":");
+		throw new Error("partial disk write failed after SessionManager mutation");
+	};
+	const originalBranch = sessionManager.branch.bind(sessionManager);
+	sessionManager.branch = () => {
+		throw new Error("leaf rollback failed");
+	};
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	let appendCalls = 0;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: PersistedTeamState) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {},
+			registerCommand() {},
+			on(event: string, handler: Handler) {
+				handlers.set(event, handler);
+			},
+			appendEntry(type: string, data: unknown) {
+				appendCalls += 1;
+				sessionManager.appendCustomEntry(type, data);
+			},
+			sendMessage() {},
+		} as unknown as ExtensionAPI);
+		const ctx = {
+			cwd: process.cwd(),
+			hasUI: true,
+			ui: {
+				notify(message: string, level: string) {
+					if (level === "warning") warnings.push(message);
+				},
+				setStatus() {},
+				setWidget() {},
+				setTitle() {},
+				addAutocompleteProvider() {},
+			},
+			sessionManager,
+		} as unknown as ExtensionContext;
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		listeners.at(-1)!(state);
+		assert.equal(appendCalls, 1);
+		assert.equal(statSync(sessionFile).size, originalFileSize, "file repair can succeed even when leaf rollback fails");
+		assert.equal(warnings.filter((message) => message.includes("boundary could not be captured or restored")).length, 1);
+
+		const phantomLeafId = sessionManager.getLeafId();
+		assert.ok(phantomLeafId);
+		await handlers.get("session_before_tree")?.({
+			preparation: { oldLeafId: phantomLeafId },
+			signal: undefined,
+		}, ctx);
+		await handlers.get("session_tree")?.({ oldLeafId: phantomLeafId, newLeafId: anchorId }, ctx);
+		state.activeWorkers.w1.usage.inputTokens += 1;
+		listeners.at(-1)!(state);
+		assert.equal(appendCalls, 1, "tree hooks do not clear an integrity block for the same session file");
+	} finally {
+		sessionManager._persist = originalPersist;
+		sessionManager.branch = originalBranch;
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("non-ENOENT session-file stat failure blocks before append without unlinking data", async () => {
+	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+	const handlers = new Map<string, Handler>();
+	const listeners: Array<(state: PersistedTeamState) => void> = [];
+	const warnings: string[] = [];
+	const sessionDir = mkdtempSync(join(tmpdir(), "pi-agent-team-stat-failure-"));
+	const sessionManager = SessionManager.create(process.cwd(), sessionDir);
+	sessionManager.appendMessage(assistantMessage("durable anchor"));
+	const sessionFile = sessionManager.getSessionFile();
+	assert.ok(sessionFile);
+	const originalContents = readFileSync(sessionFile);
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	let appendCalls = 0;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: PersistedTeamState) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {},
+			registerCommand() {},
+			on(event: string, handler: Handler) {
+				handlers.set(event, handler);
+			},
+			appendEntry() {
+				appendCalls += 1;
+			},
+			sendMessage() {},
+		} as unknown as ExtensionAPI);
+		const ctx = {
+			cwd: process.cwd(),
+			hasUI: true,
+			ui: {
+				notify(message: string, level: string) {
+					if (level === "warning") warnings.push(message);
+				},
+				setStatus() {},
+				setWidget() {},
+				setTitle() {},
+				addAutocompleteProvider() {},
+			},
+			sessionManager,
+		} as unknown as ExtensionContext;
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		chmodSync(sessionDir, 0);
+		try {
+			listeners.at(-1)!(state);
+		} finally {
+			chmodSync(sessionDir, 0o700);
+		}
+		assert.equal(appendCalls, 0, "an unusable persisted boundary blocks before pi.appendEntry");
+		assert.deepEqual(readFileSync(sessionFile), originalContents, "a non-ENOENT stat failure never unlinks or truncates data");
+		assert.equal(warnings.filter((message) => message.includes("boundary could not be captured or restored")).length, 1);
+
+		state.activeWorkers.w1.usage.inputTokens += 1;
+		listeners.at(-1)!(state);
+		assert.equal(appendCalls, 0, "restoring permissions alone does not clear the same-file integrity block");
+		assert.deepEqual(readFileSync(sessionFile), originalContents);
+	} finally {
+		chmodSync(sessionDir, 0o700);
 		TeamManager.prototype.onStateChange = originalOnStateChange;
 	}
 });
@@ -742,7 +985,12 @@ test("cancelled or aborted root-origin navigation permits later same-branch term
 			} as any);
 			const ctx = { cwd: process.cwd(), hasUI: false, sessionManager } as any;
 			assert.equal(sessionManager.getLeafId(), null);
-			await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: null }, signal: undefined }, ctx);
+			const navigationAbort = new AbortController();
+			await handlers.get("session_before_tree")?.({
+				preparation: { oldLeafId: null },
+				signal: navigationAbort.signal,
+			}, ctx);
+			navigationAbort.abort();
 			// Pi emits no session_tree for either outcome. An unrelated extension entry
 			// faithfully advances the in-memory SessionManager leaf from conceptual root.
 			sessionManager.appendCustomEntry(`ordinary-${outcome}`, {});
@@ -762,13 +1010,155 @@ test("cancelled or aborted root-origin navigation permits later same-branch term
 	}
 });
 
+test("root-origin guard blocks old persistence while an earlier session_tree handler yields", async () => {
+	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+	const handlers = new Map<string, Handler>();
+	const listeners: Array<(state: PersistedTeamState) => void> = [];
+	const warnings: string[] = [];
+	const sessionManager = SessionManager.inMemory(process.cwd());
+	const destinationId = sessionManager.appendMessage(assistantMessage("existing destination"));
+	sessionManager.resetLeaf();
+	let appendCalls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: PersistedTeamState) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {},
+			registerCommand() {},
+			on(event: string, handler: Handler) {
+				handlers.set(event, handler);
+			},
+			appendEntry(type: string, data: unknown) {
+				appendCalls += 1;
+				if (appendCalls <= 2) throw new Error("origin append unavailable");
+				sessionManager.appendCustomEntry(type, data);
+			},
+			sendMessage() {},
+		} as unknown as ExtensionAPI);
+		const ctx = {
+			cwd: process.cwd(),
+			hasUI: true,
+			ui: {
+				notify(message: string, level: string) {
+					if (level === "warning") warnings.push(message);
+				},
+				setStatus() {},
+				setWidget() {},
+				setTitle() {},
+				addAutocompleteProvider() {},
+			},
+			sessionManager,
+		} as unknown as ExtensionContext;
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		const listener = listeners.at(-1)!;
+		listener(state);
+		await handlers.get("session_before_tree")?.({
+			preparation: { oldLeafId: null, targetId: destinationId },
+			signal: undefined,
+		}, ctx);
+		assert.equal(appendCalls, 2);
+
+		sessionManager.branch(destinationId);
+		let releaseEarlierHandler: (() => void) | undefined;
+		const earlierHandler = new Promise<void>((resolve) => {
+			releaseEarlierHandler = resolve;
+		});
+		const treeDispatch = (async () => {
+			await earlierHandler;
+			await handlers.get("session_tree")?.({ oldLeafId: null, newLeafId: destinationId }, ctx);
+		})();
+		assert.doesNotThrow(() => listener(state));
+		assert.equal(appendCalls, 2, "guard rejects the proven destination before invoking appendEntry");
+		assert.equal(
+			sessionManager.getBranch().filter((item) =>
+				item.type === "custom" && item.customType === DEFAULT_TEAM_CONFIG.persistence.stateCustomType).length,
+			0,
+		);
+		releaseEarlierHandler?.();
+		await treeDispatch;
+		assert.equal(warnings.filter((message) => message.includes("old-branch records were isolated")).length, 1);
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("root user target blocks null-to-null persistence while session_tree dispatch is pending", async () => {
+	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+	const handlers = new Map<string, Handler>();
+	const listeners: Array<(state: PersistedTeamState) => void> = [];
+	const sessionManager = SessionManager.inMemory(process.cwd());
+	const targetId = sessionManager.appendMessage({
+		role: "user",
+		content: "root target",
+		timestamp: Date.now(),
+	});
+	sessionManager.resetLeaf();
+	let appendCalls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: PersistedTeamState) => void) {
+			listeners.push(listener);
+			return () => {};
+		};
+		extension({
+			registerTool() {},
+			registerCommand() {},
+			on(event: string, handler: Handler) {
+				handlers.set(event, handler);
+			},
+			appendEntry() {
+				appendCalls += 1;
+				throw new Error("root-origin append unavailable");
+			},
+			sendMessage() {},
+		} as unknown as ExtensionAPI);
+		const ctx = {
+			cwd: process.cwd(),
+			hasUI: false,
+			sessionManager,
+		} as unknown as ExtensionContext;
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		const listener = listeners.at(-1)!;
+		listener(state);
+		const navigationAbort = new AbortController();
+		await handlers.get("session_before_tree")?.({
+			preparation: { oldLeafId: null, targetId },
+			signal: navigationAbort.signal,
+		}, ctx);
+		assert.equal(appendCalls, 2);
+		assert.equal(sessionManager.getLeafId(), null);
+
+		let releaseEarlierHandler: (() => void) | undefined;
+		const earlierHandler = new Promise<void>((resolve) => {
+			releaseEarlierHandler = resolve;
+		});
+		const treeDispatch = (async () => {
+			await earlierHandler;
+			await handlers.get("session_tree")?.({ oldLeafId: null, newLeafId: null }, ctx);
+		})();
+		assert.doesNotThrow(() => listener(state));
+		assert.equal(appendCalls, 2, "null leaf equality cannot bypass the provisional root dispatch block");
+		releaseEarlierHandler?.();
+		await treeDispatch;
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
 test("tree away and back restores fresh and reused running workers as detached without provisional cancellation", async () => {
 	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
 	const handlers = new Map<string, Handler>();
 	const listeners: Array<(state: PersistedTeamState) => void> = [];
 	const tools: RegisteredTool[] = [];
 	const sessionManager = SessionManager.inMemory(process.cwd());
-	const anchorId = sessionManager.appendCustomEntry("anchor", {});
+	const anchorId = sessionManager.appendMessage(assistantMessage("visible origin"));
 	let disposeCalls = 0;
 	const originalOnStateChange = TeamManager.prototype.onStateChange;
 	const originalDispose = TeamManager.prototype.dispose;
@@ -848,14 +1238,28 @@ test("tree away and back restores fresh and reused running workers as detached w
 
 		const statusTool = tools.find((tool) => tool.name === "agent_status")!;
 		sessionManager.branch(anchorId);
-		const awayLeafId = sessionManager.appendCustomEntry("away", {});
+		const awayLeafId = sessionManager.appendMessage(assistantMessage("visible destination"));
 		await handlers.get("session_tree")?.({ oldLeafId: originLeafId, newLeafId: awayLeafId }, ctx);
 		const awayStatus = await statusTool.execute!("call", {});
 		assert.deepEqual(awayStatus.details.workers, []);
 		assert.equal(disposeCalls, disposeBaseline + 1, "runtime replacement begins only after confirmed navigation");
 
-		sessionManager.branch(originLeafId);
-		await handlers.get("session_tree")?.({ oldLeafId: awayLeafId, newLeafId: originLeafId }, ctx);
+		sessionManager.branch(anchorId);
+		sessionManager.appendCustomEntry(DEFAULT_TEAM_CONFIG.persistence.stateCustomType, {
+			version: 999,
+			kind: "worker_terminal",
+			recordId: "future-shadow",
+			worker: {},
+		});
+		sessionManager.branch(anchorId);
+		sessionManager.appendCustomEntry(DEFAULT_TEAM_CONFIG.persistence.stateCustomType, {
+			version: 2,
+			kind: "worker_terminal",
+			recordId: "malformed-shadow",
+			worker: {},
+		});
+		sessionManager.branch(anchorId);
+		await handlers.get("session_tree")?.({ oldLeafId: awayLeafId, newLeafId: anchorId }, ctx);
 		const restoredStatus = await statusTool.execute!("call", {});
 		const restoredWorkers: WorkerRuntimeState[] = restoredStatus.details.workers;
 		assert.deepEqual(restoredWorkers.map((item) => item.workerId).sort(), ["w-fresh", "w-reused"]);

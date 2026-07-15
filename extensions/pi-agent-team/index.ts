@@ -1,3 +1,4 @@
+import { closeSync, existsSync, fstatSync, openSync, readSync, statSync, truncateSync, unlinkSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config.js";
@@ -5,6 +6,7 @@ import {
 	CompactPersistenceJournal,
 	compactPersistenceRecordPayloadBytes,
 	markRestoredWorkersExited,
+	isRecognizedCompactPersistenceRecord,
 	measureCompactPersistence,
 	restorePersistedTeamState,
 	type CompactPersistenceMeasurement,
@@ -95,7 +97,11 @@ const PERSISTENCE_GROWTH_WARNING = "Pi Agents Team: this active branch contains 
 const PERSISTENCE_FLUSH_WARNING = "Pi Agents Team: a compact persistence append still failed during final retry; the uncommitted transition could not be saved before teardown.";
 const PERSISTENCE_TREE_DROP_WARNING = "Pi Agents Team: compact persistence still failed before tree navigation; unresolved old-branch records were isolated and will not be written onto the new branch.";
 const PERSISTENCE_LIVE_WARNING = "Pi Agents Team: a compact persistence append failed; the bounded uncommitted suffix was retained for a later retry.";
-const PERSISTENCE_AMBIGUOUS_APPEND_WARNING = "Pi Agents Team: a compact persistence append threw after Pi advanced the session leaf; the in-memory record was treated as accepted and will not be retried beneath that leaf.";
+const PERSISTENCE_AMBIGUOUS_APPEND_WARNING = "Pi Agents Team: a compact persistence append threw after Pi advanced the session leaf; the durably confirmed tail record was treated as accepted and will not be retried beneath that leaf.";
+const PERSISTENCE_AMBIGUOUS_RECOVERY_WARNING = "Pi Agents Team: a compact persistence append advanced Pi's in-memory leaf without a durable session-file tail; the file boundary and leaf were restored and the transition remains pending for a safe sibling retry.";
+const PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING = "Pi Agents Team: compact persistence retry is blocked because the active session-file boundary could not be captured or restored safely.";
+const PERSISTENCE_TAIL_READ_BYTES = 32 * 1024;
+const UNKNOWN_PERSISTED_SESSION_FILE = "<unknown-persisted-session-file>";
 
 function createPersistenceGrowthMonitor(notify: (message: string) => void) {
 	let measurement: CompactPersistenceMeasurement = { recordCount: 0, payloadBytes: 0 };
@@ -170,15 +176,129 @@ function isPersistedSession(ctx: ExtensionContext): boolean {
 	return typeof sessionManager.isPersisted !== "function" || sessionManager.isPersisted() !== false;
 }
 
+interface PersistenceSessionEntry {
+	type: string;
+	id?: string;
+	parentId?: string | null;
+	customType?: string;
+	data?: unknown;
+}
+
+function activeBranchWithPersistenceTail(
+	sessionManager: {
+		getBranch?: () => Iterable<PersistenceSessionEntry>;
+		getEntries: () => Iterable<PersistenceSessionEntry>;
+		getLeafId?: () => string | null;
+	},
+	stateCustomType: string,
+): PersistenceSessionEntry[] {
+	const branch = Array.from(sessionManager.getBranch?.() ?? sessionManager.getEntries());
+	const leafId = sessionManager.getLeafId?.();
+	if (leafId === undefined) return branch;
+
+	const entries = Array.from(sessionManager.getEntries());
+	const visited = new Set(branch.flatMap((entry) => typeof entry.id === "string" ? [entry.id] : []));
+	let parentId: string | null = leafId;
+	while (true) {
+		let next: PersistenceSessionEntry | undefined;
+		for (const entry of entries) {
+			if (entry.parentId !== parentId
+				|| entry.type !== "custom"
+				|| entry.customType !== stateCustomType
+				|| !isRecognizedCompactPersistenceRecord(entry.data)
+				|| typeof entry.id !== "string"
+				|| visited.has(entry.id)) continue;
+			next = entry;
+		}
+		if (!next?.id) break;
+		branch.push(next);
+		visited.add(next.id);
+		parentId = next.id;
+	}
+	return branch;
+}
+
+interface SessionFileBoundary {
+	path: string;
+	existed: boolean;
+	size: number;
+}
+
+function captureSessionFileBoundary(sessionFile: string | undefined): SessionFileBoundary | undefined {
+	if (!sessionFile) return undefined;
+	try {
+		return { path: sessionFile, existed: true, size: statSync(sessionFile).size };
+	} catch (error) {
+		if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+			return { path: sessionFile, existed: false, size: 0 };
+		}
+		return undefined;
+	}
+}
+
+function restoreSessionFileBoundary(boundary: SessionFileBoundary | undefined): boolean {
+	if (!boundary) return false;
+	try {
+		if (boundary.existed) {
+			truncateSync(boundary.path, boundary.size);
+			return statSync(boundary.path).size === boundary.size;
+		}
+		if (existsSync(boundary.path)) unlinkSync(boundary.path);
+		return !existsSync(boundary.path);
+	} catch {
+		return false;
+	}
+}
+
+function persistedTailContainsRecord(
+	sessionFile: string,
+	leafId: string,
+	stateCustomType: string,
+	recordId: string,
+): boolean {
+	let descriptor: number | undefined;
+	try {
+		descriptor = openSync(sessionFile, "r");
+		const size = fstatSync(descriptor).size;
+		if (size <= 0) return false;
+		const length = Math.min(size, PERSISTENCE_TAIL_READ_BYTES);
+		const buffer = Buffer.allocUnsafe(length);
+		const bytesRead = readSync(descriptor, buffer, 0, length, size - length);
+		const rawTail = buffer.subarray(0, bytesRead).toString("utf8").trimEnd().split("\n").at(-1);
+		if (!rawTail) return false;
+		const tail: unknown = JSON.parse(rawTail);
+		if (!tail || typeof tail !== "object" || Array.isArray(tail)) return false;
+		if (!("id" in tail) || tail.id !== leafId
+			|| !("type" in tail) || tail.type !== "custom"
+			|| !("customType" in tail) || tail.customType !== stateCustomType
+			|| !("data" in tail) || !tail.data || typeof tail.data !== "object" || Array.isArray(tail.data)
+			|| !("recordId" in tail.data)) return false;
+		return tail.data.recordId === recordId;
+	} catch {
+		return false;
+	} finally {
+		if (descriptor !== undefined) {
+			try {
+				closeSync(descriptor);
+			} catch {
+				// A completed read remains usable; descriptor cleanup cannot change
+				// whether the exact record was already present at the file tail.
+			}
+		}
+	}
+}
+
 function restoreLatestState(
 	ctx: ExtensionContext,
 	startReason: "startup" | "reload" | "new" | "resume" | "fork",
 	config: TeamConfig = DEFAULT_TEAM_CONFIG,
 ): { state: PersistedTeamState; markedCount: number; persistenceMeasurement: CompactPersistenceMeasurement } {
 	const sessionManager = ctx.sessionManager as typeof ctx.sessionManager & {
-		getBranch?: () => Iterable<{ type: string; customType?: string; data?: unknown }>;
+		getBranch?: () => Iterable<PersistenceSessionEntry>;
+		getEntries: () => Iterable<PersistenceSessionEntry>;
+		getLeafId?: () => string | null;
 	};
-	const branch = Array.from(sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries());
+	const branch = activeBranchWithPersistenceTail(sessionManager, config.persistence.stateCustomType);
 	const restoredState = restorePersistedTeamState(branch, config.persistence.stateCustomType);
 	const persistenceMeasurement = measureCompactPersistence(branch, config.persistence.stateCustomType);
 	const { state, markedCount } = markRestoredWorkersExited(restoredState, startReason);
@@ -412,8 +532,12 @@ export default function (pi: ExtensionAPI): void {
 		originLeafId: string | null;
 		appendLeafId: string | null;
 		confirmed: boolean;
+		rootDispatchBlocked: boolean;
+		originBranchEntryIds: ReadonlySet<string>;
+		preexistingEntryIds: ReadonlySet<string>;
 	};
 	let provisionalTreeNavigation: ProvisionalTreeNavigation | undefined;
+	let persistenceIntegrityBlockedFile: string | undefined;
 	const restoredWorkerIds = new Set<string>();
 	// Gate for session_start swap window — tool bodies reject during reload so
 	// an in-flight delegate_task / wait_for_agents / agent_message doesn't
@@ -585,13 +709,43 @@ export default function (pi: ExtensionAPI): void {
 	function currentSessionManager(): {
 		getLeafId?: () => string | null;
 		getBranch?: () => Iterable<{ id?: string }>;
-		getEntry?: (id: string) => { type?: string; customType?: string; data?: unknown } | undefined;
+		getEntries?: () => Iterable<{ id?: string }>;
+		getEntry?: (id: string) => {
+			id?: string;
+			parentId?: string | null;
+			type?: string;
+			customType?: string;
+			targetId?: string;
+			data?: unknown;
+		} | undefined;
+		isPersisted?: () => boolean;
+		getSessionFile?: () => string | undefined;
+		branch?: (id: string) => void;
+		resetLeaf?: () => void;
 	} | undefined {
 		return activeContext?.sessionManager as {
 			getLeafId?: () => string | null;
 			getBranch?: () => Iterable<{ id?: string }>;
-			getEntry?: (id: string) => { type?: string; customType?: string; data?: unknown } | undefined;
+			getEntries?: () => Iterable<{ id?: string }>;
+			getEntry?: (id: string) => {
+				id?: string;
+				parentId?: string | null;
+				type?: string;
+				customType?: string;
+				targetId?: string;
+				data?: unknown;
+			} | undefined;
+			isPersisted?: () => boolean;
+			getSessionFile?: () => string | undefined;
+			branch?: (id: string) => void;
+			resetLeaf?: () => void;
 		} | undefined;
+	}
+
+	function currentPersistenceFileIdentity(): string | undefined {
+		const sessionManager = currentSessionManager();
+		if (sessionManager?.isPersisted?.() === false) return undefined;
+		return sessionManager?.getSessionFile?.() ?? UNKNOWN_PERSISTED_SESSION_FILE;
 	}
 
 	function currentLeafId(): string | null | undefined {
@@ -603,11 +757,24 @@ export default function (pi: ExtensionAPI): void {
 		if (!navigation) return;
 		const sessionManager = currentSessionManager();
 		const leafId = sessionManager?.getLeafId?.();
-		if (leafId === undefined || leafId === navigation.appendLeafId) return;
-		// Null is the conceptual root ancestor. While navigation is only
-		// provisional, any successor remains on that root-origin branch; Pi moves
-		// the leaf and emits session_tree synchronously before worker events run.
-		if (navigation.appendLeafId === null && !navigation.confirmed) return;
+		if (leafId === undefined) return;
+		if (navigation.rootDispatchBlocked && !navigation.confirmed && navigation.originLeafId === null) {
+			throw new Error("Refusing to append root-origin persistence before tree navigation is confirmed or cancelled.");
+		}
+		if (leafId === navigation.appendLeafId) return;
+		if (navigation.appendLeafId === null && !navigation.confirmed) {
+			const branch = Array.from(sessionManager?.getBranch?.() ?? []);
+			const reachedPreexistingDestination = branch.some((entry) =>
+				typeof entry.id === "string"
+				&& navigation.preexistingEntryIds.has(entry.id)
+				&& !navigation.originBranchEntryIds.has(entry.id));
+			const leafEntry = leafId === null ? undefined : sessionManager?.getEntry?.(leafId);
+			const reachedNavigationArtifact = leafEntry?.type === "branch_summary"
+				|| (leafEntry?.type === "label"
+					&& typeof leafEntry.targetId === "string"
+					&& navigation.preexistingEntryIds.has(leafEntry.targetId));
+			if (!reachedPreexistingDestination && !reachedNavigationArtifact) return;
+		}
 		if (navigation.appendLeafId !== null) {
 			const branch = sessionManager?.getBranch?.();
 			if (branch && Array.from(branch).some((entry) => entry.id === navigation.appendLeafId)) return;
@@ -623,11 +790,28 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	function appendPreparedPersistence(maxBatches = 2): boolean {
+		const currentFileIdentity = currentPersistenceFileIdentity();
+		if (persistenceIntegrityBlockedFile !== undefined) {
+			if (persistenceIntegrityBlockedFile === currentFileIdentity) return false;
+			persistenceIntegrityBlockedFile = undefined;
+		}
+
 		for (let batch = 0; batch < maxBatches; batch += 1) {
 			const records = persistenceJournal.prepare(teamState, activeProjectConfig.config);
 			if (records.length === 0) return true;
 			for (const record of records) {
 				const leafBeforeAppend = currentLeafId();
+				const sessionManagerBeforeAppend = currentSessionManager();
+				const explicitlyPersisted = sessionManagerBeforeAppend?.isPersisted?.() === true;
+				const sessionFileBeforeAppend = explicitlyPersisted
+					? sessionManagerBeforeAppend.getSessionFile?.()
+					: undefined;
+				const fileBoundary = captureSessionFileBoundary(sessionFileBeforeAppend);
+				if (explicitlyPersisted && (!sessionFileBeforeAppend || !fileBoundary)) {
+					persistenceIntegrityBlockedFile = sessionFileBeforeAppend ?? UNKNOWN_PERSISTED_SESSION_FILE;
+					warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING);
+					return false;
+				}
 				try {
 					// Keep this guard adjacent to appendEntry: prepare may have run while an
 					// asynchronous tree summary was still moving the active leaf.
@@ -636,22 +820,55 @@ export default function (pi: ExtensionAPI): void {
 				} catch {
 					const sessionManager = currentSessionManager();
 					const leafAfterFailure = sessionManager?.getLeafId?.();
-					const leafEntry = leafAfterFailure ? sessionManager?.getEntry?.(leafAfterFailure) : undefined;
+					const advancedLeafId = typeof leafAfterFailure === "string" ? leafAfterFailure : undefined;
+					const leafEntry = advancedLeafId ? sessionManager?.getEntry?.(advancedLeafId) : undefined;
 					const entryData = leafEntry?.data;
 					const entryRecordId = entryData && typeof entryData === "object" && "recordId" in entryData
 						? entryData.recordId
 						: undefined;
 					const advancedToAttemptedRecord = leafBeforeAppend !== undefined
-						&& leafAfterFailure !== undefined
-						&& leafAfterFailure !== leafBeforeAppend
+						&& advancedLeafId !== undefined
+						&& advancedLeafId !== leafBeforeAppend
 						&& leafEntry?.type === "custom"
 						&& leafEntry.customType === activeProjectConfig.config.persistence.stateCustomType
 						&& entryRecordId === record.recordId;
-					if (!advancedToAttemptedRecord) return false;
+					if (!advancedToAttemptedRecord || advancedLeafId === undefined) return false;
+
+					const persisted = sessionManager?.isPersisted?.() !== false;
+					const sessionFile = sessionManager?.getSessionFile?.();
+					const durablyConfirmed = !persisted
+						|| (typeof sessionFile === "string"
+							&& persistedTailContainsRecord(
+								sessionFile,
+								advancedLeafId,
+								activeProjectConfig.config.persistence.stateCustomType,
+								record.recordId,
+							));
+					if (!durablyConfirmed) {
+						const fileRestored = !persisted || restoreSessionFileBoundary(fileBoundary);
+						let leafRestored = false;
+						try {
+							if (leafBeforeAppend === null) sessionManager?.resetLeaf?.();
+							else sessionManager?.branch?.(leafBeforeAppend);
+							leafRestored = sessionManager?.getLeafId?.() === leafBeforeAppend;
+						} catch {
+							leafRestored = false;
+						}
+						if (!fileRestored || !leafRestored) {
+							persistenceIntegrityBlockedFile = sessionFile
+								?? sessionFileBeforeAppend
+								?? UNKNOWN_PERSISTED_SESSION_FILE;
+							warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING);
+							return false;
+						}
+						if (provisionalTreeNavigation) provisionalTreeNavigation.appendLeafId = leafBeforeAppend;
+						warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_RECOVERY_WARNING);
+						return false;
+					}
 
 					// Pi 0.80.6/0.80.7 update SessionManager's leaf before synchronous
-					// persistence and extension emission complete. Treat the exact
-					// leaf entry as accepted so this record is never duplicated below it.
+					// persistence and extension emission complete. Commit only when the
+					// exact in-memory entry is also the durable file tail.
 					observePersistenceAppendLeaf();
 					persistenceJournal.resolveAmbiguousAppend(record);
 					persistenceGrowth.recordAppended(compactPersistenceRecordPayloadBytes(record));
@@ -1062,15 +1279,34 @@ export default function (pi: ExtensionAPI): void {
 		// but do not dispose or cancel their runtimes: cancellation/abort emits no
 		// session_tree and those workers must remain usable.
 		activeContext = ctx;
+		const sessionManager = currentSessionManager();
 		const leafId = currentLeafId();
 		const originLeafId = leafId !== undefined ? leafId : event.preparation.oldLeafId;
-		provisionalTreeNavigation = {
+		const originBranchEntryIds = new Set(
+			Array.from(sessionManager?.getBranch?.() ?? [])
+				.flatMap((entry) => typeof entry.id === "string" ? [entry.id] : []),
+		);
+		const preexistingEntryIds = new Set(
+			Array.from(sessionManager?.getEntries?.() ?? [])
+				.flatMap((entry) => typeof entry.id === "string" ? [entry.id] : []),
+		);
+		const navigation: ProvisionalTreeNavigation = {
 			originLeafId,
 			appendLeafId: originLeafId,
 			confirmed: false,
+			rootDispatchBlocked: false,
+			originBranchEntryIds,
+			preexistingEntryIds,
 		};
+		provisionalTreeNavigation = navigation;
+		event.signal?.addEventListener("abort", () => {
+			if (provisionalTreeNavigation === navigation && !navigation.confirmed) {
+				navigation.rootDispatchBlocked = false;
+			}
+		}, { once: true });
 		persistenceJournal.prepareDetachedWorkers(teamState, activeProjectConfig.config);
 		attemptBoundedPersistenceFlush();
+		navigation.rootDispatchBlocked = originLeafId === null;
 	});
 
 	pi.on("session_tree", async (event, ctx) => {
@@ -1078,7 +1314,15 @@ export default function (pi: ExtensionAPI): void {
 		// This event is the first confirmation that Pi has moved the leaf. Isolate
 		// the unresolved old suffix now—not during the provisional before hook.
 		const hadUnresolvedOldRecords = persistenceJournal.hasPending();
-		provisionalTreeNavigation = { originLeafId: event.oldLeafId, appendLeafId: event.oldLeafId, confirmed: true };
+		const provisional = provisionalTreeNavigation;
+		provisionalTreeNavigation = {
+			originLeafId: event.oldLeafId,
+			appendLeafId: event.oldLeafId,
+			confirmed: true,
+			rootDispatchBlocked: false,
+			originBranchEntryIds: provisional?.originBranchEntryIds ?? new Set<string>(),
+			preexistingEntryIds: provisional?.preexistingEntryIds ?? new Set<string>(),
+		};
 		persistenceJournal.discardPending();
 		if (hadUnresolvedOldRecords) warnPersistenceFailure(PERSISTENCE_TREE_DROP_WARNING);
 		reloading = true;
@@ -1099,9 +1343,17 @@ export default function (pi: ExtensionAPI): void {
 		}
 	});
 
+	function releaseCancelledTreeNavigation(): void {
+		if (provisionalTreeNavigation && !provisionalTreeNavigation.confirmed) {
+			provisionalTreeNavigation = undefined;
+		}
+	}
+
 	pi.on("agent_start", async (_event, ctx) => {
+
 		activeContext = ctx;
 		orchestratorWorking = true;
+		releaseCancelledTreeNavigation();
 		teamState = teamManager.snapshot();
 		renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 	});
@@ -1121,6 +1373,7 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		activeContext = ctx;
+		releaseCancelledTreeNavigation();
 		orchestratorWorking = true;
 		teamState = teamManager.snapshot();
 		renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
@@ -1140,6 +1393,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		stopSpinner();
 		stopTipRotation();
+		if (provisionalTreeNavigation && !provisionalTreeNavigation.confirmed) provisionalTreeNavigation = undefined;
 		try {
 			// Keep the listener attached: disposal may synchronously publish exited
 			// terminal workers that must become compact persistence records.
