@@ -933,13 +933,20 @@ test("closeWorker disposes the live RPC and marks the worker exited (not aborted
 	assert.match(closed?.state.error ?? "", /closed by operator/i);
 });
 
-test("dispose marks reusable workers exited while preserving fatal error precedence", async () => {
+test("dispose exits live workers while preserving aborted and fatal terminal precedence", async () => {
 	const idleTransport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const fatalTransport = new MockWorkerTransport({ autoCompletePrompt: false });
-	const transports = [idleTransport, fatalTransport];
+	const abortTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const runningTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const transports = [idleTransport, fatalTransport, abortTransport, runningTransport];
 	const manager = new WorkerManager(() => new MockWorkerHandle(transports.shift()!));
 
-	for (const workerId of ["worker-dispose-idle", "worker-dispose-fatal"]) {
+	for (const workerId of [
+		"worker-dispose-idle",
+		"worker-dispose-fatal",
+		"worker-dispose-aborted",
+		"worker-dispose-running",
+	]) {
 		await manager.launchWorker({
 			workerId,
 			profileName: "reviewer",
@@ -956,9 +963,11 @@ test("dispose marks reusable workers exited while preserving fatal error precede
 	await waitForMicrotasks();
 	assert.equal(manager.getWorker("worker-dispose-idle")?.state.status, "idle");
 
-	const fatalEvents: string[] = [];
+	const terminalEvents = new Map<string, string[]>();
 	manager.onEvent((worker, event) => {
-		if (worker.workerId === "worker-dispose-fatal") fatalEvents.push(event.type);
+		const events = terminalEvents.get(worker.workerId) ?? [];
+		events.push(event.type);
+		terminalEvents.set(worker.workerId, events);
 	});
 	await manager.promptWorker("worker-dispose-fatal", "fail before disposal");
 	fatalTransport.stdout.write("{not valid RPC JSON}\n");
@@ -967,14 +976,25 @@ test("dispose marks reusable workers exited while preserving fatal error precede
 	assert.equal(fatalBeforeDispose?.status, "error");
 	assert.match(fatalBeforeDispose?.error ?? "", /Failed to parse RPC line/);
 
+	await manager.promptWorker("worker-dispose-aborted", "abort before disposal");
+	await manager.abortWorker("worker-dispose-aborted");
+	assert.equal(manager.getWorker("worker-dispose-aborted")?.state.status, "aborted");
+
+	await manager.promptWorker("worker-dispose-running", "remain live until disposal");
+	assert.equal(manager.getWorker("worker-dispose-running")?.state.status, "running");
+
 	await manager.dispose();
 	await waitForMicrotasks();
 
 	assert.equal(manager.getWorker("worker-dispose-idle")?.state.status, "exited");
+	assert.equal(manager.getWorker("worker-dispose-running")?.state.status, "exited");
+	assert.equal(manager.getWorker("worker-dispose-aborted")?.state.status, "aborted");
 	const fatalAfterDispose = manager.getWorker("worker-dispose-fatal")?.state;
 	assert.equal(fatalAfterDispose?.status, "error");
 	assert.equal(fatalAfterDispose?.error, fatalBeforeDispose?.error);
-	assert.equal(fatalEvents.filter((type) => type === "worker_idle").length, 0);
+	for (const workerId of ["worker-dispose-fatal", "worker-dispose-aborted"]) {
+		assert.equal(terminalEvents.get(workerId)?.filter((type) => type === "worker_idle").length ?? 0, 0);
+	}
 });
 
 test("closeWorker rejects running workers", async () => {

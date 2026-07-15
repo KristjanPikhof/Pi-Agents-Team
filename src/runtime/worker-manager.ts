@@ -1167,14 +1167,16 @@ export class WorkerManager {
 				break;
 			case "worker_exit":
 				record.awaitingSettlement = false;
-				if (record.closing) {
-					record.state.status = "exited";
-				} else if (event.error) {
-					record.state.status = "error";
-					record.state.error = event.error;
-				} else {
-					record.state.status = event.signal === "SIGTERM" ? "aborted" : "exited";
-					if (event.code && event.code !== 0) {
+				const preserveTerminalStatus = UNREACHABLE_TERMINAL_STATUSES.has(record.state.status);
+				if (!preserveTerminalStatus) {
+					if (record.closing) {
+						record.state.status = "exited";
+					} else if (event.error) {
+						record.state.status = "error";
+						record.state.error = event.error;
+					} else {
+						record.state.status = event.signal === "SIGTERM" ? "aborted" : "exited";
+						if (event.code && event.code !== 0) {
 						record.state.status = "error";
 						record.state.error = event.stderr || `Worker exited with code ${event.code}`;
 					}
