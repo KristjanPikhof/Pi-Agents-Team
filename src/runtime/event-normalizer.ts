@@ -47,9 +47,14 @@ export interface WorkerQueueUpdatedEvent {
 	timestamp: number;
 }
 
+export interface WorkerAgentEndEvent {
+	type: "worker_agent_end";
+	messages?: unknown[];
+	timestamp: number;
+}
+
 export interface WorkerIdleEvent {
 	type: "worker_idle";
-	messages?: unknown[];
 	timestamp: number;
 }
 
@@ -92,6 +97,7 @@ export type NormalizedWorkerEvent =
 	| WorkerToolStartedEvent
 	| WorkerToolFinishedEvent
 	| WorkerQueueUpdatedEvent
+	| WorkerAgentEndEvent
 	| WorkerIdleEvent
 	| WorkerErrorEvent
 	| WorkerStateEvent
@@ -159,7 +165,9 @@ export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
 				},
 			];
 		case "agent_end":
-			return [{ type: "worker_idle", messages: Array.isArray(event.messages) ? event.messages : undefined, timestamp: now() }];
+			return [{ type: "worker_agent_end", messages: Array.isArray(event.messages) ? event.messages : undefined, timestamp: now() }];
+		case "agent_settled":
+			return [{ type: "worker_idle", timestamp: now() }];
 		case "extension_error":
 			return [
 				{

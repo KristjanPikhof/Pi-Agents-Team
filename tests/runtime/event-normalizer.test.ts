@@ -18,6 +18,12 @@ test("normalizeRpcEvent maps streaming and tool events", () => {
 	});
 	assert.equal(toolEvents[0]?.type, "worker_tool_started");
 
-	const idleEvents = normalizeRpcEvent({ type: "agent_end", messages: [] });
-	assert.equal(idleEvents[0]?.type, "worker_idle");
+	const endEvents = normalizeRpcEvent({ type: "agent_end", messages: [] });
+	assert.equal(endEvents.length, 1);
+	assert.equal(endEvents[0]?.type, "worker_agent_end");
+	assert.deepEqual(endEvents[0] && "messages" in endEvents[0] ? endEvents[0].messages : undefined, []);
+
+	const settledEvents = normalizeRpcEvent({ type: "agent_settled" });
+	assert.equal(settledEvents.length, 1);
+	assert.equal(settledEvents[0]?.type, "worker_idle");
 });

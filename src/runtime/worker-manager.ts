@@ -157,6 +157,7 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	pendingTextFlushAt: number;
 	unsubscribers: Array<() => void>;
 	closing: boolean;
+	awaitingSettlement: boolean;
 	launchSnapshot: WorkerLaunchSnapshot;
 	requestedThinkingLevel: ThinkingLevel;
 	thinkingClamped: boolean;
@@ -428,6 +429,7 @@ export class WorkerManager {
 			pendingTextFlushAt: 0,
 			unsubscribers: [],
 			closing: false,
+			awaitingSettlement: false,
 			requestedThinkingLevel,
 			thinkingClamped: false,
 			assistantChunks: [],
@@ -560,6 +562,7 @@ export class WorkerManager {
 		record.textBufferTruncated = false;
 		record.textBufferDroppedBytes = 0;
 		record.textBufferDroppedLines = 0;
+		record.awaitingSettlement = false;
 		// Reuse keeps the same RPC session and launch-time model/thinking flags,
 		// so the post-launch clamp comparison remains valid for the reused task.
 		await this.promptWorker(workerId, message);
@@ -579,6 +582,7 @@ export class WorkerManager {
 
 	async promptWorker(workerId: string, message: string): Promise<void> {
 		const record = this.requireWorker(workerId);
+		record.awaitingSettlement = true;
 		record.state.status = "running";
 		record.state.lastEventAt = Date.now();
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer || message);
@@ -588,6 +592,7 @@ export class WorkerManager {
 		} catch (error) {
 			const timestamp = Date.now();
 			const errorMessage = error instanceof Error ? error.message : String(error);
+			record.awaitingSettlement = false;
 			record.state.status = "error";
 			record.state.error = errorMessage;
 			record.state.lastEventAt = timestamp;
@@ -616,6 +621,7 @@ export class WorkerManager {
 	async abortWorker(workerId: string): Promise<void> {
 		const record = this.requireWorker(workerId);
 		await record.client.abort();
+		record.awaitingSettlement = false;
 		record.state.status = "aborted";
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer || "Aborted");
 	}
@@ -806,6 +812,13 @@ export class WorkerManager {
 	}
 
 	private applyNormalizedEvent(record: WorkerRuntimeRecord, event: NormalizedWorkerEvent): void {
+		if (
+			event.type === "worker_idle"
+			&& (!record.awaitingSettlement || UNREACHABLE_TERMINAL_STATUSES.has(record.state.status))
+		) {
+			return;
+		}
+
 		if (event.type !== "worker_state") {
 			record.state.lastEventAt = event.timestamp;
 		}
@@ -968,8 +981,13 @@ export class WorkerManager {
 					});
 				}
 				break;
+			case "worker_agent_end":
+				this.flushPendingText(record);
+				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				break;
 			case "worker_idle":
-				record.state.status = record.state.status === "aborted" ? "aborted" : "idle";
+				record.awaitingSettlement = false;
+				record.state.status = "idle";
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: record.state.status });
@@ -985,6 +1003,7 @@ export class WorkerManager {
 				});
 				break;
 			case "worker_error":
+				record.awaitingSettlement = false;
 				record.state.status = "error";
 				record.state.error = event.error;
 				record.state.lastSummary = buildSummary(record.state, event.error);
@@ -1012,7 +1031,9 @@ export class WorkerManager {
 					break;
 				}
 				const previousStatus = record.state.status;
-				record.state.status = deriveStatusFromSessionState(event.state);
+				record.state.status = record.awaitingSettlement && !event.state.isStreaming
+					? "running"
+					: deriveStatusFromSessionState(event.state);
 				if (record.state.status !== previousStatus) {
 					record.state.lastEventAt = event.timestamp;
 				}
@@ -1022,6 +1043,7 @@ export class WorkerManager {
 			case "thinking_clamped":
 				break;
 			case "worker_exit":
+				record.awaitingSettlement = false;
 				if (record.closing) {
 					record.state.status = "exited";
 				} else if (event.error) {
