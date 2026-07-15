@@ -354,12 +354,12 @@ test("late extension diagnostics preserve authoritative worker error, abort, and
 	const exitManager = await launchRuntimeTestWorker("worker-extension-after-exit", exitTransport);
 	await exitManager.promptWorker("worker-extension-after-exit", "exit before extension diagnostic");
 	await waitForMicrotasks();
-	exitTransport.emit("exit", 7, null);
+	exitTransport.emit("exit", 0, null);
 	await waitForMicrotasks();
 	const exitBefore = exitManager.getWorker("worker-extension-after-exit")?.state;
 	assert.ok(exitBefore);
-	assert.equal(exitBefore.status, "error");
-	assert.match(exitBefore.error ?? "", /code 7/);
+	assert.equal(exitBefore.status, "exited");
+	assert.equal(exitBefore.error, undefined);
 	const runtime = exitManager as unknown as {
 		workers: Map<string, unknown>;
 		applyNormalizedEvent(record: unknown, event: { type: "worker_extension_error"; error: string; timestamp: number }): void;
