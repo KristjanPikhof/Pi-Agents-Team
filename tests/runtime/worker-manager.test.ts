@@ -38,6 +38,19 @@ function taskInput(taskId: string, title: string, profileName = "reviewer") {
 	};
 }
 
+async function launchRuntimeTestWorker(workerId: string, transport: MockWorkerTransport): Promise<WorkerManager> {
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+	await manager.launchWorker({
+		workerId,
+		profileName: "reviewer",
+		task: taskInput(`task-${workerId}`, `Lifecycle ${workerId}`),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	return manager;
+}
+
 class FailingLaunchTransport extends EventEmitter implements WorkerTransport {
 	readonly stdin = new Writable({
 		write(_chunk, _encoding, callback) {
@@ -119,6 +132,8 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	await manager.promptWorker("worker-1", "build the runtime layer");
 	await waitForMicrotasks();
 	await waitForMicrotasks();
+	transports[0]?.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
 
 	const updatedWorker = manager.getWorker("worker-1");
 	assert.ok(updatedWorker);
@@ -150,6 +165,73 @@ test("WorkerManager launches a worker, prompts it, and tracks compact state", as
 	assert.equal(abortedWorker?.state.status, "aborted");
 });
 
+test("agent_end, retries, queued continuations, and refresh stay running until one settlement", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = await launchRuntimeTestWorker("worker-settlement", transport);
+	const events: string[] = [];
+	manager.onEvent((_worker, event) => events.push(event.type));
+
+	await manager.promptWorker("worker-settlement", "finish after retries");
+	await waitForMicrotasks();
+	transport.completePrompt("<final_answer>headline: output ready</final_answer>");
+	await waitForMicrotasks();
+	assert.equal(manager.getWorker("worker-settlement")?.state.status, "running");
+	assert.match(manager.getWorker("worker-settlement")?.state.finalAnswer ?? "", /output ready/);
+	assert.ok(events.includes("worker_agent_end"));
+	assert.equal(events.filter((type) => type === "worker_idle").length, 0);
+
+	await manager.refreshState("worker-settlement");
+	assert.equal(manager.getWorker("worker-settlement")?.state.status, "running");
+
+	transport.writeEvent({ type: "agent_start" });
+	transport.writeEvent({ type: "agent_end", messages: [] });
+	transport.writeEvent({ type: "queue_update", steering: [], followUp: ["continue"] });
+	transport.writeEvent({ type: "agent_start" });
+	transport.writeEvent({ type: "agent_end", messages: [] });
+	await waitForMicrotasks();
+	assert.equal(manager.getWorker("worker-settlement")?.state.status, "running");
+
+	transport.writeEvent({ type: "agent_settled" });
+	transport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+	assert.equal(manager.getWorker("worker-settlement")?.state.status, "idle");
+	assert.equal(events.filter((type) => type === "worker_idle").length, 1);
+});
+
+test("abort, error, exit, and prompt rejection take precedence over late settlement", async () => {
+	const abortTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const abortManager = await launchRuntimeTestWorker("worker-late-abort", abortTransport);
+	await abortManager.promptWorker("worker-late-abort", "abort me");
+	await abortManager.abortWorker("worker-late-abort");
+	abortTransport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+	assert.equal(abortManager.getWorker("worker-late-abort")?.state.status, "aborted");
+
+	const errorTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const errorManager = await launchRuntimeTestWorker("worker-late-error", errorTransport);
+	await errorManager.promptWorker("worker-late-error", "error me");
+	errorTransport.writeEvent({ type: "extension_error", error: "runtime failed" });
+	errorTransport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+	assert.equal(errorManager.getWorker("worker-late-error")?.state.status, "error");
+
+	const exitTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const exitManager = await launchRuntimeTestWorker("worker-late-exit", exitTransport);
+	await exitManager.promptWorker("worker-late-exit", "exit me");
+	exitTransport.emit("exit", 0, null);
+	await waitForMicrotasks();
+	exitTransport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+	assert.equal(exitManager.getWorker("worker-late-exit")?.state.status, "exited");
+
+	const rejectTransport = new MockWorkerTransport({ rejectPrompt: "rejected" });
+	const rejectManager = await launchRuntimeTestWorker("worker-late-reject", rejectTransport);
+	await assert.rejects(rejectManager.promptWorker("worker-late-reject", "reject me"), /rejected/);
+	rejectTransport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+	assert.equal(rejectManager.getWorker("worker-late-reject")?.state.status, "error");
+});
+
 test("launchWorker rejects controlled spawn failures and removes the broken worker", async () => {
 	const manager = new WorkerManager(() => new FailingLaunchHandle());
 
@@ -171,7 +253,8 @@ test("refreshStats does not advance worker activity recency", async () => {
 	let now = 1_000;
 	Date.now = () => now;
 	try {
-		const manager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+		const transport = new MockWorkerTransport();
+		const manager = new WorkerManager(() => new MockWorkerHandle(transport));
 
 		await manager.launchWorker({
 			workerId: "worker-recency",
@@ -183,6 +266,8 @@ test("refreshStats does not advance worker activity recency", async () => {
 		});
 		await manager.promptWorker("worker-recency", "finish quietly");
 		await waitForMicrotasks();
+		await waitForMicrotasks();
+		transport.writeEvent({ type: "agent_settled" });
 		await waitForMicrotasks();
 
 		const before = manager.getWorker("worker-recency")?.state;
@@ -267,6 +352,8 @@ test("refreshState advances recency only on live worker_state status changes", a
 		});
 		await manager.promptWorker("worker-state-recency", "finish quietly");
 		await waitForMicrotasks();
+		await waitForMicrotasks();
+		transport.writeEvent({ type: "agent_settled" });
 		await waitForMicrotasks();
 
 		const afterComplete = manager.getWorker("worker-state-recency")?.state;
@@ -485,6 +572,8 @@ test("reuseWorker does not re-check thinking clamp state", async () => {
 	await manager.promptWorker("worker-thinking-reuse", "first");
 	await waitForMicrotasks();
 	await waitForMicrotasks();
+	transport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
 
 	transport.setState({ thinkingLevel: "low" });
 	await manager.reuseWorker("worker-thinking-reuse", "second", taskInput("task-thinking-reuse-2", "Second thinking task"));
@@ -554,6 +643,8 @@ test("worker_state transitions a non-starting worker based on isStreaming", asyn
 	await manager.promptWorker("worker-transition-1", "do the thing");
 	await waitForMicrotasks();
 	await waitForMicrotasks();
+	transport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
 
 	const afterComplete = manager.getWorker("worker-transition-1");
 	assert.equal(afterComplete?.state.status, "idle");
@@ -600,6 +691,8 @@ test("reuseWorker resets per-task state, sends a fresh prompt, and emits a state
 	await manager.promptWorker("worker-reuse-1", "first prompt");
 	await waitForMicrotasks();
 	await waitForMicrotasks();
+	transports[0]?.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
 
 	const afterFirst = manager.getWorker("worker-reuse-1");
 	assert.equal(afterFirst?.state.status, "idle");
@@ -622,6 +715,8 @@ test("reuseWorker resets per-task state, sends a fresh prompt, and emits a state
 		createdAt: Date.now(),
 	});
 	await waitForMicrotasks();
+	await waitForMicrotasks();
+	transports[0]?.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	off();
 
@@ -697,6 +792,8 @@ test("closeWorker disposes the live RPC and marks the worker exited (not aborted
 	});
 	await manager.promptWorker("worker-close-1", "do work");
 	await waitForMicrotasks();
+	await waitForMicrotasks();
+	transport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(manager.getWorker("worker-close-1")?.state.status, "idle");
 
