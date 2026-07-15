@@ -655,6 +655,45 @@ test("aborted tree flow keeps provisional data eligible for a later old-leaf sta
 	}
 });
 
+test("cancelled or aborted root-origin navigation permits later same-branch terminal and prune appends", async () => {
+	for (const outcome of ["cancelled", "aborted"] as const) {
+		const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+		const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+		const writes: any[] = [];
+		const sessionManager = SessionManager.inMemory(process.cwd());
+		const originalOnStateChange = TeamManager.prototype.onStateChange;
+		try {
+			TeamManager.prototype.onStateChange = function (listener: (state: any) => void) { listeners.push(listener); return () => {}; };
+			extension({
+				registerTool() {}, registerCommand() {}, sendMessage() {},
+				on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+				appendEntry(type: string, data: unknown) {
+					sessionManager.appendCustomEntry(type, data);
+					writes.push(data);
+				},
+			} as any);
+			const ctx = { cwd: process.cwd(), hasUI: false, sessionManager } as any;
+			assert.equal(sessionManager.getLeafId(), null);
+			await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: null }, signal: undefined }, ctx);
+			// Pi emits no session_tree for either outcome. An unrelated extension entry
+			// faithfully advances the in-memory SessionManager leaf from conceptual root.
+			sessionManager.appendCustomEntry(`ordinary-${outcome}`, {});
+			const ordinaryLeaf = sessionManager.getLeafId();
+			assert.ok(ordinaryLeaf);
+
+			const state = createDefaultTeamState();
+			state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+			listeners.at(-1)!(state);
+			delete state.activeWorkers.w1;
+			listeners.at(-1)!(state);
+			assert.deepEqual(writes.map((record) => record.kind), ["worker_terminal", "worker_pruned"], outcome);
+			assert.equal(sessionManager.getBranch().some((entry) => entry.id === ordinaryLeaf), true);
+		} finally {
+			TeamManager.prototype.onStateChange = originalOnStateChange;
+		}
+	}
+});
+
 test("extension restores only the active Pi branch and does not checkpoint on startup", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const tools: RegisteredTool[] = [];
