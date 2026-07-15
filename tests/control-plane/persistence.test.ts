@@ -160,6 +160,60 @@ test("Unicode-heavy records are deterministically UTF-8 bounded without split su
 	assert.deepEqual(firstJournal.collect(state, config), [], "canonical fitted state does not re-emit forever");
 });
 
+test("terminal fitting uses bounded batches rather than one serialization per dropped item", () => {
+	const state = createDefaultTeamState();
+	const oversized = worker("completed");
+	oversized.lastSummary!.headline = "h".repeat(100_000);
+	oversized.lastSummary!.readFiles = Array.from({ length: 10_000 }, (_, index) => `${index}-${"r".repeat(1_000)}`);
+	oversized.lastSummary!.changedFiles = Array.from({ length: 10_000 }, (_, index) => `${index}-${"c".repeat(1_000)}`);
+	oversized.lastSummary!.risks = Array.from({ length: 10_000 }, (_, index) => `${index}-${"x".repeat(1_000)}`);
+	state.activeWorkers.w1 = oversized;
+	const config = structuredClone(DEFAULT_TEAM_CONFIG);
+	config.summaries.maxHeadlineLength = 1_000_000;
+	config.summaries.maxItemsPerWorker = 1_000_000;
+	config.summaries.maxChangedFiles = 1_000_000;
+	let hashes = 0;
+	const journal = new CompactPersistenceJournal({
+		onRecordHash(kind) {
+			if (kind === "terminal") hashes += 1;
+		},
+	});
+	const [record] = journal.collect(state, config);
+	assert.ok(record);
+	assert.ok(compactPersistenceRecordPayloadBytes(record) <= 16 * 1024);
+	assert.ok(hashes < 40, `expected bounded fitting work, observed ${hashes} record hashes`);
+});
+
+test("no-op terminal churn performs no record hash and only changed durable workers rehash", () => {
+	const state = createDefaultTeamState();
+	for (let index = 0; index < 100; index += 1) {
+		const current = worker("completed");
+		current.workerId = `w${index + 1}`;
+		current.profileName = `profile-${index + 1}`;
+		current.lastSummary!.workerId = current.workerId;
+		state.activeWorkers[current.workerId] = current;
+	}
+	let hashes = 0;
+	const journal = new CompactPersistenceJournal({
+		onRecordHash() {
+			hashes += 1;
+		},
+	});
+	journal.reset(state, DEFAULT_TEAM_CONFIG);
+	hashes = 0;
+	for (const current of Object.values(state.activeWorkers)) {
+		current.lastEventAt += 1;
+		current.lastSummary!.updatedAt += 1;
+	}
+	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), []);
+	assert.equal(hashes, 0, "retained terminal workers are compared structurally without rehashing");
+
+	state.activeWorkers.w37!.usage.inputTokens += 1;
+	const records = journal.prepare(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(records.length, 1);
+	assert.equal(hashes, 1, "one durable worker revision builds one small record");
+});
+
 test("terminal summary timestamp-only refresh is ignored but substantive revision retains its timestamp", () => {
 	const state = createDefaultTeamState();
 	state.activeWorkers.w1 = worker("completed");
@@ -275,6 +329,80 @@ test("malformed and future same-type records do not reset valid replay state", (
 		entry({ version: 2, kind: "unexpected", recordId: "unknown" }),
 	], DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
 	assert.equal(restored.activeWorkers.w1?.lastSummary?.headline, "done");
+});
+
+test("compact replay rejects nonterminal, inconsistent, oversized, and extra-bearing records", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("completed");
+	const journal = new CompactPersistenceJournal();
+	const [valid] = journal.collect(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(valid?.kind, "worker_terminal");
+	if (valid?.kind !== "worker_terminal") return;
+
+	const nonterminal = structuredClone(valid);
+	nonterminal.worker.status = "running";
+	if (nonterminal.worker.lastSummary) nonterminal.worker.lastSummary.status = "running";
+	const mismatchedSummary = structuredClone(valid);
+	mismatchedSummary.worker.lastSummary!.status = "error";
+	const oversizedId = structuredClone(valid);
+	oversizedId.worker.workerId = "w".repeat(257);
+	const oversizedArray = structuredClone(valid);
+	oversizedArray.worker.lastSummary!.readFiles = Array.from({ length: 65 }, () => "a");
+	const oversizedPayload = structuredClone(valid);
+	oversizedPayload.worker.lastSummary!.risks = Array.from({ length: 64 }, () => "x".repeat(512));
+	const extraUsage = {
+		...structuredClone(valid),
+		worker: {
+			...structuredClone(valid.worker),
+			usage: { ...valid.worker.usage, attacker: 1 },
+		},
+	};
+	const negativeUsage = structuredClone(valid);
+	negativeUsage.worker.usage.inputTokens = -1;
+
+	const restored = restorePersistedTeamState([
+		entry(valid),
+		entry(nonterminal),
+		entry(mismatchedSummary),
+		entry(oversizedId),
+		entry(oversizedArray),
+		entry(oversizedPayload),
+		entry(extraUsage),
+		entry(negativeUsage),
+	], DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
+	assert.deepEqual(Object.keys(restored.activeWorkers), ["w1"]);
+	assert.equal(restored.activeWorkers.w1?.status, "completed");
+	assert.equal(measureCompactPersistence([
+		entry(nonterminal),
+		entry(mismatchedSummary),
+		entry(oversizedId),
+		entry(oversizedArray),
+		entry(oversizedPayload),
+		entry(extraUsage),
+		entry(negativeUsage),
+	], DEFAULT_TEAM_CONFIG.persistence.stateCustomType).recordCount, 0);
+});
+
+test("measurement rejects hostile extras before invoking attacker-controlled serialization", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("completed");
+	const [valid] = new CompactPersistenceJournal().collect(state, DEFAULT_TEAM_CONFIG);
+	assert.ok(valid);
+	let serialized = false;
+	const hostile = {
+		...valid,
+		extra: {
+			toJSON() {
+				serialized = true;
+				return "x".repeat(10_000_000);
+			},
+		},
+	};
+	assert.deepEqual(measureCompactPersistence(
+		[entry(hostile)],
+		DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+	), { recordCount: 0, payloadBytes: 0 });
+	assert.equal(serialized, false);
 });
 
 test("markRestoredWorkersExited detaches live workers without overwriting their saved summary", () => {
