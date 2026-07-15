@@ -445,12 +445,12 @@ test("tree navigation retries pending persistence once on the old leaf, never th
 		} as any);
 		const ctx = {
 			cwd: process.cwd(), hasUI: false,
-			sessionManager: { getBranch: () => [], getEntries: () => [] },
+			sessionManager: { getLeafId: () => leaf, getBranch: () => [], getEntries: () => [] },
 		} as any;
 		const state = createDefaultTeamState();
 		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
 		assert.throws(() => listeners.at(-1)!(state), /old leaf initial failure/);
-		await handlers.get("session_before_tree")?.({ preparation: {}, signal: undefined }, ctx);
+		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
 		assert.deepEqual(appendedLeaves, ["old"], "bounded pre-tree retry still targets the old leaf");
 		leaf = "new";
 		await handlers.get("session_tree")?.({ oldLeafId: "old", newLeafId: "new" }, ctx);
@@ -484,17 +484,90 @@ test("persistent pre-tree failure is warned and isolated from the new leaf", asy
 				notify(message: string, level: string) { if (level === "warning") warnings.push(message); },
 				setStatus() {}, setWidget() {}, setTitle() {}, addAutocompleteProvider() {},
 			},
-			sessionManager: { getBranch: () => [], getEntries: () => [] },
+			sessionManager: { getLeafId: () => leaf, getBranch: () => [], getEntries: () => [] },
 		} as any;
 		const state = createDefaultTeamState();
 		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
 		assert.throws(() => listeners.at(-1)!(state), /persistent old failure/);
-		await handlers.get("session_before_tree")?.({ preparation: {}, signal: undefined }, ctx);
+		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
 		assert.deepEqual(attempts, ["old", "old"], "pre-tree processing makes one bounded retry");
-		assert.equal(warnings.filter((message) => message.includes("old-branch records were isolated")).length, 1);
+		assert.equal(warnings.filter((message) => message.includes("old-branch records were isolated")).length, 0, "provisional failure is not warned or dropped");
+		assert.throws(() => listeners.at(-1)!(state), /persistent old failure/, "intervening old-leaf state event may retry");
+		assert.deepEqual(attempts, ["old", "old", "old"]);
 		leaf = "new";
+		assert.throws(() => listeners.at(-1)!(state), /active leaf changed/, "append-boundary guard closes the pre-session_tree window");
 		await handlers.get("session_tree")?.({ oldLeafId: "old", newLeafId: "new" }, ctx);
-		assert.deepEqual(attempts, ["old", "old"], "unresolved old record is never attempted at the new leaf");
+		assert.deepEqual(attempts, ["old", "old", "old"], "unresolved old record is never attempted at the new leaf");
+		assert.equal(warnings.filter((message) => message.includes("old-branch records were isolated")).length, 1, "confirmed navigation warns once");
+		await handlers.get("session_shutdown")?.({}, ctx);
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("cancelled tree navigation retains pending data for shutdown retry on the origin leaf", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	const writes: string[] = [];
+	let calls = 0;
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) { listeners.push(listener); return () => {}; };
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+			appendEntry() {
+				calls += 1;
+				if (calls <= 2) throw new Error("provisional failure");
+				writes.push("old");
+			},
+		} as any);
+		const ctx = {
+			cwd: process.cwd(), hasUI: false,
+			sessionManager: { getLeafId: () => "old", getBranch: () => [], getEntries: () => [] },
+		} as any;
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		assert.throws(() => listeners.at(-1)!(state), /provisional failure/);
+		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
+		// A later handler cancels: Pi emits no session_tree.
+		await handlers.get("session_shutdown")?.({}, ctx);
+		assert.equal(calls, 3);
+		assert.deepEqual(writes, ["old"]);
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("aborted tree flow keeps provisional data eligible for a later old-leaf state retry", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	let calls = 0;
+	const writes: string[] = [];
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) { listeners.push(listener); return () => {}; };
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+			appendEntry() {
+				calls += 1;
+				if (calls <= 2) throw new Error("summary aborted");
+				writes.push("old");
+			},
+		} as any);
+		const ctx = {
+			cwd: process.cwd(), hasUI: false,
+			sessionManager: { getLeafId: () => "old", getBranch: () => [], getEntries: () => [] },
+		} as any;
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		assert.throws(() => listeners.at(-1)!(state), /summary aborted/);
+		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
+		// Summary abort emits no session_tree; an ordinary state event remains safe.
+		listeners.at(-1)!(state);
+		assert.equal(calls, 3);
+		assert.deepEqual(writes, ["old"]);
 		await handlers.get("session_shutdown")?.({}, ctx);
 	} finally {
 		TeamManager.prototype.onStateChange = originalOnStateChange;
