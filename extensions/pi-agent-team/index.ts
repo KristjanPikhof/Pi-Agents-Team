@@ -22,6 +22,7 @@ import { formatRelayToast, formatWorkerLabel, formatWorkerStartedToast, formatWo
 import { formatAgentMessageResult, formatDelegateTaskResult, formatWaitForAgentsResult, formatWorkerCompact, formatWorkers } from "../../src/ui/tool-formatters.js";
 import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers.js";
 import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer.js";
+import type { WorkerPiVersionMismatchEvent } from "../../src/runtime/worker-manager.js";
 import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types.js";
 
 const DelegateTaskSchema = Type.Object({
@@ -274,7 +275,12 @@ function buildThinkingClampToast(event: Extract<NormalizedWorkerEvent, { type: "
 	return `Pi Agents Team: worker ${event.workerId} (${event.profileName}) requested thinkingLevel ${event.requested}; Pi clamped to ${event.effective}${modelPart} because the model lacks support. Edit agents-team.json or change model.`;
 }
 
+function buildPiVersionMismatchToast(event: WorkerPiVersionMismatchEvent): string {
+	return event.message;
+}
+
 export const _testing = {
+	buildPiVersionMismatchToast,
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
 	getOrchestratorThinkingLevel,
@@ -324,6 +330,7 @@ export default function (pi: ExtensionAPI): void {
 	const toastedScaffoldStale = getProcessStableScaffoldFreshnessToasts();
 	const toastedThinkingLevelWarnings = new Map<string, true>();
 	const toastedThinkingClamps = new Map<string, true>();
+	let toastedPiVersionMismatch = false;
 	const lastStatus = new Map<string, WorkerRuntimeState["status"]>();
 	const lastRelayCount = new Map<string, number>();
 	const pendingStartedTransitions: Array<{ workerId: string; profileName: string }> = [];
@@ -472,6 +479,12 @@ export default function (pi: ExtensionAPI): void {
 		activeContext.ui.notify(buildThinkingClampToast(event), "warning");
 	}
 
+	function notifyPiVersionMismatch(event: WorkerPiVersionMismatchEvent): void {
+		if (!activeContext?.hasUI || toastedPiVersionMismatch) return;
+		toastedPiVersionMismatch = true;
+		activeContext.ui.notify(buildPiVersionMismatchToast(event), "warning");
+	}
+
 	function attachTeamManagerListener(manager: TeamManager): void {
 		detachTeamManagerListener();
 		resetUiTracking();
@@ -524,6 +537,7 @@ export default function (pi: ExtensionAPI): void {
 		const workerEvents = (manager as unknown as {
 			workerManager?: {
 				onEvent(listener: (_worker: unknown, event: NormalizedWorkerEvent) => void): () => void;
+				onPiVersionMismatch(listener: (event: WorkerPiVersionMismatchEvent) => void): () => void;
 			};
 		}).workerManager;
 		const detachWorkerEventListener = workerEvents?.onEvent((_worker, event) => {
@@ -531,9 +545,11 @@ export default function (pi: ExtensionAPI): void {
 				notifyThinkingClamp(event);
 			}
 		}) ?? (() => {});
+		const detachVersionMismatchListener = workerEvents?.onPiVersionMismatch(notifyPiVersionMismatch) ?? (() => {});
 		detachTeamManagerListener = () => {
 			detachStateListener();
 			detachWorkerEventListener();
+			detachVersionMismatchListener();
 		};
 	}
 
@@ -765,6 +781,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", async (event, ctx) => {
 		stopTipRotation();
 		activeContext = ctx;
+		toastedPiVersionMismatch = false;
 		reloading = true;
 		try {
 			activeProjectConfig = loadActiveTeamConfig({
