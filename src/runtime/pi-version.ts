@@ -11,7 +11,7 @@ const crossSpawn = require("cross-spawn") as typeof nodeSpawn;
 export const HOST_PI_VERSION = VERSION;
 export const MINIMUM_WORKER_PI_VERSION = "0.80.6";
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
-const SUCCESSFUL_PROBE_CACHE_TTL_MS = 30_000;
+export const SUCCESSFUL_PROBE_CACHE_TTL_MS = 30_000;
 const PROBE_OUTPUT_LIMIT_BYTES = 64 * 1024;
 const DIAGNOSTIC_LIMIT_CHARS = 500;
 
@@ -330,7 +330,6 @@ export async function probeWorkerPiVersion(
 	}
 	if (existing) probeCache.delete(key);
 
-	const entry: ProbeCacheEntry = { promise: undefined as unknown as Promise<PiVersionProbeResult> };
 	const pending = (async (): Promise<PiVersionProbeResult> => {
 		const common = {
 			command,
@@ -382,7 +381,7 @@ export async function probeWorkerPiVersion(
 			}),
 		};
 	})();
-	entry.promise = pending;
+	const entry: ProbeCacheEntry = { promise: pending };
 	probeCache.set(key, entry);
 	const result = await pending;
 	if (probeCache.get(key) === entry) {
