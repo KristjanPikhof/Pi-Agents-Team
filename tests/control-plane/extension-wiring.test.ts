@@ -109,6 +109,8 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(tools.every((tool) => typeof tool.renderCall === "function"));
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("agent_start"));
+	assert.ok(events.includes("agent_end"));
+	assert.ok(events.includes("agent_settled"));
 	assert.ok(events.includes("before_agent_start"));
 });
 
@@ -253,7 +255,7 @@ test("extension clears empty RPC widget with undefined", async () => {
 	await handlers.get("session_shutdown")?.({}, ctx);
 });
 
-test("extension handles direct agent_start lifecycle without prompt injection hook", async () => {
+test("extension keeps the orchestrator working between agent_end and agent_settled", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const statusLines: Array<string | undefined> = [];
 
@@ -293,6 +295,9 @@ test("extension handles direct agent_start lifecycle without prompt injection ho
 	assert.match(statusLines.at(-1) ?? "", /Orchestrator · Working\.\.\./);
 
 	await handlers.get("agent_end")?.({}, ctx);
+	assert.match(statusLines.at(-1) ?? "", /Orchestrator · Working\.\.\./);
+
+	await handlers.get("agent_settled")?.({}, ctx);
 	assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle/);
 
 	await handlers.get("session_shutdown")?.({}, ctx);
@@ -370,6 +375,9 @@ test("extension rotates footer tips with an unref'd timer and clears it on shutd
 		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Working\.\.\./);
 
 		await handlers.get("agent_end")?.({ messages: [] }, ctx);
+		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Working\.\.\./);
+
+		await handlers.get("agent_settled")?.({}, ctx);
 		assert.match(statusLines.at(-1) ?? "", /Orchestrator · Idle/);
 
 		await handlers.get("session_shutdown")?.({}, ctx);

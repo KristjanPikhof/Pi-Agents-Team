@@ -854,6 +854,12 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("agent_end", async (_event, ctx) => {
 		activeContext = ctx;
+		teamState = teamManager.snapshot();
+		renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
+	});
+
+	pi.on("agent_settled", async (_event, ctx) => {
+		activeContext = ctx;
 		orchestratorWorking = false;
 		teamState = teamManager.snapshot();
 		renderUi(ctx, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
