@@ -6,6 +6,7 @@ import { join } from "node:path";
 import extension, { _testing } from "../../extensions/pi-agent-team/index";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { TeamManager, type AgentResult } from "../../src/control-plane/team-manager";
+import { restorePersistedTeamState } from "../../src/control-plane/persistence";
 import type { WorkerRuntimeState } from "../../src/types";
 
 interface RegisteredTool {
@@ -340,11 +341,15 @@ test("teardown flush retries a final pending transition without another state ev
 	const writes: unknown[] = [];
 	let calls = 0;
 	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	const originalSnapshot = TeamManager.prototype.snapshot;
 	try {
 		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) {
 			listeners.push(listener);
 			return () => {};
 		};
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		TeamManager.prototype.snapshot = function () { return structuredClone(state); };
 		extension({
 			registerTool() {}, registerCommand() {}, sendMessage() {},
 			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
@@ -354,13 +359,50 @@ test("teardown flush retries a final pending transition without another state ev
 				writes.push(data);
 			},
 		} as any);
-		const state = createDefaultTeamState();
-		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
 		assert.throws(() => listeners.at(-1)!(state), /initial failure/);
 		await handlers.get("session_shutdown")?.({}, { hasUI: false } as any);
 		assert.equal(calls, 2);
 		assert.equal(writes.length, 1, "teardown performs one successful final retry");
 	} finally {
+		TeamManager.prototype.snapshot = originalSnapshot;
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("shutdown keeps persistence attached through disposal-generated exited state", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	const writes: unknown[] = [];
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	const originalDispose = TeamManager.prototype.dispose;
+	const originalSnapshot = TeamManager.prototype.snapshot;
+	const running = makeWidgetState();
+	let currentState = running;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) { listeners.push(listener); return () => {}; };
+		TeamManager.prototype.snapshot = function () { return structuredClone(currentState); };
+		TeamManager.prototype.dispose = async function () {
+			currentState = structuredClone(currentState);
+			currentState.activeWorkers.w1!.status = "exited";
+			currentState.activeWorkers.w1!.lastEventAt += 1;
+			listeners.at(-1)!(currentState);
+		};
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+			appendEntry(_type: string, data: unknown) { writes.push(data); },
+		} as any);
+		listeners.at(-1)!(running);
+		await handlers.get("session_shutdown")?.({}, { hasUI: false } as any);
+		assert.equal(writes.length, 1);
+		const restored = restorePersistedTeamState(
+			writes.map((data) => ({ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data })),
+			DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+		);
+		assert.equal(restored.activeWorkers.w1?.status, "exited");
+	} finally {
+		TeamManager.prototype.snapshot = originalSnapshot;
+		TeamManager.prototype.dispose = originalDispose;
 		TeamManager.prototype.onStateChange = originalOnStateChange;
 	}
 });
@@ -461,6 +503,41 @@ test("tree navigation retries pending persistence once on the old leaf, never th
 	}
 });
 
+test("tree guard accepts multiple append-created successor leaves on the same branch", async () => {
+	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
+	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
+	let leaf = "old";
+	const branch: Array<{ id: string }> = [{ id: "old" }];
+	const writes: unknown[] = [];
+	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	try {
+		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) { listeners.push(listener); return () => {}; };
+		extension({
+			registerTool() {}, registerCommand() {}, sendMessage() {},
+			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
+			appendEntry(_type: string, data: unknown) {
+				writes.push(data);
+				leaf = `custom-${writes.length}`;
+				branch.push({ id: leaf });
+			},
+		} as any);
+		const ctx = {
+			cwd: process.cwd(), hasUI: false,
+			sessionManager: { getLeafId: () => leaf, getBranch: () => branch, getEntries: () => branch },
+		} as any;
+		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
+		const state = createDefaultTeamState();
+		for (const workerId of ["w1", "w2"]) {
+			state.activeWorkers[workerId] = { ...makeWidgetState().activeWorkers.w1!, workerId, status: "completed" };
+		}
+		listeners.at(-1)!(state);
+		assert.equal(writes.length, 2);
+		assert.equal(leaf, "custom-2");
+	} finally {
+		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
 test("persistent pre-tree failure is warned and isolated from the new leaf", async () => {
 	const handlers = new Map<string, (...args: any[]) => Promise<unknown> | unknown>();
 	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
@@ -495,7 +572,7 @@ test("persistent pre-tree failure is warned and isolated from the new leaf", asy
 		assert.throws(() => listeners.at(-1)!(state), /persistent old failure/, "intervening old-leaf state event may retry");
 		assert.deepEqual(attempts, ["old", "old", "old"]);
 		leaf = "new";
-		assert.throws(() => listeners.at(-1)!(state), /active leaf changed/, "append-boundary guard closes the pre-session_tree window");
+		assert.throws(() => listeners.at(-1)!(state), /active branch changed/, "append-boundary guard closes the pre-session_tree window");
 		await handlers.get("session_tree")?.({ oldLeafId: "old", newLeafId: "new" }, ctx);
 		assert.deepEqual(attempts, ["old", "old", "old"], "unresolved old record is never attempted at the new leaf");
 		assert.equal(warnings.filter((message) => message.includes("old-branch records were isolated")).length, 1, "confirmed navigation warns once");
@@ -511,8 +588,12 @@ test("cancelled tree navigation retains pending data for shutdown retry on the o
 	const writes: string[] = [];
 	let calls = 0;
 	const originalOnStateChange = TeamManager.prototype.onStateChange;
+	const originalSnapshot = TeamManager.prototype.snapshot;
 	try {
 		TeamManager.prototype.onStateChange = function (listener: (state: any) => void) { listeners.push(listener); return () => {}; };
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
+		TeamManager.prototype.snapshot = function () { return structuredClone(state); };
 		extension({
 			registerTool() {}, registerCommand() {}, sendMessage() {},
 			on(event: string, handler: (...args: any[]) => Promise<unknown> | unknown) { handlers.set(event, handler); },
@@ -526,8 +607,6 @@ test("cancelled tree navigation retains pending data for shutdown retry on the o
 			cwd: process.cwd(), hasUI: false,
 			sessionManager: { getLeafId: () => "old", getBranch: () => [], getEntries: () => [] },
 		} as any;
-		const state = createDefaultTeamState();
-		state.activeWorkers.w1 = { ...makeWidgetState().activeWorkers.w1!, status: "completed" };
 		assert.throws(() => listeners.at(-1)!(state), /provisional failure/);
 		await handlers.get("session_before_tree")?.({ preparation: { oldLeafId: "old" }, signal: undefined }, ctx);
 		// A later handler cancels: Pi emits no session_tree.
@@ -535,6 +614,7 @@ test("cancelled tree navigation retains pending data for shutdown retry on the o
 		assert.equal(calls, 3);
 		assert.deepEqual(writes, ["old"]);
 	} finally {
+		TeamManager.prototype.snapshot = originalSnapshot;
 		TeamManager.prototype.onStateChange = originalOnStateChange;
 	}
 });

@@ -106,6 +106,37 @@ test("prepare requires append commit and retries an uncommitted transition exact
 	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), []);
 });
 
+test("pending terminal observation updates revision and prune usage to the latest value", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("running");
+	const journal = new CompactPersistenceJournal();
+	journal.reset(state, DEFAULT_TEAM_CONFIG);
+	state.activeWorkers.w1.status = "completed";
+	state.activeWorkers.w1.lastSummary!.status = "completed";
+	state.activeWorkers.w1.usage.inputTokens = 10;
+	const [staleTerminal] = journal.prepare(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(staleTerminal?.kind, "worker_terminal");
+
+	state.activeWorkers.w1.usage.inputTokens = 999;
+	state.activeWorkers.w1.lastSummary!.headline = "latest";
+	const [latestTerminal] = journal.prepare(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(latestTerminal?.kind, "worker_terminal");
+	assert.notEqual(latestTerminal?.recordId, staleTerminal?.recordId);
+	if (latestTerminal?.kind === "worker_terminal") assert.equal(latestTerminal.worker.usage.inputTokens, 999);
+
+	delete state.activeWorkers.w1;
+	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), [latestTerminal]);
+	journal.commit(latestTerminal!);
+	const [prune] = journal.prepare(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(prune?.kind, "worker_pruned");
+	if (prune?.kind === "worker_pruned") assert.equal(prune.usage.inputTokens, 999);
+	journal.commit(prune!);
+
+	const restored = restorePersistedTeamState([entry(latestTerminal), entry(prune)], DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
+	assert.equal(restored.prunedWorkerUsageTotals.workers, 1);
+	assert.equal(restored.prunedWorkerUsageTotals.inputTokens, 999);
+});
+
 test("Unicode-heavy records are deterministically UTF-8 bounded without split surrogates", () => {
 	const state = createDefaultTeamState();
 	const unicodeWorker = worker("completed");
