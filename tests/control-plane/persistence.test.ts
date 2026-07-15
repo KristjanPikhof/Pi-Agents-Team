@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import {
 	CompactPersistenceJournal,
+	compactPersistenceRecordPayloadBytes,
 	markRestoredWorkersExited,
+	measureCompactPersistence,
 	restorePersistedTeamState,
 } from "../../src/control-plane/persistence";
-import type { WorkerRuntimeState } from "../../src/types";
+import type { TeamPersistenceRecord, WorkerRuntimeState } from "../../src/types";
 
 function worker(status: WorkerRuntimeState["status"] = "running"): WorkerRuntimeState {
 	return {
@@ -124,6 +126,55 @@ test("Unicode-heavy records are deterministically UTF-8 bounded without split su
 	assert.ok(first);
 	assert.ok(Buffer.byteLength(JSON.stringify(first), "utf8") <= 16 * 1024);
 	assert.doesNotMatch(JSON.stringify(first), /�/);
+});
+
+test("10,000 non-durable mutations add no measured growth; durable transitions do", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("running");
+	const journal = new CompactPersistenceJournal();
+	journal.reset(state, DEFAULT_TEAM_CONFIG);
+	const records: TeamPersistenceRecord[] = [];
+	for (let index = 0; index < 10_000; index += 1) {
+		state.activeWorkers.w1.lastToolName = `tool-${index}`;
+		state.activeWorkers.w1.finalAnswer = `stream-${index}`;
+		state.activeWorkers.w1.lastEventAt += 1;
+		records.push(...journal.collect(state, DEFAULT_TEAM_CONFIG));
+	}
+	assert.deepEqual(records, []);
+	assert.deepEqual(measureCompactPersistence(records.map(entry), DEFAULT_TEAM_CONFIG.persistence.stateCustomType), {
+		recordCount: 0,
+		payloadBytes: 0,
+	});
+
+	state.activeWorkers.w1.status = "completed";
+	state.activeWorkers.w1.lastSummary!.status = "completed";
+	records.push(...journal.collect(state, DEFAULT_TEAM_CONFIG));
+	state.activeWorkers.w1.lastSummary!.headline = "durable revision";
+	records.push(...journal.collect(state, DEFAULT_TEAM_CONFIG));
+	delete state.activeWorkers.w1;
+	records.push(...journal.collect(state, DEFAULT_TEAM_CONFIG));
+	const measurement = measureCompactPersistence(records.map(entry), DEFAULT_TEAM_CONFIG.persistence.stateCustomType);
+	assert.equal(measurement.recordCount, 3);
+	assert.equal(measurement.payloadBytes, records.reduce((sum, record) => sum + compactPersistenceRecordPayloadBytes(record), 0));
+});
+
+test("compact measurement counts only recognized current-version records on the selected branch", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("completed");
+	const journal = new CompactPersistenceJournal();
+	const [record] = journal.collect(state, DEFAULT_TEAM_CONFIG);
+	assert.ok(record);
+	const branch = [
+		entry(record),
+		entry(record),
+		entry({ version: 999, kind: "worker_terminal", recordId: "future", worker: record.kind === "worker_terminal" ? record.worker : {} }),
+		entry({ version: 2, kind: "worker_terminal", recordId: "malformed", worker: {} }),
+		{ type: "custom", customType: "other", data: record },
+	];
+	assert.deepEqual(measureCompactPersistence(branch, DEFAULT_TEAM_CONFIG.persistence.stateCustomType), {
+		recordCount: 2,
+		payloadBytes: 2 * compactPersistenceRecordPayloadBytes(record),
+	});
 });
 
 test("v2 replay is deterministic and prune retains usage exactly once", () => {

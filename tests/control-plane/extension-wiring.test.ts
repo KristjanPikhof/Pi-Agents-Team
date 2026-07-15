@@ -206,6 +206,29 @@ test("agent_result preserves terminal failure result behavior", async () => {
 	}
 });
 
+test("persistence growth warning uses inclusive thresholds, deduplicates, and rearms below threshold", () => {
+	const warnings: string[] = [];
+	const monitor = _testing.createPersistenceGrowthMonitor((message) => warnings.push(message));
+	monitor.replace({ recordCount: _testing.PERSISTENCE_RECORD_WARNING_THRESHOLD - 1, payloadBytes: 0 });
+	assert.deepEqual(warnings, []);
+	monitor.recordAppended(1);
+	assert.equal(warnings.length, 1);
+	assert.match(warnings[0]!, /append-only/);
+	assert.match(warnings[0]!, /new session/);
+	assert.match(warnings[0]!, /Reload, prune, and branch navigation do not shrink/);
+	assert.match(warnings[0]!, /not the total session file size/);
+	monitor.replace({ recordCount: _testing.PERSISTENCE_RECORD_WARNING_THRESHOLD + 50, payloadBytes: 0 });
+	monitor.recordAppended(1);
+	assert.equal(warnings.length, 1, "reload above threshold remains latched");
+	monitor.replace({ recordCount: 0, payloadBytes: _testing.PERSISTENCE_BYTE_WARNING_THRESHOLD - 1 });
+	monitor.recordAppended(1);
+	assert.equal(warnings.length, 2, "below-threshold branch rearms the byte warning");
+	assert.deepEqual(monitor.snapshot(), {
+		recordCount: 1,
+		payloadBytes: _testing.PERSISTENCE_BYTE_WARNING_THRESHOLD,
+	});
+});
+
 test("extension commits persistence only after synchronous append succeeds", () => {
 	const listeners: Array<(state: ReturnType<typeof createDefaultTeamState>) => void> = [];
 	const writes: unknown[] = [];
