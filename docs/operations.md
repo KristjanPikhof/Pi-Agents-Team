@@ -449,7 +449,7 @@ Expected. Project role config is discovered once on session start, then treated 
 
 ### Project-local config is ignored in an untrusted project
 
-On Pi versions that expose Project Trust, Pi Agents Team does not read `<project>/.pi/agent/agents-team.json` until `ctx.isProjectTrusted()` says the project is trusted. This prevents an untrusted repo from changing worker roles, prompt paths, tool access, or path scopes before the operator approves it.
+Pi Agents Team does not read `<project>/.pi/agent/agents-team.json` until `ctx.isProjectTrusted()` says the project is trusted. This prevents an untrusted repo from changing worker roles, prompt paths, tool access, or path scopes before the operator approves it.
 
 What you see:
 

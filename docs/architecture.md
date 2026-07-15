@@ -109,6 +109,14 @@ Local development takes a separate path: `pi -e ./extensions/index.ts` loads the
 
 Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, follow-up, abort, state, and stats commands without inventing another agent protocol. Transport is line-delimited JSON (`jsonl-lf`).
 
+### Worker launch has a cached Pi version gate
+
+`WorkerManager.launchWorker` probes the selected worker command with `--version` before creating the RPC process. The host version comes from Pi's exported `VERSION`; workers must report a parseable Pi version at or above `0.80.6`. An old version, missing command, failed probe, or unparseable output rejects the launch before `pi --mode rpc` starts, with guidance to update the selected command or `rpc.command`.
+
+The probe keeps a promise cache keyed by the resolved command and any CLI entrypoint prefix. Concurrent first launches share that promise, and later launches reuse the result rather than spawning another version check. This applies to the default and custom worker commands, so injected test launchers must also inject a probe and never fall through to a machine-global `pi`.
+
+Exact host/worker patch equality is not required. A supported worker version that differs from the host emits one non-fatal warning per extension session; an exact match emits none. This is a minimum-version gate, not an upper-bound policy.
+
 ### Workers launch with reduced discovery
 
 The default launch mode is `worker-minimal`. `spawnWorkerProcess` passes
@@ -142,7 +150,7 @@ differs on `projectTrust`.
 
 At extension factory time the package intentionally calls `loadActiveTeamConfig` with `projectConfigTrusted: false`. That gives tool schemas and defaults a safe built-in/global baseline without reading repo-controlled project config before Pi has made a Project Trust decision.
 
-On `session_start`, the extension calls `ctx.isProjectTrusted()`. If the project is trusted, `loadActiveTeamConfig({ cwd, projectConfigTrusted: true })` may read the nearest ancestor `.pi/agent/agents-team.json`; if untrusted, project-local config is skipped and global/built-in config is used. The package now declares Pi `>=0.79.2`; compatibility guards still treat a missing trust API as trusted so tests and unexpected host shapes fail open like older releases rather than crashing. When a project file is loaded, prompt paths and scope roots resolve relative to the config file's project root, then the merged config is handed to `TeamManager`. That merged config is the active runtime authority for the session.
+On `session_start`, the extension calls `ctx.isProjectTrusted()`. If the project is trusted, `loadActiveTeamConfig({ cwd, projectConfigTrusted: true })` may read the nearest ancestor `.pi/agent/agents-team.json`; if untrusted, project-local config is skipped and global/built-in config is used. The package requires Pi `>=0.80.6`. The Project Trust compatibility guard still treats a missing trust API as trusted so unexpected host shapes fail open rather than crashing. When a project file is loaded, prompt paths and scope roots resolve relative to the config file's project root, then the merged config is handed to `TeamManager`. That merged config is the active runtime authority for the session.
 
 The runtime does **not** hot-reload `agents-team.json` mid-session. This avoids a class of bugs where active workers were launched under one role definition and later supervision/tooling reads a different one. If the WINNING config layer is invalid, the extension keeps packaged defaults available for display but marks delegation disabled until the next fixed session start. A fatal parse on a NON-WINNING layer (e.g. a typo in `~/.pi/agent/agents-team.json` while a valid trusted project-local config exists) is diagnostic-only — project wins by file presence, and the broken global surfaces as a warning rather than disabling delegation.
 
@@ -177,6 +185,25 @@ The baseline pending-relay count is snapshotted at wait-start per call, so previ
 Every delegated task prompt (`buildWorkerTaskPrompt`) requires the worker's final assistant message to wrap its deliverable in a single `<final_answer>…</final_answer>` block. `extractFinalAnswer` pulls the contents into `WorkerRuntimeState.finalAnswer`; `agent_result` returns it verbatim alongside the compact summary header.
 
 Why: gives the orchestrator a single, predictable deliverable; keeps compact state honest; makes `agent_result` the authoritative synthesis surface without needing to ship raw transcripts.
+
+### Settlement is the successful idle boundary
+
+Pi's `agent_end` event ends one agent loop. It does not mean the RPC session is idle: compaction, retries, queued follow-ups, or continuation turns can still run. The event normalizer therefore records `agent_end` as `worker_agent_end` for output/summary handling without changing liveness. Only `agent_settled` normalizes to `worker_idle` and creates a successful `idle` transition.
+
+```text
+prompt accepted
+  → running + awaitingSettlement=true
+  → agent_end                 (loop boundary; remain running)
+  → get_state isStreaming=false / compaction / retry / continuation
+                                (remain running)
+  → agent_settled             (awaitingSettlement=false; idle)
+```
+
+`awaitingSettlement` is an internal `WorkerRuntimeRecord` guard. It is deliberately absent from `WorkerRuntimeState`, public status/result unions, persistence snapshots, and project config. While the guard is set, a `get_state` refresh with `isStreaming: false` remains `running`; refresh cannot bypass settlement and expose early completion.
+
+Terminal failures take precedence over successful settlement. Abort, extension/RPC error, prompt rejection, and process exit clear the guard and set `aborted`, `error`, or `exited`; a late `agent_settled` cannot overwrite those statuses. The first valid settlement clears the guard and emits idle. Duplicate `agent_settled` events and other idle events received without an active guard are ignored, so one prompt cycle produces at most one successful completion transition.
+
+This timing carries through the control plane. Between `agent_end` and `agent_settled`, `wait_for_agents` cannot return `all_terminal`, `agent_result` is not terminal-ready, completion notifications do not fire, and `reuseWorkerId` is rejected because the worker is still `running`. After settlement, waits can resolve `all_terminal`, the result is ready, one completion notification can fire, and the live idle RPC session becomes eligible for same-settings reuse. Relay wake behavior is independent and remains available while the worker runs.
 
 ### The starting → idle race (and why `worker_state` guards it)
 
@@ -216,6 +243,10 @@ Workers occasionally emit `relay_question: none` (or `n/a`, `-`, `null`, etc.) i
 
 `requestedThinkingLevel` is the launch-policy output sent to Pi. `effectiveThinkingLevel` is read back from RPC `get_state.thinkingLevel` and can differ when Pi clamps unsupported model-family levels. `WorkerManager` emits a `thinking_clamped` normalized event for that mismatch so the extension can notify once per worker/requested/effective tuple.
 
+The internal `awaitingSettlement` guard is not part of this canonical view. Adding it to `WorkerRuntimeState` would turn an event-ordering implementation detail into public and persisted state, so settlement logic must keep it on `WorkerRuntimeRecord` only.
+
+Usage cost is also an ownership boundary. Pi's RPC message usage and `get_session_stats().cost` are authoritative, including fractional tier-derived or long-context costs. The team retains, sums, prunes once, and formats worker-reported `costUsd`; it does not infer price from token counters, model metadata, or provider tiers, and it excludes orchestrator cost.
+
 ## What gets persisted
 
 Persisted session state includes:
@@ -231,6 +262,7 @@ Persisted session state does **not** include:
 
 - full worker transcripts
 - raw streaming deltas
+- internal lifecycle guards such as `awaitingSettlement`
 - raw activity events
 - tool output dumps
 - per-pruned-worker history after prune; only the aggregate `prunedWorkerUsageTotals` bucket remains
