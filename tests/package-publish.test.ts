@@ -7,7 +7,7 @@ import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const projectRoot = resolve(import.meta.dirname, "..");
-const NPM_SUBPROCESS_TIMEOUT_MS = 45_000;
+const PACKAGE_SUBPROCESS_TIMEOUT_MS = 45_000;
 
 function runNpm(args: string[], cwd: string) {
 	const npmCli = process.env.npm_execpath;
@@ -17,12 +17,12 @@ function runNpm(args: string[], cwd: string) {
 		cwd,
 		encoding: "utf8",
 		env: { ...process.env, NO_UPDATE_NOTIFIER: "1" },
-		timeout: NPM_SUBPROCESS_TIMEOUT_MS,
+		timeout: PACKAGE_SUBPROCESS_TIMEOUT_MS,
 	});
 	assert.equal(
 		result.status,
 		0,
-		`npm ${args.join(" ")} failed (timeout=${NPM_SUBPROCESS_TIMEOUT_MS}ms; status=${String(result.status)}; signal=${String(result.signal)}; error=${result.error?.message ?? "none"})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+		`npm ${args.join(" ")} failed (timeout=${PACKAGE_SUBPROCESS_TIMEOUT_MS}ms; status=${String(result.status)}; signal=${String(result.signal)}; error=${result.error?.message ?? "none"})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
 	);
 	return result;
 }
@@ -87,12 +87,12 @@ test("a clean publish artifact installs and imports in an offline consumer", { t
 		const imported = spawnSync(
 			process.execPath,
 			["--input-type=module", "--eval", 'import extension from "pi-agents-team"; if (typeof extension !== "function") process.exit(1)'],
-			{ cwd: consumer, encoding: "utf8" },
+			{ cwd: consumer, encoding: "utf8", timeout: PACKAGE_SUBPROCESS_TIMEOUT_MS },
 		);
 		assert.equal(
 			imported.status,
 			0,
-			`consumer import failed for ${basename(tarball)}\nstdout:\n${imported.stdout}\nstderr:\n${imported.stderr}`,
+			`consumer import failed for ${basename(tarball)} (timeout=${PACKAGE_SUBPROCESS_TIMEOUT_MS}ms; status=${String(imported.status)}; signal=${String(imported.signal)}; error=${imported.error?.message ?? "none"})\nstdout:\n${imported.stdout}\nstderr:\n${imported.stderr}`,
 		);
 	} finally {
 		await rm(temporaryRoot, { recursive: true, force: true });
