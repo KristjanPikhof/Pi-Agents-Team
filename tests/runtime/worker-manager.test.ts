@@ -274,9 +274,9 @@ test("extension errors remain diagnostic until agent settlement transitions the 
 
 	const diagnostic = manager.getWorker("worker-extension-diagnostic")?.state;
 	assert.equal(diagnostic?.status, "running");
-	assert.equal(diagnostic?.error, undefined);
+	assert.equal(diagnostic?.error, "provider extension warning");
 	assert.deepEqual(lifecycle, [
-		{ type: "worker_extension_error", status: "running", error: undefined },
+		{ type: "worker_extension_error", status: "running", error: "provider extension warning" },
 	]);
 
 	transport.writeEvent({ type: "agent_settled" });

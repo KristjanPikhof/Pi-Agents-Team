@@ -1199,6 +1199,7 @@ export class WorkerManager {
 		this.emitter.emit("event", this.snapshot(record.workerId), event);
 	}
 
+
 	private detectThinkingClamp(record: WorkerRuntimeRecord, state: RpcSessionState): void {
 		if (!isThinkingLevel(state.thinkingLevel)) return;
 		record.state.effectiveThinkingLevel = state.thinkingLevel;
