@@ -449,7 +449,7 @@ test("pruneTerminalWorkers retains terminal worker usage exactly once", async ()
 		outputTokens: 40,
 		cacheReadTokens: 10,
 		cacheWriteTokens: 5,
-		costUsd: 0.25,
+		costUsd: 0.01987654321,
 	});
 	state.activeWorkers["w2"] = workerSnapshot("w2", "running", {
 		turns: 3,
@@ -457,13 +457,14 @@ test("pruneTerminalWorkers retains terminal worker usage exactly once", async ()
 		outputTokens: 80,
 		cacheReadTokens: 20,
 		cacheWriteTokens: 10,
-		costUsd: 0.5,
+		costUsd: 0.00765432109,
 	});
 	teamManager.restore(state);
 
 	const removed = await teamManager.pruneTerminalWorkers();
 	const afterFirstPrune = teamManager.snapshot();
 	const afterNoopPrune = await teamManager.pruneTerminalWorkers();
+	const afterNoopSnapshot = teamManager.snapshot();
 	const aggregate = teamManager.aggregateUsage();
 
 	assert.equal(removed.length, 1);
@@ -471,6 +472,7 @@ test("pruneTerminalWorkers retains terminal worker usage exactly once", async ()
 	assert.equal(afterFirstPrune.activeWorkers["w1"], undefined);
 	assert.equal(afterFirstPrune.activeWorkers["w2"]?.status, "running");
 	assert.equal(afterNoopPrune.length, 0);
+	assert.equal(afterNoopSnapshot.prunedWorkerUsageTotals.costUsd, 0.01987654321);
 	assert.deepEqual(afterFirstPrune.prunedWorkerUsageTotals, {
 		workers: 1,
 		turns: 2,
@@ -478,13 +480,43 @@ test("pruneTerminalWorkers retains terminal worker usage exactly once", async ()
 		outputTokens: 40,
 		cacheReadTokens: 10,
 		cacheWriteTokens: 5,
-		costUsd: 0.25,
+		costUsd: 0.01987654321,
 		contextTokens: 0,
 	});
 	assert.equal(aggregate.workers, 2);
 	assert.equal(aggregate.inputTokens, 300);
 	assert.equal(aggregate.outputTokens, 120);
-	assert.equal(aggregate.costUsd, 0.75);
+	assert.equal(aggregate.costUsd, 0.0275308643);
+});
+
+test("aggregateUsage sums worker-reported fractional costs and excludes orchestrator usage", () => {
+	const teamManager = new TeamManager();
+	const state = createDefaultTeamState() as ReturnType<typeof createDefaultTeamState> & {
+		orchestratorUsage?: { costUsd: number; inputTokens: number };
+	};
+	state.activeWorkers["w1"] = workerSnapshot("w1", "idle", {
+		turns: 1,
+		inputTokens: 800_001,
+		outputTokens: 12_345,
+		cacheReadTokens: 654_321,
+		cacheWriteTokens: 9_876,
+		costUsd: 0.01987654321,
+	});
+	state.activeWorkers["w2"] = workerSnapshot("w2", "running", {
+		turns: 1,
+		inputTokens: 1,
+		outputTokens: 1,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		costUsd: 0.00765432109,
+	});
+	state.orchestratorUsage = { costUsd: 99.99, inputTokens: 9_999_999 };
+	teamManager.restore(state);
+
+	const aggregate = teamManager.aggregateUsage();
+	assert.equal(aggregate.workers, 2);
+	assert.equal(aggregate.inputTokens, 800_002);
+	assert.equal(aggregate.costUsd, 0.0275308643, "only worker-reported RPC costs belong in team usage");
 });
 
 test("aggregateUsage sums token and cost fields across every tracked worker", async () => {

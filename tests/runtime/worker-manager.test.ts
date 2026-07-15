@@ -387,6 +387,36 @@ test("refreshState advances recency only on live worker_state status changes", a
 	}
 });
 
+test("refreshStats passes through Pi RPC fractional cost without recomputing it from token counters", async () => {
+	const rpcCost = 0.01987654321;
+	const transport = new MockWorkerTransport({
+		sessionStats: {
+			sessionId: "pi-0.80.6-tiered-cost",
+			totalMessages: 7,
+			tokens: { input: 800_001, output: 12_345, cacheRead: 654_321, cacheWrite: 9_876, total: 1_476_543 },
+			cost: rpcCost,
+			contextUsage: { tokens: 812_346, contextWindow: 1_000_000, percent: 81.2346 },
+		},
+	});
+	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
+
+	await manager.launchWorker({
+		workerId: "worker-tiered-cost",
+		profileName: "reviewer",
+		task: taskInput("task-tiered-cost", "Tier-derived RPC cost"),
+		cwd: process.cwd(),
+		tools: ["read"],
+		extensionMode: "worker-minimal",
+	});
+	await manager.refreshStats("worker-tiered-cost");
+
+	const usage = manager.getWorker("worker-tiered-cost")?.state.usage;
+	assert.equal(usage?.inputTokens, 800_001);
+	assert.equal(usage?.cacheReadTokens, 654_321);
+	assert.equal(usage?.outputTokens, 12_345);
+	assert.equal(usage?.costUsd, rpcCost, "get_session_stats().cost is authoritative even for tier-triggering counters");
+});
+
 test("refreshStats clears nullable context percent and remaining after compaction", async () => {
 	let compacted = false;
 	const transport = new MockWorkerTransport({
