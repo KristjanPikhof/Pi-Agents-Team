@@ -522,8 +522,16 @@ export default function (pi: ExtensionAPI): void {
 		resetUiTracking();
 		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
-			for (const record of persistenceJournal.collect(teamState, activeProjectConfig.config)) {
-				pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
+			// appendEntry is synchronous: advance the journal only after each
+			// individual record is accepted. A throw leaves that record pending so
+			// the next state notification retries the exact transition.
+			for (;;) {
+				const records = persistenceJournal.prepare(teamState, activeProjectConfig.config);
+				if (records.length === 0) break;
+				for (const record of records) {
+					pi.appendEntry(activeProjectConfig.config.persistence.stateCustomType, record);
+					persistenceJournal.commit(record);
+				}
 			}
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 
