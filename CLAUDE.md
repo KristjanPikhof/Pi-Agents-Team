@@ -44,14 +44,17 @@ Do not re-add without discussion: `/team-status`, `/agents`, `/ping-agents`, `/t
 
 - Status set: terminal `idle | completed | aborted | error | exited`; non-terminal `starting | running | waiting_followup`. Keep normalizer, `isTerminalWorkerStatus`, UI glyphs, broadcasts, and `wait_for_agents` aligned.
 - Starting guard: keep `starting` when `worker_state.status === "starting" && !state.isStreaming`.
+- Settlement boundary: `agent_end` is a loop boundary only. It may update output/summary but must remain `running`; only `agent_settled` may produce successful `idle`.
+- Keep `awaitingSettlement` internal to `WorkerRuntimeRecord`, non-persisted, and absent from `WorkerRuntimeState` and public status/result unions. While set, `get_state` with `isStreaming: false` must not bypass the guard, including compaction, retry, queued-follow-up, and continuation sequences.
+- Terminal precedence: abort, error, prompt rejection, and process exit clear the settlement guard and beat late `agent_settled`. Ignore duplicate settlement/idle events after the first valid transition so waits, results, UI, and toasts observe one completion.
 - Prompt rejection: `promptWorker` marks `running`; rejection marks `error`, emits state, rethrows.
 - Terminal workers reject messages; `idle`/`waiting_followup` accept fresh prompts.
 - Delivery union: `"steer" | "follow_up" | "prompt"`. Idle/waiting `/team-steer`, even `--queue`, upgrades to `prompt`; overlay steer/message must not pre-block idle/waiting.
-- `wait_for_agents`: `all_terminal | relay_raised | timeout | aborted`; prefer wait over polling. `relay_raised` returns new relay questions since the baseline.
+- `wait_for_agents`: `all_terminal | relay_raised | timeout | aborted`; prefer wait over polling. `relay_raised` returns new relay questions since the baseline. Between `agent_end` and `agent_settled`, waits must not return `all_terminal`, results/completion notifications stay non-terminal, and reuse stays rejected; settlement unlocks all four.
 - Keep all relay-placeholder guards: `PLACEHOLDER_RELAY_VALUES`, relay-toast guard, worker prompt wording.
 - `buildWorkerSummaryFromText` aliases are intentional: `read_files`/`changed_files` and `files_read`/`files_changed`.
 - Close/cancel/prune: cancel non-terminal streams/processes; close idle/waiting RPC handles and maps exit to `exited`; prune removes terminal registry entries, disposes handles, folds usage into `prunedWorkerUsageTotals` once. No auto-prune.
-- Reuse: only idle/waiting, same launch-affecting settings (`profile`, `model`, tools, cwd, prompt path, extension mode, thinking level, skills, trust/extensions). Refresh stats first; reject `contextPercent >= 80` or `contextRemainingTokens <= 32768`.
+- Reuse: only idle/waiting after `agent_settled`, with the same launch-affecting settings (`profile`, `model`, tools, cwd, prompt path, extension mode, thinking level, skills, trust/extensions). Refresh stats first; reject `contextPercent >= 80` or `contextRemainingTokens <= 32768`.
 - Restore/reload: restored live workers become `exited`; never reattach old RPC processes. `session_start` sets `reloading = true`; tools and `/team-enable` call `ensureNotReloading()`.
 - Broadcasts swallow per-worker errors and return per-worker results.
 
@@ -73,13 +76,14 @@ Do not re-add without discussion: `/team-status`, `/agents`, `/ping-agents`, `/t
 
 - Config precedence is file presence. Nearest project `.pi/agent/agents-team.json` beats global `~/.pi/agent/agents-team.json`, even invalid. Active invalid config disables delegation; non-winning fatal parse is diagnostic-only.
 - Freshness toasts inspect only `LoadedTeamProjectConfig.activeConfigFreshness`: project-local, then global, then none. Dedup key = active scope + `scaffoldVersion` or `unknown`, stored via `Symbol.for("pi-agents-team.scaffoldFreshnessToasts")` on `globalThis`.
-- `schemaVersion` and `scaffoldVersion`: `src/project-config/versions.ts`. Schema = parsing contract; scaffold = active-config freshness.
-- Bad `roles.<name>.thinkingLevel`: drop field, warn, keep role. Launch cascade: explicit request -> role default -> live `pi.getThinkingLevel()` -> `medium`; emit clamp toast if effective differs.
+- `schemaVersion` and `scaffoldVersion`: `src/project-config/versions.ts`. Schema = parsing contract; scaffold = active-config freshness. Lifecycle, Pi compatibility, thinking `max`, and cost pass-through work do not by themselves change `TEAM_STATE_VERSION`, `TEAM_PROJECT_SCHEMA_VERSION`, or `TEAM_SCAFFOLD_VERSION`.
+- Worker Pi preflight: source the host from Pi's exported `VERSION`; require a parseable worker version `>=0.80.6` before RPC spawn. Cache/coalesce by resolved command plus CLI entrypoint prefix. Old, missing, failed, or malformed probes are fatal; supported host/worker mismatches warn once per session and remain non-fatal. Do not require exact patch equality or add an upper bound.
+- Bad `roles.<name>.thinkingLevel`: drop field, warn, keep role. Launch cascade: explicit request -> role default -> live `pi.getThinkingLevel()` -> `medium`; `max` is accepted but model-dependent, and the existing clamp toast fires if effective differs. Do not change built-in defaults merely to support `max`.
 - Path scope is prompt convention, not OS sandbox. It blocks bad delegations but cannot contain bash/network/subprocesses/worker behavior.
 - User prompt strings are length-capped, sanitized, fenced, and wrapped in `<!-- BEGIN available-profiles -->` sentinels.
 - Config writes use `src/util/backup.ts#atomicWriteFileSync`; `/team-enable` shallow-merges roles, `enabled`, `workerAccess`, `display`.
 - Team profile names come from active config. Pi skills are separate `delegate_task.skills`; never bake installed skill names into prompts/examples/default roles.
-- Cost totals are agents-only: exclude orchestrator cost, include retained `prunedWorkerUsageTotals`, honor `display.cost`.
+- Cost totals are agents-only: exclude orchestrator cost, include retained `prunedWorkerUsageTotals`, honor `display.cost`. Treat Pi RPC `cost` as authoritative and pass fractional/tier-derived values through unchanged; never recompute cost from token counters or local pricing tables, and retain pruned cost exactly once.
 - Routing mode is `TeamManager` state. `/team-enable on|off` without flags is session-only; `--local`, `--global`, deprecated `--persist local|global` persist it. Do not put routing mode in `PersistedTeamState`.
 
 ## Tests and docs
@@ -96,8 +100,10 @@ Persisting raw outputs; bypassing `TeamManager`; treating toasts as conversation
 
 ## Before sensitive changes
 
-- Status/toasts/runtime: read `src/runtime/worker-manager.ts`, `src/runtime/event-normalizer.ts`, `src/control-plane/team-manager.ts`, `docs/architecture.md`, tests.
+- Status/toasts/runtime: read `src/runtime/worker-manager.ts`, `src/runtime/event-normalizer.ts`, `src/control-plane/team-manager.ts`, `docs/architecture.md`, tests. For settlement changes run `npx tsx --test tests/runtime/event-normalizer.test.ts tests/runtime/worker-manager.test.ts tests/control-plane/team-manager.test.ts tests/control-plane/extension-wiring.test.ts tests/integration/team-flow.test.ts` plus `npm run typecheck`.
 - Reload lifecycle: `/reload` tears down old runtime, disables jiti cache, re-runs factories, emits `session_start reason=reload`; clean external resources on `session_shutdown`.
-- Config/scaffold: read `src/project-config/loader.ts`, `src/project-config/versions.ts`, `docs/profiles.md`, freshness tests.
+- Pi version/launch: read `src/runtime/pi-version.ts`, `src/runtime/worker-process.ts`, `src/runtime/worker-manager.ts`, and extension mismatch wiring. Run `npx tsx --test tests/runtime/pi-version.test.ts tests/runtime/worker-process.test.ts tests/control-plane/extension-wiring.test.ts` plus `npm run typecheck`; preserve injectable probes, cache/concurrency coverage, Windows spawn selection, and worker-minimal args.
+- Config/scaffold: read `src/project-config/loader.ts`, `src/project-config/versions.ts`, `docs/profiles.md`, freshness tests. Thinking `max` changes must also run `tests/types/thinking-level-drift.test.ts`, `tests/runtime/worker-process.test.ts`, `tests/control-plane/team-manager.test.ts`, and `tests/control-plane/toasts.test.ts` without changing built-in role defaults or version constants.
+- Cost accounting: read `WorkerManager.refreshStats`, `src/usage.ts`, registry prune retention, and display formatting. Run `tests/runtime/worker-manager.test.ts`, `tests/control-plane/team-manager.test.ts`, `tests/control-plane/usage.test.ts`, and `tests/ui/usage-format.test.ts`; assert Pi-reported pass-through, worker-only aggregation, prune-once, no recomputation, and `display.cost` behavior.
 - UI: read `src/ui/theme.ts`, `src/ui/overlay.ts`, `src/ui/status-widget.ts`, overlay/widget tests, pi-tui width rules.
 - New command/tool: first check whether `/team` or existing tools cover it; update wiring tests/docs if added.
