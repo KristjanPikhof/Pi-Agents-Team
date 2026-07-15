@@ -10,6 +10,9 @@ import {
 	DEFAULT_PROMPT_SENTINEL,
 	TEAM_PROJECT_CONFIG_DIR,
 	TEAM_PROJECT_CONFIG_FILE,
+	TEAM_PROJECT_SCHEMA_VERSION,
+	TEAM_SCAFFOLD_VERSION,
+	THINKING_LEVELS,
 } from "../../src/types";
 
 interface RegisteredCommand {
@@ -48,8 +51,23 @@ test("parseInitArgs accepts scope and force flag", () => {
 
 test("buildFullScaffold pre-populates every builtin profile in the schema v4 shape", () => {
 	const scaffold = _testing.buildFullScaffold();
-	assert.equal(scaffold.schemaVersion, 4);
+	assert.equal(TEAM_PROJECT_SCHEMA_VERSION, 4, "additive thinking levels must not bump the config schema");
+	assert.equal(TEAM_SCAFFOLD_VERSION, 3, "opt-in thinking levels must not change generated defaults");
+	assert.equal(scaffold.schemaVersion, TEAM_PROJECT_SCHEMA_VERSION);
 	assert.equal(scaffold.scaffoldVersion, CURRENT_SCAFFOLD_VERSION);
+	assert.deepEqual(
+		Object.fromEntries(DEFAULT_TEAM_CONFIG.profiles.map((profile) => [profile.name, profile.thinkingLevel])),
+		{
+			explorer: "low",
+			librarian: "medium",
+			oracle: "high",
+			designer: "medium",
+			fixer: "medium",
+			reviewer: "high",
+			observer: "low",
+		},
+		"built-in role thinking defaults must remain unchanged",
+	);
 	assert.equal(scaffold.enabled, true);
 	assert.equal(scaffold.routingMode, "team");
 	assert.equal(scaffold.workerAccess?.allowPathsOutsideProject, true);
@@ -105,6 +123,8 @@ test("/team-init local writes a full scaffold inside the project", async () => {
 	const roleNames = Object.keys(parsed.roles ?? {}).sort();
 	assert.deepEqual(roleNames, DEFAULT_TEAM_CONFIG.profiles.map((profile) => profile.name).sort());
 	assert.ok(emitted[0]?.includes(expectedPath));
+	assert.ok(emitted[0]?.includes(`valid values: ${THINKING_LEVELS.join(", ")}`));
+	assert.ok(emitted[0]?.includes("max"));
 	assert.ok(emitted[0]?.includes("/reload"));
 });
 
