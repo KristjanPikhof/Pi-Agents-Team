@@ -1134,7 +1134,7 @@ export default function (pi: ExtensionAPI): void {
 				: "";
 			return {
 				content: [{ type: "text", text: compactResult + restoredResultNote }],
-				details: result as any,
+				details: result,
 			};
 		},
 	});
