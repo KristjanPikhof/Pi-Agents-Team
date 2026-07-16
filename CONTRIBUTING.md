@@ -4,7 +4,7 @@ Thanks for helping out. This guide covers local setup, the test discipline, and 
 
 ## Local setup
 
-Use Node `>=22.19.0`. Development validation uses exactly Pi `0.80.7`, while the supported host and worker minimum remains Pi `>=0.80.6`. npm and `package-lock.json` are the only supported dependency and lock workflow; do not add or regenerate a Bun lock.
+Use Node `>=22.19.0`. Development validation uses exactly Pi `0.80.6`, which is also the supported host and worker minimum. npm and `package-lock.json` are the only supported dependency and lock workflow; do not add or regenerate a Bun lock.
 
 ```bash
 git clone git@github.com:KristjanPikhof/pi-agents-team.git
@@ -13,14 +13,23 @@ npm install
 npm run check            # typecheck + all tests, must be green before you push
 ```
 
-Run the extension against your working copy without going through `pi install`:
+Run the source shim against your working copy without going through `pi install`:
 
 ```bash
 pi -e ./extensions/index.ts
-pi -e ./extensions/index.ts -p "/team"   # open straight into the dashboard
 ```
 
-This is the local-development path. Pi loads `extensions/index.ts` through `jiti`; installed consumers use the compiled npm package instead. Direct Git package installs are not supported because `dist/` is ignored and Pi's Git install flow does not build it.
+This checks the local-development path. Pi loads `extensions/index.ts` through `jiti`; it does not check the compiled or published package entrypoint. To exercise the TUI overlay, start Pi interactively and enter `/team`. Do not use `-p "/team"` as an overlay check: `-p` submits a prompt and does not exercise interactive overlay input or rendering.
+
+Validate the compiled and published paths separately:
+
+```bash
+npm run build
+pi -e ./dist/extensions/index.js
+npx tsx --test tests/package-manifest.test.ts tests/package-publish.test.ts
+```
+
+Installed consumers use the compiled npm package. The focused package tests check the `dist/` manifest contract, pack the package, install it offline, and import it from a clean consumer. Direct Git package installs are not supported because `dist/` is ignored and Pi's Git install flow does not build it.
 
 ## Commands
 

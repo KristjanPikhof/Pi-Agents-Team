@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.80.7`, while supported hosts and workers retain a Pi `>=0.80.6` minimum. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
+Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.80.6`, which is also the supported host and worker minimum. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
 
 Install dependencies and run the checks:
 
@@ -19,10 +19,17 @@ npm run smoke:runtime
 npm run smoke:team
 ```
 
-Load the extension directly:
+Load the source shim for a local-development check:
 
 ```bash
 pi -e ./extensions/index.ts
+```
+
+This command does not validate the compiled or published package entrypoint. Run the focused package checks for that contract:
+
+```bash
+npm run build
+npx tsx --test tests/package-manifest.test.ts tests/package-publish.test.ts
 ```
 
 **Large-session warning:** This release does not repair existing multi-gigabyte legacy sessions. They may be unsafe to resume. Start a genuinely new session instead, or migrate the JSONL offline while Pi is stopped.
@@ -573,10 +580,23 @@ Fixed. The `starting → idle` race has a guard in `applyNormalizedEvent` (worke
 
 ## Local verification commands
 
+Check the source shim during development:
+
 ```bash
-npm run typecheck
-npm test
-pi -e ./extensions/index.ts -p "/team"
+pi -e ./extensions/index.ts
 ```
 
-That smoke command exercises the shipped package entrypoint in the same mode operators use: an overlay-style, keyboard-first panel in TUI environments, with a compact text fallback when no UI is available.
+Check the compiled Pi entrypoint:
+
+```bash
+npm run build
+pi -e ./dist/extensions/index.js
+```
+
+Check the published package contract by packing, installing offline, and importing from a clean consumer:
+
+```bash
+npx tsx --test tests/package-manifest.test.ts tests/package-publish.test.ts
+```
+
+For a manual TUI overlay check, start either Pi entrypoint interactively and enter `/team` after Pi opens. Do not use `-p "/team"` as evidence for overlay behavior: `-p` submits a prompt and does not exercise interactive overlay input or rendering.
