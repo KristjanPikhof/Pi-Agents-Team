@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, delimiter, extname, isAbsolute, resolve } from "node:path";
 import { VERSION } from "@earendil-works/pi-coding-agent";
@@ -10,6 +11,7 @@ const crossSpawn = require("cross-spawn") as typeof nodeSpawn;
 export const HOST_PI_VERSION = VERSION;
 export const MINIMUM_WORKER_PI_VERSION = "0.80.6";
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
+export const SUCCESSFUL_PROBE_CACHE_TTL_MS = 30_000;
 const PROBE_OUTPUT_LIMIT_BYTES = 64 * 1024;
 const DIAGNOSTIC_LIMIT_CHARS = 500;
 
@@ -57,7 +59,12 @@ export interface PiVersionProbeResult {
 
 export type ProbeWorkerPiVersion = (options: PiVersionProbeOptions) => Promise<PiVersionProbeResult>;
 
-const probeCache = new Map<string, Promise<PiVersionProbeResult>>();
+interface ProbeCacheEntry {
+	promise: Promise<PiVersionProbeResult>;
+	completedAt?: number;
+}
+
+const probeCache = new Map<string, ProbeCacheEntry>();
 
 export function parsePiVersion(output: string): ParsedPiVersion | undefined {
 	const match = output.trim().match(
@@ -128,20 +135,34 @@ function executableCandidates(command: string, env: NodeJS.ProcessEnv): string[]
 	return [command, ...pathExt.split(";").filter(Boolean).map((extension) => `${command}${extension.toLowerCase()}`)];
 }
 
+function fingerprint(value: string): string {
+	return createHash("sha256").update(value).digest("hex");
+}
+
+function fileIdentity(path: string): string {
+	try {
+		const stat = statSync(path);
+		return `${path}\0file:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+	} catch {
+		return path;
+	}
+}
+
 function resolveCommandIdentity(command: string, cwd: string, suppliedEnv?: NodeJS.ProcessEnv): string {
 	const env = suppliedEnv ?? process.env;
 	if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
-		return resolve(cwd, command);
+		return fileIdentity(resolve(cwd, command));
 	}
 	const pathValue = environmentValue(env, "PATH") ?? (process.platform === "win32" ? "" : "/usr/bin:/bin");
 	for (const directory of pathValue.split(delimiter)) {
 		if (!directory) continue;
 		for (const candidate of executableCandidates(command, env)) {
 			const path = resolve(cwd, directory, candidate);
-			if (existsSync(path)) return path;
+			if (existsSync(path)) return fileIdentity(path);
 		}
 	}
-	return `unresolved:${command}\0cwd:${resolve(cwd)}\0path:${pathValue}`;
+	const pathExt = environmentValue(env, "PATHEXT") ?? "";
+	return `unresolved:${command}\0lookup:${fingerprint(`${cwd}\0${pathValue}\0${pathExt}`)}`;
 }
 
 function environmentIdentity(suppliedEnv?: NodeJS.ProcessEnv): string {
@@ -151,12 +172,18 @@ function environmentIdentity(suppliedEnv?: NodeJS.ProcessEnv): string {
 		if (value === undefined) return [];
 		return [[process.platform === "win32" ? key.toLowerCase() : key, value] as const];
 	});
-	return JSON.stringify(entries);
+	return fingerprint(JSON.stringify(entries));
 }
 
-function commandCacheKey(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
+export function buildPiVersionProbeCacheKey(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
 	const resolvedCwd = resolve(cwd);
-	return `${resolveCommandIdentity(command, resolvedCwd, env)}\0cwd:${resolvedCwd}\0env:${environmentIdentity(env)}\0${args.join("\0")}`;
+	const identity = JSON.stringify({
+		command: resolveCommandIdentity(command, resolvedCwd, env),
+		cwd: resolvedCwd,
+		args,
+		environment: environmentIdentity(env),
+	});
+	return `pi-version-probe:v1:${fingerprint(identity)}`;
 }
 
 function appendCapped(current: string, chunk: unknown): string {
@@ -190,23 +217,61 @@ function signalProcessGroup(pid: number | undefined, child: ReturnType<typeof no
 	}
 }
 
+interface KillableChild {
+	pid?: number;
+	kill(signal?: NodeJS.Signals): boolean;
+}
+
+type TaskkillSpawn = (command: string, args: string[], options: { stdio: "ignore" }) => KillableChild & {
+	once(event: "error", listener: () => void): unknown;
+	once(event: "close", listener: (code: number | null) => void): unknown;
+};
+
+function tryKill(child: KillableChild): void {
+	try {
+		child.kill();
+	} catch {
+		// The process may already have exited.
+	}
+}
+
+export async function terminateWindowsProcessTree(
+	child: KillableChild,
+	spawnTaskkill: TaskkillSpawn = crossSpawn as unknown as TaskkillSpawn,
+	timeoutMs = 500,
+): Promise<void> {
+	if (child.pid === undefined) {
+		tryKill(child);
+		return;
+	}
+	await new Promise<void>((resolveTermination) => {
+		let killer: ReturnType<TaskkillSpawn> | undefined;
+		let settled = false;
+		const finish = (fallback: boolean) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			if (fallback) tryKill(child);
+			resolveTermination();
+		};
+		const timeout = setTimeout(() => {
+			if (killer) tryKill(killer);
+			finish(true);
+		}, timeoutMs);
+		timeout.unref?.();
+		try {
+			killer = spawnTaskkill("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+			killer.once("error", () => finish(true));
+			killer.once("close", (code) => finish(code !== 0));
+		} catch {
+			finish(true);
+		}
+	});
+}
+
 async function terminateProcessTree(child: ReturnType<typeof nodeSpawn>): Promise<void> {
 	if (process.platform === "win32") {
-		if (child.pid === undefined) {
-			child.kill();
-			return;
-		}
-		await Promise.race([
-			new Promise<void>((resolveTaskkill) => {
-				const killer = crossSpawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-				killer.once("error", () => {
-					child.kill();
-					resolveTaskkill();
-				});
-				killer.once("close", () => resolveTaskkill());
-			}),
-			delay(500),
-		]);
+		await terminateWindowsProcessTree(child);
 		return;
 	}
 
@@ -263,9 +328,12 @@ export async function probeWorkerPiVersion(
 ): Promise<PiVersionProbeResult> {
 	const command = options.command ?? "pi";
 	const versionArgs = buildPiVersionArgs(options.baseArgs);
-	const key = commandCacheKey(command, versionArgs, options.cwd, options.env);
+	const key = buildPiVersionProbeCacheKey(command, versionArgs, options.cwd, options.env);
 	const existing = probeCache.get(key);
-	if (existing) return existing;
+	if (existing && (existing.completedAt === undefined || Date.now() - existing.completedAt < SUCCESSFUL_PROBE_CACHE_TTL_MS)) {
+		return existing.promise;
+	}
+	if (existing) probeCache.delete(key);
 
 	const pending = (async (): Promise<PiVersionProbeResult> => {
 		const common = {
@@ -318,9 +386,13 @@ export async function probeWorkerPiVersion(
 			}),
 		};
 	})();
-	probeCache.set(key, pending);
+	const entry: ProbeCacheEntry = { promise: pending };
+	probeCache.set(key, entry);
 	const result = await pending;
-	if (!result.supported && probeCache.get(key) === pending) probeCache.delete(key);
+	if (probeCache.get(key) === entry) {
+		if (result.supported) entry.completedAt = Date.now();
+		else probeCache.delete(key);
+	}
 	return result;
 }
 

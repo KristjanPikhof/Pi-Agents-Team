@@ -1,14 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
 	HOST_PI_VERSION,
+	SUCCESSFUL_PROBE_CACHE_TTL_MS,
+	buildPiVersionProbeCacheKey,
 	clearPiVersionProbeCache,
 	comparePiVersions,
 	parsePiVersion,
 	probeWorkerPiVersion,
+	terminateWindowsProcessTree,
 	type RunPiVersionCommand,
 } from "../../src/runtime/pi-version";
 
@@ -85,6 +89,99 @@ test("caches probes and coalesces concurrent first probes by command", async () 
 	assert.strictEqual(await first, await second);
 	await probeWorkerPiVersion(options, run);
 	assert.equal(calls, 1);
+});
+
+test("expires successful cache entries while continuing to coalesce pending probes", async (t) => {
+	let now = 1_000;
+	t.mock.method(Date, "now", () => now);
+	let calls = 0;
+	const run: RunPiVersionCommand = async () => {
+		calls += 1;
+		return { stdout: calls === 1 ? "0.80.6" : "0.81.0", stderr: "", code: 0 };
+	};
+	const options = { command: "ttl-pi", cwd: "/tmp" };
+	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.80.6");
+	now += SUCCESSFUL_PROBE_CACHE_TTL_MS - 1;
+	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.80.6");
+	now += 1;
+	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.81.0");
+	assert.equal(calls, 2);
+});
+
+test("does not retain raw environment or CLI credential values in cache keys", () => {
+	const secret = "credential-value-that-must-not-be-retained";
+	const first = buildPiVersionProbeCacheKey("missing-pi", ["--token", secret, "--version"], "/tmp", {
+		PATH: "/credential/path",
+		API_TOKEN: secret,
+	});
+	const second = buildPiVersionProbeCacheKey("missing-pi", ["--token", secret, "--version"], "/tmp", {
+		PATH: "/credential/path",
+		API_TOKEN: `${secret}-changed`,
+	});
+	assert.doesNotMatch(first, /credential-value|API_TOKEN|credential\/path/);
+	assert.notEqual(first, second);
+});
+
+test("does not expose a sensitive resolved PATH directory in cache keys", async () => {
+	const secret = "sensitive-resolved-directory-name";
+	const root = await mkdtemp(join(tmpdir(), `${secret}-`));
+	const executable = join(root, "pi");
+	await writeFile(executable, "resolved");
+	try {
+		const key = buildPiVersionProbeCacheKey("pi", ["--version"], root, { PATH: root });
+		assert.match(key, /^pi-version-probe:v1:[0-9a-f]{64}$/);
+		assert.doesNotMatch(key, new RegExp(secret));
+		assert.doesNotMatch(key, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("invalidates a successful probe when the resolved executable is replaced", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-replace-"));
+	const executable = join(root, "pi");
+	const replacement = join(root, "pi-new");
+	await writeFile(executable, "first");
+	let calls = 0;
+	const run: RunPiVersionCommand = async () => {
+		calls += 1;
+		return { stdout: calls === 1 ? "0.80.6" : "0.81.0", stderr: "", code: 0 };
+	};
+	try {
+		assert.equal((await probeWorkerPiVersion({ command: executable, cwd: root }, run)).workerVersion, "0.80.6");
+		await writeFile(replacement, "second executable");
+		await rename(replacement, executable);
+		assert.equal((await probeWorkerPiVersion({ command: executable, cwd: root }, run)).workerVersion, "0.81.0");
+		assert.equal(calls, 2);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("Windows taskkill cleanup falls back on failure and kills a hung taskkill", async () => {
+	class FakeChild extends EventEmitter {
+		pid = 123;
+		killCalls = 0;
+		kill(): boolean {
+			this.killCalls += 1;
+			return true;
+		}
+	}
+
+	const failedChild = new FakeChild();
+	const failedKiller = new FakeChild();
+	await terminateWindowsProcessTree(failedChild, () => {
+		queueMicrotask(() => failedKiller.emit("close", 1));
+		return failedKiller;
+	}, 50);
+	assert.equal(failedChild.killCalls, 1);
+	assert.equal(failedKiller.killCalls, 0);
+
+	const hungChild = new FakeChild();
+	const hungKiller = new FakeChild();
+	await terminateWindowsProcessTree(hungChild, () => hungKiller, 10);
+	assert.equal(hungKiller.killCalls, 1);
+	assert.equal(hungChild.killCalls, 1);
 });
 
 test("preserves arbitrary value-taking wrapper options through the explicit Pi RPC boundary", async () => {

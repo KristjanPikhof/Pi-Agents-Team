@@ -45,7 +45,14 @@ npm install
 pi -e ./extensions/index.ts
 ```
 
-Pi loads this local-development shim through `jiti`, so a build is not required before each run. Use `npm run build` when you need to inspect or validate the compiled package output in `dist/`.
+Pi loads this local-development shim through `jiti`, so a build is not required before each run. This checks the source path only; it does not validate the compiled or published package entrypoint. Validate those paths separately:
+
+```bash
+npm run build
+npx tsx --test tests/package-manifest.test.ts tests/package-publish.test.ts
+```
+
+The focused package tests check the `dist/` manifest contract, run `npm pack`, install the tarball offline, and import it from a clean consumer.
 
 ## Operator commands
 
