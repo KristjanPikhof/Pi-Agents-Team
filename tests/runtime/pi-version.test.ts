@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
 	HOST_PI_VERSION,
+	MAX_COMPLETED_PROBE_CACHE_ENTRIES,
 	SUCCESSFUL_PROBE_CACHE_TTL_MS,
+	_testing as versionTesting,
 	buildPiVersionProbeCacheKey,
 	clearPiVersionProbeCache,
 	comparePiVersions,
@@ -64,6 +66,37 @@ test("rejects old, malformed, and missing worker versions with actionable diagno
 	}
 });
 
+test("redacts token-bearing wrapper arguments from every failure diagnostic", async () => {
+	const secret = "wrapper-token-that-must-stay-private";
+	const cliEntry = "/tmp/private-wrapper-cli.js";
+	const options = {
+		command: "custom-pi",
+		baseArgs: ["--token", secret, cliEntry, "--mode", "rpc"],
+		cwd: "/tmp",
+	};
+	const failed = await probeWorkerPiVersion(
+		options,
+		runner({
+			code: null,
+			error: new Error(`spawn failed for --token ${secret} ${cliEntry}`),
+		}),
+	);
+	assert.deepEqual(failed.versionArgs, ["--token", secret, cliEntry, "--version"]);
+	assert.doesNotMatch(failed.message ?? "", /argv/);
+	assert.doesNotMatch(failed.message ?? "", /--token/);
+	assert.doesNotMatch(failed.message ?? "", new RegExp(secret));
+	assert.doesNotMatch(failed.message ?? "", /private-wrapper-cli/);
+
+	const unparseable = await probeWorkerPiVersion(
+		options,
+		runner({ stdout: `not a version: --token ${secret} ${cliEntry}` }),
+	);
+	assert.doesNotMatch(unparseable.message ?? "", /--token/);
+	assert.doesNotMatch(unparseable.message ?? "", new RegExp(secret));
+	assert.doesNotMatch(unparseable.message ?? "", /private-wrapper-cli/);
+	assert.deepEqual(versionTesting.snapshotProbeCache(), []);
+});
+
 test("reports supported host/worker mismatch but not an exact match", async () => {
 	const exact = await probeWorkerPiVersion({ command: "exact", cwd: "/tmp" }, runner({ stdout: HOST_PI_VERSION }));
 	const mismatch = await probeWorkerPiVersion({ command: "newer", cwd: "/tmp" }, runner({ stdout: "0.81.0" }));
@@ -86,7 +119,10 @@ test("caches probes and coalesces concurrent first probes by command", async () 
 	const second = probeWorkerPiVersion(options, run);
 	assert.equal(calls, 1);
 	release();
-	assert.strictEqual(await first, await second);
+	const firstResult = await first;
+	const secondResult = await second;
+	assert.deepEqual(firstResult, secondResult);
+	assert.notStrictEqual(firstResult, secondResult);
 	await probeWorkerPiVersion(options, run);
 	assert.equal(calls, 1);
 });
@@ -106,6 +142,72 @@ test("expires successful cache entries while continuing to coalesce pending prob
 	now += 1;
 	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.81.0");
 	assert.equal(calls, 2);
+});
+
+test("purges expired completed entries when an unrelated command is probed", async (t) => {
+	let now = 10_000;
+	t.mock.method(Date, "now", () => now);
+	let calls = 0;
+	const run: RunPiVersionCommand = async () => {
+		calls += 1;
+		return { stdout: "0.80.6", stderr: "", code: 0 };
+	};
+	await probeWorkerPiVersion({ command: "/tmp/expired-first-pi", cwd: "/tmp" }, run);
+	await probeWorkerPiVersion({ command: "/tmp/expired-second-pi", cwd: "/tmp" }, run);
+	assert.equal(versionTesting.snapshotProbeCache().length, 2);
+
+	now += SUCCESSFUL_PROBE_CACHE_TTL_MS;
+	await probeWorkerPiVersion({ command: "/tmp/unrelated-pi", cwd: "/tmp" }, run);
+	assert.equal(versionTesting.snapshotProbeCache().length, 1);
+	assert.equal(calls, 3);
+});
+
+test("bounds completed cache entries by evicting the oldest successful probe", async (t) => {
+	let now = 20_000;
+	t.mock.method(Date, "now", () => now);
+	let calls = 0;
+	const run: RunPiVersionCommand = async () => {
+		calls += 1;
+		return { stdout: "0.80.6", stderr: "", code: 0 };
+	};
+	for (let index = 0; index <= MAX_COMPLETED_PROBE_CACHE_ENTRIES; index += 1) {
+		await probeWorkerPiVersion({ command: `/tmp/capacity-pi-${index}`, cwd: "/tmp" }, run);
+		now += 1;
+	}
+	assert.equal(versionTesting.snapshotProbeCache().length, MAX_COMPLETED_PROBE_CACHE_ENTRIES);
+	assert.equal(calls, MAX_COMPLETED_PROBE_CACHE_ENTRIES + 1);
+
+	await probeWorkerPiVersion({ command: "/tmp/capacity-pi-0", cwd: "/tmp" }, run);
+	assert.equal(calls, MAX_COMPLETED_PROBE_CACHE_ENTRIES + 2);
+	assert.equal(versionTesting.snapshotProbeCache().length, MAX_COMPLETED_PROBE_CACHE_ENTRIES);
+});
+
+test("stores only sanitized compatibility data after a successful wrapper probe", async () => {
+	const secret = "cached-wrapper-token-that-must-stay-private";
+	const cliEntry = "/tmp/cached-private-wrapper-cli.js";
+	const options = {
+		command: "cached-wrapper-pi",
+		baseArgs: ["--token", secret, cliEntry, "--mode", "rpc"],
+		cwd: "/tmp",
+	};
+	let calls = 0;
+	const run: RunPiVersionCommand = async () => {
+		calls += 1;
+		return { stdout: "0.80.6", stderr: "", code: 0 };
+	};
+	const expectedArgs = ["--token", secret, cliEntry, "--version"];
+	const first = await probeWorkerPiVersion(options, run);
+	assert.deepEqual(first.versionArgs, expectedArgs);
+	const cacheSnapshot = JSON.stringify(versionTesting.snapshotProbeCache());
+	assert.doesNotMatch(cacheSnapshot, /--token/);
+	assert.doesNotMatch(cacheSnapshot, new RegExp(secret));
+	assert.doesNotMatch(cacheSnapshot, /cached-private-wrapper-cli/);
+
+	first.versionArgs.fill("caller mutation");
+	const second = await probeWorkerPiVersion(options, run);
+	assert.deepEqual(second.versionArgs, expectedArgs);
+	assert.notStrictEqual(first.versionArgs, second.versionArgs);
+	assert.equal(calls, 1);
 });
 
 test("does not retain raw environment or CLI credential values in cache keys", () => {
