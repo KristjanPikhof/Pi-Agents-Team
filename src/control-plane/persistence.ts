@@ -31,6 +31,11 @@ export interface CompactPersistenceMeasurement {
 	payloadBytes: number;
 }
 
+export interface RestorePersistedTeamStateWithMeasurementResult {
+	state: PersistedTeamState;
+	measurement: CompactPersistenceMeasurement;
+}
+
 const LIVE_WORKER_STATUSES: readonly WorkerStatus[] = ["running", "starting", "idle", "waiting_followup"];
 const TERMINAL_WORKER_STATUS: Partial<Record<WorkerStatus, true>> = {
 	idle: true,
@@ -78,7 +83,10 @@ function compactUsage(usage: Partial<WorkerUsageStats> | undefined): WorkerUsage
 		costUsd: finite(usage?.costUsd),
 	};
 	for (const key of ["contextTokens", "contextWindow", "contextPercent", "contextRemainingTokens"] as const) {
-		if (typeof usage?.[key] === "number" && Number.isFinite(usage[key])) result[key] = usage[key];
+		const value = usage?.[key];
+		if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+			result[key] = Math.min(value, MAX_PERSISTED_NUMBER);
+		}
 	}
 	return result;
 }
@@ -257,20 +265,54 @@ function isLegacySnapshot(value: unknown): boolean {
 	return isRecord(value) && value.version === 1 && isRecord(value.activeWorkers);
 }
 
+interface InspectedCompactPersistenceRecord {
+	record: TeamPersistenceRecord;
+	payloadBytes: number;
+}
+
+/**
+ * Validate and canonicalize a compact record in one pass. The canonical copy
+ * is the only value serialized and is reused by replay.
+ */
+function inspectCompactPersistenceRecord(value: unknown): InspectedCompactPersistenceRecord | undefined {
+	if (!isPlainRecord(value) || value.version !== TEAM_PERSISTENCE_VERSION) return undefined;
+	if (!isBoundedString(value.recordId, MAX_RECORD_ID_BYTES, false)) return undefined;
+
+	let record: TeamPersistenceRecord;
+	if (value.kind === "worker_terminal") {
+		if (!hasExactKeys(value, ["version", "kind", "recordId", "worker"])) return undefined;
+		const worker = sanitizeCompactWorker(value.worker);
+		if (!worker) return undefined;
+		record = {
+			version: TEAM_PERSISTENCE_VERSION,
+			kind: "worker_terminal",
+			recordId: value.recordId,
+			worker,
+		};
+	} else if (value.kind === "worker_pruned") {
+		if (!hasExactKeys(value, ["version", "kind", "recordId", "workerId", "usage"])) return undefined;
+		if (!isBoundedString(value.workerId, MAX_ID_BYTES, false)) return undefined;
+		const usage = sanitizeUsage(value.usage);
+		if (!usage) return undefined;
+		record = {
+			version: TEAM_PERSISTENCE_VERSION,
+			kind: "worker_pruned",
+			recordId: value.recordId,
+			workerId: value.workerId,
+			usage,
+		};
+	} else {
+		return undefined;
+	}
+
+	const payloadBytes = Buffer.byteLength(JSON.stringify(record), "utf8");
+	if (payloadBytes > MAX_RECORD_BYTES) return undefined;
+	return { record, payloadBytes };
+}
+
 /** True only for replayable records in the current compact format. */
 export function isRecognizedCompactPersistenceRecord(value: unknown): value is TeamPersistenceRecord {
-	if (!isPlainRecord(value) || value.version !== TEAM_PERSISTENCE_VERSION) return false;
-	if (!isBoundedString(value.recordId, MAX_RECORD_ID_BYTES, false)) return false;
-	if (value.kind === "worker_terminal") {
-		if (!hasExactKeys(value, ["version", "kind", "recordId", "worker"])) return false;
-		if (!sanitizeCompactWorker(value.worker)) return false;
-	} else if (value.kind === "worker_pruned") {
-		if (!hasExactKeys(value, ["version", "kind", "recordId", "workerId", "usage"])) return false;
-		if (!isBoundedString(value.workerId, MAX_ID_BYTES, false) || !sanitizeUsage(value.usage)) return false;
-	} else {
-		return false;
-	}
-	return Buffer.byteLength(JSON.stringify(value), "utf8") <= MAX_RECORD_BYTES;
+	return inspectCompactPersistenceRecord(value) !== undefined;
 }
 
 /** UTF-8 bytes occupied by the compact record payload, not session framing or total file bytes. */
@@ -286,9 +328,10 @@ export function measureCompactPersistence(
 	let payloadBytes = 0;
 	for (const entry of entries) {
 		if (entry.type !== "custom" || entry.customType !== stateCustomType) continue;
-		if (!isRecognizedCompactPersistenceRecord(entry.data)) continue;
+		const inspected = inspectCompactPersistenceRecord(entry.data);
+		if (!inspected) continue;
 		recordCount += 1;
-		payloadBytes += compactPersistenceRecordPayloadBytes(entry.data);
+		payloadBytes += inspected.payloadBytes;
 	}
 	return { recordCount, payloadBytes };
 }
@@ -313,9 +356,13 @@ function sanitizeLegacyState(raw: unknown): PersistedTeamState {
 	return normalizePersistedTeamState(state);
 }
 
-export function restorePersistedTeamState(entries: Iterable<SessionLikeEntry>, stateCustomType: string): PersistedTeamState {
+export function restorePersistedTeamStateWithMeasurement(
+	entries: Iterable<SessionLikeEntry>,
+	stateCustomType: string,
+): RestorePersistedTeamStateWithMeasurementResult {
 	let state = createDefaultTeamState();
 	const appliedRecords = new Set<string>();
+	const measurement: CompactPersistenceMeasurement = { recordCount: 0, payloadBytes: 0 };
 
 	for (const entry of entries) {
 		if (entry.type !== "custom" || entry.customType !== stateCustomType) continue;
@@ -327,23 +374,29 @@ export function restorePersistedTeamState(entries: Iterable<SessionLikeEntry>, s
 		}
 		// Unknown, malformed, and future-version records are inert. In particular,
 		// they must not erase the valid replay prefix as an alleged legacy snapshot.
-		if (!isRecognizedCompactPersistenceRecord(value)) continue;
-		if (appliedRecords.has(value.recordId)) continue;
+		const inspected = inspectCompactPersistenceRecord(value);
+		if (!inspected) continue;
+		measurement.recordCount += 1;
+		measurement.payloadBytes += inspected.payloadBytes;
 
-		if (value.kind === "worker_terminal") {
-			const worker = sanitizeCompactWorker(value.worker);
-			if (!worker) continue;
-			appliedRecords.add(value.recordId);
-			state.activeWorkers[worker.workerId] = restoredWorker(worker);
+		const record = inspected.record;
+		if (appliedRecords.has(record.recordId)) continue;
+		appliedRecords.add(record.recordId);
+		if (record.kind === "worker_terminal") {
+			state.activeWorkers[record.worker.workerId] = restoredWorker(record.worker);
 		} else {
-			if (typeof value.workerId !== "string" || !isRecord(value.usage)) continue;
-			appliedRecords.add(value.recordId);
-			const workerId = cap(value.workerId, MAX_ID_BYTES);
-			delete state.activeWorkers[workerId];
-			state.prunedWorkerUsageTotals = addWorkerUsageToAggregate(state.prunedWorkerUsageTotals, compactUsage(value.usage));
+			delete state.activeWorkers[record.workerId];
+			state.prunedWorkerUsageTotals = addWorkerUsageToAggregate(
+				state.prunedWorkerUsageTotals,
+				record.usage,
+			);
 		}
 	}
-	return normalizePersistedTeamState(state);
+	return { state: normalizePersistedTeamState(state), measurement };
+}
+
+export function restorePersistedTeamState(entries: Iterable<SessionLikeEntry>, stateCustomType: string): PersistedTeamState {
+	return restorePersistedTeamStateWithMeasurement(entries, stateCustomType).state;
 }
 
 export function markRestoredWorkersExited(state: PersistedTeamState, reasonOrStartReason: string | SessionStartReason = "reload"): MarkRestoredWorkersExitedResult {
@@ -396,8 +449,17 @@ function terminalRecord(
 		recordId: recordId("terminal", worker, instrumentation),
 		worker,
 	});
+	const finish = (
+		candidate: Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>,
+	): Extract<TeamPersistenceRecord, { kind: "worker_terminal" }> => {
+		const inspected = inspectCompactPersistenceRecord(candidate);
+		if (!inspected || inspected.record.kind !== "worker_terminal") {
+			throw new Error("Compact persistence terminal writer produced an unreadable record.");
+		}
+		return inspected.record;
+	};
 	let record = build();
-	if (recordBytes(record) <= MAX_RECORD_BYTES) return record;
+	if (recordBytes(record) <= MAX_RECORD_BYTES) return finish(record);
 
 	const summary = worker.lastSummary;
 	if (summary) {
@@ -422,22 +484,22 @@ function terminalRecord(
 			}
 			summary[field] = values.slice(0, retained);
 			record = build();
-			if (recordBytes(record) <= MAX_RECORD_BYTES) return record;
+			if (recordBytes(record) <= MAX_RECORD_BYTES) return finish(record);
 		}
 
 		summary.nextRecommendation = undefined;
 		record = build();
-		if (recordBytes(record) <= MAX_RECORD_BYTES) return record;
+		if (recordBytes(record) <= MAX_RECORD_BYTES) return finish(record);
 		summary.headline = "";
 		record = build();
-		if (recordBytes(record) <= MAX_RECORD_BYTES) return record;
+		if (recordBytes(record) <= MAX_RECORD_BYTES) return finish(record);
 		worker.lastSummary = undefined;
 		record = build();
 	}
 	if (recordBytes(record) > MAX_RECORD_BYTES) {
 		throw new Error("Compact persistence terminal record exceeds the enforced byte budget.");
 	}
-	return record;
+	return finish(record);
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
@@ -517,6 +579,23 @@ export class CompactPersistenceJournal {
 		for (const worker of Object.values(state.activeWorkers)) {
 			const compact = compactWorker(worker, config);
 			const priorSource = this.observedSources.get(worker.workerId);
+			if (priorSource
+				&& isPersistableTerminalStatus(priorSource.status)
+				&& LIVE_WORKER_STATUSES.includes(worker.status)
+				&& !isPersistableTerminalStatus(worker.status)) {
+				const checkpointWorker = compactWorker({ ...worker, status: "exited" }, config);
+				const checkpointRecord = terminalRecord(checkpointWorker, this.instrumentation);
+				for (const [pendingId, transition] of this.pending) {
+					if ("worker" in transition && transition.worker.workerId === worker.workerId) {
+						this.pending.delete(pendingId);
+					}
+				}
+				this.pending.set(checkpointRecord.recordId, {
+					record: checkpointRecord,
+					worker: checkpointRecord.worker,
+					detached: true,
+				});
+			}
 			this.observedSources.set(worker.workerId, compact);
 			if (!isPersistableTerminalStatus(worker.status)) {
 				this.observedWorkers.set(worker.workerId, compact);
@@ -572,7 +651,14 @@ export class CompactPersistenceJournal {
 			if (recordBytes(record) > MAX_RECORD_BYTES) {
 				throw new Error("Compact persistence prune record exceeds the enforced byte budget.");
 			}
-			this.pending.set(record.recordId, { record, workerId });
+			const inspected = inspectCompactPersistenceRecord(record);
+			if (!inspected || inspected.record.kind !== "worker_pruned") {
+				throw new Error("Compact persistence prune writer produced an unreadable record.");
+			}
+			this.pending.set(inspected.record.recordId, {
+				record: inspected.record,
+				workerId,
+			});
 		}
 
 		for (const worker of Object.values(state.activeWorkers)) {

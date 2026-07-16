@@ -6,9 +6,7 @@ import {
 	CompactPersistenceJournal,
 	compactPersistenceRecordPayloadBytes,
 	markRestoredWorkersExited,
-	isRecognizedCompactPersistenceRecord,
-	measureCompactPersistence,
-	restorePersistedTeamState,
+	restorePersistedTeamStateWithMeasurement,
 	type CompactPersistenceMeasurement,
 } from "../../src/control-plane/persistence.js";
 import { buildOrchestratorPromptBundle } from "../../src/prompts/contracts.js";
@@ -28,7 +26,7 @@ import { formatAgentMessageResult, formatAgentResultNotReady, formatDelegateTask
 import { renderAgentToolCallTitle } from "../../src/ui/tool-renderers.js";
 import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer.js";
 import type { WorkerPiVersionMismatchEvent } from "../../src/runtime/worker-manager.js";
-import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types.js";
+import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type TeamPersistenceRecord, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types.js";
 
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
@@ -193,45 +191,6 @@ interface PersistenceSessionEntry {
 	data?: unknown;
 }
 
-function activeBranchWithPersistenceTail(
-	sessionManager: {
-		getBranch?: () => Iterable<PersistenceSessionEntry>;
-		getEntries: () => Iterable<PersistenceSessionEntry>;
-		getLeafId?: () => string | null;
-	},
-	stateCustomType: string,
-): PersistenceSessionEntry[] {
-	const branch = Array.from(sessionManager.getBranch?.() ?? sessionManager.getEntries());
-	const leafId = sessionManager.getLeafId?.();
-	if (leafId === undefined) return branch;
-
-	const childrenByParent = new Map<string | null, PersistenceSessionEntry[]>();
-	for (const entry of sessionManager.getEntries()) {
-		const entryParentId = entry.parentId;
-		if ((typeof entryParentId !== "string" && entryParentId !== null)
-			|| entry.type !== "custom"
-			|| entry.customType !== stateCustomType
-			|| !isRecognizedCompactPersistenceRecord(entry.data)
-			|| typeof entry.id !== "string") continue;
-		const children = childrenByParent.get(entryParentId) ?? [];
-		children.push(entry);
-		childrenByParent.set(entryParentId, children);
-	}
-
-	const visited = new Set(branch.flatMap((entry) => typeof entry.id === "string" ? [entry.id] : []));
-	let parentId: string | null = leafId;
-	while (true) {
-		const candidates = (childrenByParent.get(parentId) ?? []).filter((entry) => !visited.has(entry.id!));
-		// Multiple valid children are distinct branches. There is no ordering signal
-		// that makes one of those siblings the active persistence tail.
-		if (candidates.length !== 1) break;
-		const next = candidates[0]!;
-		branch.push(next);
-		visited.add(next.id!);
-		parentId = next.id!;
-	}
-	return branch;
-}
 
 interface SessionFileBoundary {
 	path: string;
@@ -310,14 +269,11 @@ function restoreLatestState(
 ): { state: PersistedTeamState; markedCount: number; persistenceMeasurement: CompactPersistenceMeasurement } {
 	const sessionManager = ctx.sessionManager as typeof ctx.sessionManager & {
 		getBranch?: () => Iterable<PersistenceSessionEntry>;
-		getEntries: () => Iterable<PersistenceSessionEntry>;
-		getLeafId?: () => string | null;
 	};
-	const branch = activeBranchWithPersistenceTail(sessionManager, config.persistence.stateCustomType);
-	const restoredState = restorePersistedTeamState(branch, config.persistence.stateCustomType);
-	const persistenceMeasurement = measureCompactPersistence(branch, config.persistence.stateCustomType);
-	const { state, markedCount } = markRestoredWorkersExited(restoredState, startReason);
-	return { state, markedCount, persistenceMeasurement };
+	const branch = sessionManager.getBranch?.() ?? [];
+	const restored = restorePersistedTeamStateWithMeasurement(branch, config.persistence.stateCustomType);
+	const { state, markedCount } = markRestoredWorkersExited(restored.state, startReason);
+	return { state, markedCount, persistenceMeasurement: restored.measurement };
 }
 
 function applyUi(
@@ -493,7 +449,6 @@ function createPiVersionMismatchNotifier(notify: (message: string) => void): {
 }
 
 export const _testing = {
-	activeBranchWithPersistenceTail,
 	createPersistenceGrowthMonitor,
 	PERSISTENCE_BYTE_WARNING_THRESHOLD,
 	PERSISTENCE_GROWTH_WARNING,
@@ -802,7 +757,7 @@ export default function (pi: ExtensionAPI): void {
 		if (leafId !== undefined) navigation.appendLeafId = leafId;
 	}
 
-	function appendPreparedPersistence(maxBatches = 2): boolean {
+	function appendPreparedPersistence(maxBatches = 2, initialRecords?: readonly TeamPersistenceRecord[]): boolean {
 		const sessionManagerAtStart = currentSessionManager();
 		if (sessionManagerAtStart && persistenceIntegrityBlockedManagers.has(sessionManagerAtStart)) {
 			warnPersistenceFailure(PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING);
@@ -810,7 +765,9 @@ export default function (pi: ExtensionAPI): void {
 		}
 
 		for (let batch = 0; batch < maxBatches; batch += 1) {
-			const records = persistenceJournal.prepare(teamState, activeProjectConfig.config);
+			const records = batch === 0 && initialRecords
+				? initialRecords
+				: persistenceJournal.prepare(teamState, activeProjectConfig.config);
 			if (records.length === 0) return true;
 			for (const record of records) {
 				const leafBeforeAppend = currentLeafId();
@@ -916,6 +873,14 @@ export default function (pi: ExtensionAPI): void {
 	function attachTeamManagerListener(manager: TeamManager): void {
 		detachTeamManagerListener();
 		resetUiTracking();
+		const detachBeforePromptListener = manager.onBeforePrompt((state) => {
+			teamState = state;
+			const checkpointRecords = persistenceJournal.prepareDetachedWorkers(teamState, activeProjectConfig.config);
+			if (!appendPreparedPersistence(1, checkpointRecords)) {
+				warnPersistenceFailure(PERSISTENCE_LIVE_WARNING);
+				throw new Error("Worker prompt was not sent because its durable persistence checkpoint could not be appended.");
+			}
+		});
 		const detachStateListener = manager.onStateChange((state) => {
 			teamState = state;
 			// Persistence is best-effort at this callback boundary. Pi invokes state
@@ -985,6 +950,7 @@ export default function (pi: ExtensionAPI): void {
 			// old pending data before replacement, and this old listener must not
 			// derive or append another old-branch candidate at the new leaf.
 			if (flushPersistence && !provisionalTreeNavigation?.confirmed) flushPendingPersistence();
+			detachBeforePromptListener();
 			detachStateListener();
 			detachWorkerEventListener();
 			detachVersionMismatchListener();
@@ -1033,7 +999,7 @@ export default function (pi: ExtensionAPI): void {
 		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
 		parameters: DelegateTaskSchema,
 		renderCall: renderAgentToolCallTitle("delegate_task"),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			ensureNotReloading();
 			if (!activeProjectConfig.enabled) {
 				throw new Error(getDisabledMessage(activeProjectConfig));
@@ -1069,7 +1035,7 @@ export default function (pi: ExtensionAPI): void {
 				projectTrusted,
 				projectTrustRoot: projectTrusted === undefined ? undefined : activeProjectConfig.projectRoot ?? ctx.cwd,
 				reuseWorkerId: params.reuseWorkerId,
-			});
+			}, signal);
 			teamState = teamManager.snapshot();
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
 			return {
