@@ -14,7 +14,7 @@ Three opinionated choices:
 
 1. **One user-facing agent.** The main session is always the orchestrator.
 2. **Background workers only.** Workers talk to the orchestrator, not to the user.
-3. **Compact state over transcripts.** The orchestrator stores summaries, relay questions, status, usage, and a `<final_answer>` block per worker. It does not mirror full worker conversations back into the main context.
+3. **Compact state over transcripts.** Live runtime state holds summaries, relay questions, status, usage, and a `<final_answer>` block per worker. Persistence keeps only a smaller allowlist of terminal identity, summary, and usage fields. The orchestrator does not mirror full worker conversations back into the main context.
 
 ## Runtime topology
 
@@ -28,7 +28,7 @@ Package entrypoint (dist/extensions/index.js for npm; extensions/index.ts for lo
   ├─ Control plane
   │   ├─ TeamManager            (coordinates delegation, snapshots, waits)
   │   ├─ TaskRegistry           (active workers + task metadata)
-  │   └─ Persistence snapshots  (append-only state custom entries)
+  │   └─ Persistence journal    (compact append-only transition records)
   ├─ Runtime layer
   │   ├─ WorkerProcess          (spawns pi --mode rpc --no-session)
   │   ├─ RpcClient              (jsonl-lf transport)
@@ -116,6 +116,7 @@ Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, f
 The probe keeps a promise cache keyed by the resolved command and any CLI entrypoint prefix. Concurrent first launches share that promise, and later launches reuse the result rather than spawning another version check. This applies to the default and custom worker commands, so injected test launchers must also inject a probe and never fall through to a machine-global `pi`.
 
 Exact host/worker patch equality is not required. A supported worker version that differs from the host emits one non-fatal warning per extension session; an exact match emits none. This is a minimum-version gate, not an upper-bound policy.
+Repository development dependencies and validation use exactly Pi `0.80.7`. That tested version does not raise the supported host or worker minimum: both remain Pi `>=0.80.6`.
 
 ### Workers launch with reduced discovery
 
@@ -166,7 +167,7 @@ The `fixer` profile is intentionally stricter than the read-heavy roles. If `wri
 
 ### Session restore is honest
 
-Persisted state survives reloads via custom-typed session entries, but live worker processes do not get silently reattached. `markRestoredWorkersExited` forces every restored worker to `exited` on session start and returns the count that was flipped. The session-start handler reads Pi's `SessionStartEvent.reason` (`startup`/`reload`/`new`/`resume`/`fork`) to craft a reason-specific error string ("session resumed…", "session forked…", etc.) and, when `reason !== "startup"` and `markedCount > 0`, emits a single warning toast so the operator learns that prior workers are gone. The operator sees what existed before the reload without being lied to about process liveness.
+Persisted state survives reloads via custom-typed session entries, but live worker processes do not get silently reattached. `markRestoredWorkersExited` changes restored live or reusable statuses (`running`, `starting`, `idle`, `waiting_followup`) to `exited` and retains the saved compact summary and usage. Already-terminal statuses remain terminal. The session-start handler reads Pi's `SessionStartEvent.reason` (`startup`/`reload`/`new`/`resume`/`fork`) to create a live reason string and, when `reason !== "startup"` and at least one worker changed, emits one warning toast. The reason string is runtime-only and is not written back as a raw persisted error.
 
 ### Wait, don't poll: mid-flight relay wake
 
@@ -201,7 +202,7 @@ prompt accepted
 
 `awaitingSettlement` is an internal `WorkerRuntimeRecord` guard. It is deliberately absent from `WorkerRuntimeState`, public status/result unions, persistence snapshots, and project config. While the guard is set, a `get_state` refresh with `isStreaming: false` remains `running`; refresh cannot bypass settlement and expose early completion.
 
-Terminal failures take precedence over successful settlement. Abort, extension/RPC error, prompt rejection, and process exit clear the guard and set `aborted`, `error`, or `exited`; a late `agent_settled` cannot overwrite those statuses. The first valid settlement clears the guard and emits idle. Duplicate `agent_settled` events and other idle events received without an active guard are ignored, so one prompt cycle produces at most one successful completion transition.
+Terminal failures take precedence over successful settlement. Abort, fatal RPC/transport error, prompt rejection, and process exit clear the guard and set `aborted`, `error`, or `exited`; a late `agent_settled` cannot overwrite those statuses. Pi's `extension_error` is different: it normalizes to the diagnostic-only `worker_extension_error`, records the error for inspection, and leaves the settlement guard and live RPC session intact. A later valid `agent_settled` can therefore complete that run successfully. The first valid settlement clears the guard and emits idle. Duplicate `agent_settled` events and other idle events received without an active guard are ignored, so one prompt cycle produces at most one successful completion transition.
 
 This timing carries through the control plane. Between `agent_end` and `agent_settled`, `wait_for_agents` cannot return `all_terminal`, `agent_result` is not terminal-ready, completion notifications do not fire, and `reuseWorkerId` is rejected because the worker is still `running`. After settlement, waits can resolve `all_terminal`, the result is ready, one completion notification can fire, and the live idle RPC session becomes eligible for same-settings reuse. Relay wake behavior is independent and remains available while the worker runs.
 
@@ -247,26 +248,45 @@ The internal `awaitingSettlement` guard is not part of this canonical view. Addi
 
 Usage cost is also an ownership boundary. Pi's RPC message usage and `get_session_stats().cost` are authoritative, including fractional tier-derived or long-context costs. The team retains, sums, prunes once, and formats worker-reported `costUsd`; it does not infer price from token counters, model metadata, or provider tiers, and it excludes orchestrator cost.
 
-## What gets persisted
+## Compact persistence journal
 
-Persisted session state includes:
+Persistence v2 records transitions instead of full state snapshots:
 
-- delegated task metadata (title, goal, cwd, contextHints, pathScope)
-- worker ids and compact runtime state
-- compact summaries
-- pending relay questions
-- dashboard snapshot entries
-- `prunedWorkerUsageTotals`, an aggregate-only retained usage bucket for terminal workers removed by prune
+| Record | Written when | Durable effect |
+|---|---|---|
+| `worker_terminal` | A worker becomes terminal, or its terminal compact summary or authoritative usage changes substantively | Upserts the latest compact worker revision during replay |
+| `worker_pruned` | A terminal worker is removed from the registry | Removes the worker and adds its latest observed usage to retained/pruned totals |
 
-Persisted session state does **not** include:
+Running-state churn, tool/activity changes, stream updates, and timestamp-only refreshes produce no record. A prune keeps the latest observation even when an earlier terminal append is pending, so retained usage does not fall back to stale data. The journal may write a later `worker_terminal` revision when summary or usage changes after settlement.
 
-- full worker transcripts
-- raw streaming deltas
-- internal lifecycle guards such as `awaitingSettlement`
-- raw activity events
-- tool output dumps
-- per-pruned-worker history after prune; only the aggregate `prunedWorkerUsageTotals` bucket remains
-- the `<final_answer>` block on disk (it lives on `WorkerRuntimeState` but storage honors the compact-state rule; `config.persistence.storeTranscripts` is `false` by default)
+The persisted worker allowlist is deliberately small:
+
+- bounded `workerId` and `profileName`
+- status, start time, last-event time, and compact summary timestamps
+- compact summary headline, read files, changed files, risks, and next recommendation
+- Pi-reported usage, including token, cache, context, turn, and cost values when available
+
+The payload excludes task metadata and prompts, cwd, context hints, expected output, path scope, relays, `<final_answer>`, transcripts, stream deltas, tool and Activity output, process IDs, raw runtime errors, and lifecycle guards such as `awaitingSettlement` and `closing`. These fields remain live-session concerns. Each complete compact record is at most 16 KiB when serialized as UTF-8 JSON. Fitting removes bounded summary tails and trims text only at Unicode code-point boundaries.
+
+### Replay and compatibility
+
+Restore reads custom entries from Pi's active branch, not all session entries. It replays recognized v2 records in branch order and deduplicates repeated records by `recordId`. A `worker_terminal` upserts its worker; a `worker_pruned` removes that worker and adds usage once. Malformed records, unknown kinds, and future versions are inert and do not reset a valid replay prefix.
+
+Legacy v1 full snapshots remain readable for recovery. The compatibility reader sanitizes them through the compact allowlist, discarding task registry data, relays, final answers, transcripts, process/runtime details, and raw errors. New writes use v2 transition records only.
+
+### Append durability and branch ownership
+
+The write boundary is `prepare → synchronous appendEntry → commit`. `prepare` retains an ordered pending batch. A successful append is committed immediately; if an append in the middle fails, the committed prefix stays committed and only the failed record plus untouched suffix are retried. New observations can replace a pending terminal revision with newer summary or usage data. A flush handles at most two batches: one retained suffix and one batch derived from the latest state.
+
+Shutdown keeps the state listener attached while `TeamManager.dispose()` publishes final `exited` transitions. It then performs the final bounded flush, detaches the listener, and warns explicitly if an uncommitted transition is still unsaved.
+
+Tree navigation gives pending data one bounded retry before the tree changes, with every append guarded to the origin branch. Cancelled or aborted navigation emits no confirmed tree event, so pending data remains retryable on that branch. Confirmed navigation discards any unresolved old-branch suffix, warns once, and restores the new active branch. Old records are never cross-written to the new branch.
+
+### Growth telemetry
+
+Growth measurement counts recognized v2 compact records on the active branch. It warns inclusively at 10,000 records or 64 MiB of serialized compact payload bytes. Bytes exclude Pi's framing, legacy and malformed entries, inactive branches, other entry types, and total session file size. The warning stays deduplicated while above threshold, rearms below both thresholds, and is suppressed for ephemeral sessions.
+
+This is a lightweight growth guarantee, not file compaction. Pi JSONL sessions are append-only, so reload, prune, tree navigation, and fork do not physically shrink them. Reclamation requires a genuinely new session or an offline migration. Existing multi-gigabyte legacy sessions are not repaired by this release and may be unsafe to resume. See [`operations.md`](operations.md#manage-persisted-session-growth) for operator recovery steps.
 
 ## Routing mode
 

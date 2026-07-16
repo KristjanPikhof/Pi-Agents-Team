@@ -28,7 +28,7 @@ test("normalizeRpcEvent maps streaming and tool events", () => {
 	assert.equal(settledEvents[0]?.type, "worker_idle");
 });
 
-test("normalizeRpcEvent keeps extension errors diagnostic-only", () => {
+test("normalizeRpcEvent preserves extension errors as distinct normalized failures", () => {
 	const events = normalizeRpcEvent({ type: "extension_error", error: "optional extension failed" });
 	assert.deepEqual(events.map((event) => event.type), ["worker_extension_error"]);
 	assert.equal(events[0] && "error" in events[0] ? events[0].error : undefined, "optional extension failed");

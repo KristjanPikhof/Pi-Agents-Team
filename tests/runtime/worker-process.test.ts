@@ -175,7 +175,9 @@ test("WorkerManager injects the selected command into preflight and emits mismat
 		baseArgs: ["--mode", "rpc", "--no-session"],
 	});
 	assert.deepEqual(probes, [{ command: "custom-pi", baseArgs: ["--mode", "rpc", "--no-session"], cwd: process.cwd(), env: undefined }]);
-	assert.deepEqual(warnings, ["Pi Agents Team: host Pi 0.80.6 is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal."]);
+	assert.deepEqual(warnings, [
+		`Pi Agents Team: host Pi ${HOST_PI_VERSION} is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal.`,
+	]);
 	await manager.dispose();
 });
 

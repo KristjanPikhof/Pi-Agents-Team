@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0` and Pi `>=0.80.6`. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
+Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.80.7`, while supported hosts and workers retain a Pi `>=0.80.6` minimum. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
 
 Install dependencies and run the checks:
 
@@ -25,11 +25,35 @@ Load the extension directly:
 pi -e ./extensions/index.ts
 ```
 
+**Large-session warning:** This release does not repair existing multi-gigabyte legacy sessions. They may be unsafe to resume. Start a genuinely new session instead, or migrate the JSONL offline while Pi is stopped.
+
 Run one test file:
 
 ```bash
 tsx --test tests/runtime/worker-manager.test.ts
 ```
+
+## Manage persisted session growth
+
+Pi Agents Team stores compact v2 `worker_terminal` revisions and `worker_pruned` transitions in Pi's append-only JSONL session. Routine running-state churn and timestamp-only refreshes do not write. Terminal status, substantive terminal summary or usage revisions, and prune transitions do write. Each compact record is capped at 16 KiB of serialized UTF-8; trimming keeps Unicode code points intact.
+
+Prune controls the dashboard, not the physical file. Reload, prune, tree navigation, and fork do not remove JSONL entries or reclaim disk space. If you need to reclaim space:
+
+1. Prefer starting a genuinely new Pi session.
+2. If the old history must be retained, stop Pi and use an offline migration that writes a new session file. Keep a backup and do not edit the active JSONL in place.
+3. Do not resume an existing multi-gigabyte legacy session expecting this extension to compact or repair it.
+
+Persisted sessions warn inclusively when the active branch reaches either 10,000 recognized compact records or 64 MiB of recognized compact payload bytes. The byte count covers JSON payloads only. It excludes Pi's JSONL framing, legacy v1 entries, malformed or future-version entries, inactive branches, other entry types, and the total session file size. A warning is deduplicated while the branch stays above a threshold and rearms after measurement drops below both thresholds, such as after switching to a smaller branch. Ephemeral sessions suppress this physical-growth warning.
+
+Writes follow `prepare → synchronous append → commit`. Append failures keep the failed record and untouched suffix for retry, while the latest observed terminal summary and usage remain available for a later prune. Each flush is limited to two batches: the retained suffix, then one batch derived from the latest state. Shutdown disposes workers while the persistence listener is still attached, then performs a final bounded flush. If data is still unsaved, look for this warning:
+
+```text
+Pi Agents Team: a compact persistence append still failed during final retry; the uncommitted transition could not be saved before teardown.
+```
+
+Tree navigation retries pending data on the origin branch before moving. Cancelled or aborted navigation leaves that data retryable there. Once navigation is confirmed, unresolved old-branch records are discarded rather than written to the new branch, and the extension warns that they were isolated.
+
+Restore replays recognized records from the active branch only. Compact records are deduplicated by record ID; malformed and future-version entries are ignored. Legacy v1 snapshots remain readable, but only their compact allowlisted fields are recovered. Restored live or reusable workers are marked `exited` because no RPC process is attached; their compact summary and authoritative usage remain.
 
 ## Inspect the team
 
@@ -168,7 +192,7 @@ When the block is missing, do not synthesize from transcript tail alone. Re-dele
 
 ## Clean up finished workers
 
-Press `p` inside the `/team` overlay to prune every terminal worker (`idle`, `completed`, `aborted`, `error`, `exited`) from the dashboard. Prune removes the worker rows/details and task registry entries, but folds each removed worker's token/cost usage into retained aggregate totals first. Useful after a cancelled batch when you want to start fresh without old rows cluttering the widget while preserving team statistics. Non-terminal workers are left alone, so pruning is safe while new workers are still active.
+Press `p` inside the `/team` overlay to prune every terminal worker (`idle`, `completed`, `aborted`, `error`, `exited`) from the dashboard. Prune removes the worker rows/details and task registry entries, but folds each removed worker's token/cost usage into retained aggregate totals first. It also appends a compact prune transition. It does not delete earlier JSONL records or shrink the session file. Use it after a cancelled batch when you want to remove old rows while preserving team statistics. Non-terminal workers are left alone, so pruning is safe while new workers are still active.
 
 To clear every worker row: `/team-stop all` to stop every live worker, then `p` in the overlay to remove the terminal rows. Team token/cost totals survive on purpose. Each pruned worker's usage is folded into a retained aggregate so the Cost tab and footer `Σ` keep matching what the team actually spent; the Cost tab also prints a `retained/pruned` note so the aggregate is not confused with the visible per-worker rows. No command zeroes the retained totals; restart the Pi session for a fresh ledger.
 
@@ -235,7 +259,7 @@ Inside the `/team` overlay, `s` steers the selected worker and `m` sends a messa
 
 Stops one worker or every non-terminal worker. The command automatically picks the right verb:
 
-- **Running / starting** workers: cancels — aborts the RPC session and shuts down the process. State is marked `exited`; persisted state (summary, final answer) survives.
+- **Running / starting** workers: cancels — aborts the RPC session and shuts down the process. State is marked `exited`; a compact summary and authoritative usage can survive, but the final answer is live-session-only.
 - **Idle / waiting_followup** workers: closes — disposes the RPC session and flips status to `exited`. Use this when a worker is done and you want to free the process immediately rather than waiting for the next prune.
 - **Already-terminal** workers (`completed`/`aborted`/`error`/`exited`): refused with a note. Open `/team` and press `p` to remove them from the dashboard.
 
@@ -523,9 +547,9 @@ The provider extension should call `pi.registerProvider("myAnthropic", ...)` dur
 
 ### A worker is restored after reload but not actually running
 
-Expected. Persisted workers are force-marked `exited` on restore so the operator sees what existed before the reload without being misled about process liveness.
+Expected. Restored workers that had a live or reusable status are marked `exited` so the operator sees their saved result without being misled about process liveness. Their compact summary and authoritative usage are retained. The prior task, relay, final answer, transcript, process ID, and raw runtime error are not restored.
 
-On a warm session start (`reload`, `resume`, `fork`, `new`), a one-line warning toast announces how many workers were flipped and the session-start reason. Example: `Workers exited — 3 workers restored from resume; relaunch if needed.` Cold `startup` shows the compact info toast `Team ready — orchestrator mode`. Each flipped worker's `error` field carries a reason-specific message (`session resumed…`, `session forked…`), which surfaces in `/team` detail view and copy payloads.
+On a warm session start (`reload`, `resume`, `fork`, `new`), a one-line warning toast announces how many workers were flipped and the session-start reason. Example: `Workers exited — 3 workers restored from resume; relaunch if needed.` Cold `startup` shows the compact info toast `Team ready — orchestrator mode`. The runtime adds a reason-specific live error (`session resumed…`, `session forked…`) for the detached worker; that error is not part of the persisted payload.
 
 ### `/team-steer` "seems queued but nothing happens"
 

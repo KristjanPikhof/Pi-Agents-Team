@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -18,8 +18,11 @@ function runner(result: { stdout?: string; stderr?: string; code?: number | null
 
 test.beforeEach(() => clearPiVersionProbeCache());
 
-test("uses Pi's exported VERSION as the host compatibility version", () => {
-	assert.equal(HOST_PI_VERSION, "0.80.6");
+test("uses the installed Pi package version as the host compatibility version", async () => {
+	const installedPackage = JSON.parse(
+		await readFile(new URL("../../node_modules/@earendil-works/pi-coding-agent/package.json", import.meta.url), "utf8"),
+	) as { version?: string };
+	assert.equal(HOST_PI_VERSION, installedPackage.version);
 });
 
 test("parses supported Pi version output and compares semantic components", () => {

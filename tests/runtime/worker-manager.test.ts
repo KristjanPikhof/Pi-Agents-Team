@@ -279,13 +279,101 @@ test("extension errors remain diagnostic until agent settlement transitions the 
 		{ type: "worker_extension_error", status: "running", error: "provider extension warning" },
 	]);
 
+	transport.completePrompt("<final_answer>headline: extension diagnostics handled</final_answer>");
+	await waitForMicrotasks();
+	assert.equal(manager.getWorker("worker-extension-diagnostic")?.state.error, "provider extension warning");
+
 	transport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 
-	assert.equal(manager.getWorker("worker-extension-diagnostic")?.state.status, "idle");
-	assert.deepEqual(lifecycle.map((entry) => entry.type), ["worker_extension_error", "worker_idle"]);
+	const settled = manager.getWorker("worker-extension-diagnostic")?.state;
+	assert.equal(settled?.status, "idle");
+	assert.equal(settled?.error, undefined);
+	assert.match(settled?.finalAnswer ?? "", /extension diagnostics handled/);
+	assert.deepEqual(lifecycle.map((entry) => entry.type), [
+		"worker_extension_error",
+		"worker_message",
+		"worker_agent_end",
+		"worker_idle",
+	]);
 	assert.equal(lifecycle.filter((entry) => entry.type === "worker_idle").length, 1);
+	assert.equal(lifecycle.at(-1)?.error, undefined);
 });
+
+test("late extension diagnostics preserve authoritative worker error, abort, and exit causes", async () => {
+	const assertPreservedWithDiagnostic = (
+		manager: WorkerManager,
+		workerId: string,
+		before: NonNullable<ReturnType<WorkerManager["getWorker"]>>["state"],
+		diagnostic: string,
+	) => {
+		const after = manager.getWorker(workerId)?.state;
+		assert.equal(after?.status, before.status);
+		assert.equal(after?.error, before.error);
+		assert.deepEqual(after?.lastSummary, before.lastSummary);
+		assert.ok(
+			manager.getWorkerConsole(workerId)?.some((event) => event.kind === "error" && event.text === diagnostic),
+			"late extension diagnostic should remain visible in raw console output",
+		);
+		assert.ok(
+			manager.getWorkerActivity(workerId)?.some((event) => (
+				event.sourceEvent === "worker_extension_error"
+				&& event.label === "Extension error"
+				&& event.summary === diagnostic
+			)),
+			"late extension diagnostic should remain visible in activity output",
+		);
+	};
+
+	const errorTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const errorManager = await launchRuntimeTestWorker("worker-extension-after-error", errorTransport);
+	await errorManager.promptWorker("worker-extension-after-error", "fail before extension diagnostic");
+	await waitForMicrotasks();
+	errorTransport.stdout.write("{not valid RPC JSON}\n");
+	await waitForMicrotasks();
+	const errorBefore = errorManager.getWorker("worker-extension-after-error")?.state;
+	assert.ok(errorBefore);
+	assert.equal(errorBefore.status, "error");
+	errorTransport.writeEvent({ type: "extension_error", error: "late diagnostic after worker error" });
+	await waitForMicrotasks();
+	assertPreservedWithDiagnostic(errorManager, "worker-extension-after-error", errorBefore, "late diagnostic after worker error");
+
+	const abortTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const abortManager = await launchRuntimeTestWorker("worker-extension-after-abort", abortTransport);
+	await abortManager.promptWorker("worker-extension-after-abort", "abort before extension diagnostic");
+	await waitForMicrotasks();
+	await abortManager.abortWorker("worker-extension-after-abort");
+	const abortBefore = abortManager.getWorker("worker-extension-after-abort")?.state;
+	assert.ok(abortBefore);
+	assert.equal(abortBefore.status, "aborted");
+	abortTransport.writeEvent({ type: "extension_error", error: "late diagnostic after abort" });
+	await waitForMicrotasks();
+	assertPreservedWithDiagnostic(abortManager, "worker-extension-after-abort", abortBefore, "late diagnostic after abort");
+
+	const exitTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const exitManager = await launchRuntimeTestWorker("worker-extension-after-exit", exitTransport);
+	await exitManager.promptWorker("worker-extension-after-exit", "exit before extension diagnostic");
+	await waitForMicrotasks();
+	exitTransport.emit("exit", 7, null);
+	await waitForMicrotasks();
+	const exitBefore = exitManager.getWorker("worker-extension-after-exit")?.state;
+	assert.ok(exitBefore);
+	assert.equal(exitBefore.status, "error");
+	assert.match(exitBefore.error ?? "", /code 7/);
+	const runtime = exitManager as unknown as {
+		workers: Map<string, unknown>;
+		applyNormalizedEvent(record: unknown, event: { type: "worker_extension_error"; error: string; timestamp: number }): void;
+	};
+	const exitRecord = runtime.workers.get("worker-extension-after-exit");
+	assert.ok(exitRecord);
+	runtime.applyNormalizedEvent(exitRecord, {
+		type: "worker_extension_error",
+		error: "late diagnostic after process exit",
+		timestamp: Date.now(),
+	});
+	assertPreservedWithDiagnostic(exitManager, "worker-extension-after-exit", exitBefore, "late diagnostic after process exit");
+});
+
 test("direct or extension agent_start arms settlement before a non-streaming state refresh", async () => {
 	for (const priorStatus of ["starting", "idle"] as const) {
 		const transport = new MockWorkerTransport({ autoCompletePrompt: false });
@@ -918,6 +1006,70 @@ test("closeWorker disposes the live RPC and marks the worker exited (not aborted
 	const closed = manager.getWorker("worker-close-1");
 	assert.equal(closed?.state.status, "exited");
 	assert.match(closed?.state.error ?? "", /closed by operator/i);
+});
+
+test("dispose exits live workers while preserving aborted and fatal terminal precedence", async () => {
+	const idleTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const fatalTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const abortTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const runningTransport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const transports = [idleTransport, fatalTransport, abortTransport, runningTransport];
+	const manager = new WorkerManager(() => new MockWorkerHandle(transports.shift()!));
+
+	for (const workerId of [
+		"worker-dispose-idle",
+		"worker-dispose-fatal",
+		"worker-dispose-aborted",
+		"worker-dispose-running",
+	]) {
+		await manager.launchWorker({
+			workerId,
+			profileName: "reviewer",
+			task: taskInput(`task-${workerId}`, `Dispose ${workerId}`),
+			cwd: process.cwd(),
+			tools: ["read"],
+			extensionMode: "worker-minimal",
+		});
+	}
+
+	await manager.promptWorker("worker-dispose-idle", "settle before disposal");
+	idleTransport.completePrompt("<final_answer>headline: reusable worker settled</final_answer>");
+	idleTransport.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+	assert.equal(manager.getWorker("worker-dispose-idle")?.state.status, "idle");
+
+	const terminalEvents = new Map<string, string[]>();
+	manager.onEvent((worker, event) => {
+		const events = terminalEvents.get(worker.workerId) ?? [];
+		events.push(event.type);
+		terminalEvents.set(worker.workerId, events);
+	});
+	await manager.promptWorker("worker-dispose-fatal", "fail before disposal");
+	fatalTransport.stdout.write("{not valid RPC JSON}\n");
+	await waitForMicrotasks();
+	const fatalBeforeDispose = manager.getWorker("worker-dispose-fatal")?.state;
+	assert.equal(fatalBeforeDispose?.status, "error");
+	assert.match(fatalBeforeDispose?.error ?? "", /Failed to parse RPC line/);
+
+	await manager.promptWorker("worker-dispose-aborted", "abort before disposal");
+	await manager.abortWorker("worker-dispose-aborted");
+	assert.equal(manager.getWorker("worker-dispose-aborted")?.state.status, "aborted");
+
+	await manager.promptWorker("worker-dispose-running", "remain live until disposal");
+	assert.equal(manager.getWorker("worker-dispose-running")?.state.status, "running");
+
+	await manager.dispose();
+	await waitForMicrotasks();
+
+	assert.equal(manager.getWorker("worker-dispose-idle")?.state.status, "exited");
+	assert.equal(manager.getWorker("worker-dispose-running")?.state.status, "exited");
+	assert.equal(manager.getWorker("worker-dispose-aborted")?.state.status, "aborted");
+	const fatalAfterDispose = manager.getWorker("worker-dispose-fatal")?.state;
+	assert.equal(fatalAfterDispose?.status, "error");
+	assert.equal(fatalAfterDispose?.error, fatalBeforeDispose?.error);
+	for (const workerId of ["worker-dispose-fatal", "worker-dispose-aborted"]) {
+		assert.equal(terminalEvents.get(workerId)?.filter((type) => type === "worker_idle").length ?? 0, 0);
+	}
 });
 
 test("closeWorker rejects running workers", async () => {
