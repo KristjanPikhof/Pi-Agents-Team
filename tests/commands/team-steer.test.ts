@@ -73,7 +73,8 @@ test("/team-steer running worker → 'steer' delivery", async () => {
 });
 
 test("/team-steer idle worker → upgrades to 'prompt' so the session wakes (CLAUDE.md 3-way union)", async () => {
-	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const transport = new MockWorkerTransport();
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(transport));
 	const teamManager = new TeamManager({ workerManager });
 
 	const delegated = await teamManager.delegateTask({
@@ -83,6 +84,7 @@ test("/team-steer idle worker → upgrades to 'prompt' so the session wakes (CLA
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
+	transport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(teamManager.getWorkerStatus(delegated.worker.workerId)?.status, "idle");
 
@@ -111,7 +113,8 @@ test("/team-steer --queue on a running worker forces 'follow_up' delivery", asyn
 });
 
 test("/team-steer --queue on an idle worker still upgrades to 'prompt' (resolver wakes the session)", async () => {
-	const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+	const transport = new MockWorkerTransport();
+	const workerManager = new WorkerManager(() => new MockWorkerHandle(transport));
 	const teamManager = new TeamManager({ workerManager });
 
 	const delegated = await teamManager.delegateTask({
@@ -121,6 +124,7 @@ test("/team-steer --queue on an idle worker still upgrades to 'prompt' (resolver
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
+	transport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(teamManager.getWorkerStatus(delegated.worker.workerId)?.status, "idle");
 
@@ -173,6 +177,7 @@ test("/team-steer all routes by per-worker status and tolerates partial failure"
 		cwd: process.cwd(),
 	});
 	transports[1]?.completePrompt();
+	transports[1]?.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	await waitForMicrotasks();
 

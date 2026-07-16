@@ -77,6 +77,12 @@ test("buildWorkerProcessArgs keeps complete launch option order stable", () => {
 	]);
 });
 
+test("buildWorkerProcessArgs passes max through unchanged", () => {
+	const args = buildWorkerProcessArgs({ cwd: process.cwd(), thinkingLevel: "max" });
+
+	assert.deepEqual(args, ["--mode", "rpc", "--no-session", "--thinking", "max"]);
+});
+
 test("buildWorkerProcessArgs keeps worker-minimal resources reduced while loading explicit extensions", () => {
 	const args = buildWorkerProcessArgs({
 		cwd: process.cwd(),
@@ -171,6 +177,48 @@ test("WorkerManager injects the selected command into preflight and emits mismat
 	assert.deepEqual(probes, [{ command: "custom-pi", baseArgs: ["--mode", "rpc", "--no-session"], cwd: process.cwd(), env: undefined }]);
 	assert.deepEqual(warnings, ["Pi Agents Team: host Pi 0.80.6 is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal."]);
 	await manager.dispose();
+});
+
+test("WorkerManager reports max clamping once and leaves supported max unclamped", async () => {
+	const clampedTransport = new MockWorkerTransport({ initialState: { thinkingLevel: "xhigh" } });
+	const clampedManager = new WorkerManager(() => new MockWorkerHandle(clampedTransport));
+	const clampEvents: Array<{ type: string; requested?: string; effective?: string }> = [];
+	clampedManager.onEvent((_worker, event) => clampEvents.push(event));
+
+	const clampedWorker = await clampedManager.launchWorker({
+		workerId: "max-clamped",
+		profileName: "fixer",
+		task: {} as any,
+		cwd: process.cwd(),
+		model: "provider/limited-model",
+		thinkingLevel: "max",
+	});
+	await clampedManager.refreshState("max-clamped");
+
+	assert.equal(clampedWorker.state.requestedThinkingLevel, "max");
+	assert.equal(clampedWorker.state.effectiveThinkingLevel, "xhigh");
+	assert.deepEqual(
+		clampEvents.filter((event) => event.type === "thinking_clamped").map(({ requested, effective }) => ({ requested, effective })),
+		[{ requested: "max", effective: "xhigh" }],
+	);
+	await clampedManager.dispose();
+
+	const supportedTransport = new MockWorkerTransport({ initialState: { thinkingLevel: "max" } });
+	const supportedManager = new WorkerManager(() => new MockWorkerHandle(supportedTransport));
+	const supportedEvents: string[] = [];
+	supportedManager.onEvent((_worker, event) => supportedEvents.push(event.type));
+	const supportedWorker = await supportedManager.launchWorker({
+		workerId: "max-supported",
+		profileName: "fixer",
+		task: {} as any,
+		cwd: process.cwd(),
+		thinkingLevel: "max",
+	});
+
+	assert.equal(supportedWorker.state.requestedThinkingLevel, "max");
+	assert.equal(supportedWorker.state.effectiveThinkingLevel, "max");
+	assert.equal(supportedEvents.filter((type) => type === "thinking_clamped").length, 0);
+	await supportedManager.dispose();
 });
 
 test("injected worker launchers do not probe the machine-global Pi by default", async () => {

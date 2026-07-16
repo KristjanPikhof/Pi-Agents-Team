@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, resolve } from "node:path";
+import { basename, delimiter, extname, isAbsolute, resolve } from "node:path";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 
 const require = createRequire(import.meta.url);
@@ -8,11 +9,15 @@ const crossSpawn = require("cross-spawn") as typeof nodeSpawn;
 
 export const HOST_PI_VERSION = VERSION;
 export const MINIMUM_WORKER_PI_VERSION = "0.80.6";
+const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
+const PROBE_OUTPUT_LIMIT_BYTES = 64 * 1024;
+const DIAGNOSTIC_LIMIT_CHARS = 500;
 
 export interface ParsedPiVersion {
 	major: number;
 	minor: number;
 	patch: number;
+	prerelease: string[];
 	text: string;
 }
 
@@ -28,6 +33,7 @@ export type RunPiVersionCommand = (input: {
 	args: string[];
 	cwd: string;
 	env?: NodeJS.ProcessEnv;
+	timeoutMs: number;
 }) => Promise<PiVersionCommandResult>;
 
 export interface PiVersionProbeOptions {
@@ -35,6 +41,7 @@ export interface PiVersionProbeOptions {
 	baseArgs?: string[];
 	cwd: string;
 	env?: NodeJS.ProcessEnv;
+	timeoutMs?: number;
 }
 
 export interface PiVersionProbeResult {
@@ -53,50 +60,201 @@ export type ProbeWorkerPiVersion = (options: PiVersionProbeOptions) => Promise<P
 const probeCache = new Map<string, Promise<PiVersionProbeResult>>();
 
 export function parsePiVersion(output: string): ParsedPiVersion | undefined {
-	const match = output.trim().match(/^(?:pi(?:\s+version)?\s+)?v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/i);
+	const match = output.trim().match(
+		/^(?:pi(?:\s+version)?\s+)?v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/i,
+	);
 	if (!match) return undefined;
+	const prerelease = match[4]?.split(".") ?? [];
+	if (prerelease.some((identifier) => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith("0"))) {
+		return undefined;
+	}
+	const core = `${Number(match[1])}.${Number(match[2])}.${Number(match[3])}`;
 	return {
 		major: Number(match[1]),
 		minor: Number(match[2]),
 		patch: Number(match[3]),
-		text: `${Number(match[1])}.${Number(match[2])}.${Number(match[3])}`,
+		prerelease,
+		text: `${core}${prerelease.length > 0 ? `-${prerelease.join(".")}` : ""}`,
 	};
 }
 
 export function comparePiVersions(left: ParsedPiVersion, right: ParsedPiVersion): number {
-	return left.major - right.major || left.minor - right.minor || left.patch - right.patch;
-}
-
-function versionPrefix(baseArgs: string[] | undefined): string[] {
-	if (!baseArgs) return [];
-	const prefix: string[] = [];
-	for (const arg of baseArgs) {
-		if (arg.startsWith("-")) break;
-		prefix.push(arg);
+	const core = left.major - right.major || left.minor - right.minor || left.patch - right.patch;
+	if (core !== 0) return core;
+	if (left.prerelease.length === 0) return right.prerelease.length === 0 ? 0 : 1;
+	if (right.prerelease.length === 0) return -1;
+	for (let index = 0; index < Math.max(left.prerelease.length, right.prerelease.length); index += 1) {
+		const leftPart = left.prerelease[index];
+		const rightPart = right.prerelease[index];
+		if (leftPart === undefined) return -1;
+		if (rightPart === undefined) return 1;
+		if (leftPart === rightPart) continue;
+		const leftNumeric = /^\d+$/.test(leftPart);
+		const rightNumeric = /^\d+$/.test(rightPart);
+		if (leftNumeric && rightNumeric) return Number(leftPart) - Number(rightPart);
+		if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+		return leftPart < rightPart ? -1 : 1;
 	}
-	return prefix;
+	return 0;
 }
 
-function commandCacheKey(command: string, args: string[]): string {
-	const resolvedCommand = command.includes("/") || command.includes("\\") ? resolve(command) : command;
-	return `${resolvedCommand}\0${args.join("\0")}`;
+/**
+ * Build the version invocation from the launch contract rather than attempting
+ * to parse the wrapper runtime's options. Everything before Pi's explicit RPC
+ * mode boundary is the immutable executable prefix (wrapper flags, their
+ * values, and the Pi CLI entrypoint); RPC/session flags from the boundary on
+ * are replaced by --version.
+ */
+export function buildPiVersionArgs(baseArgs: string[] | undefined): string[] {
+	if (!baseArgs) return ["--version"];
+	let rpcBoundary = -1;
+	for (let index = 0; index < baseArgs.length; index += 1) {
+		if (baseArgs[index] === "--mode" && baseArgs[index + 1] === "rpc") rpcBoundary = index;
+		if (baseArgs[index] === "--mode=rpc") rpcBoundary = index;
+	}
+	const versionPrefix = rpcBoundary === -1 ? baseArgs : baseArgs.slice(0, rpcBoundary);
+	return [...versionPrefix, "--version"];
 }
 
-export const runPiVersionCommand: RunPiVersionCommand = ({ command, args, cwd, env }) => new Promise((resolveResult) => {
+function environmentValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+	if (process.platform !== "win32") return env[name];
+	const matchingKey = Object.keys(env).sort().find((key) => key.toLowerCase() === name.toLowerCase());
+	return matchingKey === undefined ? undefined : env[matchingKey];
+}
+
+function executableCandidates(command: string, env: NodeJS.ProcessEnv): string[] {
+	if (process.platform !== "win32" || extname(command)) return [command];
+	const pathExt = environmentValue(env, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
+	return [command, ...pathExt.split(";").filter(Boolean).map((extension) => `${command}${extension.toLowerCase()}`)];
+}
+
+function resolveCommandIdentity(command: string, cwd: string, suppliedEnv?: NodeJS.ProcessEnv): string {
+	const env = suppliedEnv ?? process.env;
+	if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
+		return resolve(cwd, command);
+	}
+	const pathValue = environmentValue(env, "PATH") ?? (process.platform === "win32" ? "" : "/usr/bin:/bin");
+	for (const directory of pathValue.split(delimiter)) {
+		if (!directory) continue;
+		for (const candidate of executableCandidates(command, env)) {
+			const path = resolve(cwd, directory, candidate);
+			if (existsSync(path)) return path;
+		}
+	}
+	return `unresolved:${command}\0cwd:${resolve(cwd)}\0path:${pathValue}`;
+}
+
+function environmentIdentity(suppliedEnv?: NodeJS.ProcessEnv): string {
+	const env = suppliedEnv ?? process.env;
+	const entries = Object.keys(env).sort().flatMap((key) => {
+		const value = env[key];
+		if (value === undefined) return [];
+		return [[process.platform === "win32" ? key.toLowerCase() : key, value] as const];
+	});
+	return JSON.stringify(entries);
+}
+
+function commandCacheKey(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
+	const resolvedCwd = resolve(cwd);
+	return `${resolveCommandIdentity(command, resolvedCwd, env)}\0cwd:${resolvedCwd}\0env:${environmentIdentity(env)}\0${args.join("\0")}`;
+}
+
+function appendCapped(current: string, chunk: unknown): string {
+	if (Buffer.byteLength(current, "utf8") >= PROBE_OUTPUT_LIMIT_BYTES) return current;
+	const remaining = PROBE_OUTPUT_LIMIT_BYTES - Buffer.byteLength(current, "utf8");
+	return current + Buffer.from(String(chunk)).subarray(0, remaining).toString();
+}
+
+function diagnostic(value: string): string {
+	const trimmed = value.trim();
+	return trimmed.length <= DIAGNOSTIC_LIMIT_CHARS ? trimmed : `${trimmed.slice(0, DIAGNOSTIC_LIMIT_CHARS)}… [truncated]`;
+}
+
+function formatArgv(command: string, args: string[]): string {
+	return diagnostic([command, ...args].map((arg) => JSON.stringify(arg)).join(" "));
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+function signalProcessGroup(pid: number | undefined, child: ReturnType<typeof nodeSpawn>, signal: NodeJS.Signals): void {
+	if (pid === undefined) {
+		child.kill(signal);
+		return;
+	}
+	try {
+		process.kill(-pid, signal);
+	} catch {
+		child.kill(signal);
+	}
+}
+
+async function terminateProcessTree(child: ReturnType<typeof nodeSpawn>): Promise<void> {
+	if (process.platform === "win32") {
+		if (child.pid === undefined) {
+			child.kill();
+			return;
+		}
+		await Promise.race([
+			new Promise<void>((resolveTaskkill) => {
+				const killer = crossSpawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+				killer.once("error", () => {
+					child.kill();
+					resolveTaskkill();
+				});
+				killer.once("close", () => resolveTaskkill());
+			}),
+			delay(500),
+		]);
+		return;
+	}
+
+	signalProcessGroup(child.pid, child, "SIGTERM");
+	await delay(250);
+	signalProcessGroup(child.pid, child, "SIGKILL");
+}
+
+export const runPiVersionCommand: RunPiVersionCommand = ({ command, args, cwd, env, timeoutMs }) => new Promise((resolveResult) => {
 	const spawn = process.platform === "win32" ? crossSpawn : nodeSpawn;
-	const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+	const child = spawn(command, args, {
+		cwd,
+		env,
+		stdio: ["ignore", "pipe", "pipe"],
+		...(process.platform === "win32" ? {} : { detached: true }),
+	});
 	let stdout = "";
 	let stderr = "";
 	let settled = false;
+	let timedOut = false;
+	let childClosed = false;
+	let closeCode: number | null = null;
+	let resolveClose!: () => void;
+	const closed = new Promise<void>((resolveClosed) => { resolveClose = resolveClosed; });
 	const settle = (result: PiVersionCommandResult) => {
 		if (settled) return;
 		settled = true;
+		clearTimeout(timeout);
 		resolveResult(result);
 	};
-	child.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
-	child.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
+	const timeout = setTimeout(() => {
+		timedOut = true;
+		void (async () => {
+			await terminateProcessTree(child);
+			if (!childClosed) await Promise.race([closed, delay(500)]);
+			settle({ stdout, stderr, code: null, error: new Error(`version probe timed out after ${timeoutMs}ms`) });
+		})();
+	}, timeoutMs);
+	timeout.unref?.();
+	child.stdout?.on("data", (chunk) => { stdout = appendCapped(stdout, chunk); });
+	child.stderr?.on("data", (chunk) => { stderr = appendCapped(stderr, chunk); });
 	child.on("error", (error) => settle({ stdout, stderr, code: null, error }));
-	child.on("close", (code) => settle({ stdout, stderr, code }));
+	child.on("close", (code) => {
+		childClosed = true;
+		closeCode = code;
+		resolveClose();
+		if (!timedOut) settle({ stdout, stderr, code: closeCode });
+	});
 });
 
 export async function probeWorkerPiVersion(
@@ -104,8 +262,8 @@ export async function probeWorkerPiVersion(
 	run: RunPiVersionCommand = runPiVersionCommand,
 ): Promise<PiVersionProbeResult> {
 	const command = options.command ?? "pi";
-	const versionArgs = [...versionPrefix(options.baseArgs), "--version"];
-	const key = commandCacheKey(command, versionArgs);
+	const versionArgs = buildPiVersionArgs(options.baseArgs);
+	const key = commandCacheKey(command, versionArgs, options.cwd, options.env);
 	const existing = probeCache.get(key);
 	if (existing) return existing;
 
@@ -118,27 +276,34 @@ export async function probeWorkerPiVersion(
 		};
 		let result: PiVersionCommandResult;
 		try {
-			result = await run({ command, args: versionArgs, cwd: options.cwd, env: options.env });
+			result = await run({
+				command,
+				args: versionArgs,
+				cwd: options.cwd,
+				env: options.env,
+				timeoutMs: options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
+			});
 		} catch (error) {
 			result = { stdout: "", stderr: "", code: null, error: error instanceof Error ? error : new Error(String(error)) };
 		}
+		const argv = formatArgv(command, versionArgs);
 		if (result.error || result.code !== 0) {
-			const detail = result.error?.message ?? (result.stderr.trim() || `exit code ${result.code}`);
+			const detail = diagnostic(result.error?.message ?? (result.stderr.trim() || `exit code ${result.code}`));
 			return {
 				...common,
 				supported: false,
 				mismatch: false,
-				message: `Cannot launch Pi worker: failed to run ${basename(command)} --version (${detail}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
+				message: `Cannot launch Pi worker: failed to run ${basename(command)} --version (argv: ${argv}; ${detail}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
 			};
 		}
 		const parsed = parsePiVersion(result.stdout);
 		if (!parsed) {
-			const shown = result.stdout.trim() || "no version output";
+			const shown = diagnostic(result.stdout) || "no version output";
 			return {
 				...common,
 				supported: false,
 				mismatch: false,
-				message: `Cannot launch Pi worker: ${basename(command)} --version returned an unparseable version (${JSON.stringify(shown)}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
+				message: `Cannot launch Pi worker: ${basename(command)} --version returned an unparseable version (${JSON.stringify(shown)}; argv: ${argv}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
 			};
 		}
 		const minimum = parsePiVersion(MINIMUM_WORKER_PI_VERSION)!;
@@ -154,7 +319,9 @@ export async function probeWorkerPiVersion(
 		};
 	})();
 	probeCache.set(key, pending);
-	return pending;
+	const result = await pending;
+	if (!result.supported && probeCache.get(key) === pending) probeCache.delete(key);
+	return result;
 }
 
 export function clearPiVersionProbeCache(): void {

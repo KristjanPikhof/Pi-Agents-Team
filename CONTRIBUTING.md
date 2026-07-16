@@ -4,7 +4,7 @@ Thanks for helping out. This guide covers local setup, the test discipline, and 
 
 ## Local setup
 
-Use Node `>=22.19.0` and Pi `>=0.79.2`.
+Use Node `>=22.19.0` and Pi `>=0.80.6`. npm and `package-lock.json` are the only supported dependency and lock workflow; do not add or regenerate a Bun lock.
 
 ```bash
 git clone git@github.com:KristjanPikhof/pi-agents-team.git
@@ -36,11 +36,11 @@ npm run smoke:team       # exercises TeamManager end-to-end
 
 Run a single test file with `tsx --test tests/runtime/worker-manager.test.ts`.
 
+Run dependency changes with npm and commit the resulting `package-lock.json`. Do not use Bun or another package manager to resolve this repository.
+
 Both build commands run `scripts/build-publish.mjs`. The script clears `dist/`, compiles source files to native ESM JavaScript plus `.d.ts` declarations, and copies `prompts/` and `profiles/` into the output. `npm pack` and `npm publish` run `prepack`, which calls `npm run build:publish`; publishing also runs `prepublishOnly` (`npm run check`). Keep `dist/` ignored because it is generated for packaging, not maintained as source.
 
 ## Test discipline
-
-The current test count is **56**. If your change reduces that without a corresponding deletion, something regressed.
 
 Unit tests lean on `MockWorkerTransport` / `MockWorkerHandle` in `tests/runtime/test-helpers.ts` instead of spawning real `pi` processes. Use `setState(patch)` to drive `isStreaming` from outside; `autoCompletePrompt: false` lets tests emit the exit event manually via `completePrompt()`. When you change the transport shape, check which tests rely on `autoCompletePrompt`, `promptText`, and `setState`. Those are the only seams for testing runtime behavior without a real Pi process.
 

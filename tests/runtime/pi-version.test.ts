@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import {
 	HOST_PI_VERSION,
 	clearPiVersionProbeCache,
@@ -20,16 +23,23 @@ test("uses Pi's exported VERSION as the host compatibility version", () => {
 });
 
 test("parses supported Pi version output and compares semantic components", () => {
-	assert.deepEqual(parsePiVersion("pi version v0.80.6\n"), { major: 0, minor: 80, patch: 6, text: "0.80.6" });
+	assert.deepEqual(parsePiVersion("pi version v0.80.6\n"), { major: 0, minor: 80, patch: 6, prerelease: [], text: "0.80.6" });
 	assert.ok(comparePiVersions(parsePiVersion("0.81.0")!, parsePiVersion("0.80.6")!) > 0);
+	assert.ok(comparePiVersions(parsePiVersion("0.80.6-beta.1")!, parsePiVersion("0.80.6")!) < 0);
 	assert.equal(parsePiVersion("not a Pi version"), undefined);
 });
 
-test("accepts the minimum, exact host, and newer worker versions", async () => {
+test("accepts the minimum, exact host, and newer worker versions but rejects prereleases below the stable floor", async () => {
 	for (const output of ["0.80.6", "pi 0.80.6", "0.81.0", "1.0.0-beta.1"]) {
 		clearPiVersionProbeCache();
 		const result = await probeWorkerPiVersion({ command: "custom-pi", cwd: "/tmp" }, runner({ stdout: output }));
 		assert.equal(result.supported, true, output);
+	}
+	for (const output of ["0.80.6-beta.1", "0.80.6-rc.1"]) {
+		clearPiVersionProbeCache();
+		const result = await probeWorkerPiVersion({ command: "custom-pi", cwd: "/tmp" }, runner({ stdout: output }));
+		assert.equal(result.supported, false, output);
+		assert.match(result.message ?? "", /require Pi 0\.80\.6 or newer/);
 	}
 });
 
@@ -74,14 +84,117 @@ test("caches probes and coalesces concurrent first probes by command", async () 
 	assert.equal(calls, 1);
 });
 
-test("keeps custom CLI entrypoint args while replacing RPC flags with --version", async () => {
-	let observed: string[] = [];
-	await probeWorkerPiVersion(
-		{ command: process.execPath, baseArgs: ["dist/cli.js", "--mode", "rpc", "--no-session"], cwd: "/tmp" },
-		async ({ args }) => {
-			observed = args;
-			return { stdout: "0.80.6", stderr: "", code: 0 };
-		},
-	);
-	assert.deepEqual(observed, ["dist/cli.js", "--version"]);
+test("preserves arbitrary value-taking wrapper options through the explicit Pi RPC boundary", async () => {
+	const wrapperPrefixes = [
+		["--enable-source-maps"],
+		["--env-file", "/tmp/worker.env"],
+		["--env-file-if-exists", "/tmp/optional.env"],
+		["--require", "/tmp/register.cjs"],
+		["--loader", "tsx"],
+		["--conditions", "development"],
+		["--inspect-port", "9330"],
+	];
+	for (const wrapperArgs of wrapperPrefixes) {
+		clearPiVersionProbeCache();
+		let observed: string[] = [];
+		const cliEntry = "/tmp/pi-cli.js";
+		await probeWorkerPiVersion(
+			{
+				command: process.execPath,
+				baseArgs: [...wrapperArgs, cliEntry, "--mode", "rpc", "--no-session"],
+				cwd: "/tmp",
+			},
+			async ({ args }) => {
+				observed = args;
+				return { stdout: "0.80.6", stderr: "", code: 0 };
+			},
+		);
+		assert.deepEqual(observed, [...wrapperArgs, cliEntry, "--version"]);
+	}
+});
+
+test("real node --env-file wrapper probes the installed Pi CLI rather than Node", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-env-file-"));
+	const envFile = join(root, "worker.env");
+	const piCli = join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+	await writeFile(envFile, "PI_VERSION_PROBE_REGRESSION=1\n");
+	try {
+		const result = await probeWorkerPiVersion({
+			command: process.execPath,
+			baseArgs: ["--env-file", envFile, piCli, "--mode", "rpc", "--no-session"],
+			cwd: process.cwd(),
+		});
+		assert.deepEqual(result.versionArgs, ["--env-file", envFile, piCli, "--version"]);
+		assert.equal(result.workerVersion, HOST_PI_VERSION);
+		assert.notEqual(result.workerVersion, process.version.replace(/^v/, ""));
+		assert.equal(result.supported, true);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("keys bare-command probes by the executable resolved from cwd and PATH", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-path-"));
+	const firstBin = join(root, "first");
+	const secondBin = join(root, "second");
+	await mkdir(firstBin);
+	await mkdir(secondBin);
+	await writeFile(join(firstBin, "pi"), "first");
+	await writeFile(join(secondBin, "pi"), "second");
+	let calls = 0;
+	const run: RunPiVersionCommand = async ({ env }) => {
+		calls += 1;
+		return { stdout: env?.PATH?.startsWith(firstBin) ? "0.80.6" : "0.81.0", stderr: "", code: 0 };
+	};
+	try {
+		const first = await probeWorkerPiVersion({ command: "pi", cwd: root, env: { PATH: `${firstBin}${delimiter}/usr/bin` } }, run);
+		const second = await probeWorkerPiVersion({ command: "pi", cwd: root, env: { PATH: `${secondBin}${delimiter}/usr/bin` } }, run);
+		assert.equal(first.workerVersion, "0.80.6");
+		assert.equal(second.workerVersion, "0.81.0");
+		assert.equal(calls, 2);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("does not cache failed probes so an operator can fix the executable and retry", async () => {
+	let calls = 0;
+	const run: RunPiVersionCommand = async () => {
+		calls += 1;
+		return calls === 1
+			? { stdout: "", stderr: "spawn failed", code: 1 }
+			: { stdout: "0.80.6", stderr: "", code: 0 };
+	};
+	const options = { command: "repairable-pi", cwd: "/tmp" };
+	assert.equal((await probeWorkerPiVersion(options, run)).supported, false);
+	assert.equal((await probeWorkerPiVersion(options, run)).supported, true);
+	assert.equal(calls, 2);
+});
+
+test("bounds and terminates a hanging real version probe and truncates diagnostics", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-hang-"));
+	const script = join(root, "hanging-cli.mjs");
+	await writeFile(script, "setInterval(() => {}, 1000);\n");
+	try {
+		const startedAt = Date.now();
+		const hung = await probeWorkerPiVersion({
+			command: process.execPath,
+			baseArgs: [script, "--mode", "rpc"],
+			cwd: root,
+			timeoutMs: 40,
+		});
+		assert.equal(hung.supported, false);
+		assert.match(hung.message ?? "", /timed out after 40ms/);
+		assert.ok(Date.now() - startedAt < 2_000);
+
+		const noisy = await probeWorkerPiVersion(
+			{ command: "noisy-pi", cwd: root },
+			runner({ stdout: "x".repeat(10_000) }),
+		);
+		assert.equal(noisy.supported, false);
+		assert.match(noisy.message ?? "", /\[truncated\]/);
+		assert.ok((noisy.message ?? "").length < 1_000);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });

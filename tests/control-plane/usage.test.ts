@@ -52,6 +52,33 @@ test("hasWorkerUsage treats cache-only aggregates as visible usage", () => {
 	assert.equal(hasWorkerUsage({ ...createZeroWorkerUsageAggregate(), cacheWriteTokens: 7 }), true);
 });
 
+test("usage helpers preserve authoritative fractional costs instead of deriving them from counters", () => {
+	const retained = createZeroWorkerUsageAggregate();
+	const tiered = worker("worker-tiered", {
+		turns: 1,
+		inputTokens: 800_001,
+		outputTokens: 12_345,
+		cacheReadTokens: 654_321,
+		cacheWriteTokens: 9_876,
+		costUsd: 0.01987654321,
+	});
+	const tiny = worker("worker-tiny", {
+		turns: 1,
+		inputTokens: 1,
+		outputTokens: 1,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		costUsd: 0.00765432109,
+	});
+
+	const tieredOnly = addWorkerUsageToAggregate(retained, tiered.usage);
+	const aggregate = aggregateWorkerUsage([tiered, tiny], retained);
+
+	assert.equal(tieredOnly.costUsd, 0.01987654321);
+	assert.equal(aggregate.inputTokens, 800_002);
+	assert.equal(aggregate.costUsd, 0.0275308643);
+});
+
 test("usage helpers add active workers to retained totals without mutating inputs", () => {
 	const retained = {
 		workers: 1,

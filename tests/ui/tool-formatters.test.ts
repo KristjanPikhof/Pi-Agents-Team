@@ -6,6 +6,7 @@ import {
 	TOOL_SECTION_ORDER,
 	WORKER_STATUS_SCAN_ORDER,
 	formatAgentMessageResult,
+	formatAgentResultNotReady,
 	formatDelegateTaskResult,
 	formatWaitForAgentsResult,
 	formatWorkerCompact,
@@ -129,6 +130,18 @@ test("formatWorkerDetail keeps only title, task, relay, and result", () => {
 	assert.doesNotMatch(plain, /^Risks:/m);
 	assert.doesNotMatch(plain, /^Usage:/m);
 	assert.doesNotMatch(plain, /Latest assistant text/);
+});
+
+test("agent_result pre-settlement guidance never formats a provisional final answer", () => {
+	const text = formatAgentResultNotReady(makeWorker({
+		status: "running",
+		finalAnswer: "headline: provisional",
+	}));
+	assert.equal(
+		text,
+		"fixer (w1)\nStatus: running (Running)\nResult note: Final result is not ready. Wait for terminal settlement with wait_for_agents, then call agent_result again.",
+	);
+	assert.doesNotMatch(text, /provisional/);
 });
 
 test("formatWorkerCompact summarizes long file and risk lists without truncating final_answer", () => {

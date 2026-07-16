@@ -1,6 +1,6 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,12 +9,14 @@ import {
 	isRecursiveOrchestratorExtensionSource,
 } from "../../src/safety/self-extension.js";
 
-function createLayout(prefix: string): string {
-	return mkdtempSync(join(tmpdir(), prefix));
+function createLayout(t: TestContext, prefix: string): string {
+	const root = mkdtempSync(join(tmpdir(), prefix));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	return root;
 }
 
-test("self-entry candidates cover source and compiled layouts without a generated dist dependency", () => {
-	const root = createLayout("pi-agent-team-layout-");
+test("self-entry candidates cover source and compiled layouts without a generated dist dependency", (t) => {
+	const root = createLayout(t, "pi-agent-team-layout-");
 	const sourceModule = join(root, "src/safety/self-extension.ts");
 	const compiledModule = join(root, "dist/src/safety/self-extension.js");
 	const expected = [
@@ -30,8 +32,8 @@ test("self-entry candidates cover source and compiled layouts without a generate
 	}
 });
 
-test("a source package root named dist is not mistaken for compiled output", () => {
-	const parent = createLayout("pi-agent-team-dist-collision-");
+test("a source package root named dist is not mistaken for compiled output", (t) => {
+	const parent = createLayout(t, "pi-agent-team-dist-collision-");
 	const packageRoot = join(parent, "dist");
 	const sourceModule = join(packageRoot, "src/safety/self-extension.ts");
 	const sourceEntry = join(packageRoot, "extensions/index.ts");
@@ -50,8 +52,8 @@ test("a source package root named dist is not mistaken for compiled output", () 
 	}
 });
 
-test("source, built, and packed self entries are rejected while non-self extensions remain allowed", () => {
-	const checkout = createLayout("pi-agent-team-checkout-");
+test("source, built, and packed self entries are rejected while non-self extensions remain allowed", (t) => {
+	const checkout = createLayout(t, "pi-agent-team-checkout-");
 	const packedRoot = join(checkout, "installed/node_modules/pi-agents-team");
 	const cases = [
 		{
@@ -87,8 +89,8 @@ test("source, built, and packed self entries are rejected while non-self extensi
 	}
 });
 
-test("self-entry detection follows symlinks in a compiled package layout", () => {
-	const root = createLayout("pi-agent-team-symlink-");
+test("self-entry detection follows symlinks in a compiled package layout", (t) => {
+	const root = createLayout(t, "pi-agent-team-symlink-");
 	const modulePath = join(root, "dist/src/safety/self-extension.js");
 	const entrypoint = join(root, "dist/extensions/index.js");
 	const consumer = join(root, "consumer");

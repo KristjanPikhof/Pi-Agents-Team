@@ -150,7 +150,7 @@ All optional. Omit to get the default.
 |---|---|---|---|
 | `whenToUse` | string | `""` | The trigger sentence shown to the orchestrator LLM. Write it as `"Use for / when / to ..."` so the model can match it against user requests. |
 | `model` | string | `"default"` | `"default"` inherits the orchestrator's current model. Otherwise a canonical Pi model ID in `<provider>/<model-id>` form (check `pi --help` or your Pi install's model list for exact names — available models are install-specific). |
-| `thinkingLevel` | string | cascade | One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. See "Thinking level cascade" below. |
+| `thinkingLevel` | string | cascade | One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. `max` is opt-in and model/provider-dependent. See "Thinking level cascade" below. |
 | `access` | object | default read tools | Worker capabilities for this role. See "Per-role access fields" below. |
 | `prompt` | string | `"default"` | See "Prompt resolution" below. |
 
@@ -165,18 +165,19 @@ All optional. Omit to get the default.
 | 3 | The orchestrator's live Pi thinking level from `pi.getThinkingLevel()`. |
 | 4 | `medium`, used only when none of the above exists. |
 
-Invalid role values are handled per field. The loader drops only that role's bad `thinkingLevel`, keeps the rest of the config, and emits a warning toast on session start. Fix the typo and reload.
+Invalid role values are handled per field. The loader drops only that role's bad `thinkingLevel`, keeps the rest of the config, and emits a warning toast on session start. Fix the typo and reload. Adding `max` support does not change the packaged role defaults, schema/scaffold versions, or existing config files, and it does not trigger config regeneration.
 
 Use omission for inheritance:
 
 | JSON | Result |
 |---|---|
 | `"thinkingLevel": "high"` | Requests `high` for that role. |
+| `"thinkingLevel": "max"` | Explicitly opts into `max`; Pi may clamp it for the selected model/provider. |
 | No `thinkingLevel` field | Inherits from the cascade above. |
 | `"thinkingLevel": "default"` | Invalid. The field is dropped and a warning toast is shown. |
 | `"thinkingLevel": ""` | Invalid. The field is dropped and a warning toast is shown. |
 
-Pi owns the actual model support matrix. See `node_modules/@earendil-works/pi-coding-agent/docs/models.md:208` for `thinkingLevelMap`, `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:177` and `node_modules/@earendil-works/pi-coding-agent/docs/rpc.md:280` for `get_state.thinkingLevel` plus `set_thinking_level`, and `node_modules/@earendil-works/pi-coding-agent/docs/settings.md:20` for `defaultThinkingLevel`. `xhigh` is model-family dependent, and Pi may silently clamp unsupported levels to the closest supported effective level.
+Pi owns the actual model support matrix. In the installed Pi documentation, see the model registry's thinking-level mapping in `docs/models.md`, the `get_state` response and Thinking Level commands in `docs/rpc.md`, and the thinking-level setting in `docs/settings.md`. `xhigh` and `max` are model/provider-dependent, and Pi may clamp unsupported levels to the closest supported effective level.
 
 ### Per-role access fields
 
@@ -312,7 +313,7 @@ Two optional files, in precedence order:
 2. Global: `~/.pi/agent/agents-team.json` (respects `PI_AGENT_TEAM_GLOBAL_CONFIG_PATH` env override — set to `""`/`"none"`/`"null"` to skip, or a path to redirect)
 3. Built-in seven (when neither file is present).
 
-On Pi versions with Project Trust, the project-local file is only considered after the session context reports the project as trusted. Until then, the loader skips `.pi/agent/agents-team.json` and uses the global file or built-ins. Older Pi versions do not expose that API, so the extension keeps the previous behavior and reads project config at session start.
+The project-local file is only considered after the Pi session reports the project as trusted. Until then, the loader skips `.pi/agent/agents-team.json` and uses the global file or built-ins.
 
 **Project replaces global outright once it is trusted and present.** If both files exist, only the project file's roles are used. Nothing from global leaks through. This is deliberate. Role-level merging across layers is confusing and makes per-repo role sets hard to reason about.
 

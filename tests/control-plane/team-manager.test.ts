@@ -10,6 +10,27 @@ import { MockWorkerHandle, MockWorkerTransport, waitForMicrotasks } from "../run
 import { buildTeamWidgetLines } from "../../src/ui/status-widget";
 import type { WorkerRuntimeState } from "../../src/types";
 
+async function settleTransport(transport: MockWorkerTransport | undefined): Promise<void> {
+	transport?.writeEvent({ type: "agent_settled" });
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+}
+
+function createMockWorkerManager(options?: ConstructorParameters<typeof MockWorkerTransport>[0]) {
+	const transports: MockWorkerTransport[] = [];
+	const workerManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport(options);
+		transports.push(transport);
+		return new MockWorkerHandle(transport);
+	});
+	return { workerManager, transports };
+}
+
+async function settleWorker(workerManager: WorkerManager, workerId: string): Promise<void> {
+	const transport = (workerManager as any).workers.get(workerId)?.handle?.transport as MockWorkerTransport | undefined;
+	await settleTransport(transport);
+}
+
 function workerSnapshot(workerId: string, status: WorkerRuntimeState["status"], usage: WorkerRuntimeState["usage"]): WorkerRuntimeState {
 	return {
 		workerId,
@@ -182,27 +203,65 @@ test("TeamManager delegates using configured profile overrides instead of packag
 	);
 });
 
-test("waitForTerminal resolves all_terminal once every target finishes", async () => {
+test("wait, result readiness, terminal notification, and reuse stay blocked until agent_settled", async () => {
 	let transport: MockWorkerTransport | undefined;
 	const workerManager = new WorkerManager(() => {
-		transport = new MockWorkerTransport({ autoCompletePrompt: false });
+		transport = new MockWorkerTransport({
+			autoCompletePrompt: false,
+			promptText: "<final_answer>headline: settled result</final_answer>",
+		});
 		return new MockWorkerHandle(transport);
 	});
 	const teamManager = new TeamManager({ workerManager });
+	let terminalTransitions = 0;
+	teamManager.onStateChange((state) => {
+		const status = state.activeWorkers.w1?.status;
+		if (status && ["idle", "completed", "aborted", "error", "exited"].includes(status)) terminalTransitions += 1;
+	});
 
 	const { worker } = await teamManager.delegateTask({
 		title: "Wait test",
-		goal: "Exercise waitForTerminal",
+		goal: "Exercise the settlement boundary",
 		profileName: "reviewer",
 		cwd: process.cwd(),
 	});
 
-	const pending = teamManager.waitForTerminal([worker.workerId], { timeoutMs: 500 });
 	transport?.completePrompt();
+	await waitForMicrotasks();
+	await waitForMicrotasks();
+	assert.equal(teamManager.getWorkerStatus(worker.workerId)?.status, "running");
+	assert.equal(terminalTransitions, 0, "completion notification inputs must remain unavailable after agent_end");
+	assert.equal((await teamManager.waitForTerminal([worker.workerId], { timeoutMs: 20 })).reason, "timeout");
+	assert.equal(teamManager.getWorkerResult(worker.workerId)?.worker.status, "running");
+	await assert.rejects(
+		teamManager.delegateTask({
+			title: "Too early",
+			goal: "reuse must wait for settlement",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			reuseWorkerId: worker.workerId,
+		}),
+		/Cannot reuse worker.*running/,
+	);
+
+	const pending = teamManager.waitForTerminal([worker.workerId], { timeoutMs: 500 });
+	transport?.writeEvent({ type: "agent_start" });
+	transport?.writeEvent({ type: "agent_end", messages: [] });
+	assert.equal((await teamManager.waitForTerminal([worker.workerId], { timeoutMs: 20 })).reason, "timeout");
+	await settleTransport(transport);
 	const resolved = await pending;
 	assert.equal(resolved.reason, "all_terminal");
-	assert.equal(resolved.workers.length, 1);
 	assert.equal(resolved.workers[0]?.status, "idle");
+	assert.equal(terminalTransitions, 1, "retry/follow-up event gaps must emit one completion only");
+
+	const reused = await teamManager.delegateTask({
+		title: "After settlement",
+		goal: "reuse is available now",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		reuseWorkerId: worker.workerId,
+	});
+	assert.equal(reused.worker.workerId, worker.workerId);
 });
 
 test("waitForTerminal wakes early when a running worker raises a new relay", async () => {
@@ -264,6 +323,7 @@ test("waitForTerminal with wakeOnRelay:false ignores relays and waits for termin
 
 	const pending = teamManager.waitForTerminal([worker.workerId], { timeoutMs: 1000, wakeOnRelay: false });
 	transports[0]?.completePrompt();
+	await settleTransport(transports[0]);
 	const resolved = await pending;
 	assert.equal(resolved.reason, "all_terminal");
 });
@@ -304,16 +364,14 @@ test("messageWorker returns the resolved delivery mode for each call", async () 
 	assert.equal(whileRunning.delivery, "steer");
 
 	transports[0]?.completePrompt();
-	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleTransport(transports[0]);
 
 	const whileIdle = await teamManager.messageWorker(worker.workerId, "also check tests", "auto");
 	assert.equal(whileIdle.delivery, "prompt");
 	assert.equal(transports[0]?.commands.at(-2)?.type, "prompt");
 
 	transports[0]?.completePrompt();
-	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleTransport(transports[0]);
 
 	const explicitFollowUpOnIdle = await teamManager.messageWorker(worker.workerId, "one more nudge", "follow_up");
 	assert.equal(
@@ -346,8 +404,7 @@ test("messageAllWorkers broadcasts to every deliverable worker", async () => {
 	});
 
 	transports[1]?.completePrompt();
-	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleTransport(transports[1]);
 
 	const broadcast = await teamManager.messageAllWorkers("remember the spec link", "auto");
 	assert.equal(broadcast.length, 2);
@@ -392,7 +449,7 @@ test("pruneTerminalWorkers retains terminal worker usage exactly once", async ()
 		outputTokens: 40,
 		cacheReadTokens: 10,
 		cacheWriteTokens: 5,
-		costUsd: 0.25,
+		costUsd: 0.01987654321,
 	});
 	state.activeWorkers["w2"] = workerSnapshot("w2", "running", {
 		turns: 3,
@@ -400,13 +457,14 @@ test("pruneTerminalWorkers retains terminal worker usage exactly once", async ()
 		outputTokens: 80,
 		cacheReadTokens: 20,
 		cacheWriteTokens: 10,
-		costUsd: 0.5,
+		costUsd: 0.00765432109,
 	});
 	teamManager.restore(state);
 
 	const removed = await teamManager.pruneTerminalWorkers();
 	const afterFirstPrune = teamManager.snapshot();
 	const afterNoopPrune = await teamManager.pruneTerminalWorkers();
+	const afterNoopSnapshot = teamManager.snapshot();
 	const aggregate = teamManager.aggregateUsage();
 
 	assert.equal(removed.length, 1);
@@ -414,6 +472,7 @@ test("pruneTerminalWorkers retains terminal worker usage exactly once", async ()
 	assert.equal(afterFirstPrune.activeWorkers["w1"], undefined);
 	assert.equal(afterFirstPrune.activeWorkers["w2"]?.status, "running");
 	assert.equal(afterNoopPrune.length, 0);
+	assert.equal(afterNoopSnapshot.prunedWorkerUsageTotals.costUsd, 0.01987654321);
 	assert.deepEqual(afterFirstPrune.prunedWorkerUsageTotals, {
 		workers: 1,
 		turns: 2,
@@ -421,13 +480,43 @@ test("pruneTerminalWorkers retains terminal worker usage exactly once", async ()
 		outputTokens: 40,
 		cacheReadTokens: 10,
 		cacheWriteTokens: 5,
-		costUsd: 0.25,
+		costUsd: 0.01987654321,
 		contextTokens: 0,
 	});
 	assert.equal(aggregate.workers, 2);
 	assert.equal(aggregate.inputTokens, 300);
 	assert.equal(aggregate.outputTokens, 120);
-	assert.equal(aggregate.costUsd, 0.75);
+	assert.equal(aggregate.costUsd, 0.0275308643);
+});
+
+test("aggregateUsage sums worker-reported fractional costs and excludes orchestrator usage", () => {
+	const teamManager = new TeamManager();
+	const state = createDefaultTeamState() as ReturnType<typeof createDefaultTeamState> & {
+		orchestratorUsage?: { costUsd: number; inputTokens: number };
+	};
+	state.activeWorkers["w1"] = workerSnapshot("w1", "idle", {
+		turns: 1,
+		inputTokens: 800_001,
+		outputTokens: 12_345,
+		cacheReadTokens: 654_321,
+		cacheWriteTokens: 9_876,
+		costUsd: 0.01987654321,
+	});
+	state.activeWorkers["w2"] = workerSnapshot("w2", "running", {
+		turns: 1,
+		inputTokens: 1,
+		outputTokens: 1,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		costUsd: 0.00765432109,
+	});
+	state.orchestratorUsage = { costUsd: 99.99, inputTokens: 9_999_999 };
+	teamManager.restore(state);
+
+	const aggregate = teamManager.aggregateUsage();
+	assert.equal(aggregate.workers, 2);
+	assert.equal(aggregate.inputTokens, 800_002);
+	assert.equal(aggregate.costUsd, 0.0275308643, "only worker-reported RPC costs belong in team usage");
 });
 
 test("aggregateUsage sums token and cost fields across every tracked worker", async () => {
@@ -566,7 +655,7 @@ test("active ping does not make stale terminal workers reappear in the widget", 
 	let now = 1_000;
 	Date.now = () => now;
 	try {
-		const workerManager = new WorkerManager(() => new MockWorkerHandle(new MockWorkerTransport()));
+		const { workerManager, transports } = createMockWorkerManager();
 		const teamManager = new TeamManager({ workerManager });
 
 		await teamManager.delegateTask({
@@ -576,7 +665,7 @@ test("active ping does not make stale terminal workers reappear in the widget", 
 			cwd: process.cwd(),
 		});
 		await waitForMicrotasks();
-		await waitForMicrotasks();
+		await settleTransport(transports[0]);
 
 		const beforePing = teamManager.getWorkerStatus("w1");
 		assert.equal(beforePing?.status, "idle");
@@ -736,7 +825,7 @@ test("TeamManager applies model precedence: tool param, role model, orchestrator
 	assert.equal(captures[3]?.model, undefined);
 });
 
-test("TeamManager applies thinking level precedence: tool param, role level, orchestrator level, then medium", async () => {
+test("TeamManager applies thinking level precedence, including explicit and inherited max", async () => {
 	const captures: Array<{ thinkingLevel?: string }> = [];
 	const workerManager = new WorkerManager((options) => {
 		captures.push({ thinkingLevel: options.thinkingLevel });
@@ -746,7 +835,7 @@ test("TeamManager applies thinking level precedence: tool param, role level, orc
 		config: {
 			...DEFAULT_TEAM_CONFIG,
 			profiles: DEFAULT_TEAM_CONFIG.profiles.map((profile) => {
-				if (profile.name === "oracle") return { ...profile, thinkingLevel: "high" };
+				if (profile.name === "oracle") return { ...profile, thinkingLevel: "max" };
 				if (profile.name === "reviewer") return { ...profile, thinkingLevel: undefined as never };
 				return profile;
 			}),
@@ -755,25 +844,33 @@ test("TeamManager applies thinking level precedence: tool param, role level, orc
 	});
 
 	await teamManager.delegateTask({
-		title: "Explicit thinking",
-		goal: "tool param wins",
+		title: "Explicit max thinking",
+		goal: "tool max wins",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		thinkingLevel: "max",
+		orchestratorThinkingLevel: "low",
+	});
+	await teamManager.delegateTask({
+		title: "Role max thinking",
+		goal: "role max wins over orchestrator thinking",
+		profileName: "oracle",
+		cwd: process.cwd(),
+		orchestratorThinkingLevel: "low",
+	});
+	await teamManager.delegateTask({
+		title: "Inherited max thinking",
+		goal: "orchestrator max wins when role has none",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		orchestratorThinkingLevel: "max",
+	});
+	await teamManager.delegateTask({
+		title: "Explicit non-max thinking",
+		goal: "existing non-max tool param still wins",
 		profileName: "reviewer",
 		cwd: process.cwd(),
 		thinkingLevel: "low",
-		orchestratorThinkingLevel: "xhigh",
-	});
-	await teamManager.delegateTask({
-		title: "Role thinking",
-		goal: "role thinking wins over orchestrator thinking",
-		profileName: "oracle",
-		cwd: process.cwd(),
-		orchestratorThinkingLevel: "xhigh",
-	});
-	await teamManager.delegateTask({
-		title: "Orchestrator thinking",
-		goal: "orchestrator thinking wins when role has none",
-		profileName: "reviewer",
-		cwd: process.cwd(),
 		orchestratorThinkingLevel: "xhigh",
 	});
 	await teamManager.delegateTask({
@@ -783,10 +880,26 @@ test("TeamManager applies thinking level precedence: tool param, role level, orc
 		cwd: process.cwd(),
 	});
 
-	assert.equal(captures[0]?.thinkingLevel, "low");
-	assert.equal(captures[1]?.thinkingLevel, "high");
-	assert.equal(captures[2]?.thinkingLevel, "xhigh");
-	assert.equal(captures[3]?.thinkingLevel, "medium");
+	assert.equal(captures[0]?.thinkingLevel, "max");
+	assert.equal(captures[1]?.thinkingLevel, "max");
+	assert.equal(captures[2]?.thinkingLevel, "max");
+	assert.equal(captures[3]?.thinkingLevel, "low");
+	assert.equal(captures[4]?.thinkingLevel, "medium");
+});
+
+test("built-in role thinking defaults remain unchanged and max stays opt-in", () => {
+	assert.deepEqual(
+		DEFAULT_TEAM_CONFIG.profiles.map(({ name, thinkingLevel }) => [name, thinkingLevel]),
+		[
+			["explorer", "low"],
+			["librarian", "medium"],
+			["oracle", "high"],
+			["designer", "medium"],
+			["fixer", "medium"],
+			["reviewer", "high"],
+			["observer", "low"],
+		],
+	);
 });
 
 test("TeamManager maps same-project trust decisions to worker launch overrides", async () => {
@@ -850,7 +963,7 @@ async function createIdleReusableTeam(sessionStats?: Record<string, unknown> | (
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleTransport(transports[0]);
 	assert.equal(teamManager.getWorkerStatus(first.worker.workerId)?.status, "idle");
 	return { teamManager, transports, workerId: first.worker.workerId };
 }
@@ -1006,7 +1119,7 @@ test("delegateTask with reuseWorkerId routes to reuse path on idle worker, alloc
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleTransport(transports[0]);
 
 	const second = await teamManager.delegateTask({
 		title: "Second",
@@ -1043,7 +1156,7 @@ test("delegateTask with reuseWorkerId rejects when inherited orchestrator thinki
 		orchestratorThinkingLevel: "low",
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	await teamManager.delegateTask({
 		title: "Reuse same inherited level",
@@ -1053,6 +1166,7 @@ test("delegateTask with reuseWorkerId rejects when inherited orchestrator thinki
 		orchestratorThinkingLevel: "low",
 		reuseWorkerId: first.worker.workerId,
 	});
+	await settleWorker(workerManager, first.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1128,7 +1242,7 @@ test("delegateTask with reuseWorkerId rejects when launch-affecting fields diffe
 		model: "provider/model-a",
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1158,7 +1272,7 @@ test("delegateTask with reuseWorkerId rejects when project trust launch override
 		projectTrustRoot: projectRoot,
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1194,7 +1308,7 @@ test("delegateTask with reuseWorkerId rejects when rpc command or args differ", 
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	config.rpc.command = "pi-b";
 	config.rpc.args = ["--mode", "rpc", "--no-session", "--custom"];
@@ -1234,7 +1348,7 @@ test("delegateTask with reuseWorkerId rejects when worker extensions differ", as
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, first.worker.workerId);
 
 	const reviewer = config.profiles.find((profile) => profile.name === "reviewer");
 	assert.ok(reviewer);
@@ -1264,7 +1378,7 @@ test("delegateTask with reuseWorkerId rejects when skills/tools/cwd differ", asy
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, noSkills.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1303,7 +1417,7 @@ test("delegateTask with reuseWorkerId rejects cross-profile reuse", async () => 
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, reviewer.worker.workerId);
 
 	await assert.rejects(
 		() =>
@@ -1331,8 +1445,7 @@ test("closeWorker disposes idle worker, marks exited; rejects running workers", 
 	// flip to idle by completing
 	const transport = (workerManager as any).workers.get(idle.worker.workerId)?.handle?.transport as MockWorkerTransport;
 	transport?.completePrompt();
-	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleTransport(transport);
 	assert.equal(teamManager.getWorkerStatus(idle.worker.workerId)?.status, "idle");
 
 	const closed = await teamManager.closeWorker(idle.worker.workerId);
@@ -1366,7 +1479,7 @@ test("pruneTerminalWorkers disposes the live RPC client of an idle worker before
 		cwd: process.cwd(),
 	});
 	await waitForMicrotasks();
-	await waitForMicrotasks();
+	await settleWorker(workerManager, idle.worker.workerId);
 	assert.equal(teamManager.getWorkerStatus(idle.worker.workerId)?.status, "idle");
 	assert.ok(workerManager.hasWorker(idle.worker.workerId));
 
