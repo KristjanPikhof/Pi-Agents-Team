@@ -778,11 +778,15 @@ export class WorkerManager {
 
 	async refreshStats(workerId: string, signal?: AbortSignal): Promise<RpcSessionStats> {
 		const record = this.requireWorker(workerId);
-		const stats = await waitForAbort(record.client.getSessionStats(), signal, () => {
-			const error = new Error(`Worker reuse aborted for ${workerId}`);
-			error.name = "AbortError";
-			return error;
-		});
+		let stats: RpcSessionStats;
+		try {
+			stats = await record.client.getSessionStats(signal);
+		} catch (error) {
+			if (!signal?.aborted) throw error;
+			const abortError = new Error(`Worker reuse aborted for ${workerId}`, { cause: error });
+			abortError.name = "AbortError";
+			throw abortError;
+		}
 		record.state.usage = this.updateUsage(record.state.usage, stats);
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 		return stats;
@@ -1020,11 +1024,19 @@ export class WorkerManager {
 			&& (
 				event.type === "worker_started"
 				|| event.type === "worker_running"
-				|| event.type === "worker_text_delta"
+				|| event.type === "worker_queue_updated"
+			)
+		) {
+			return;
+		}
+		if (
+			UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)
+			&& record.state.status !== "aborted"
+			&& (
+				event.type === "worker_text_delta"
 				|| event.type === "worker_message"
 				|| event.type === "worker_tool_started"
 				|| event.type === "worker_tool_finished"
-				|| event.type === "worker_queue_updated"
 				|| event.type === "worker_agent_end"
 			)
 		) {
@@ -1062,7 +1074,7 @@ export class WorkerManager {
 				break;
 			case "worker_text_delta":
 				appendTranscriptText(record, event.delta);
-				record.state.status = "running";
+				if (!UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) record.state.status = "running";
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				record.pendingTextDelta += event.delta;
 				record.pendingTextFlushAt = record.pendingTextFlushAt || event.timestamp;
@@ -1077,7 +1089,9 @@ export class WorkerManager {
 				if (assistantText) {
 					const finalAnswer = extractFinalAnswer(assistantText);
 					setTranscriptText(record, finalAnswer ?? assistantText);
-					record.state.pendingRelayQuestions = extractRelayQuestions(assistantText, record.state);
+					if (!UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) {
+						record.state.pendingRelayQuestions = extractRelayQuestions(assistantText, record.state);
+					}
 					record.state.lastSummary = buildSummary(record.state, assistantText);
 					this.appendConsole(record, {
 						ts: event.timestamp,
@@ -1113,7 +1127,7 @@ export class WorkerManager {
 				break;
 			}
 			case "worker_tool_started": {
-				record.state.status = "running";
+				if (!UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) record.state.status = "running";
 				record.state.lastToolName = event.toolName;
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				this.flushPendingText(record);
