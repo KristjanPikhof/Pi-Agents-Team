@@ -1,7 +1,7 @@
-import { buildDashboardEntries, createDefaultTeamState, normalizePersistedTeamState } from "../config";
-import { collectPendingRelayQuestions } from "../comms/relay-queue";
-import { compareWorkerIds, type DelegatedTaskInput, type PersistedTeamState, type WorkerRuntimeState, type WorkerUsageAggregate } from "../types";
-import { addWorkerUsageToAggregate } from "../usage";
+import { buildDashboardEntries, createDefaultTeamState, normalizePersistedTeamState } from "../config.js";
+import { collectPendingRelayQuestions } from "../comms/relay-queue.js";
+import { compareWorkerIds, type DelegatedTaskInput, type PersistedTeamState, type WorkerRuntimeState, type WorkerUsageAggregate } from "../types.js";
+import { addWorkerUsageToAggregate } from "../usage.js";
 
 export class TaskRegistry {
 	private state: PersistedTeamState;

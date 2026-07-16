@@ -1,4 +1,4 @@
-import type { RelayQuestion, WorkerRuntimeState } from "../types";
+import type { RelayQuestion, WorkerRuntimeState } from "../types.js";
 
 export function collectPendingRelayQuestions(activeWorkers: Record<string, WorkerRuntimeState>): RelayQuestion[] {
 	return Object.values(activeWorkers)

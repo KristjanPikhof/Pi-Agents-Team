@@ -20,23 +20,23 @@ pi -e ./extensions/index.ts
 pi -e ./extensions/index.ts -p "/team"   # open straight into the dashboard
 ```
 
-If you want to install the local checkout as a real Pi package instead:
-
-```bash
-pi install /absolute/path/to/pi-agents-team
-```
+This is the local-development path. Pi loads `extensions/index.ts` through `jiti`; installed consumers use the compiled npm package instead. Direct Git package installs are not supported because `dist/` is ignored and Pi's Git install flow does not build it.
 
 ## Commands
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # tsx --test tests/**/*.test.ts (node:test runner, node:assert/strict)
+npm test                 # tsx --test root and nested tests (node:test runner, node:assert/strict)
 npm run check            # typecheck + test, one shot
+npm run build            # compile the publishable package into dist/
+npm run build:publish    # same publish build, used by prepack
 npm run smoke:runtime    # spawns a real pi RPC worker
 npm run smoke:team       # exercises TeamManager end-to-end
 ```
 
 Run a single test file with `tsx --test tests/runtime/worker-manager.test.ts`.
+
+Both build commands run `scripts/build-publish.mjs`. The script clears `dist/`, compiles source files to native ESM JavaScript plus `.d.ts` declarations, and copies `prompts/` and `profiles/` into the output. `npm pack` and `npm publish` run `prepack`, which calls `npm run build:publish`; publishing also runs `prepublishOnly` (`npm run check`). Keep `dist/` ignored because it is generated for packaging, not maintained as source.
 
 ## Test discipline
 
@@ -56,8 +56,10 @@ Unit tests lean on `MockWorkerTransport` / `MockWorkerHandle` in `tests/runtime/
 ## Package layout
 
 ```text
-extensions/index.ts                 # package-facing extension entrypoint
-extensions/pi-agent-team/index.ts   # internal implementation entrypoint, tool + command registration, UI wiring
+extensions/index.ts                 # local-development shim and source package entrypoint
+extensions/pi-agent-team/index.ts   # source implementation entrypoint, registration, and UI wiring
+dist/extensions/index.js            # generated npm/Pi entrypoint (native ESM)
+dist/**/*.d.ts                      # generated TypeScript declarations
 src/runtime/                         # worker process, RPC client, event normalizer, worker manager
 src/control-plane/                   # team manager, task registry, persistence snapshots
 src/comms/                           # steer/follow-up routing, passive ping, summary parser, relay extractor

@@ -1,5 +1,5 @@
 import { Text } from "@earendil-works/pi-tui";
-import { type AgentToolName, type AgentToolTitleArgs, buildAgentToolCallTitle } from "./display-grammar";
+import { type AgentToolName, type AgentToolTitleArgs, buildAgentToolCallTitle } from "./display-grammar.js";
 
 type MutableText = Text & { setText(text: string): void };
 

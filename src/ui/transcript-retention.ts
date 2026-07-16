@@ -1,4 +1,4 @@
-import { sanitizeTerminalText } from "./theme";
+import { sanitizeTerminalText } from "./theme.js";
 
 export const DISPLAY_TRANSCRIPT_BYTE_CAP = 256 * 1024;
 export const DISPLAY_TRANSCRIPT_LINE_CAP = 4000;

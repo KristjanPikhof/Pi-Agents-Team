@@ -7,20 +7,23 @@ Pi extension. Visible session = orchestrator; background workers run through `pi
 ```bash
 npm install
 npm run typecheck       # tsc --noEmit
-npm test                # tsx --test tests/**/*.test.ts
+npm test                # tsx --test root and nested test files
 npm run check           # typecheck + tests
+npm run build           # compile JS + declarations and copy package assets to dist/
+npm run build:publish   # same publish build, invoked by prepack
 npm run smoke:runtime   # tsx scripts/smoke/runtime-worker.ts
 npm run smoke:team      # tsx scripts/smoke/team-flow.ts
 ```
 
-Single test: `npx tsx --test tests/runtime/worker-manager.test.ts`; avoid `npm test -- <path>` because the script already has a glob. Local load: `pi -e ./extensions/index.ts`. Node `>=22.19.0`. Strict TS, ESM, `node:test` + `node:assert/strict`; no jest/vitest/bun. No lint/build scripts. Package ships TS; `prepublishOnly` runs `npm run check`.
+Single test: `npx tsx --test tests/runtime/worker-manager.test.ts`; avoid `npm test -- <path>` because the script already has globs. Local load: `pi -e ./extensions/index.ts` through `jiti`. Node `>=22.19.0`. Strict TS, ESM, `node:test` + `node:assert/strict`; no jest/vitest/bun. The npm package ships native ESM JavaScript plus `.d.ts` declarations. `prepack` runs `npm run build:publish`; `prepublishOnly` runs `npm run check`.
 
 ## Project map
 
 | Path | Purpose |
 |---|---|
-| `extensions/index.ts` | package export |
+| `extensions/index.ts` | local-development shim and source package entrypoint |
 | `extensions/pi-agent-team/index.ts` | tools, commands, lifecycle/session handlers, widget/overlay wiring |
+| `dist/` | ignored generated npm output: compiled JS, declarations, prompts, and profiles |
 | `src/control-plane/team-manager.ts` | coordination boundary; commands/tools go here, not to `WorkerManager` |
 | `src/control-plane/task-registry.ts`, `persistence.ts` | registry, persisted state, retained pruned usage |
 | `src/runtime/` | RPC launch/process, JSONL events, `WorkerManager`, final-answer extraction, buffers |
@@ -28,7 +31,7 @@ Single test: `npx tsx --test tests/runtime/worker-manager.test.ts`; avoid `npm t
 | `src/commands/`, `src/comms/`, `src/prompts/`, `src/profiles/`, `src/project-config/`, `src/safety/` | focused subsystems |
 | `docs/architecture.md`, `docs/operations.md`, `docs/profiles.md`, `docs/prompting.md` | deep refs |
 
-`profiles/*.md` and `prompts/agents/*.md` are parity-tested; rename/update together. `package.json` exports `./extensions/index.ts`; Pi discovers the same path via `pi.extensions`.
+`profiles/*.md` and `prompts/agents/*.md` are parity-tested; rename/update together. For installed consumers, both the package export and `pi.extensions` target `./dist/extensions/index.js`; the package export exposes declarations at `./dist/extensions/index.d.ts`. `scripts/build-publish.mjs` rebuilds ignored `dist/` and copies `prompts/` and `profiles/` into it. Do not commit generated output.
 
 ## Operator surface
 

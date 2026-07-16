@@ -8,19 +8,19 @@ import {
 } from "@earendil-works/pi-tui";
 import type { Component, Focusable, OverlayOptions, SelectItem, SelectListTheme, TUI } from "@earendil-works/pi-tui";
 import { BorderedLoader } from "@earendil-works/pi-coding-agent";
-import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager";
-import type { AssistantChunk, WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager";
-import { extractFinalAnswer, parseFinalAnswerSummaryFields } from "../runtime/final-answer";
-import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
-import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
-import { copyToClipboard } from "../util/clipboard";
-import { buildCopyPayload } from "./copy-payload";
-import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup } from "./dashboard";
-import { formatRetainedTranscript } from "./transcript-retention";
-import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format";
-import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar";
-import { formatAgentMessageResult } from "./tool-formatters";
-import { FRAME, stripAnsi, sanitizeTerminalText, fallbackPalette, themedPalette, type ThemedPalette } from "./theme";
+import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager.js";
+import type { AssistantChunk, WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager.js";
+import { extractFinalAnswer, parseFinalAnswerSummaryFields } from "../runtime/final-answer.js";
+import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types.js";
+import { aggregateWorkerUsage, hasWorkerUsage } from "../usage.js";
+import { copyToClipboard } from "../util/clipboard.js";
+import { buildCopyPayload } from "./copy-payload.js";
+import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup } from "./dashboard.js";
+import { formatRetainedTranscript } from "./transcript-retention.js";
+import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format.js";
+import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar.js";
+import { formatAgentMessageResult } from "./tool-formatters.js";
+import { FRAME, stripAnsi, sanitizeTerminalText, fallbackPalette, themedPalette, type ThemedPalette } from "./theme.js";
 
 // The overlay is a single-instance custom component. Styling helpers delegate
 // to a mutable palette so the Pi Theme object supplied by ctx.ui.custom can be

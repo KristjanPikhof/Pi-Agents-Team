@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import extension from "../../extensions/pi-agent-team/index";
+import extension, { _testing } from "../../extensions/pi-agent-team/index";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 
 interface RegisteredTool {
@@ -47,6 +47,24 @@ function makeWidgetState() {
 	};
 	return state;
 }
+
+test("extension mismatch notifier emits exactly one non-fatal session warning", () => {
+	const warnings: string[] = [];
+	const notifier = _testing.createPiVersionMismatchNotifier((message) => warnings.push(message));
+	const event = {
+		type: "pi_version_mismatch" as const,
+		hostVersion: "0.80.6",
+		workerVersion: "0.81.0",
+		command: "custom-pi",
+		message: "Pi Agents Team: host Pi 0.80.6 is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal.",
+	};
+	notifier.notify(event);
+	notifier.notify({ ...event, workerVersion: "0.82.0" });
+	assert.deepEqual(warnings, [event.message]);
+	notifier.reset();
+	notifier.notify(event);
+	assert.equal(warnings.length, 2, "a new session may warn once again");
+});
 
 test("extension registers control-plane tools and operator commands", () => {
 	const tools: RegisteredTool[] = [];

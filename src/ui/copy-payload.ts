@@ -1,9 +1,9 @@
-import type { WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager";
-import type { WorkerRuntimeState } from "../types";
-import { parseFinalAnswerSummaryFields } from "../runtime/final-answer";
-import { sanitizeTerminalText } from "./theme";
-import { formatRetainedTranscript } from "./transcript-retention";
-import { hasCacheUsage } from "./usage-format";
+import type { WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager.js";
+import type { WorkerRuntimeState } from "../types.js";
+import { parseFinalAnswerSummaryFields } from "../runtime/final-answer.js";
+import { sanitizeTerminalText } from "./theme.js";
+import { formatRetainedTranscript } from "./transcript-retention.js";
+import { hasCacheUsage } from "./usage-format.js";
 
 function formatTs(ts: number): string {
 	const date = new Date(ts);

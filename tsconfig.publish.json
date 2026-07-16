@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noEmitOnError": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "extensions/**/*.ts"
+  ],
+  "exclude": [
+    "tests/**/*.ts",
+    "**/*.test.ts"
+  ]
+}

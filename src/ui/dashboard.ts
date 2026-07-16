@@ -1,6 +1,6 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types";
+import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState } from "../types.js";
 import {
 	WORKER_ATTENTION_ORDER,
 	formatWorkerLabel,
@@ -9,9 +9,9 @@ import {
 	getWorkerAttentionPriority as getSharedWorkerAttentionPriority,
 	getWorkerPrimaryAction,
 	type WorkerAttentionPriority,
-} from "./display-grammar";
-import { themedPalette } from "./theme";
-import { formatCompactTokenCount } from "./usage-format";
+} from "./display-grammar.js";
+import { themedPalette } from "./theme.js";
+import { formatCompactTokenCount } from "./usage-format.js";
 
 export type WorkerAttentionGroup = WorkerAttentionPriority;
 

@@ -1,4 +1,4 @@
-import type { RelayQuestion, WorkerRuntimeState, WorkerSummary } from "../types";
+import type { RelayQuestion, WorkerRuntimeState, WorkerSummary } from "../types.js";
 
 function trimLine(line: string): string {
 	return line.replace(/^[-*]\s*/, "").trim();

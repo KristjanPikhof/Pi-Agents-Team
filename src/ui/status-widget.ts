@@ -1,10 +1,10 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types";
-import { aggregateWorkerUsage, hasWorkerUsage } from "../usage";
-import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar";
-import { bold as legacyBold, themedPalette, type ThemedPalette } from "./theme";
-import { formatCacheUsage, formatCacheUsageWithHit, formatCompactTokenCount } from "./usage-format";
+import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types.js";
+import { aggregateWorkerUsage, hasWorkerUsage } from "../usage.js";
+import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar.js";
+import { bold as legacyBold, themedPalette, type ThemedPalette } from "./theme.js";
+import { formatCacheUsage, formatCacheUsageWithHit, formatCompactTokenCount } from "./usage-format.js";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 export const TEAM_STATUS_TIPS = [

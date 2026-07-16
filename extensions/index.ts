@@ -1,1 +1,1 @@
-export { default } from "./pi-agent-team/index";
+export { default } from "./pi-agent-team/index.js";

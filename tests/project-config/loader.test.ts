@@ -432,6 +432,9 @@ test("loadActiveTeamConfig v4: recursive self-extension sources are rejected", (
 		"./extensions/pi-agent-team/index.ts",
 		resolve(process.cwd(), "extensions/index.ts"),
 		resolve(process.cwd(), "extensions/pi-agent-team/index.ts"),
+		resolve(process.cwd(), "dist/extensions/index.js"),
+		resolve(process.cwd(), "dist/extensions/pi-agent-team/index.js"),
+		resolve(process.cwd(), "dist/extensions/../extensions/index.js"),
 	];
 
 	for (const source of sources) {
@@ -736,6 +739,23 @@ test("loadActiveTeamConfig strips invalid role thinkingLevel and records a warni
 	assert.equal(oracle?.thinkingLevel, "xhigh", "valid roles in the same config must keep their thinking level");
 	const reviewer = result.config.profiles.find((profile) => profile.name === "reviewer");
 	assert.equal(reviewer?.thinkingLevel, undefined, "invalid thinkingLevel is stripped from only that role");
+});
+
+test("loadActiveTeamConfig accepts max thinkingLevel without warning", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-thinking-max-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			oracle: { thinkingLevel: "max", prompt: "default" },
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "project");
+	assert.deepEqual(result.thinkingLevelWarnings, []);
+	const oracle = result.config.profiles.find((profile) => profile.name === "oracle");
+	assert.equal(oracle?.thinkingLevel, "max");
 });
 
 test("loadActiveTeamConfig retains valid role thinkingLevel", () => {

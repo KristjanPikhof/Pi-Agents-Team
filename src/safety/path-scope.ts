@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import type { TeamPathScope } from "../types";
+import type { TeamPathScope } from "../types.js";
 
 /**
  * Resolve `path` through symlinks if it exists; otherwise return the lexical

@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth as measureVisibleWidth } from "@earendil-works/pi-tui";
-import type { DelegatedTaskInput, WorkerRuntimeState, WorkerStatus } from "../types";
-import { formatProfileLabel, formatWorkerDisplayId, formatWorkerIdList, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar";
-import { formatContextBudget } from "./usage-format";
+import type { DelegatedTaskInput, WorkerRuntimeState, WorkerStatus } from "../types.js";
+import { formatProfileLabel, formatWorkerDisplayId, formatWorkerIdList, formatWorkerLabel, formatWorkerStatusLabel, formatWorkerToolLabel } from "./display-grammar.js";
+import { formatContextBudget } from "./usage-format.js";
 
 export const TOOL_SECTION_LABELS = {
 	worker: "Worker",

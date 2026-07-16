@@ -1,4 +1,4 @@
-import type { WorkerRuntimeState, WorkerUsageAggregate, WorkerUsageStats } from "./types";
+import type { WorkerRuntimeState, WorkerUsageAggregate, WorkerUsageStats } from "./types.js";
 
 function numericField(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;

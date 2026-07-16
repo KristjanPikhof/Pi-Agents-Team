@@ -1,18 +1,18 @@
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { DEFAULT_TEAM_CONFIG } from "../config";
-import { getWorkerPromptPath, loadWorkerPrompt } from "../prompts/contracts";
-import { GENERIC_WORKER_PROMPT_SENTINEL } from "../project-config/loader";
+import { join, resolve } from "node:path";
+import { DEFAULT_TEAM_CONFIG } from "../config.js";
+import { getWorkerPromptPath, loadWorkerPrompt } from "../prompts/contracts.js";
+import { GENERIC_WORKER_PROMPT_SENTINEL } from "../project-config/loader.js";
 import {
 	ensureWriteScope,
 	isPathScopeNarrowerOrEqual,
 	isPathScopeWithinProjectRoot,
 	isPathWithinProjectRoot,
 	normalizePathScope,
-} from "./path-scope";
-import type { TeamConfig, TeamPathScope, TeamProfileSpec, ThinkingLevel, WorkerExtensionMode } from "../types";
+} from "./path-scope.js";
+import type { TeamConfig, TeamPathScope, TeamProfileSpec, ThinkingLevel, WorkerExtensionMode } from "../types.js";
+import { isRecursiveOrchestratorExtensionSource } from "./self-extension.js";
 
 export interface LaunchPolicyRequest {
 	cwd: string;
@@ -71,78 +71,6 @@ function isExtensionModeNarrowerOrEqual(candidate: WorkerExtensionMode, baseline
  * "bash as escape hatch" for the full rationale.
  */
 const WRITE_CAPABLE_TOOLS: ReadonlySet<string> = new Set(["edit", "write"]);
-const SELF_EXTENSION_PACKAGE_NAME = "pi-agents-team";
-const SELF_EXTENSION_ENTRYPOINTS = [
-	"extensions/index.ts",
-	"extensions/pi-agent-team/index.ts",
-] as const;
-const SELF_EXTENSION_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const SELF_EXTENSION_PATHS: ReadonlySet<string> = new Set(
-	SELF_EXTENSION_ENTRYPOINTS.flatMap((entrypoint) => {
-		const path = resolve(SELF_EXTENSION_PACKAGE_ROOT, entrypoint);
-		const realPath = realpathOrSelf(path);
-		return realPath === path ? [path] : [path, realPath];
-	}),
-);
-
-function realpathOrSelf(path: string): string {
-	try {
-		return realpathSync.native(path);
-	} catch {
-		return path;
-	}
-}
-
-function isSelfPackageExtensionSource(source: string): boolean {
-	const spec = source.startsWith("npm:") ? source.slice("npm:".length) : source;
-	const escapedName = SELF_EXTENSION_PACKAGE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	if (new RegExp(`^${escapedName}(?:@[^/]+)?(?:/|$)`).test(spec)) return true;
-	return getExtensionSourceTail(source) === SELF_EXTENSION_PACKAGE_NAME;
-}
-
-function getExtensionSourceTail(source: string): string | undefined {
-	let spec = source.trim();
-	if (spec.startsWith("npm:")) spec = spec.slice("npm:".length);
-	if (spec.startsWith("git+")) spec = spec.slice("git+".length);
-	if (spec.startsWith("git:")) spec = spec.slice("git:".length);
-	try {
-		const url = new URL(spec);
-		spec = url.pathname;
-	} catch {
-		const scpLikeMatch = /^[^@/\s]+@[^:\s]+:(.+)$/.exec(spec);
-		if (scpLikeMatch?.[1]) spec = scpLikeMatch[1];
-	}
-	spec = spec.split(/[?#]/, 1)[0] ?? spec;
-	const tail = spec.split(/[\\/]/).filter((part) => part.length > 0).at(-1);
-	return tail?.replace(/\.git$/i, "").replace(/@[^@/]+$/, "");
-}
-
-function isPathLikeExtensionSource(source: string): boolean {
-	if (isAbsolute(source) || /^[a-zA-Z]:[\\/]/.test(source)) return true;
-	if (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../")) return true;
-	if (source === "extensions") return true;
-	if (source.startsWith("npm:") || source.startsWith("git:") || source.startsWith("http://") || source.startsWith("https://")) return false;
-	if (source.startsWith("@")) return false;
-	return /[\\/]/.test(source);
-}
-
-function isSameOrAncestorPath(candidate: string, target: string): boolean {
-	const rel = relative(candidate, target);
-	return rel === "" || (rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel));
-}
-
-export function isRecursiveOrchestratorExtensionSource(source: string, baseDir: string): boolean {
-	const trimmed = source.trim();
-	if (trimmed.length === 0) return false;
-	if (isSelfPackageExtensionSource(trimmed)) return true;
-	if (!isPathLikeExtensionSource(trimmed)) return false;
-
-	const resolved = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed);
-	const realResolved = realpathOrSelf(resolved);
-	return [...SELF_EXTENSION_PATHS].some(
-		(selfPath) => isSameOrAncestorPath(resolved, selfPath) || isSameOrAncestorPath(realResolved, selfPath),
-	);
-}
 
 function rejectRecursiveOrchestratorExtensions(sources: readonly string[] | undefined, baseDir: string): void {
 	const blockedSource = sources?.find((source) => isRecursiveOrchestratorExtensionSource(source, baseDir));

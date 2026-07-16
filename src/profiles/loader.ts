@@ -2,8 +2,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { getDefaultProfile, DEFAULT_PROFILE_SPECS } from "./default-profiles";
-import type { TeamProfileSpec, ThinkingLevel, WorkerExtensionMode, WorkerWritePolicy } from "../types";
+import { getDefaultProfile, DEFAULT_PROFILE_SPECS } from "./default-profiles.js";
+import type { TeamProfileSpec, ThinkingLevel, WorkerExtensionMode, WorkerWritePolicy } from "../types.js";
 
 interface ProfileFrontmatter {
 	name?: string;

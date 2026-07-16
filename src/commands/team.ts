@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { openTeamDashboardOverlay } from "../ui/overlay";
-import { buildTeamDashboardText } from "../ui/dashboard";
-import { formatCommandWarning } from "../ui/display-grammar";
-import type { TeamManager } from "../control-plane/team-manager";
-import { formatUnknownWorker, suggestTargets } from "../util/suggest";
+import { openTeamDashboardOverlay } from "../ui/overlay.js";
+import { buildTeamDashboardText } from "../ui/dashboard.js";
+import { formatCommandWarning } from "../ui/display-grammar.js";
+import type { TeamManager } from "../control-plane/team-manager.js";
+import { formatUnknownWorker, suggestTargets } from "../util/suggest.js";
 
 export interface CommandRegistrationContext {
 	teamManager: TeamManager;

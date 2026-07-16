@@ -1,5 +1,5 @@
-import { DEFAULT_TEAM_CONFIG } from "../config";
-import type { TeamProfileSpec } from "../types";
+import { DEFAULT_TEAM_CONFIG } from "../config.js";
+import type { TeamProfileSpec } from "../types.js";
 
 export const DEFAULT_PROFILE_SPECS: TeamProfileSpec[] = DEFAULT_TEAM_CONFIG.profiles.map((profile) => ({ ...profile }));
 

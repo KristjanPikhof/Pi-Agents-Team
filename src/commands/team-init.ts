@@ -1,20 +1,21 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { atomicWriteFileSync, backupExisting, formatBackupTimestamp } from "../util/backup";
-import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG } from "../config";
-import { formatCommandWarning } from "../ui/display-grammar";
-import { getProjectConfigPathForScope } from "../project-config/loader";
+import { atomicWriteFileSync, backupExisting, formatBackupTimestamp } from "../util/backup.js";
+import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG } from "../config.js";
+import { formatCommandWarning } from "../ui/display-grammar.js";
+import { getProjectConfigPathForScope } from "../project-config/loader.js";
 import {
 	DEFAULT_MODEL_SENTINEL,
 	DEFAULT_PROMPT_SENTINEL,
 	TEAM_PROJECT_SCHEMA_VERSION,
+	THINKING_LEVELS,
 	type PartialRawProjectRoleConfigMap,
 	type ProjectRoleFlatConfig,
 	type TeamConfigScope,
 	type TeamProfileSpec,
 	type TeamProjectConfigFile,
-} from "../types";
+} from "../types.js";
 
 interface InitCommandDependencies {
 	emitText: (ctx: ExtensionContext, text: string) => void;
@@ -139,7 +140,7 @@ export function registerTeamInitCommand(pi: ExtensionAPI, dependencies: InitComm
 			lines.push(
 				`Wrote ${scope} agents-team.json scaffold (schemaVersion ${TEAM_PROJECT_SCHEMA_VERSION}, scaffoldVersion ${CURRENT_SCAFFOLD_VERSION}) to ${targetPath}.`,
 				"Global worker access policy lives under `workerAccess`. Set `allowPathsOutsideProject: false` to restrict delegated worker path scopes to the project root/current cwd.",
-				`Per-role knobs: whenToUse (a trigger sentence, "Use when...", shown to the orchestrator so it picks the right role), model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel (optional; inherits orchestrator level when omitted; valid values: off, minimal, low, medium, high, xhigh; Pi may clamp unsupported levels), access (tools, write, pathScope, extensionMode, extensions for explicit Pi provider/model extension sources), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md, or the prompt text inline).`,
+				`Per-role knobs: whenToUse (a trigger sentence, "Use when...", shown to the orchestrator so it picks the right role), model (${DEFAULT_MODEL_SENTINEL} = inherit orchestrator, or "provider/model-id"), thinkingLevel (optional; inherits orchestrator level when omitted; valid values: ${THINKING_LEVELS.join(", ")}; Pi may clamp unsupported levels), access (tools, write, pathScope, extensionMode, extensions for explicit Pi provider/model extension sources), prompt (${DEFAULT_PROMPT_SENTINEL} = built-in, or a path to your own .md, or the prompt text inline).`,
 				"Rename, remove, or add roles freely — the orchestrator sees exactly what you declare. Delete a role block to fall back to the built-in defaults for that name.",
 				"Run /reload to apply changes in this session.",
 			);

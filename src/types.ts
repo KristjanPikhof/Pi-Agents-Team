@@ -28,7 +28,7 @@ export function isPackagedProfileName(name: string): name is TeamProfileName {
 	return (TEAM_PROFILE_NAMES as readonly string[]).includes(name);
 }
 
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 export const WORKER_EXTENSION_MODES = ["inherit", "disable", "worker-minimal"] as const;
@@ -48,7 +48,7 @@ import {
 	TEAM_PROJECT_SCHEMA_VERSION,
 	TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED,
 	TEAM_SCAFFOLD_VERSION,
-} from "./project-config/versions";
+} from "./project-config/versions.js";
 export { TEAM_PROJECT_SCHEMA_VERSION, TEAM_PROJECT_SCHEMA_VERSIONS_SUPPORTED, TEAM_SCAFFOLD_VERSION };
 export const DEFAULT_MODEL_SENTINEL = "default" as const;
 export const DEFAULT_PROMPT_SENTINEL = "default" as const;

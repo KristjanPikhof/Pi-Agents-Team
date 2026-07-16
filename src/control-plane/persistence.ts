@@ -1,5 +1,5 @@
-import { createDefaultTeamState, normalizePersistedTeamState } from "../config";
-import type { PersistedTeamState } from "../types";
+import { createDefaultTeamState, normalizePersistedTeamState } from "../config.js";
+import type { PersistedTeamState } from "../types.js";
 
 interface SessionLikeEntry {
 	type: string;
