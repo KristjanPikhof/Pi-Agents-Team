@@ -618,12 +618,15 @@ test("ping_agents active returns restored registry snapshots after session_start
 	const ctx = {
 		...createSessionContext(cwd, notifications),
 		sessionManager: {
-			getEntries() {
+			getBranch() {
 				return [{
 					type: "custom",
 					customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
 					data: restored,
 				}];
+			},
+			getEntries() {
+				return this.getBranch();
 			},
 		},
 	} as any;
@@ -682,12 +685,15 @@ test("session lifecycle UI honors display.cost false", async () => {
 			setTitle() {},
 		},
 		sessionManager: {
-			getEntries() {
+			getBranch() {
 				return [{
 					type: "custom",
 					customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
 					data: state,
 				}];
+			},
+			getEntries() {
+				return this.getBranch();
 			},
 		},
 	} as any;
