@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG, normalizePersistedTeamState } from "../config.js";
 import { addWorkerUsageToAggregate } from "../usage.js";
 import {
+	PERSISTED_TERMINAL_WORKER_STATUSES,
 	TEAM_PERSISTENCE_VERSION,
-	WORKER_STATUSES,
 	type CompactPersistedWorker,
+	type CompactPersistedWorkerSummary,
 	type PersistedTeamState,
+	type PersistedTerminalWorkerStatus,
 	type TeamConfig,
 	type TeamPersistenceRecord,
 	type WorkerRuntimeState,
@@ -37,13 +39,6 @@ export interface RestorePersistedTeamStateWithMeasurementResult {
 }
 
 const LIVE_WORKER_STATUSES: readonly WorkerStatus[] = ["running", "starting", "idle", "waiting_followup"];
-const TERMINAL_WORKER_STATUS: Partial<Record<WorkerStatus, true>> = {
-	idle: true,
-	completed: true,
-	aborted: true,
-	error: true,
-	exited: true,
-};
 const MAX_ID_BYTES = 256;
 const MAX_RECORD_ID_BYTES = 256;
 const MAX_SUMMARY_TEXT_BYTES = 512;
@@ -59,8 +54,9 @@ const REASON_MESSAGE: Record<SessionStartReason, string> = {
 	new: "Pi Agents Team new session started; prior workers are no longer attached.",
 };
 
-function isPersistableTerminalStatus(status: unknown): status is WorkerStatus {
-	return typeof status === "string" && TERMINAL_WORKER_STATUS[status as WorkerStatus] === true;
+function isPersistableTerminalStatus(status: unknown): status is PersistedTerminalWorkerStatus {
+	return typeof status === "string"
+		&& (PERSISTED_TERMINAL_WORKER_STATUSES as readonly string[]).includes(status);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -111,7 +107,12 @@ function compactStrings(value: unknown, maxItems: number): string[] {
 	return value.slice(0, Math.min(configuredLimit, MAX_SUMMARY_ITEMS)).map((item) => cap(item));
 }
 
-function compactWorker(worker: WorkerRuntimeState, config: TeamConfig): CompactPersistedWorker {
+type CompactWorkerSnapshot = Omit<CompactPersistedWorker, "status" | "lastSummary"> & {
+	status: WorkerStatus;
+	lastSummary?: Omit<CompactPersistedWorkerSummary, "status"> & { status: WorkerStatus };
+};
+
+function compactWorker(worker: WorkerRuntimeState, config: TeamConfig): CompactWorkerSnapshot {
 	const summary = worker.lastSummary;
 	return {
 		workerId: cap(worker.workerId, MAX_ID_BYTES),
@@ -130,6 +131,22 @@ function compactWorker(worker: WorkerRuntimeState, config: TeamConfig): CompactP
 		} : undefined,
 		usage: compactUsage(worker.usage),
 	};
+}
+
+function persistedTerminalWorker(worker: CompactWorkerSnapshot): CompactPersistedWorker {
+	const withStatus = <Status extends PersistedTerminalWorkerStatus>(status: Status) => ({
+		...worker,
+		status,
+		lastSummary: worker.lastSummary ? { ...worker.lastSummary, status } : undefined,
+	});
+	switch (worker.status) {
+		case "idle": return withStatus("idle");
+		case "completed": return withStatus("completed");
+		case "aborted": return withStatus("aborted");
+		case "error": return withStatus("error");
+		case "exited": return withStatus("exited");
+		default: throw new Error("Compact persistence writer requires a terminal worker status.");
+	}
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -220,7 +237,7 @@ function sanitizeCompactWorker(value: unknown): CompactPersistedWorker | undefin
 			&& !isBoundedString(value.lastSummary.nextRecommendation, MAX_SUMMARY_TEXT_BYTES)) return undefined;
 		lastSummary = {
 			headline: value.lastSummary.headline,
-			status: value.status as WorkerStatus,
+			status: value.status,
 			readFiles,
 			changedFiles,
 			risks,
@@ -228,18 +245,18 @@ function sanitizeCompactWorker(value: unknown): CompactPersistedWorker | undefin
 			updatedAt: value.lastSummary.updatedAt,
 		};
 	}
-	return {
+	return persistedTerminalWorker({
 		workerId: value.workerId,
 		profileName: value.profileName,
-		status: value.status as WorkerStatus,
+		status: value.status,
 		startedAt: value.startedAt,
 		lastEventAt: value.lastEventAt,
 		lastSummary,
 		usage,
-	};
+	});
 }
 
-function restoredWorker(worker: CompactPersistedWorker): WorkerRuntimeState {
+function restoredWorker(worker: CompactWorkerSnapshot): WorkerRuntimeState {
 	return {
 		workerId: worker.workerId,
 		profileName: worker.profileName,
@@ -519,7 +536,7 @@ function sameUsage(left: WorkerUsageStats, right: WorkerUsageStats): boolean {
 		&& left.contextRemainingTokens === right.contextRemainingTokens;
 }
 
-function durableEqual(left: CompactPersistedWorker, right: CompactPersistedWorker): boolean {
+function durableEqual(left: CompactWorkerSnapshot, right: CompactWorkerSnapshot): boolean {
 	if (left.workerId !== right.workerId
 		|| left.profileName !== right.profileName
 		|| left.status !== right.status
@@ -546,9 +563,9 @@ type PendingTransition =
 
 /** Compact v2 transition journal with append-before-commit semantics. */
 export class CompactPersistenceJournal {
-	private previousWorkers = new Map<string, CompactPersistedWorker>();
-	private observedWorkers = new Map<string, CompactPersistedWorker>();
-	private observedSources = new Map<string, CompactPersistedWorker>();
+	private previousWorkers = new Map<string, CompactWorkerSnapshot>();
+	private observedWorkers = new Map<string, CompactWorkerSnapshot>();
+	private observedSources = new Map<string, CompactWorkerSnapshot>();
 	private observedRecords = new Map<string, Extract<TeamPersistenceRecord, { kind: "worker_terminal" }>>();
 	private pending = new Map<string, PendingTransition>();
 
@@ -564,7 +581,7 @@ export class CompactPersistenceJournal {
 			const compact = compactWorker(worker, config);
 			this.observedSources.set(worker.workerId, compact);
 			if (isPersistableTerminalStatus(worker.status)) {
-				const record = terminalRecord(compact, this.instrumentation);
+				const record = terminalRecord(persistedTerminalWorker(compact), this.instrumentation);
 				this.previousWorkers.set(worker.workerId, record.worker);
 				this.observedWorkers.set(worker.workerId, record.worker);
 				this.observedRecords.set(worker.workerId, record);
@@ -583,7 +600,7 @@ export class CompactPersistenceJournal {
 				&& isPersistableTerminalStatus(priorSource.status)
 				&& LIVE_WORKER_STATUSES.includes(worker.status)
 				&& !isPersistableTerminalStatus(worker.status)) {
-				const checkpointWorker = compactWorker({ ...worker, status: "exited" }, config);
+				const checkpointWorker = persistedTerminalWorker(compactWorker({ ...worker, status: "exited" }, config));
 				const checkpointRecord = terminalRecord(checkpointWorker, this.instrumentation);
 				for (const [pendingId, transition] of this.pending) {
 					if ("worker" in transition && transition.worker.workerId === worker.workerId) {
@@ -607,7 +624,7 @@ export class CompactPersistenceJournal {
 				&& durableEqual(priorSource, compact)
 				&& this.observedWorkers.has(worker.workerId)
 				&& this.observedRecords.has(worker.workerId)) continue;
-			const record = terminalRecord(compact, this.instrumentation);
+			const record = terminalRecord(persistedTerminalWorker(compact), this.instrumentation);
 			this.observedWorkers.set(worker.workerId, record.worker);
 			this.observedRecords.set(worker.workerId, record);
 		}
@@ -668,7 +685,9 @@ export class CompactPersistenceJournal {
 			if (!isPersistableTerminalStatus(worker.status)) {
 				// Runtime-only churn needs no append, but remains the source for a
 				// later terminal/prune transition.
-				this.previousWorkers.set(worker.workerId, observed);
+				if (!previous || !isPersistableTerminalStatus(previous.status)) {
+					this.previousWorkers.set(worker.workerId, observed);
+				}
 				continue;
 			}
 			const record = this.observedRecords.get(worker.workerId);
@@ -688,7 +707,7 @@ export class CompactPersistenceJournal {
 		this.observeCurrentWorkers(state, config);
 		for (const worker of Object.values(state.activeWorkers)) {
 			if (!LIVE_WORKER_STATUSES.includes(worker.status)) continue;
-			const detached = compactWorker({ ...worker, status: "exited" }, config);
+			const detached = persistedTerminalWorker(compactWorker({ ...worker, status: "exited" }, config));
 			const record = terminalRecord(detached, this.instrumentation);
 			const previous = this.previousWorkers.get(worker.workerId);
 			if (previous && isPersistableTerminalStatus(previous.status) && durableEqual(previous, record.worker)) continue;
@@ -702,9 +721,11 @@ export class CompactPersistenceJournal {
 		if (!transition) return;
 		if ("worker" in transition) {
 			this.previousWorkers.set(transition.worker.workerId, transition.worker);
-			if (!transition.detached) {
-				this.observedWorkers.set(transition.worker.workerId, transition.worker);
-			}
+			// A committed detached checkpoint is the durable observation baseline too.
+			// observedSources still tracks the unchanged live runtime, so later real
+			// revisions can supersede this exited snapshot without re-emitting it.
+			this.observedWorkers.set(transition.worker.workerId, transition.worker);
+			this.observedRecords.set(transition.worker.workerId, transition.record);
 		} else {
 			this.previousWorkers.delete(transition.workerId);
 			this.observedWorkers.delete(transition.workerId);
