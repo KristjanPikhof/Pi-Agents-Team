@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { createDeferred } from "./deferred.js";
 import {
 	createThinkingClampedEvent,
 	createWorkerExitEvent,
@@ -15,6 +16,7 @@ import {
 } from "./pi-version.js";
 import {
 	spawnWorkerProcess,
+	WORKER_PROCESS_DISPOSE_MAX_MS,
 	type SpawnWorkerProcess,
 	type WorkerProcessHandle,
 	type WorkerProcessOptions,
@@ -59,6 +61,7 @@ export interface LaunchWorkerOptions {
 	baseArgs?: string[];
 	extraArgs?: string[];
 	env?: NodeJS.ProcessEnv;
+	signal?: AbortSignal;
 }
 
 export interface ManagedWorkerRecord {
@@ -148,10 +151,47 @@ export interface WorkerLaunchSnapshot {
 	allowSkills: boolean;
 }
 
+export interface WorkerManagerLifecycleOptions {
+	abortTimeoutMs?: number;
+	handleDisposeTimeoutMs?: number;
+}
+
 interface PendingWorkerLaunch {
 	cancelled: boolean;
 	handle?: WorkerProcessHandle;
 	promise?: Promise<ManagedWorkerRecord>;
+	disposePromise?: Promise<void>;
+	abortController: AbortController;
+}
+
+const DEFAULT_ABORT_TIMEOUT_MS = 1_000;
+export const DEFAULT_HANDLE_DISPOSE_TIMEOUT_MS = WORKER_PROCESS_DISPOSE_MAX_MS + 250;
+
+function launchAbortError(workerId: string): Error {
+	const error = new Error(`Worker launch aborted for ${workerId}`);
+	error.name = "AbortError";
+	return error;
+}
+
+function throwIfLaunchAborted(workerId: string, signal: AbortSignal | undefined): void {
+	if (signal?.aborted) throw launchAbortError(workerId);
+}
+
+async function waitForAbort<T>(
+	promise: Promise<T>,
+	signal: AbortSignal | undefined,
+	createAbortError: () => Error,
+): Promise<T> {
+	if (!signal) return promise;
+	if (signal.aborted) throw createAbortError();
+	const { promise: aborted, reject } = createDeferred<never>();
+	const onAbort = () => reject(createAbortError());
+	signal.addEventListener("abort", onAbort, { once: true });
+	try {
+		return await Promise.race([promise, aborted]);
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
 }
 
 interface WorkerRuntimeRecord extends ManagedWorkerRecord {
@@ -368,11 +408,15 @@ export class WorkerManager {
 	private readonly pendingLaunches = new Map<string, PendingWorkerLaunch>();
 	private readonly emitter = new EventEmitter();
 	private readonly probeVersion: ProbeWorkerPiVersion;
+	private readonly abortTimeoutMs: number;
+	private readonly handleDisposeTimeoutMs: number;
 	private disposed = false;
+	private disposePromise?: Promise<void>;
 
 	constructor(
 		private readonly spawnProcess: SpawnWorkerProcess = spawnWorkerProcess,
 		probeVersion?: ProbeWorkerPiVersion,
+		lifecycle: WorkerManagerLifecycleOptions = {},
 	) {
 		// Tests and embedders that inject a fake process launcher must not
 		// accidentally execute the developer's machine-global `pi` binary.
@@ -387,6 +431,8 @@ export class WorkerManager {
 				supported: true,
 				mismatch: false,
 			}));
+		this.abortTimeoutMs = lifecycle.abortTimeoutMs ?? DEFAULT_ABORT_TIMEOUT_MS;
+		this.handleDisposeTimeoutMs = lifecycle.handleDisposeTimeoutMs ?? DEFAULT_HANDLE_DISPOSE_TIMEOUT_MS;
 	}
 
 	onEvent(listener: (worker: ManagedWorkerRecord, event: NormalizedWorkerEvent) => void): () => void {
@@ -400,6 +446,11 @@ export class WorkerManager {
 	}
 
 	launchWorker(options: LaunchWorkerOptions): Promise<ManagedWorkerRecord> {
+		try {
+			throwIfLaunchAborted(options.workerId, options.signal);
+		} catch (error) {
+			return Promise.reject(error);
+		}
 		if (this.disposed) {
 			return Promise.reject(new Error("WorkerManager is disposed; cannot launch workers"));
 		}
@@ -409,7 +460,7 @@ export class WorkerManager {
 
 		// Reserve the id synchronously, before version preflight yields, so two
 		// same-id callers cannot both reach spawn.
-		const pending: PendingWorkerLaunch = { cancelled: false };
+		const pending: PendingWorkerLaunch = { cancelled: false, abortController: new AbortController() };
 		this.pendingLaunches.set(options.workerId, pending);
 		const promise = this.launchReservedWorker(options, pending).finally(() => {
 			if (this.pendingLaunches.get(options.workerId) === pending) {
@@ -424,12 +475,15 @@ export class WorkerManager {
 		options: LaunchWorkerOptions,
 		pending: PendingWorkerLaunch,
 	): Promise<ManagedWorkerRecord> {
-		const version = await this.probeVersion({
+		const launchSignal = options.signal
+			? AbortSignal.any([options.signal, pending.abortController.signal])
+			: pending.abortController.signal;
+		const version = await waitForAbort(this.probeVersion({
 			command: options.command,
 			baseArgs: options.baseArgs,
 			cwd: options.cwd,
 			env: options.env,
-		});
+		}), launchSignal, () => launchAbortError(options.workerId));
 		if (pending.cancelled || this.disposed) {
 			throw new Error(`Worker launch cancelled for ${options.workerId}: WorkerManager is disposed`);
 		}
@@ -443,7 +497,7 @@ export class WorkerManager {
 				message: `Pi Agents Team: host Pi ${version.hostVersion} is launching worker Pi ${version.workerVersion} via ${version.command}; the supported version mismatch is non-fatal.`,
 			} satisfies WorkerPiVersionMismatchEvent);
 		}
-
+		throwIfLaunchAborted(options.workerId, launchSignal);
 		const handle = this.spawnProcess(createWorkerProcessOptions(options));
 		pending.handle = handle;
 		const client = new RpcClient(handle.transport);
@@ -516,12 +570,13 @@ export class WorkerManager {
 		});
 
 		try {
-			const state = await Promise.race([
+			const state = await waitForAbort(Promise.race([
 				this.refreshState(options.workerId),
 				exitPromise.then((exitInfo) => {
 					throw exitInfo.error ?? new Error("Worker exited before launch completed");
 				}),
-			]);
+			]), launchSignal, () => launchAbortError(options.workerId));
+			throwIfLaunchAborted(options.workerId, launchSignal);
 			launchCommitted = true;
 			this.detectThinkingClamp(record, state);
 			return this.snapshot(options.workerId)!;
@@ -529,13 +584,18 @@ export class WorkerManager {
 			for (const off of record.unsubscribers) off();
 			record.client.dispose("Worker launch failed");
 			this.workers.delete(options.workerId);
+			let cleanupError: unknown;
 			try {
-				await handle.dispose();
-			} catch {
-				// Best-effort cleanup after launch failure.
+				await this.disposePendingHandleBounded(pending, `launch cleanup for ${options.workerId}`);
+			} catch (disposeError) {
+				cleanupError = disposeError;
 			}
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			throw new Error(`Worker launch failed for ${options.workerId}: ${errorMessage}`);
+			if (cleanupError) {
+				const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+				throw new AggregateError([error, cleanupError], `Worker launch failed for ${options.workerId}: ${errorMessage}; ${cleanupMessage}`);
+			}
+			throw new Error(`Worker launch failed for ${options.workerId}: ${errorMessage}`, { cause: error });
 		}
 	}
 
@@ -568,7 +628,7 @@ export class WorkerManager {
 		this.workers.delete(workerId);
 	}
 
-	async reuseWorker(workerId: string, message: string, task: DelegatedTaskInput): Promise<void> {
+	prepareWorkerReuse(workerId: string, task: DelegatedTaskInput): ManagedWorkerRecord {
 		const record = this.requireWorker(workerId);
 		if (!REUSABLE_STATUSES.has(record.state.status)) {
 			throw new Error(
@@ -597,6 +657,11 @@ export class WorkerManager {
 		record.awaitingSettlement = false;
 		// Reuse keeps the same RPC session and launch-time model/thinking flags,
 		// so the post-launch clamp comparison remains valid for the reused task.
+		return this.snapshot(workerId)!;
+	}
+
+	async reuseWorker(workerId: string, message: string, task: DelegatedTaskInput): Promise<void> {
+		this.prepareWorkerReuse(workerId, task);
 		await this.promptWorker(workerId, message);
 	}
 
@@ -660,17 +725,21 @@ export class WorkerManager {
 		record.state.lastEventAt = timestamp;
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer || "Aborted");
 		try {
-			await record.client.abort();
+			await this.withDeadline(record.client.abort(), this.abortTimeoutMs, `Abort RPC for ${workerId}`);
 		} catch (error) {
 			const abortMessage = error instanceof Error ? error.message : String(error);
-			let shutdownMessage: string | undefined;
+			let shutdownError: unknown;
 			try {
-				// TeamManager cannot reach its follow-up shutdown when abort rejects.
-				// Dispose here so operator cancellation never strands the RPC process.
-				await record.handle.dispose();
-			} catch (shutdownError) {
-				shutdownMessage = shutdownError instanceof Error ? shutdownError.message : String(shutdownError);
+				// TeamManager cannot reach its follow-up shutdown when abort rejects
+				// or hangs. Bounded disposal prevents either failure from stranding
+				// the cancellation call forever.
+				await this.disposeHandleBounded(record.handle, `abort cleanup for ${workerId}`);
+			} catch (errorDuringShutdown) {
+				shutdownError = errorDuringShutdown;
 			}
+			let shutdownMessage: string | undefined;
+			if (shutdownError instanceof Error) shutdownMessage = shutdownError.message;
+			else if (shutdownError !== undefined) shutdownMessage = String(shutdownError);
 			const detail = shutdownMessage
 				? `Abort RPC failed: ${abortMessage}; process shutdown also failed: ${shutdownMessage}`
 				: `Abort RPC failed: ${abortMessage}; worker process was terminated`;
@@ -696,7 +765,7 @@ export class WorkerManager {
 				error: detail,
 				timestamp: failedAt,
 			} satisfies NormalizedWorkerEvent);
-			throw new Error(detail);
+			throw new Error(detail, { cause: error });
 		}
 	}
 
@@ -707,9 +776,13 @@ export class WorkerManager {
 		return state;
 	}
 
-	async refreshStats(workerId: string): Promise<RpcSessionStats> {
+	async refreshStats(workerId: string, signal?: AbortSignal): Promise<RpcSessionStats> {
 		const record = this.requireWorker(workerId);
-		const stats = await record.client.getSessionStats();
+		const stats = await waitForAbort(record.client.getSessionStats(), signal, () => {
+			const error = new Error(`Worker reuse aborted for ${workerId}`);
+			error.name = "AbortError";
+			return error;
+		});
 		record.state.usage = this.updateUsage(record.state.usage, stats);
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 		return stats;
@@ -876,26 +949,68 @@ export class WorkerManager {
 
 	async shutdownWorker(workerId: string, signal: NodeJS.Signals = "SIGTERM"): Promise<void> {
 		const record = this.requireWorker(workerId);
-		await record.handle.dispose(signal);
+		await this.disposeHandleBounded(record.handle, `shutdown for ${workerId}`, signal);
 	}
 
-	async dispose(): Promise<void> {
-		if (this.disposed) {
-			await Promise.allSettled(Array.from(this.pendingLaunches.values(), (pending) => pending.promise));
-			return;
+	dispose(): Promise<void> {
+		if (!this.disposePromise) {
+			this.disposed = true;
+			this.disposePromise = this.disposeAll();
 		}
-		this.disposed = true;
+		return this.disposePromise;
+	}
+
+	private async disposeAll(): Promise<void> {
 		const pending = Array.from(this.pendingLaunches.values());
-		for (const launch of pending) launch.cancelled = true;
-		// A launch may already have spawned and be blocked in its initial RPC
-		// refresh. Closing its handle makes that launch settle before disposal does.
-		await Promise.allSettled(pending.map((launch) => launch.handle?.dispose()));
-		await Promise.allSettled(pending.map((launch) => launch.promise));
-		for (const record of this.workers.values()) {
-			record.closing = true;
+		for (const launch of pending) {
+			launch.cancelled = true;
+			launch.abortController.abort();
 		}
-		for (const workerId of Array.from(this.workers.keys())) {
-			await this.shutdownWorker(workerId);
+		const pendingHandles = new Set(
+			pending.flatMap((launch) => launch.handle ? [launch.handle] : []),
+		);
+		for (const record of this.workers.values()) record.closing = true;
+
+		const cleanupAttempts: Promise<void>[] = pending.map((launch) =>
+			this.disposePendingHandleBounded(launch, "pending launch cleanup"));
+		for (const record of this.workers.values()) {
+			if (pendingHandles.has(record.handle)) continue;
+			cleanupAttempts.push(this.disposeHandleBounded(record.handle, `worker cleanup for ${record.workerId}`));
+		}
+		const launchSettlements = pending.flatMap((launch) => launch.promise ? [launch.promise] : []);
+		const results = await Promise.allSettled([...cleanupAttempts, ...launchSettlements]);
+		const cleanupFailures = results
+			.slice(0, cleanupAttempts.length)
+			.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+		if (cleanupFailures.length > 0) {
+			throw new AggregateError(cleanupFailures, `WorkerManager disposal failed for ${cleanupFailures.length} cleanup attempt(s)`);
+		}
+	}
+
+	private disposePendingHandleBounded(pending: PendingWorkerLaunch, label: string): Promise<void> {
+		if (!pending.disposePromise) {
+			pending.disposePromise = pending.handle
+				? this.disposeHandleBounded(pending.handle, label)
+				: Promise.resolve();
+		}
+		return pending.disposePromise;
+	}
+
+	private async disposeHandleBounded(
+		handle: WorkerProcessHandle,
+		label: string,
+		signal: NodeJS.Signals = "SIGTERM",
+	): Promise<void> {
+		await this.withDeadline(handle.dispose(signal), this.handleDisposeTimeoutMs, label);
+	}
+
+	private async withDeadline<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+		const { promise: timeout, reject } = createDeferred<never>();
+		const timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+		try {
+			return await Promise.race([operation, timeout]);
+		} finally {
+			clearTimeout(timer);
 		}
 	}
 
