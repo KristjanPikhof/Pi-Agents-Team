@@ -373,6 +373,7 @@ test("late extension diagnostics preserve authoritative worker error, abort, and
 	});
 	assertPreservedWithDiagnostic(exitManager, "worker-extension-after-exit", exitBefore, "late diagnostic after process exit");
 });
+
 test("direct or extension agent_start arms settlement before a non-streaming state refresh", async () => {
 	for (const priorStatus of ["starting", "idle"] as const) {
 		const transport = new MockWorkerTransport({ autoCompletePrompt: false });

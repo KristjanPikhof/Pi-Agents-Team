@@ -1169,7 +1169,7 @@ export class WorkerManager {
 			}
 			case "thinking_clamped":
 				break;
-			case "worker_exit":
+			case "worker_exit": {
 				record.awaitingSettlement = false;
 				const preserveTerminalStatus = UNREACHABLE_TERMINAL_STATUSES.has(record.state.status);
 				if (!preserveTerminalStatus) {
@@ -1181,11 +1181,12 @@ export class WorkerManager {
 					} else {
 						record.state.status = event.signal === "SIGTERM" ? "aborted" : "exited";
 						if (event.code && event.code !== 0) {
-						record.state.status = "error";
-						record.state.error = event.stderr || `Worker exited with code ${event.code}`;
+							record.state.status = "error";
+							record.state.error = event.stderr || `Worker exited with code ${event.code}`;
+						}
 					}
+					record.state.lastSummary = buildSummary(record.state, record.textBuffer || event.stderr || "Worker exited");
 				}
-				record.state.lastSummary = buildSummary(record.state, record.textBuffer || event.stderr || "Worker exited");
 				this.flushPendingText(record);
 				this.appendConsole(record, {
 					ts: event.timestamp,
@@ -1204,6 +1205,7 @@ export class WorkerManager {
 				});
 				record.client.dispose(`Worker exited: ${event.code ?? "signal"}`);
 				break;
+			}
 		}
 
 		this.emitter.emit("event", this.snapshot(record.workerId), event);
