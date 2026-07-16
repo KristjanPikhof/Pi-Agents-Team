@@ -4,9 +4,11 @@ import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import {
 	CompactPersistenceJournal,
 	compactPersistenceRecordPayloadBytes,
+	isRecognizedCompactPersistenceRecord,
 	markRestoredWorkersExited,
 	measureCompactPersistence,
 	restorePersistedTeamState,
+	restorePersistedTeamStateWithMeasurement,
 } from "../../src/control-plane/persistence";
 import type { TeamPersistenceRecord, WorkerRuntimeState } from "../../src/types";
 
@@ -59,6 +61,136 @@ function worker(status: WorkerRuntimeState["status"] = "running"): WorkerRuntime
 function entry(data: unknown) {
 	return { type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data };
 }
+
+test("canonical writer records are reader-recognized with invalid optional metrics omitted or bounded", () => {
+	const state = createDefaultTeamState();
+	const terminalWorker = worker("completed");
+	terminalWorker.usage.inputTokens = Number.POSITIVE_INFINITY;
+	terminalWorker.usage.contextTokens = -1;
+	terminalWorker.usage.contextWindow = Number.NaN;
+	terminalWorker.usage.contextPercent = Number.MAX_VALUE;
+	terminalWorker.usage.contextRemainingTokens = 321;
+	state.activeWorkers.w1 = terminalWorker;
+	const journal = new CompactPersistenceJournal();
+	journal.reset(createDefaultTeamState(), DEFAULT_TEAM_CONFIG);
+
+	const [terminal] = journal.collect(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(terminal?.kind, "worker_terminal");
+	assert.ok(terminal && isRecognizedCompactPersistenceRecord(terminal));
+	if (terminal?.kind !== "worker_terminal") return;
+	assert.equal(terminal.worker.usage.inputTokens, 0);
+	assert.equal(terminal.worker.usage.contextTokens, undefined);
+	assert.equal(terminal.worker.usage.contextWindow, undefined);
+	assert.equal(terminal.worker.usage.contextPercent, Number.MAX_SAFE_INTEGER);
+	assert.equal(terminal.worker.usage.contextRemainingTokens, 321);
+
+	delete state.activeWorkers.w1;
+	const [prune] = journal.collect(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(prune?.kind, "worker_pruned");
+	assert.ok(prune && isRecognizedCompactPersistenceRecord(prune));
+});
+
+test("terminal-to-live transition stages one exited checkpoint and live churn adds no records", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("idle");
+	const journal = new CompactPersistenceJournal();
+	journal.reset(state, DEFAULT_TEAM_CONFIG);
+
+	state.activeWorkers.w1.status = "running";
+	state.activeWorkers.w1.lastSummary!.status = "running";
+	const [checkpoint] = journal.prepare(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(checkpoint?.kind, "worker_terminal");
+	if (checkpoint?.kind !== "worker_terminal") return;
+	assert.equal(checkpoint.worker.status, "exited");
+	assert.equal(checkpoint.worker.lastSummary?.status, "exited");
+	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), [checkpoint], "append failure retries the checkpoint exactly");
+
+	journal.commit(checkpoint);
+	state.activeWorkers.w1.lastToolName = "read";
+	state.activeWorkers.w1.finalAnswer = "still streaming";
+	state.activeWorkers.w1.lastEventAt += 1;
+	state.activeWorkers.w1.usage.inputTokens += 50;
+	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), [], "ordinary live updates do not churn checkpoints");
+});
+
+test("a real terminal record supersedes an uncommitted exited checkpoint", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("completed");
+	const journal = new CompactPersistenceJournal();
+	journal.reset(state, DEFAULT_TEAM_CONFIG);
+
+	state.activeWorkers.w1.status = "running";
+	state.activeWorkers.w1.lastSummary!.status = "running";
+	const [checkpoint] = journal.prepare(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(checkpoint?.kind, "worker_terminal");
+	if (checkpoint?.kind !== "worker_terminal") return;
+	assert.equal(checkpoint.worker.status, "exited");
+
+	state.activeWorkers.w1.status = "error";
+	state.activeWorkers.w1.lastSummary!.status = "error";
+	state.activeWorkers.w1.lastSummary!.headline = "real terminal result";
+	state.activeWorkers.w1.usage.outputTokens += 10;
+	const replacements = journal.prepare(state, DEFAULT_TEAM_CONFIG);
+	assert.equal(replacements.length, 1);
+	const [terminal] = replacements;
+	assert.equal(terminal?.kind, "worker_terminal");
+	if (terminal?.kind !== "worker_terminal") return;
+	assert.equal(terminal.worker.status, "error");
+	assert.equal(terminal.worker.lastSummary?.headline, "real terminal result");
+	assert.notEqual(terminal.recordId, checkpoint.recordId);
+	journal.commit(terminal);
+	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), []);
+});
+
+test("combined restore inspects candidates once and serializes each recognized record once", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = worker("completed");
+	const [record] = new CompactPersistenceJournal().collect(state, DEFAULT_TEAM_CONFIG);
+	assert.ok(record);
+
+	let candidateInspections = 0;
+	const observedRecord = new Proxy(record, {
+		getPrototypeOf(target) {
+			candidateInspections += 1;
+			return Reflect.getPrototypeOf(target);
+		},
+	});
+	let iteratorCalls = 0;
+	let yieldedEntries = 0;
+	const entries = {
+		*[Symbol.iterator]() {
+			iteratorCalls += 1;
+			yieldedEntries += 1;
+			yield entry(observedRecord);
+			yieldedEntries += 1;
+			yield entry({ version: 2, kind: "worker_terminal", recordId: "malformed", worker: {} });
+		},
+	};
+	const expectedPayloadBytes = compactPersistenceRecordPayloadBytes(record);
+	const originalStringify = JSON.stringify;
+	let serializations = 0;
+	JSON.stringify = ((...args: Parameters<typeof JSON.stringify>) => {
+		serializations += 1;
+		return originalStringify(...args);
+	}) as typeof JSON.stringify;
+	try {
+		const restored = restorePersistedTeamStateWithMeasurement(
+			entries,
+			DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+		);
+		assert.equal(restored.state.activeWorkers.w1?.status, "completed");
+		assert.deepEqual(restored.measurement, {
+			recordCount: 1,
+			payloadBytes: expectedPayloadBytes,
+		});
+	} finally {
+		JSON.stringify = originalStringify;
+	}
+	assert.equal(iteratorCalls, 1);
+	assert.equal(yieldedEntries, 2);
+	assert.equal(candidateInspections, 1);
+	assert.equal(serializations, 1);
+});
 
 test("compact journal ignores runtime churn and appends one capped allowlisted terminal record", () => {
 	const state = createDefaultTeamState();
