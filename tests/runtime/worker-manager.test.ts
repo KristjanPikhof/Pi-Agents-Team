@@ -294,6 +294,101 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	assert.equal(rejectEvents.filter((type) => type === "worker_idle").length, 0);
 });
 
+test("abort ingests data and authoritative usage emitted before acknowledgement without resurrecting lifecycle", async () => {
+	let transport!: MockWorkerTransport;
+	transport = new MockWorkerTransport({
+		autoCompletePrompt: false,
+		onCommand(command) {
+			if (command.type !== "abort") return;
+			transport.writeEvent({ type: "agent_settled" });
+			transport.writeEvent({
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: "late abort text" },
+			});
+			transport.writeEvent({
+				type: "tool_execution_end",
+				toolCallId: "abort-tool",
+				toolName: "read",
+				result: { content: [{ type: "text", text: "late tool output" }] },
+				isError: false,
+			});
+			transport.writeEvent({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{
+						type: "text",
+						text: "<final_answer>\nheadline: abort data retained\nrelay_question: should this aborted worker restart?\nassumption: no\n</final_answer>",
+					}],
+					usage: {
+						input: 31,
+						output: 17,
+						cacheRead: 11,
+						cacheWrite: 5,
+						totalTokens: 64,
+						cost: { total: 0.123456789 },
+					},
+				},
+			});
+			transport.writeEvent({ type: "agent_end", messages: [] });
+		},
+	});
+	const manager = await launchRuntimeTestWorker("worker-abort-data", transport);
+	await manager.promptWorker("worker-abort-data", "retain abort race output");
+	await waitForMicrotasks();
+	transport.writeEvent({
+		type: "tool_execution_start",
+		toolCallId: "abort-tool",
+		toolName: "read",
+		args: { path: "runtime.log" },
+	});
+	await waitForMicrotasks();
+
+	const observedStatuses: WorkerStatus[] = [];
+	const observedRelayCounts: number[] = [];
+	manager.onEvent((worker) => {
+		observedStatuses.push(worker.state.status);
+		observedRelayCounts.push(worker.state.pendingRelayQuestions.length);
+	});
+	await manager.abortWorker("worker-abort-data");
+	await waitForMicrotasks();
+
+	const state = manager.getWorker("worker-abort-data")?.state;
+	assert.equal(state?.status, "aborted");
+	assert.ok(observedStatuses.length > 0);
+	assert.ok(observedStatuses.every((status) => status === "aborted"), `late events resurrected status: ${observedStatuses.join(", ")}`);
+	assert.ok(observedRelayCounts.every((count) => count === 0), `late abort message raised relays: ${observedRelayCounts.join(", ")}`);
+	assert.deepEqual(state?.pendingRelayQuestions, []);
+	assert.match(state?.finalAnswer ?? "", /abort data retained/);
+	assert.match(state?.finalAnswer ?? "", /should this aborted worker restart/);
+	assert.equal(state?.usage.inputTokens, 31);
+	assert.equal(state?.usage.outputTokens, 17);
+	assert.equal(state?.usage.cacheReadTokens, 11);
+	assert.equal(state?.usage.cacheWriteTokens, 5);
+	assert.equal(state?.usage.contextTokens, 64);
+	assert.equal(state?.usage.costUsd, 0.123456789);
+	assert.ok(manager.getWorkerActivity("worker-abort-data")?.some((event) => event.outputSnippet === "late tool output"));
+});
+
+test("cancelled refreshStats removes the underlying pending RPC request", async () => {
+	const transport = new MockWorkerTransport({ hangCommands: ["get_session_stats"] });
+	const manager = await launchRuntimeTestWorker("worker-cancelled-stats", transport);
+	const runtime = manager as unknown as {
+		workers: Map<string, { client: { pending: Map<string, unknown> } }>;
+	};
+	const pending = runtime.workers.get("worker-cancelled-stats")?.client.pending;
+	assert.ok(pending);
+
+	for (let index = 0; index < 20; index += 1) {
+		const controller = new AbortController();
+		const refresh = manager.refreshStats("worker-cancelled-stats", controller.signal);
+		assert.equal(pending.size, 1);
+		controller.abort();
+		await assert.rejects(refresh, /aborted/i);
+		assert.equal(pending.size, 0, `refresh ${index + 1} leaked a pending RPC deferred`);
+	}
+});
+
 test("extension errors remain diagnostic until agent settlement transitions the worker to idle", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = await launchRuntimeTestWorker("worker-extension-diagnostic", transport);
