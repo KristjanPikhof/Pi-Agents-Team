@@ -41,3 +41,21 @@ test("RpcClient correlates requests and responses", async () => {
 
 	client.dispose();
 });
+
+test("RpcClient aborts in-flight stats requests and removes every pending deferred", async () => {
+	const stdin = new PassThrough();
+	const stdout = new PassThrough();
+	const client = new RpcClient({ stdin, stdout });
+	const pending = (client as unknown as { pending: Map<string, unknown> }).pending;
+
+	for (let index = 0; index < 25; index += 1) {
+		const controller = new AbortController();
+		const request = client.getSessionStats(controller.signal);
+		assert.equal(pending.size, 1);
+		controller.abort();
+		await assert.rejects(request, /RPC command aborted: get_session_stats/);
+		assert.equal(pending.size, 0, `cancelled request ${index + 1} must not remain pending`);
+	}
+
+	client.dispose();
+});

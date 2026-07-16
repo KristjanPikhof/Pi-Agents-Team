@@ -192,8 +192,8 @@ export class RpcClient {
 		return this.send<unknown>({ type: "get_messages" });
 	}
 
-	async getSessionStats(): Promise<RpcSessionStats> {
-		return this.send<RpcSessionStats>({ type: "get_session_stats" });
+	async getSessionStats(signal?: AbortSignal): Promise<RpcSessionStats> {
+		return this.send<RpcSessionStats>({ type: "get_session_stats" }, signal);
 	}
 
 	async send<TData>(command: SupportedRpcCommand, signal?: AbortSignal): Promise<TData> {
@@ -206,12 +206,27 @@ export class RpcClient {
 		const body = `${JSON.stringify(payload)}\n`;
 
 		return new Promise<TData>((resolve, reject) => {
-			this.pending.set(id, { resolve, reject });
-
+			let settled = false;
+			const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+			const deferred: Deferred<TData> = {
+				resolve: (value) => {
+					if (settled) return;
+					settled = true;
+					cleanup();
+					resolve(value);
+				},
+				reject: (error) => {
+					if (settled) return;
+					settled = true;
+					cleanup();
+					reject(error);
+				},
+			};
 			const onAbort = (): void => {
 				this.pending.delete(id);
-				reject(new Error(`RPC command aborted: ${command.type}`));
+				deferred.reject(new Error(`RPC command aborted: ${command.type}`));
 			};
+			this.pending.set(id, deferred);
 
 			if (signal) {
 				if (signal.aborted) {
@@ -222,12 +237,9 @@ export class RpcClient {
 			}
 
 			this.transport.stdin.write(body, (error) => {
-				if (signal) {
-					signal.removeEventListener("abort", onAbort);
-				}
 				if (!error) return;
 				this.pending.delete(id);
-				reject(error instanceof Error ? error : new Error(String(error)));
+				deferred.reject(error instanceof Error ? error : new Error(String(error)));
 			});
 		});
 	}

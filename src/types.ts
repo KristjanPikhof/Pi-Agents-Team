@@ -82,6 +82,15 @@ export const WORKER_STATUSES = [
 ] as const;
 export type WorkerStatus = (typeof WORKER_STATUSES)[number];
 
+export const PERSISTED_TERMINAL_WORKER_STATUSES = [
+	"idle",
+	"completed",
+	"aborted",
+	"error",
+	"exited",
+] as const satisfies readonly WorkerStatus[];
+export type PersistedTerminalWorkerStatus = (typeof PERSISTED_TERMINAL_WORKER_STATUSES)[number];
+
 export function compareWorkerIds(a: string, b: string): number {
 	const am = /^w(\d+)$/.exec(a);
 	const bm = /^w(\d+)$/.exec(b);
@@ -424,9 +433,11 @@ export interface TeamConfig {
 	profiles: TeamProfileSpec[];
 }
 
-export interface CompactPersistedWorkerSummary {
+export interface CompactPersistedWorkerSummary<
+	Status extends PersistedTerminalWorkerStatus = PersistedTerminalWorkerStatus,
+> {
 	headline: string;
-	status: WorkerStatus;
+	status: Status;
 	readFiles: string[];
 	changedFiles: string[];
 	risks: string[];
@@ -434,15 +445,20 @@ export interface CompactPersistedWorkerSummary {
 	updatedAt: number;
 }
 
-export interface CompactPersistedWorker {
+interface CompactPersistedWorkerForStatus<Status extends PersistedTerminalWorkerStatus> {
 	workerId: string;
 	profileName: string;
-	status: WorkerStatus;
+	status: Status;
 	startedAt: number;
 	lastEventAt: number;
-	lastSummary?: CompactPersistedWorkerSummary;
+	lastSummary?: CompactPersistedWorkerSummary<Status>;
 	usage: WorkerUsageStats;
 }
+
+/** A wire worker whose optional summary must carry the worker's exact status. */
+export type CompactPersistedWorker = {
+	[Status in PersistedTerminalWorkerStatus]: CompactPersistedWorkerForStatus<Status>;
+}[PersistedTerminalWorkerStatus];
 
 export type TeamPersistenceRecord =
 	| {

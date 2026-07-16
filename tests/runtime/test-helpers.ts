@@ -16,6 +16,7 @@ export interface MockTransportOptions {
 	autoCompletePrompt?: boolean;
 	sessionStats?: Record<string, unknown> | (() => Record<string, unknown>);
 	rejectSessionStats?: string;
+	hangCommands?: string[];
 }
 
 export class MockWorkerTransport extends EventEmitter implements WorkerTransport {
@@ -98,6 +99,7 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 			const command = JSON.parse(line) as MockCommand;
 			this.commands.push(command);
 			this.options.onCommand?.(command);
+			if (this.options.hangCommands?.includes(command.type)) continue;
 			this.handleCommand(command);
 		}
 	}

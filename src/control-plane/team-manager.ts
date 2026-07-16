@@ -221,6 +221,11 @@ export class TeamManager {
 		return () => this.events.off("state_change", listener);
 	}
 
+	onBeforePrompt(listener: (state: PersistedTeamState) => void): () => void {
+		this.events.on("before_prompt", listener);
+		return () => this.events.off("before_prompt", listener);
+	}
+
 	restore(state: PersistedTeamState): void {
 		this.registry.restore(state);
 		for (const worker of this.registry.listWorkers()) {
@@ -238,7 +243,7 @@ export class TeamManager {
 		return this.registry.snapshot();
 	}
 
-	async delegateTask(request: DelegateTaskRequest): Promise<AgentResult> {
+	async delegateTask(request: DelegateTaskRequest, signal?: AbortSignal): Promise<AgentResult> {
 		const profile = this.config.profiles.find((item) => item.name === request.profileName);
 		if (!profile) {
 			const available = this.config.profiles.map((item) => item.name).join(", ") || "(none)";
@@ -248,7 +253,7 @@ export class TeamManager {
 		}
 
 		if (request.reuseWorkerId) {
-			return this.reuseWorkerForTask(request);
+			return this.reuseWorkerForTask(request, signal);
 		}
 		const launchPlan = applyLaunchPolicy(
 			{
@@ -308,6 +313,7 @@ export class TeamManager {
 				// the task prompt's requested-skill instructions are impossible to
 				// satisfy.
 				allowSkills: task.skills !== undefined && task.skills.length > 0,
+				signal,
 			});
 		} catch (error) {
 			this.registry.removeWorker(workerId);
@@ -317,6 +323,22 @@ export class TeamManager {
 		}
 
 		this.registry.upsertWorker(worker.state);
+		try {
+			signal?.throwIfAborted();
+			this.events.emit("before_prompt", this.snapshot());
+			signal?.throwIfAborted();
+		} catch (error) {
+			try {
+				await this.workerManager.shutdownWorker(workerId);
+			} catch {
+				// Preserve the checkpoint/cancellation error; process disposal is bounded.
+			}
+			await this.workerManager.removeWorker(workerId);
+			this.registry.removeWorker(workerId);
+			this.registry.unregisterTask(taskId);
+			this.events.emit("state_change", this.snapshot());
+			throw error;
+		}
 		await this.workerManager.promptWorker(workerId, buildWorkerTaskPrompt(task));
 		const liveWorker = this.workerManager.getWorker(workerId);
 		if (liveWorker) {
@@ -545,7 +567,7 @@ export class TeamManager {
 		};
 	}
 
-	private async reuseWorkerForTask(request: DelegateTaskRequest): Promise<AgentResult> {
+	private async reuseWorkerForTask(request: DelegateTaskRequest, signal?: AbortSignal): Promise<AgentResult> {
 		const requestedId = request.reuseWorkerId!;
 		const resolvedId = this.resolveWorkerId(requestedId) ?? requestedId;
 		const target = this.registry.getWorker(resolvedId);
@@ -611,7 +633,8 @@ export class TeamManager {
 			);
 		}
 
-		await this.workerManager.refreshStats(resolvedId);
+		signal?.throwIfAborted();
+		await this.workerManager.refreshStats(resolvedId, signal);
 		const refreshedWorker = this.workerManager.getWorker(resolvedId);
 		if (refreshedWorker) {
 			this.registry.upsertWorker(refreshedWorker.state);
@@ -637,7 +660,25 @@ export class TeamManager {
 		};
 
 		this.registry.registerTask(task);
-		await this.workerManager.reuseWorker(resolvedId, buildWorkerTaskPrompt(task), task);
+		const preparedWorker = this.workerManager.prepareWorkerReuse(resolvedId, task);
+		this.registry.upsertWorker(preparedWorker.state);
+		try {
+			signal?.throwIfAborted();
+			this.events.emit("before_prompt", this.snapshot());
+			signal?.throwIfAborted();
+		} catch (error) {
+			try {
+				await this.workerManager.shutdownWorker(resolvedId);
+			} catch {
+				// Preserve the checkpoint/cancellation error; process disposal is bounded.
+			}
+			const exited = this.registry.markWorkerExited(resolvedId, "Worker closed before reuse prompt.");
+			if (exited) this.registry.upsertWorker(exited);
+			this.registry.unregisterTask(taskId);
+			this.events.emit("state_change", this.snapshot());
+			throw error;
+		}
+		await this.workerManager.promptWorker(resolvedId, buildWorkerTaskPrompt(task));
 		const liveWorker = this.workerManager.getWorker(resolvedId);
 		if (liveWorker) {
 			this.registry.upsertWorker(liveWorker.state);

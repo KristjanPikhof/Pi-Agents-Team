@@ -2,7 +2,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, delimiter, extname, isAbsolute, resolve } from "node:path";
+import { basename, delimiter, extname, isAbsolute, resolve, win32 } from "node:path";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 
 const require = createRequire(import.meta.url);
@@ -12,6 +12,7 @@ export const HOST_PI_VERSION = VERSION;
 export const MINIMUM_WORKER_PI_VERSION = "0.80.6";
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
 export const SUCCESSFUL_PROBE_CACHE_TTL_MS = 30_000;
+export const MAX_COMPLETED_PROBE_CACHE_ENTRIES = 64;
 const PROBE_OUTPUT_LIMIT_BYTES = 64 * 1024;
 const DIAGNOSTIC_LIMIT_CHARS = 500;
 
@@ -59,10 +60,20 @@ export interface PiVersionProbeResult {
 
 export type ProbeWorkerPiVersion = (options: PiVersionProbeOptions) => Promise<PiVersionProbeResult>;
 
-interface ProbeCacheEntry {
-	promise: Promise<PiVersionProbeResult>;
-	completedAt?: number;
+type PiVersionCompatibilityResult = Omit<PiVersionProbeResult, "command" | "versionArgs">;
+
+interface PendingProbeCacheEntry {
+	state: "pending";
+	promise: Promise<PiVersionCompatibilityResult>;
 }
+
+interface CompletedProbeCacheEntry {
+	state: "completed";
+	result: PiVersionCompatibilityResult;
+	completedAt: number;
+}
+
+type ProbeCacheEntry = PendingProbeCacheEntry | CompletedProbeCacheEntry;
 
 const probeCache = new Map<string, ProbeCacheEntry>();
 
@@ -165,23 +176,57 @@ function resolveCommandIdentity(command: string, cwd: string, suppliedEnv?: Node
 	return `unresolved:${command}\0lookup:${fingerprint(`${cwd}\0${pathValue}\0${pathExt}`)}`;
 }
 
-function environmentIdentity(suppliedEnv?: NodeJS.ProcessEnv): string {
-	const env = suppliedEnv ?? process.env;
-	const entries = Object.keys(env).sort().flatMap((key) => {
-		const value = env[key];
-		if (value === undefined) return [];
-		return [[process.platform === "win32" ? key.toLowerCase() : key, value] as const];
+function isUrlLike(value: string): boolean {
+	return /^[A-Za-z][A-Za-z\d+.-]*:/.test(value);
+}
+
+function resolvePrefixResourceIdentity(value: string, cwd: string): string {
+	const driveMatch = /^([A-Za-z]):(.*)$/.exec(value);
+	if (driveMatch) {
+		const drive = driveMatch[1]!.toUpperCase();
+		const tail = driveMatch[2]!;
+		if (/^[\\/]/.test(tail)) {
+			const normalized = `${drive}:${tail.replaceAll("\\", "/")}`;
+			return process.platform === "win32" ? fileIdentity(win32.resolve(value)) : `windows-path:${normalized}`;
+		}
+		const resolvedCwd = process.platform === "win32" ? win32.resolve(cwd) : resolve(cwd);
+		const resolved = process.platform === "win32" ? fileIdentity(win32.resolve(cwd, value)) : `${drive}:${tail}`;
+		return `windows-drive-relative:${resolvedCwd}:${resolved}`;
+	}
+	if (/^(?:\\\\|\/\/)[^\\/]/.test(value)) {
+		const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "//");
+		return process.platform === "win32" ? fileIdentity(win32.resolve(value)) : `windows-unc:${normalized}`;
+	}
+	if (isUrlLike(value)) return value;
+	return fileIdentity(resolve(cwd, value));
+}
+
+function resolveVersionPrefixIdentity(args: readonly string[], cwd: string): string[] {
+	// Wrapper option grammars are not known here. Conservatively treat every
+	// positional argument and inline option value as a cwd-resolved resource;
+	// this prevents relative CLI/env-file aliases from sharing compatibility.
+	let optionsTerminated = false;
+	return args.map((arg) => {
+		if (arg === "--version") return arg;
+		if (arg === "--" && !optionsTerminated) {
+			optionsTerminated = true;
+			return arg;
+		}
+		if (optionsTerminated || !arg.startsWith("-")) return resolvePrefixResourceIdentity(arg, cwd);
+
+		const equalsIndex = arg.indexOf("=");
+		if (equalsIndex === -1) return arg;
+		const option = arg.slice(0, equalsIndex);
+		const value = arg.slice(equalsIndex + 1);
+		return value ? `${option}=${resolvePrefixResourceIdentity(value, cwd)}` : arg;
 	});
-	return fingerprint(JSON.stringify(entries));
 }
 
 export function buildPiVersionProbeCacheKey(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
 	const resolvedCwd = resolve(cwd);
 	const identity = JSON.stringify({
 		command: resolveCommandIdentity(command, resolvedCwd, env),
-		cwd: resolvedCwd,
-		args,
-		environment: environmentIdentity(env),
+		args: resolveVersionPrefixIdentity(args, resolvedCwd),
 	});
 	return `pi-version-probe:v1:${fingerprint(identity)}`;
 }
@@ -192,13 +237,15 @@ function appendCapped(current: string, chunk: unknown): string {
 	return current + Buffer.from(String(chunk)).subarray(0, remaining).toString();
 }
 
-function diagnostic(value: string): string {
-	const trimmed = value.trim();
+function diagnostic(value: string, sensitiveArgs: readonly string[] = []): string {
+	let redacted = value;
+	const uniqueSensitiveArgs = [...new Set(sensitiveArgs.filter((arg) => arg.length > 0 && arg !== "--version"))]
+		.sort((left, right) => right.length - left.length);
+	for (const arg of uniqueSensitiveArgs) {
+		redacted = redacted.split(arg).join("[redacted]");
+	}
+	const trimmed = redacted.trim();
 	return trimmed.length <= DIAGNOSTIC_LIMIT_CHARS ? trimmed : `${trimmed.slice(0, DIAGNOSTIC_LIMIT_CHARS)}… [truncated]`;
-}
-
-function formatArgv(command: string, args: string[]): string {
-	return diagnostic([command, ...args].map((arg) => JSON.stringify(arg)).join(" "));
 }
 
 function delay(ms: number): Promise<void> {
@@ -322,23 +369,62 @@ export const runPiVersionCommand: RunPiVersionCommand = ({ command, args, cwd, e
 	});
 });
 
+function materializeProbeResult(
+	command: string,
+	versionArgs: readonly string[],
+	compatibility: PiVersionCompatibilityResult,
+): PiVersionProbeResult {
+	return {
+		command,
+		versionArgs: [...versionArgs],
+		...compatibility,
+	};
+}
+
+function purgeExpiredCompletedEntries(now: number): void {
+	for (const [key, entry] of probeCache) {
+		if (entry.state === "completed" && now - entry.completedAt >= SUCCESSFUL_PROBE_CACHE_TTL_MS) {
+			probeCache.delete(key);
+		}
+	}
+}
+
+function enforceCompletedEntryLimit(): void {
+	let completedCount = 0;
+	for (const entry of probeCache.values()) {
+		if (entry.state === "completed") completedCount += 1;
+	}
+	while (completedCount > MAX_COMPLETED_PROBE_CACHE_ENTRIES) {
+		let oldestKey: string | undefined;
+		let oldestCompletedAt = Number.POSITIVE_INFINITY;
+		for (const [key, entry] of probeCache) {
+			if (entry.state === "completed" && entry.completedAt < oldestCompletedAt) {
+				oldestKey = key;
+				oldestCompletedAt = entry.completedAt;
+			}
+		}
+		if (oldestKey === undefined) return;
+		probeCache.delete(oldestKey);
+		completedCount -= 1;
+	}
+}
+
 export async function probeWorkerPiVersion(
 	options: PiVersionProbeOptions,
 	run: RunPiVersionCommand = runPiVersionCommand,
 ): Promise<PiVersionProbeResult> {
+	purgeExpiredCompletedEntries(Date.now());
 	const command = options.command ?? "pi";
 	const versionArgs = buildPiVersionArgs(options.baseArgs);
 	const key = buildPiVersionProbeCacheKey(command, versionArgs, options.cwd, options.env);
 	const existing = probeCache.get(key);
-	if (existing && (existing.completedAt === undefined || Date.now() - existing.completedAt < SUCCESSFUL_PROBE_CACHE_TTL_MS)) {
-		return existing.promise;
+	if (existing) {
+		const compatibility = existing.state === "completed" ? existing.result : await existing.promise;
+		return materializeProbeResult(command, versionArgs, compatibility);
 	}
-	if (existing) probeCache.delete(key);
 
-	const pending = (async (): Promise<PiVersionProbeResult> => {
+	const pending = (async (): Promise<PiVersionCompatibilityResult> => {
 		const common = {
-			command,
-			versionArgs,
 			hostVersion: HOST_PI_VERSION,
 			minimumVersion: MINIMUM_WORKER_PI_VERSION,
 		};
@@ -354,24 +440,23 @@ export async function probeWorkerPiVersion(
 		} catch (error) {
 			result = { stdout: "", stderr: "", code: null, error: error instanceof Error ? error : new Error(String(error)) };
 		}
-		const argv = formatArgv(command, versionArgs);
 		if (result.error || result.code !== 0) {
-			const detail = diagnostic(result.error?.message ?? (result.stderr.trim() || `exit code ${result.code}`));
+			const detail = diagnostic(result.error?.message ?? (result.stderr.trim() || `exit code ${result.code}`), versionArgs);
 			return {
 				...common,
 				supported: false,
 				mismatch: false,
-				message: `Cannot launch Pi worker: failed to run ${basename(command)} --version (argv: ${argv}; ${detail}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
+				message: `Cannot launch Pi worker: failed to run ${basename(command)} --version (${detail}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
 			};
 		}
 		const parsed = parsePiVersion(result.stdout);
 		if (!parsed) {
-			const shown = diagnostic(result.stdout) || "no version output";
+			const shown = diagnostic(result.stdout, versionArgs) || "no version output";
 			return {
 				...common,
 				supported: false,
 				mismatch: false,
-				message: `Cannot launch Pi worker: ${basename(command)} --version returned an unparseable version (${JSON.stringify(shown)}; argv: ${argv}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
+				message: `Cannot launch Pi worker: ${basename(command)} --version returned an unparseable version (${JSON.stringify(shown)}). Install Pi ${MINIMUM_WORKER_PI_VERSION} or newer, or fix rpc.command.`,
 			};
 		}
 		const minimum = parsePiVersion(MINIMUM_WORKER_PI_VERSION)!;
@@ -386,16 +471,37 @@ export async function probeWorkerPiVersion(
 			}),
 		};
 	})();
-	const entry: ProbeCacheEntry = { promise: pending };
+	const entry: PendingProbeCacheEntry = { state: "pending", promise: pending };
 	probeCache.set(key, entry);
-	const result = await pending;
+	const compatibility = await pending;
 	if (probeCache.get(key) === entry) {
-		if (result.supported) entry.completedAt = Date.now();
-		else probeCache.delete(key);
+		if (compatibility.supported) {
+			probeCache.set(key, {
+				state: "completed",
+				result: compatibility,
+				completedAt: Date.now(),
+			});
+			enforceCompletedEntryLimit();
+		} else {
+			probeCache.delete(key);
+		}
 	}
-	return result;
+	return materializeProbeResult(command, versionArgs, compatibility);
 }
 
 export function clearPiVersionProbeCache(): void {
 	probeCache.clear();
 }
+
+function snapshotProbeCache(): unknown[] {
+	return Array.from(probeCache, ([key, entry]) => entry.state === "pending"
+		? { key, state: entry.state }
+		: {
+			key,
+			state: entry.state,
+			completedAt: entry.completedAt,
+			result: { ...entry.result },
+		});
+}
+
+export const _testing = { snapshotProbeCache };

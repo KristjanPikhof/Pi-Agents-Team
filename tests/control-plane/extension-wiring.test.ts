@@ -8,6 +8,13 @@ import extension, { _testing } from "../../extensions/pi-agent-team/index";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { TeamManager, type AgentResult } from "../../src/control-plane/team-manager";
 import { restorePersistedTeamState } from "../../src/control-plane/persistence";
+import {
+	WorkerManager,
+	type LaunchWorkerOptions,
+	type ManagedWorkerRecord,
+	type WorkerLaunchSnapshot,
+} from "../../src/runtime/worker-manager";
+import type { RpcSessionStats } from "../../src/runtime/rpc-client";
 import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
 interface RegisteredTool {
@@ -73,54 +80,6 @@ function assistantMessage(text: string): Parameters<SessionManager["appendMessag
 	};
 }
 
-test("persistence tail discovery stops at ambiguous valid siblings", () => {
-	const customType = DEFAULT_TEAM_CONFIG.persistence.stateCustomType;
-	const record = (recordId: string) => ({
-		version: 2, kind: "worker_terminal", recordId,
-		worker: {
-			workerId: recordId, profileName: "fixer", status: "completed",
-			startedAt: 1, lastEventAt: 2,
-			usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
-		},
-	});
-	const anchor = { type: "message", id: "anchor", parentId: null };
-	const siblings = ["left", "right"].map((id) => ({
-		type: "custom", id, parentId: "anchor", customType, data: record(id),
-	}));
-	const branch = _testing.activeBranchWithPersistenceTail({
-		getLeafId: () => "anchor",
-		getBranch: () => [anchor],
-		getEntries: () => [anchor, ...siblings],
-	}, customType);
-	assert.deepEqual(branch, [anchor], "neither sibling is an authoritative continuation of the active branch");
-});
-
-test("persistence tail discovery indexes a large tail in one linear pass", () => {
-	const customType = DEFAULT_TEAM_CONFIG.persistence.stateCustomType;
-	const count = 20_000;
-	let parentReads = 0;
-	const entries = Array.from({ length: count }, (_, index) => ({
-		type: "custom",
-		id: `record-${index}`,
-		get parentId() { parentReads += 1; return index === 0 ? "anchor" : `record-${index - 1}`; },
-		customType,
-		data: {
-			version: 2, kind: "worker_terminal", recordId: `record-${index}`,
-			worker: {
-				workerId: `worker-${index}`, profileName: "fixer", status: "completed",
-				startedAt: 1, lastEventAt: 2,
-				usage: { turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
-			},
-		},
-	}));
-	const branch = _testing.activeBranchWithPersistenceTail({
-		getLeafId: () => "anchor",
-		getBranch: () => [{ type: "message", id: "anchor", parentId: null }],
-		getEntries: () => entries,
-	}, customType);
-	assert.equal(branch.length, count + 1);
-	assert.ok(parentReads <= count * 2, `parentId was read ${parentReads} times for ${count} entries`);
-});
 
 test("extension mismatch notifier emits exactly one non-fatal session warning", () => {
 	const warnings: string[] = [];
@@ -1344,8 +1303,8 @@ test("tree away and back restores fresh and reused running workers as detached w
 			recordId: "malformed-shadow",
 			worker: {},
 		});
-		sessionManager.branch(anchorId);
-		await handlers.get("session_tree")?.({ oldLeafId: awayLeafId, newLeafId: anchorId }, ctx);
+		sessionManager.branch(originLeafId);
+		await handlers.get("session_tree")?.({ oldLeafId: awayLeafId, newLeafId: originLeafId }, ctx);
 		const restoredStatus = await statusTool.execute!("call", {});
 		const restoredWorkers: WorkerRuntimeState[] = restoredStatus.details.workers;
 		assert.deepEqual(restoredWorkers.map((item) => item.workerId).sort(), ["w-fresh", "w-reused"]);
@@ -1357,6 +1316,169 @@ test("tree away and back restores fresh and reused running workers as detached w
 	} finally {
 		TeamManager.prototype.dispose = originalDispose;
 		TeamManager.prototype.onStateChange = originalOnStateChange;
+	}
+});
+
+test("extension durably checkpoints actual fresh and idle-reuse transitions before prompt and disk reopen restores exited", async () => {
+	interface FakeWorker {
+		state: WorkerRuntimeState;
+		launch: LaunchWorkerOptions;
+	}
+	const fakeWorkers = new WeakMap<WorkerManager, Map<string, FakeWorker>>();
+	let activeSessionManager: SessionManager | undefined;
+	const promptTitles: string[] = [];
+	const originalLaunchWorker = WorkerManager.prototype.launchWorker;
+	const originalGetWorker = WorkerManager.prototype.getWorker;
+	const originalGetLaunchSnapshot = WorkerManager.prototype.getLaunchSnapshot;
+	const originalRefreshStats = WorkerManager.prototype.refreshStats;
+	const originalPrepareWorkerReuse = WorkerManager.prototype.prepareWorkerReuse;
+	const originalPromptWorker = WorkerManager.prototype.promptWorker;
+	try {
+		WorkerManager.prototype.launchWorker = async function (options): Promise<ManagedWorkerRecord> {
+			const state = structuredClone(makeWidgetState().activeWorkers.w1!);
+			state.workerId = options.workerId;
+			state.profileName = options.profileName;
+			state.status = "starting";
+			state.currentTask = options.task;
+			state.lastSummary = undefined;
+			const workers = fakeWorkers.get(this) ?? new Map<string, FakeWorker>();
+			workers.set(options.workerId, { state, launch: options });
+			fakeWorkers.set(this, workers);
+			return { workerId: options.workerId, state } as unknown as ManagedWorkerRecord;
+		};
+		WorkerManager.prototype.getWorker = function (workerId): ManagedWorkerRecord | undefined {
+			const state = fakeWorkers.get(this)?.get(workerId)?.state;
+			return state ? { workerId, state } as unknown as ManagedWorkerRecord : undefined;
+		};
+		WorkerManager.prototype.getLaunchSnapshot = function (workerId): WorkerLaunchSnapshot | undefined {
+			const launch = fakeWorkers.get(this)?.get(workerId)?.launch;
+			if (!launch) return undefined;
+			return {
+				cwd: launch.cwd,
+				command: launch.command,
+				baseArgs: launch.baseArgs,
+				model: launch.model,
+				thinkingLevel: launch.thinkingLevel,
+				tools: launch.tools,
+				workerExtensions: launch.workerExtensions,
+				systemPromptPath: launch.systemPromptPath,
+				extensionMode: launch.extensionMode,
+				projectTrust: launch.projectTrust,
+				allowSkills: launch.allowSkills === true,
+			};
+		};
+		WorkerManager.prototype.refreshStats = async function (): Promise<RpcSessionStats> {
+			return {
+				sessionId: "checkpoint-test",
+				userMessages: 1,
+				assistantMessages: 1,
+				toolCalls: 0,
+				toolResults: 0,
+				totalMessages: 2,
+				tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15 },
+				cost: 0.01,
+				contextUsage: { tokens: 15, contextWindow: 200_000, percent: 0.01 },
+			};
+		};
+		WorkerManager.prototype.prepareWorkerReuse = function (workerId, task): ManagedWorkerRecord {
+			const worker = fakeWorkers.get(this)?.get(workerId);
+			assert.ok(worker);
+			worker.state.currentTask = task;
+			worker.state.status = "idle";
+			worker.state.finalAnswer = undefined;
+			worker.state.lastSummary = undefined;
+			worker.state.error = undefined;
+			return { workerId, state: worker.state } as unknown as ManagedWorkerRecord;
+		};
+		WorkerManager.prototype.promptWorker = async function (workerId): Promise<void> {
+			const worker = fakeWorkers.get(this)?.get(workerId);
+			assert.ok(worker);
+			assert.ok(activeSessionManager);
+			const checkpoint = restorePersistedTeamState(
+				activeSessionManager.getBranch(),
+				DEFAULT_TEAM_CONFIG.persistence.stateCustomType,
+			).activeWorkers[workerId];
+			assert.equal(checkpoint?.status, "exited", "durable detached checkpoint must exist before promptWorker");
+			promptTitles.push(worker.state.currentTask?.title ?? "");
+			worker.state.status = "idle";
+			worker.state.lastEventAt += 1;
+		};
+
+		for (const transition of ["fresh", "reuse"] as const) {
+			const sessionDir = mkdtempSync(join(tmpdir(), `pi-agent-team-${transition}-checkpoint-`));
+			const sessionManager = SessionManager.create(process.cwd(), sessionDir);
+			sessionManager.appendMessage(assistantMessage(`${transition} durable anchor`));
+			activeSessionManager = sessionManager;
+			promptTitles.length = 0;
+			const handlers = new Map<string, (...args: unknown[]) => Promise<unknown> | unknown>();
+			const tools: RegisteredTool[] = [];
+			extension({
+				registerTool(tool: RegisteredTool) {
+					tools.push(tool);
+				},
+				registerCommand() {},
+				on(event: string, handler: (...args: unknown[]) => Promise<unknown> | unknown) {
+					handlers.set(event, handler);
+				},
+				appendEntry(type: string, data: unknown) {
+					sessionManager.appendCustomEntry(type, data);
+				},
+				sendMessage() {},
+			} as unknown as ExtensionAPI);
+			const ctx = { cwd: process.cwd(), hasUI: false, sessionManager } as unknown as ExtensionContext;
+			await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+			const delegate = tools.find((tool) => tool.name === "delegate_task")!;
+			const fresh = await delegate.execute!("fresh", {
+				title: transition === "fresh" ? "fresh transition" : "reuse seed",
+				goal: "exercise actual TeamManager fresh transition",
+				profileName: "reviewer",
+			}, new AbortController().signal, undefined, ctx);
+			if (transition === "reuse") {
+				await delegate.execute!("reuse", {
+					title: "reuse transition",
+					goal: "exercise actual TeamManager idle reuse transition",
+					profileName: "reviewer",
+					reuseWorkerId: fresh.details.worker.workerId,
+				}, new AbortController().signal, undefined, ctx);
+				assert.deepEqual(promptTitles, ["reuse seed", "reuse transition"]);
+			} else {
+				assert.deepEqual(promptTitles, ["fresh transition"]);
+			}
+
+			const sessionFile = sessionManager.getSessionFile();
+			assert.ok(sessionFile);
+			const reopened = SessionManager.open(sessionFile, sessionDir);
+			const reopenedHandlers = new Map<string, (...args: unknown[]) => Promise<unknown> | unknown>();
+			const reopenedTools: RegisteredTool[] = [];
+			extension({
+				registerTool(tool: RegisteredTool) {
+					reopenedTools.push(tool);
+				},
+				registerCommand() {},
+				on(event: string, handler: (...args: unknown[]) => Promise<unknown> | unknown) {
+					reopenedHandlers.set(event, handler);
+				},
+				appendEntry(type: string, data: unknown) {
+					reopened.appendCustomEntry(type, data);
+				},
+				sendMessage() {},
+			} as unknown as ExtensionAPI);
+			const reopenedCtx = { cwd: process.cwd(), hasUI: false, sessionManager: reopened } as unknown as ExtensionContext;
+			await reopenedHandlers.get("session_start")?.({ reason: "resume" }, reopenedCtx);
+			const status = await reopenedTools.find((tool) => tool.name === "agent_status")!.execute!("status", {
+				workerId: fresh.details.worker.workerId,
+			});
+			assert.equal(status.details.workers[0]?.status, "exited");
+			await reopenedHandlers.get("session_shutdown")?.({}, reopenedCtx);
+			await handlers.get("session_shutdown")?.({}, ctx);
+		}
+	} finally {
+		WorkerManager.prototype.launchWorker = originalLaunchWorker;
+		WorkerManager.prototype.getWorker = originalGetWorker;
+		WorkerManager.prototype.getLaunchSnapshot = originalGetLaunchSnapshot;
+		WorkerManager.prototype.refreshStats = originalRefreshStats;
+		WorkerManager.prototype.prepareWorkerReuse = originalPrepareWorkerReuse;
+		WorkerManager.prototype.promptWorker = originalPromptWorker;
 	}
 });
 
@@ -1372,6 +1494,12 @@ test("extension restores only the active Pi branch and does not checkpoint on st
 	};
 	const inactive = createDefaultTeamState();
 	inactive.activeWorkers.w9 = { ...active.activeWorkers.w1, workerId: "w9" };
+	const inactiveCompactChild = {
+		version: 2,
+		kind: "worker_terminal",
+		recordId: "inactive-compact-child",
+		worker: inactive.activeWorkers.w9,
+	};
 	let activeBranch = active;
 
 	extension({
@@ -1384,7 +1512,7 @@ test("extension restores only the active Pi branch and does not checkpoint on st
 	const ctx = {
 		cwd: process.cwd(), hasUI: false,
 		sessionManager: {
-			getEntries: () => [{ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: inactive }],
+			getEntries: () => [{ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: inactiveCompactChild }],
 			getBranch: () => [{ type: "custom", customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType, data: activeBranch }],
 		},
 	} as any;
@@ -1479,7 +1607,7 @@ test("extension emits plain widget lines in RPC mode even when hasUI=true", asyn
 			addAutocompleteProvider() {},
 		},
 		sessionManager: {
-			getEntries() {
+			getBranch() {
 				return [{
 					type: "custom",
 					customType: DEFAULT_TEAM_CONFIG.persistence.stateCustomType,

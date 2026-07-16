@@ -968,6 +968,131 @@ async function createIdleReusableTeam(sessionStats?: Record<string, unknown> | (
 	return { teamManager, transports, workerId: first.worker.workerId };
 }
 
+test("TeamManager emits durable checkpoint state before fresh and reused prompt writes", async () => {
+	const order: string[] = [];
+	const transports: MockWorkerTransport[] = [];
+	const workerManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport({
+			onCommand(command) {
+				if (command.type === "prompt") order.push("prompt");
+			},
+		});
+		transports.push(transport);
+		return new MockWorkerHandle(transport);
+	});
+	const teamManager = new TeamManager({ workerManager });
+	teamManager.onBeforePrompt((state) => {
+		const worker = Object.values(state.activeWorkers)[0];
+		assert.ok(worker);
+		order.push(`checkpoint:${worker.currentTask?.title}`);
+	});
+
+	const first = await teamManager.delegateTask({
+		title: "Fresh checkpoint",
+		goal: "persist before fresh prompt",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	assert.deepEqual(order, ["checkpoint:Fresh checkpoint", "prompt"]);
+	await waitForMicrotasks();
+	await settleTransport(transports[0]);
+
+	order.length = 0;
+	await teamManager.delegateTask({
+		title: "Reuse checkpoint",
+		goal: "persist before reused prompt",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		reuseWorkerId: first.worker.workerId,
+	});
+	assert.deepEqual(order, ["checkpoint:Reuse checkpoint", "prompt"]);
+});
+
+test("reuse cancellation skips or interrupts stats without preparing a task or sending a prompt", {
+	timeout: 1_000,
+}, async () => {
+	const alreadyAbortedTeam = await createIdleReusableTeam();
+	const alreadyAbortedTransport = alreadyAbortedTeam.transports[0]!;
+	const alreadyAborted = new AbortController();
+	alreadyAborted.abort();
+	await assert.rejects(
+		alreadyAbortedTeam.teamManager.delegateTask({
+			title: "Never prepared",
+			goal: "already-aborted reuse",
+			profileName: "reviewer",
+			cwd: process.cwd(),
+			reuseWorkerId: alreadyAbortedTeam.workerId,
+		}, alreadyAborted.signal),
+		/abort/i,
+	);
+	assert.equal(alreadyAbortedTransport.commands.filter((command) => command.type === "get_session_stats").length, 0);
+	assert.equal(alreadyAbortedTransport.commands.filter((command) => command.type === "prompt").length, 1);
+	assert.equal(alreadyAbortedTeam.teamManager.snapshot().taskRegistry["t2"], undefined);
+	assert.equal(alreadyAbortedTeam.teamManager.getWorkerStatus(alreadyAbortedTeam.workerId)?.status, "idle");
+
+	const pendingStatsTransport = new MockWorkerTransport({ hangCommands: ["get_session_stats"] });
+	const pendingStatsManager = new WorkerManager(() => new MockWorkerHandle(pendingStatsTransport));
+	const pendingStatsTeam = new TeamManager({ workerManager: pendingStatsManager });
+	const first = await pendingStatsTeam.delegateTask({
+		title: "Reusable seed",
+		goal: "settle before cancelled reuse",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	});
+	await waitForMicrotasks();
+	await settleTransport(pendingStatsTransport);
+	const pendingAbort = new AbortController();
+	const pendingReuse = pendingStatsTeam.delegateTask({
+		title: "Never prepared after pending stats",
+		goal: "cancel pending stats",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		reuseWorkerId: first.worker.workerId,
+	}, pendingAbort.signal);
+	await waitForMicrotasks();
+	assert.equal(pendingStatsTransport.commands.filter((command) => command.type === "get_session_stats").length, 1);
+	pendingAbort.abort();
+	await assert.rejects(pendingReuse, /reuse aborted/i);
+	assert.equal(pendingStatsTransport.commands.filter((command) => command.type === "prompt").length, 1);
+	assert.equal(pendingStatsTeam.snapshot().taskRegistry["t2"], undefined);
+	assert.equal(pendingStatsTeam.getWorkerStatus(first.worker.workerId)?.currentTask?.title, "Reusable seed");
+	assert.equal(pendingStatsTeam.getWorkerStatus(first.worker.workerId)?.status, "idle");
+});
+
+test("listener-triggered abort after before-prompt checkpoint sends no fresh or reuse prompt", async () => {
+	const freshAbort = new AbortController();
+	const freshTransport = new MockWorkerTransport();
+	const freshTeam = new TeamManager({
+		workerManager: new WorkerManager(() => new MockWorkerHandle(freshTransport)),
+	});
+	freshTeam.onBeforePrompt(() => freshAbort.abort());
+	await assert.rejects(freshTeam.delegateTask({
+		title: "Fresh listener abort",
+		goal: "abort from checkpoint listener",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+	}, freshAbort.signal), /abort/i);
+	assert.equal(freshTransport.commands.some((command) => command.type === "prompt"), false);
+	assert.deepEqual(freshTeam.listWorkers(), []);
+
+	const reuseTeamFixture = await createIdleReusableTeam();
+	const reuseAbort = new AbortController();
+	reuseTeamFixture.teamManager.onBeforePrompt((state) => {
+		const worker = state.activeWorkers[reuseTeamFixture.workerId];
+		if (worker?.currentTask?.title === "Reuse listener abort") reuseAbort.abort();
+	});
+	await assert.rejects(reuseTeamFixture.teamManager.delegateTask({
+		title: "Reuse listener abort",
+		goal: "abort after reuse checkpoint listener",
+		profileName: "reviewer",
+		cwd: process.cwd(),
+		reuseWorkerId: reuseTeamFixture.workerId,
+	}, reuseAbort.signal), /abort/i);
+	assert.equal(reuseTeamFixture.transports[0]!.commands.filter((command) => command.type === "prompt").length, 1);
+	assert.equal(reuseTeamFixture.teamManager.snapshot().taskRegistry["t2"], undefined);
+	assert.equal(reuseTeamFixture.teamManager.getWorkerStatus(reuseTeamFixture.workerId)?.status, "exited");
+});
+
 test("delegateTask with reuseWorkerId refreshes context and allows reuse below saturation thresholds", async () => {
 	const { teamManager, transports, workerId } = await createIdleReusableTeam({
 		sessionId: "mock-session",

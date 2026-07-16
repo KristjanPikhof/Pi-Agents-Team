@@ -2,6 +2,7 @@ import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:ch
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import type { Readable, Writable } from "node:stream";
+import { createDeferred } from "./deferred.js";
 import type { ThinkingLevel, WorkerExtensionMode, WorkerProjectTrustOverride } from "../types.js";
 
 const require = createRequire(import.meta.url);
@@ -71,11 +72,96 @@ export interface WorkerProcessHandle {
 
 export type SpawnWorkerProcess = (options: WorkerProcessOptions) => WorkerProcessHandle;
 
+const PROCESS_TERMINATION_GRACE_MS = 250;
+const PROCESS_EXIT_WAIT_MS = 500;
+const WINDOWS_TREE_KILL_TIMEOUT_MS = 500;
+export const WORKER_PROCESS_DISPOSE_MAX_MS = WINDOWS_TREE_KILL_TIMEOUT_MS + PROCESS_EXIT_WAIT_MS;
+
+interface KillableProcess {
+	pid?: number;
+	kill(signal?: NodeJS.Signals): boolean;
+}
+
+interface TaskkillProcess extends KillableProcess {
+	once(event: "error", listener: () => void): unknown;
+	once(event: "close", listener: (code: number | null) => void): unknown;
+}
+
+type TaskkillSpawn = (command: string, args: string[], options: { stdio: "ignore" }) => TaskkillProcess;
+
+function delay(ms: number): Promise<void> {
+	const { promise, resolve } = createDeferred<void>();
+	setTimeout(resolve, ms);
+	return promise;
+}
+
+function tryKill(processHandle: KillableProcess, signal: NodeJS.Signals): void {
+	try {
+		processHandle.kill(signal);
+	} catch {
+		// The process may already have exited.
+	}
+}
+
+export async function terminateWindowsWorkerTree(
+	processHandle: KillableProcess,
+	spawnTaskkill: TaskkillSpawn = crossSpawn as unknown as TaskkillSpawn,
+	timeoutMs = WINDOWS_TREE_KILL_TIMEOUT_MS,
+): Promise<void> {
+	if (processHandle.pid === undefined) {
+		tryKill(processHandle, "SIGKILL");
+		return;
+	}
+	const { promise, resolve } = createDeferred<void>();
+	let killer: TaskkillProcess | undefined;
+	let settled = false;
+	const finish = (fallback: boolean) => {
+		if (settled) return;
+		settled = true;
+		clearTimeout(timeout);
+		if (fallback) tryKill(processHandle, "SIGKILL");
+		resolve();
+	};
+	const timeout = setTimeout(() => {
+		if (killer) tryKill(killer, "SIGKILL");
+		finish(true);
+	}, timeoutMs);
+	try {
+		killer = spawnTaskkill("taskkill", ["/pid", String(processHandle.pid), "/T", "/F"], { stdio: "ignore" });
+		killer.once("error", () => finish(true));
+		killer.once("close", (code) => finish(code !== 0));
+	} catch {
+		finish(true);
+	}
+	await promise;
+}
+
+function signalPosixProcessGroup(processHandle: KillableProcess, signal: NodeJS.Signals): boolean {
+	if (processHandle.pid === undefined) return processHandle.kill(signal);
+	try {
+		process.kill(-processHandle.pid, signal);
+		return true;
+	} catch {
+		return processHandle.kill(signal);
+	}
+}
+
+async function waitForExitBounded(exitPromise: Promise<ExitInfo>, timeoutMs: number): Promise<ExitInfo | undefined> {
+	return Promise.race([
+		exitPromise,
+		delay(timeoutMs).then(() => undefined),
+	]);
+}
+
 class NodeWorkerProcessHandle extends EventEmitter implements WorkerProcessHandle {
 	private stderr = "";
-	private exitPromise: Promise<ExitInfo>;
+	private readonly exitPromise: Promise<ExitInfo>;
+	private disposePromise?: Promise<ExitInfo>;
 
-	constructor(readonly transport: WorkerTransport) {
+	constructor(
+		readonly transport: WorkerTransport,
+		private readonly platform: NodeJS.Platform = process.platform,
+	) {
 		super();
 		this.transport.stderr.on("data", (chunk) => {
 			this.stderr += chunk.toString();
@@ -83,12 +169,12 @@ class NodeWorkerProcessHandle extends EventEmitter implements WorkerProcessHandl
 		this.transport.stdin.on("error", () => {
 			// Child process launch failures are reported through the process "error" event below.
 		});
-		this.exitPromise = new Promise<ExitInfo>((resolve) => {
-			this.transport.on("exit", (code, signal) => resolve({ code, signal }));
-			this.transport.on("error", (error) => {
-				this.stderr += `${error.message}\n`;
-				resolve({ code: null, signal: null, error });
-			});
+		const { promise, resolve } = createDeferred<ExitInfo>();
+		this.exitPromise = promise;
+		this.transport.on("exit", (code, signal) => resolve({ code, signal }));
+		this.transport.on("error", (error) => {
+			this.stderr += `${error.message}\n`;
+			resolve({ code: null, signal: null, error });
 		});
 	}
 
@@ -105,12 +191,26 @@ class NodeWorkerProcessHandle extends EventEmitter implements WorkerProcessHandl
 	}
 
 	kill(signal: NodeJS.Signals = "SIGTERM"): boolean {
-		return this.transport.kill(signal);
+		return this.platform === "win32"
+			? this.transport.kill(signal)
+			: signalPosixProcessGroup(this.transport, signal);
 	}
 
-	async dispose(signal: NodeJS.Signals = "SIGTERM"): Promise<ExitInfo> {
-		this.kill(signal);
-		return this.waitForExit();
+	dispose(signal: NodeJS.Signals = "SIGTERM"): Promise<ExitInfo> {
+		if (!this.disposePromise) this.disposePromise = this.disposeProcess(signal);
+		return this.disposePromise;
+	}
+
+	private async disposeProcess(signal: NodeJS.Signals): Promise<ExitInfo> {
+		if (this.platform === "win32") {
+			await terminateWindowsWorkerTree(this.transport);
+		} else {
+			this.kill(signal);
+			await delay(PROCESS_TERMINATION_GRACE_MS);
+			this.kill("SIGKILL");
+		}
+		return (await waitForExitBounded(this.exitPromise, PROCESS_EXIT_WAIT_MS))
+			?? { code: null, signal: "SIGKILL" };
 	}
 }
 
@@ -144,6 +244,7 @@ export function spawnWorkerProcess(options: WorkerProcessOptions): WorkerProcess
 		cwd: options.cwd,
 		env: options.env,
 		stdio: ["pipe", "pipe", "pipe"],
+		...(process.platform === "win32" ? {} : { detached: true }),
 	}) as ChildProcessWithoutNullStreams;
 
 	return new NodeWorkerProcessHandle(child as unknown as WorkerTransport);
