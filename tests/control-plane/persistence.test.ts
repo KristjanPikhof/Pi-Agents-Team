@@ -113,6 +113,27 @@ test("terminal-to-live transition stages one exited checkpoint and live churn ad
 	assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), [], "ordinary live updates do not churn checkpoints");
 });
 
+test("committed detached checkpoints deduplicate unchanged live statuses", () => {
+	for (const status of ["starting", "running", "idle", "waiting_followup"] as const) {
+		const state = createDefaultTeamState();
+		state.activeWorkers.w1 = worker(status);
+		const journal = new CompactPersistenceJournal();
+		journal.reset(state, DEFAULT_TEAM_CONFIG);
+
+		const [checkpoint] = journal.prepareDetachedWorkers(state, DEFAULT_TEAM_CONFIG);
+		assert.equal(checkpoint?.kind, "worker_terminal", `${status}: expected detached checkpoint`);
+		if (!checkpoint) continue;
+		journal.commit(checkpoint);
+
+		assert.deepEqual(journal.prepare(state, DEFAULT_TEAM_CONFIG), [], `${status}: unchanged prepare must not append`);
+		assert.deepEqual(
+			journal.prepareDetachedWorkers(state, DEFAULT_TEAM_CONFIG),
+			[],
+			`${status}: committed durable baseline must deduplicate the next detached checkpoint`,
+		);
+	}
+});
+
 test("a real terminal record supersedes an uncommitted exited checkpoint", () => {
 	const state = createDefaultTeamState();
 	state.activeWorkers.w1 = worker("completed");
