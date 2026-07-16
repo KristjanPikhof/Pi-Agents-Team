@@ -6,4 +6,3 @@ coverage/
 .DS_Store
 *.log
 bun.lock
-.slim/deepwork/
