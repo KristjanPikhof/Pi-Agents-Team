@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
-import { WorkerManager } from "../../src/runtime/worker-manager";
-import type { ExitInfo, WorkerProcessHandle, WorkerTransport } from "../../src/runtime/worker-process";
+import { DEFAULT_HANDLE_DISPOSE_TIMEOUT_MS, WorkerManager } from "../../src/runtime/worker-manager";
+import { WORKER_PROCESS_DISPOSE_MAX_MS, type ExitInfo, type WorkerProcessHandle, type WorkerTransport } from "../../src/runtime/worker-process";
+import type { PiVersionProbeResult } from "../../src/runtime/pi-version";
 import { createDefaultTeamState } from "../../src/config";
 import { buildTeamWidgetLines } from "../../src/ui/status-widget";
 import { stripAnsi } from "../../src/ui/theme";
@@ -96,6 +97,41 @@ class FailingLaunchHandle implements WorkerProcessHandle {
 	dispose(): Promise<ExitInfo> {
 		this.kill();
 		return this.exitPromise;
+	}
+}
+
+class InstrumentedWorkerHandle implements WorkerProcessHandle {
+	private readonly inner: MockWorkerHandle;
+	disposeCalls = 0;
+
+	constructor(
+		readonly transport: MockWorkerTransport,
+		private readonly disposeMode: "resolve" | "reject" | "hang" = "resolve",
+	) {
+		this.inner = new MockWorkerHandle(transport);
+	}
+
+	get pid(): number | undefined {
+		return this.inner.pid;
+	}
+
+	get stderrBuffer(): string {
+		return this.inner.stderrBuffer;
+	}
+
+	waitForExit(): Promise<ExitInfo> {
+		return this.inner.waitForExit();
+	}
+
+	kill(signal?: NodeJS.Signals): boolean {
+		return this.inner.kill(signal);
+	}
+
+	dispose(signal?: NodeJS.Signals): Promise<ExitInfo> {
+		this.disposeCalls += 1;
+		if (this.disposeMode === "reject") return Promise.reject(new Error("simulated disposal failure"));
+		if (this.disposeMode === "hang") return Promise.withResolvers<ExitInfo>().promise;
+		return this.inner.dispose(signal);
 	}
 }
 
@@ -1070,6 +1106,180 @@ test("dispose exits live workers while preserving aborted and fatal terminal pre
 	for (const workerId of ["worker-dispose-fatal", "worker-dispose-aborted"]) {
 		assert.equal(terminalEvents.get(workerId)?.filter((type) => type === "worker_idle").length ?? 0, 0);
 	}
+});
+
+test("manager disposal deadline has explicit headroom beyond worker process fallback", () => {
+	assert.ok(
+		DEFAULT_HANDLE_DISPOSE_TIMEOUT_MS > WORKER_PROCESS_DISPOSE_MAX_MS,
+		"manager timeout must not race the worker's Windows taskkill plus exit fallback deadline",
+	);
+});
+
+test("launch cancellation covers pre-reservation, shared-probe, and post-spawn refresh windows", async () => {
+	const alreadyAborted = new AbortController();
+	alreadyAborted.abort();
+	let preflightSpawns = 0;
+	const preflightManager = new WorkerManager(() => {
+		preflightSpawns += 1;
+		return new MockWorkerHandle(new MockWorkerTransport());
+	});
+	await assert.rejects(
+		preflightManager.launchWorker({
+			workerId: "worker-aborted-before-reservation",
+			profileName: "reviewer",
+			task: taskInput("task-aborted-before-reservation", "Already aborted"),
+			cwd: process.cwd(),
+			signal: alreadyAborted.signal,
+		}),
+		/aborted/i,
+	);
+	assert.equal(preflightSpawns, 0);
+	await preflightManager.launchWorker({
+		workerId: "worker-aborted-before-reservation",
+		profileName: "reviewer",
+		task: taskInput("task-after-aborted-reservation", "Reservation was released"),
+		cwd: process.cwd(),
+	});
+	await preflightManager.dispose();
+
+	const probeGate = Promise.withResolvers<PiVersionProbeResult>();
+	const sharedProbe = () => probeGate.promise;
+	const sharedProbeTransports: MockWorkerTransport[] = [];
+	const sharedProbeManager = new WorkerManager(() => {
+		const transport = new MockWorkerTransport();
+		sharedProbeTransports.push(transport);
+		return new MockWorkerHandle(transport);
+	}, sharedProbe);
+	const cancelledProbe = new AbortController();
+	const cancelledLaunch = sharedProbeManager.launchWorker({
+		workerId: "worker-shared-probe-cancelled",
+		profileName: "reviewer",
+		task: taskInput("task-shared-probe-cancelled", "Cancel one probe waiter"),
+		cwd: process.cwd(),
+		signal: cancelledProbe.signal,
+	});
+	const survivingLaunch = sharedProbeManager.launchWorker({
+		workerId: "worker-shared-probe-survives",
+		profileName: "reviewer",
+		task: taskInput("task-shared-probe-survives", "Keep peer waiter"),
+		cwd: process.cwd(),
+	});
+	cancelledProbe.abort();
+	await assert.rejects(cancelledLaunch, /aborted/i);
+	probeGate.resolve({
+		command: "pi",
+		versionArgs: ["--version"],
+		hostVersion: "0.80.6",
+		minimumVersion: "0.80.6",
+		workerVersion: "0.80.6",
+		supported: true,
+		mismatch: false,
+	});
+	await survivingLaunch;
+	assert.equal(sharedProbeTransports.length, 1, "aborting one shared-probe waiter must not cancel its peer");
+	await sharedProbeManager.dispose();
+
+	const refreshTransport = new MockWorkerTransport({ hangCommands: ["get_state"] });
+	const refreshHandle = new InstrumentedWorkerHandle(refreshTransport);
+	let refreshLaunchCount = 0;
+	const refreshManager = new WorkerManager(() => {
+		refreshLaunchCount += 1;
+		return refreshLaunchCount === 1
+			? refreshHandle
+			: new MockWorkerHandle(new MockWorkerTransport());
+	}, undefined, { handleDisposeTimeoutMs: 50 });
+	const pendingRefreshAbort = new AbortController();
+	const pendingRefreshLaunch = refreshManager.launchWorker({
+		workerId: "worker-pending-refresh",
+		profileName: "reviewer",
+		task: taskInput("task-pending-refresh", "Abort pending initial refresh"),
+		cwd: process.cwd(),
+		signal: pendingRefreshAbort.signal,
+	});
+	await waitForMicrotasks();
+	assert.deepEqual(refreshTransport.commands.map((command) => command.type), ["get_state"]);
+	pendingRefreshAbort.abort();
+	await assert.rejects(pendingRefreshLaunch, /aborted/i);
+	assert.equal(refreshHandle.disposeCalls, 1);
+	assert.equal(refreshManager.hasWorker("worker-pending-refresh"), false);
+	assert.equal(refreshTransport.commands.some((command) => command.type === "prompt"), false);
+	await refreshManager.launchWorker({
+		workerId: "worker-pending-refresh",
+		profileName: "reviewer",
+		task: taskInput("task-after-pending-refresh", "Reservation cleanup proof"),
+		cwd: process.cwd(),
+	});
+	await refreshManager.dispose();
+});
+
+test("hung abort and handle disposal settle within configured deadlines", async () => {
+	const transport = new MockWorkerTransport({ hangCommands: ["abort"] });
+	const handle = new InstrumentedWorkerHandle(transport, "hang");
+	const manager = new WorkerManager(() => handle, undefined, {
+		abortTimeoutMs: 10,
+		handleDisposeTimeoutMs: 10,
+	});
+	await manager.launchWorker({
+		workerId: "worker-hung-abort",
+		profileName: "reviewer",
+		task: taskInput("task-hung-abort", "Bound cancellation"),
+		cwd: process.cwd(),
+	});
+	const startedAt = Date.now();
+	await assert.rejects(manager.abortWorker("worker-hung-abort"), /timed out/i);
+	assert.ok(Date.now() - startedAt < 250, "abort and fallback disposal must remain bounded");
+	assert.equal(handle.disposeCalls, 1);
+	assert.equal(manager.getWorker("worker-hung-abort")?.state.status, "error");
+});
+
+test("dispose shares one outcome, cancels pending launches, and aggregates after every worker cleanup", async () => {
+	const pendingProbe = Promise.withResolvers<PiVersionProbeResult>();
+	const handles = [
+		new InstrumentedWorkerHandle(new MockWorkerTransport(), "reject"),
+		new InstrumentedWorkerHandle(new MockWorkerTransport(), "resolve"),
+	];
+	let activeLaunchIndex = 0;
+	const manager = new WorkerManager(
+		() => handles[activeLaunchIndex++]!,
+		(options) => options.command === "pending-pi"
+			? pendingProbe.promise
+			: Promise.resolve({
+				command: options.command ?? "pi",
+				versionArgs: ["--version"],
+				hostVersion: "0.80.6",
+				minimumVersion: "0.80.6",
+				workerVersion: "0.80.6",
+				supported: true,
+				mismatch: false,
+			}),
+		{ handleDisposeTimeoutMs: 25 },
+	);
+	for (const workerId of ["worker-dispose-fails", "worker-dispose-succeeds"]) {
+		await manager.launchWorker({
+			workerId,
+			profileName: "reviewer",
+			task: taskInput(`task-${workerId}`, `Dispose ${workerId}`),
+			cwd: process.cwd(),
+		});
+	}
+	const pendingLaunch = manager.launchWorker({
+		workerId: "worker-dispose-pending-probe",
+		profileName: "reviewer",
+		task: taskInput("task-dispose-pending-probe", "Cancel pending launch"),
+		cwd: process.cwd(),
+		command: "pending-pi",
+	});
+	const firstDispose = manager.dispose();
+	const secondDispose = manager.dispose();
+	assert.equal(firstDispose, secondDispose, "concurrent callers must receive the shared disposal promise");
+	await assert.rejects(firstDispose, (error: unknown) => {
+		assert.ok(error instanceof AggregateError);
+		assert.equal(error.errors.length, 1);
+		return true;
+	});
+	await assert.rejects(pendingLaunch, /aborted|cancelled/i);
+	assert.deepEqual(handles.map((handle) => handle.disposeCalls), [1, 1], "a failed cleanup must not skip peers");
+	assert.equal(activeLaunchIndex, 2, "the cancelled pending probe must never spawn");
 });
 
 test("closeWorker rejects running workers", async () => {
