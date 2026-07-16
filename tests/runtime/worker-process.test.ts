@@ -1,6 +1,8 @@
 import test from "node:test";
+import { EventEmitter } from "node:events";
 import assert from "node:assert/strict";
-import { buildWorkerProcessArgs, resolveWorkerSpawnImplementation, spawnWorkerProcess } from "../../src/runtime/worker-process";
+import { setTimeout as delay } from "node:timers/promises";
+import { buildWorkerProcessArgs, resolveWorkerSpawnImplementation, spawnWorkerProcess, terminateWindowsWorkerTree } from "../../src/runtime/worker-process";
 import { WorkerManager } from "../../src/runtime/worker-manager";
 import { HOST_PI_VERSION, type ProbeWorkerPiVersion } from "../../src/runtime/pi-version";
 import { MockWorkerHandle, MockWorkerTransport } from "./test-helpers";
@@ -124,6 +126,34 @@ test("resolveWorkerSpawnImplementation uses cross-spawn on Windows", () => {
 	assert.equal(resolveWorkerSpawnImplementation("linux"), "node:child_process");
 });
 
+test("Windows worker termination selects taskkill tree escalation and falls back on failure", async () => {
+	const childSignals: Array<NodeJS.Signals | undefined> = [];
+	const taskkillCalls: Array<{ command: string; args: string[] }> = [];
+	const child = {
+		pid: 4321,
+		kill(signal?: NodeJS.Signals) {
+			childSignals.push(signal);
+			return true;
+		},
+	};
+	const spawnTaskkill = (command: string, args: string[]) => {
+		taskkillCalls.push({ command, args });
+		const killer = new EventEmitter() as EventEmitter & { pid: number; kill(signal?: NodeJS.Signals): boolean };
+		killer.pid = 9999;
+		killer.kill = () => true;
+		queueMicrotask(() => killer.emit("close", 1));
+		return killer;
+	};
+
+	await terminateWindowsWorkerTree(child, spawnTaskkill, 50);
+
+	assert.deepEqual(taskkillCalls, [{
+		command: "taskkill",
+		args: ["/pid", "4321", "/T", "/F"],
+	}]);
+	assert.deepEqual(childSignals, ["SIGKILL"], "failed taskkill must fall back to direct forced termination");
+});
+
 test("WorkerManager rejects an unsupported worker before RPC process launch", async () => {
 	let launches = 0;
 	const manager = new WorkerManager(
@@ -242,4 +272,69 @@ test("spawnWorkerProcess converts child_process spawn errors into waitForExit fa
 	assert.ok(exitInfo.error);
 	assert.match(exitInfo.error.message, /ENOENT|not found/i);
 	assert.match(handle.stderrBuffer, /ENOENT|not found/i);
+});
+
+test("POSIX disposal terminates the worker process group including child and grandchild", {
+	skip: process.platform === "win32",
+	timeout: 5_000,
+}, async () => {
+	const grandchildSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
+	const childSource = [
+		"const { spawn } = require('node:child_process');",
+		"process.on('SIGTERM', () => {});",
+		`const grandchild = spawn(process.execPath, ['-e', ${JSON.stringify(grandchildSource)}], { stdio: 'ignore' });`,
+		"console.log(JSON.stringify({ child: process.pid, grandchild: grandchild.pid }));",
+		"setInterval(() => {}, 1000);",
+	].join("");
+	const workerSource = [
+		"const { spawn } = require('node:child_process');",
+		"process.on('SIGTERM', () => {});",
+		`const child = spawn(process.execPath, ['-e', ${JSON.stringify(childSource)}], { stdio: ['ignore', 'inherit', 'inherit'] });`,
+		"console.log(JSON.stringify({ worker: process.pid, child: child.pid }));",
+		"setInterval(() => {}, 1000);",
+	].join("");
+	const handle = spawnWorkerProcess({
+		cwd: process.cwd(),
+		command: process.execPath,
+		baseArgs: ["-e", workerSource],
+	});
+	let output = "";
+	const pids = new Set<number>();
+	const ready = Promise.withResolvers<void>();
+	handle.transport.stdout.on("data", (chunk) => {
+		output += chunk.toString();
+		for (const line of output.trim().split("\n")) {
+			try {
+				const parsed = JSON.parse(line) as { worker?: number; child?: number; grandchild?: number };
+				for (const pid of [parsed.worker, parsed.child, parsed.grandchild]) {
+					if (typeof pid === "number") pids.add(pid);
+				}
+			} catch {
+				// Wait for a complete JSON line.
+			}
+		}
+		if (pids.size === 3) ready.resolve();
+	});
+	await ready.promise;
+
+	const disposeStartedAt = Date.now();
+	await handle.dispose();
+	assert.ok(Date.now() - disposeStartedAt < 1_500, "tree disposal must settle within its grace and exit bounds");
+
+	const deadline = Date.now() + 1_500;
+	while (Date.now() < deadline) {
+		const survivors = [...pids].filter((pid) => {
+			try {
+				process.kill(pid, 0);
+				return true;
+			} catch {
+				return false;
+			}
+		});
+		if (survivors.length === 0) return;
+		// This integration assertion observes real kernel process reaping; fake
+		// timers cannot advance an OS process from live/zombie to gone.
+		await delay(20);
+	}
+	assert.fail(`process tree survivors after disposal: ${[...pids].join(", ")}`);
 });
