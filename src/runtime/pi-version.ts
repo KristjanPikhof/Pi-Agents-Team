@@ -2,7 +2,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, delimiter, extname, isAbsolute, resolve } from "node:path";
+import { basename, delimiter, extname, isAbsolute, resolve, win32 } from "node:path";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 
 const require = createRequire(import.meta.url);
@@ -176,23 +176,57 @@ function resolveCommandIdentity(command: string, cwd: string, suppliedEnv?: Node
 	return `unresolved:${command}\0lookup:${fingerprint(`${cwd}\0${pathValue}\0${pathExt}`)}`;
 }
 
-function environmentIdentity(suppliedEnv?: NodeJS.ProcessEnv): string {
-	const env = suppliedEnv ?? process.env;
-	const entries = Object.keys(env).sort().flatMap((key) => {
-		const value = env[key];
-		if (value === undefined) return [];
-		return [[process.platform === "win32" ? key.toLowerCase() : key, value] as const];
+function isUrlLike(value: string): boolean {
+	return /^[A-Za-z][A-Za-z\d+.-]*:/.test(value);
+}
+
+function resolvePrefixResourceIdentity(value: string, cwd: string): string {
+	const driveMatch = /^([A-Za-z]):(.*)$/.exec(value);
+	if (driveMatch) {
+		const drive = driveMatch[1]!.toUpperCase();
+		const tail = driveMatch[2]!;
+		if (/^[\\/]/.test(tail)) {
+			const normalized = `${drive}:${tail.replaceAll("\\", "/")}`;
+			return process.platform === "win32" ? fileIdentity(win32.resolve(value)) : `windows-path:${normalized}`;
+		}
+		const resolvedCwd = process.platform === "win32" ? win32.resolve(cwd) : resolve(cwd);
+		const resolved = process.platform === "win32" ? fileIdentity(win32.resolve(cwd, value)) : `${drive}:${tail}`;
+		return `windows-drive-relative:${resolvedCwd}:${resolved}`;
+	}
+	if (/^(?:\\\\|\/\/)[^\\/]/.test(value)) {
+		const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "//");
+		return process.platform === "win32" ? fileIdentity(win32.resolve(value)) : `windows-unc:${normalized}`;
+	}
+	if (isUrlLike(value)) return value;
+	return fileIdentity(resolve(cwd, value));
+}
+
+function resolveVersionPrefixIdentity(args: readonly string[], cwd: string): string[] {
+	// Wrapper option grammars are not known here. Conservatively treat every
+	// positional argument and inline option value as a cwd-resolved resource;
+	// this prevents relative CLI/env-file aliases from sharing compatibility.
+	let optionsTerminated = false;
+	return args.map((arg) => {
+		if (arg === "--version") return arg;
+		if (arg === "--" && !optionsTerminated) {
+			optionsTerminated = true;
+			return arg;
+		}
+		if (optionsTerminated || !arg.startsWith("-")) return resolvePrefixResourceIdentity(arg, cwd);
+
+		const equalsIndex = arg.indexOf("=");
+		if (equalsIndex === -1) return arg;
+		const option = arg.slice(0, equalsIndex);
+		const value = arg.slice(equalsIndex + 1);
+		return value ? `${option}=${resolvePrefixResourceIdentity(value, cwd)}` : arg;
 	});
-	return fingerprint(JSON.stringify(entries));
 }
 
 export function buildPiVersionProbeCacheKey(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
 	const resolvedCwd = resolve(cwd);
 	const identity = JSON.stringify({
 		command: resolveCommandIdentity(command, resolvedCwd, env),
-		cwd: resolvedCwd,
-		args,
-		environment: environmentIdentity(env),
+		args: resolveVersionPrefixIdentity(args, resolvedCwd),
 	});
 	return `pi-version-probe:v1:${fingerprint(identity)}`;
 }
