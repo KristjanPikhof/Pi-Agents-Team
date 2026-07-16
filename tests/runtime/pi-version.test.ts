@@ -127,6 +127,149 @@ test("caches probes and coalesces concurrent first probes by command", async () 
 	assert.equal(calls, 1);
 });
 
+test("coalesces the same resolved command and CLI prefix across cwd and unrelated environment changes", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-identity-"));
+	const executable = join(root, "pi");
+	await writeFile(executable, "shared executable");
+	let calls = 0;
+	let release!: () => void;
+	const blocked = new Promise<void>((resolve) => { release = resolve; });
+	const run: RunPiVersionCommand = async () => {
+		calls += 1;
+		await blocked;
+		return { stdout: "0.80.6", stderr: "", code: 0 };
+	};
+	const baseArgs = ["/shared/pi-cli.js", "--mode", "rpc", "--no-session"];
+	try {
+		const first = probeWorkerPiVersion({
+			command: executable,
+			baseArgs,
+			cwd: root,
+			env: { PATH: "/first/path", UNRELATED: "first" },
+		}, run);
+		const second = probeWorkerPiVersion({
+			command: executable,
+			baseArgs,
+			cwd: tmpdir(),
+			env: { PATH: "/second/path", UNRELATED: "second" },
+		}, run);
+		assert.equal(calls, 1);
+		release();
+		assert.equal((await first).workerVersion, "0.80.6");
+		assert.equal((await second).workerVersion, "0.80.6");
+		assert.equal(calls, 1);
+	} finally {
+		release();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("separates identical relative CLI prefixes that resolve under different cwd values", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-relative-prefix-"));
+	const firstCwd = join(root, "first");
+	const secondCwd = join(root, "second");
+	const relativeCli = join("relative", "pi-cli.js");
+	await mkdir(join(firstCwd, "relative"), { recursive: true });
+	await mkdir(join(secondCwd, "relative"), { recursive: true });
+	await writeFile(join(firstCwd, relativeCli), "supported CLI");
+	await writeFile(join(secondCwd, relativeCli), "unsupported CLI");
+	let calls = 0;
+	const run: RunPiVersionCommand = async ({ cwd }) => {
+		calls += 1;
+		return { stdout: cwd === firstCwd ? "0.80.7" : "0.80.5", stderr: "", code: 0 };
+	};
+	const baseArgs = [relativeCli, "--mode", "rpc", "--no-session"];
+	try {
+		const supported = await probeWorkerPiVersion({ command: process.execPath, baseArgs, cwd: firstCwd }, run);
+		const unsupported = await probeWorkerPiVersion({ command: process.execPath, baseArgs, cwd: secondCwd }, run);
+		assert.equal(supported.workerVersion, "0.80.7");
+		assert.equal(supported.supported, true);
+		assert.equal(unsupported.workerVersion, "0.80.5");
+		assert.equal(unsupported.supported, false);
+		assert.equal(calls, 2, "different resolved relative entrypoints must not share a probe result");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("relative inline Node resources are cwd-sensitive while absolute prefixes remain canonical", () => {
+	const command = process.execPath;
+	const cli = "/shared/pi-cli.js";
+	const firstRelative = buildPiVersionProbeCacheKey(command, ["--env-file=worker.env", cli, "--version"], "/first");
+	const secondRelative = buildPiVersionProbeCacheKey(command, ["--env-file=worker.env", cli, "--version"], "/second");
+	const firstAbsolute = buildPiVersionProbeCacheKey(command, ["--env-file=/shared/worker.env", cli, "--version"], "/first");
+	const secondAbsolute = buildPiVersionProbeCacheKey(command, ["--env-file=/shared/worker.env", cli, "--version"], "/second");
+	assert.notEqual(firstRelative, secondRelative);
+	assert.equal(firstAbsolute, secondAbsolute);
+});
+
+test("canonicalizes dash-prefixed positional CLI entries after the option terminator", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-option-terminator-"));
+	const firstCwd = join(root, "first");
+	const secondCwd = join(root, "second");
+	await mkdir(firstCwd);
+	await mkdir(secondCwd);
+	await writeFile(join(firstCwd, "-pi-cli.js"), "supported CLI");
+	await writeFile(join(secondCwd, "-pi-cli.js"), "unsupported CLI");
+	let calls = 0;
+	const run: RunPiVersionCommand = async ({ cwd }) => {
+		calls += 1;
+		return { stdout: cwd === firstCwd ? "0.80.7" : "0.80.5", stderr: "", code: 0 };
+	};
+	const baseArgs = ["--", "-pi-cli.js", "--mode", "rpc", "--no-session"];
+	try {
+		assert.equal((await probeWorkerPiVersion({ command: process.execPath, baseArgs, cwd: firstCwd }, run)).supported, true);
+		assert.equal((await probeWorkerPiVersion({ command: process.execPath, baseArgs, cwd: secondCwd }, run)).supported, false);
+		assert.equal(calls, 2, "dash-prefixed positional entrypoints in different cwd roots must not share a probe");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("classifies Windows drive and UNC resources before generic URL schemes", () => {
+	const command = process.execPath;
+	const suffix = ["--version"];
+	const driveAbsolute = ["C:\\pi\\cli.js", ...suffix];
+	const driveRelative = ["C:pi\\cli.js", ...suffix];
+	const unc = ["\\\\server\\share\\pi-cli.js", ...suffix];
+	const url = ["file:///shared/pi-cli.js", ...suffix];
+
+	assert.equal(
+		buildPiVersionProbeCacheKey(command, driveAbsolute, "/first", {}),
+		buildPiVersionProbeCacheKey(command, driveAbsolute, "/second", {}),
+		"drive-absolute resources are canonical across cwd even on non-Windows test hosts",
+	);
+	assert.notEqual(
+		buildPiVersionProbeCacheKey(command, driveRelative, "/first", {}),
+		buildPiVersionProbeCacheKey(command, driveRelative, "/second", {}),
+		"drive-relative resources must retain cwd identity rather than being mistaken for URLs",
+	);
+	assert.equal(
+		buildPiVersionProbeCacheKey(command, unc, "/first", {}),
+		buildPiVersionProbeCacheKey(command, unc, "/second", {}),
+	);
+	assert.equal(
+		buildPiVersionProbeCacheKey(command, url, "/first", {}),
+		buildPiVersionProbeCacheKey(command, url, "/second", {}),
+	);
+});
+
+test("invalidates a cached prefix identity when a native absolute CLI entrypoint is replaced", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-version-prefix-replace-"));
+	const cli = join(root, "pi-cli.js");
+	const replacement = join(root, "pi-cli-new.js");
+	await writeFile(cli, "first CLI");
+	try {
+		const first = buildPiVersionProbeCacheKey(process.execPath, [cli, "--version"], root);
+		await writeFile(replacement, "replacement CLI with different size");
+		await rename(replacement, cli);
+		const second = buildPiVersionProbeCacheKey(process.execPath, [cli, "--version"], root);
+		assert.notEqual(first, second);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("expires successful cache entries while continuing to coalesce pending probes", async (t) => {
 	let now = 1_000;
 	t.mock.method(Date, "now", () => now);
@@ -210,7 +353,7 @@ test("stores only sanitized compatibility data after a successful wrapper probe"
 	assert.equal(calls, 1);
 });
 
-test("does not retain raw environment or CLI credential values in cache keys", () => {
+test("does not retain or key on unrelated environment values", () => {
 	const secret = "credential-value-that-must-not-be-retained";
 	const first = buildPiVersionProbeCacheKey("missing-pi", ["--token", secret, "--version"], "/tmp", {
 		PATH: "/credential/path",
@@ -221,7 +364,7 @@ test("does not retain raw environment or CLI credential values in cache keys", (
 		API_TOKEN: `${secret}-changed`,
 	});
 	assert.doesNotMatch(first, /credential-value|API_TOKEN|credential\/path/);
-	assert.notEqual(first, second);
+	assert.equal(first, second);
 });
 
 test("does not expose a sensitive resolved PATH directory in cache keys", async () => {
