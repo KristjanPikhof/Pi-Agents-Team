@@ -37,12 +37,12 @@ test("package manifest exposes only the compiled extension and dist-contained as
 	assert.ok(!packageJson.files?.includes("profiles"), "worker profiles ship under dist only");
 });
 
-test("package manifest pins development checks to the minimum supported Pi release", () => {
+test("package manifest pins development checks to Pi 0.80.10", () => {
 	const testedPiVersions = {
 		codingAgent: packageJson.devDependencies?.["@earendil-works/pi-coding-agent"],
 		tui: packageJson.devDependencies?.["@earendil-works/pi-tui"],
 	};
-	assert.deepEqual(testedPiVersions, { codingAgent: "0.80.6", tui: "0.80.6" });
+	assert.deepEqual(testedPiVersions, { codingAgent: "0.80.10", tui: "0.80.10" });
 	assert.deepEqual(
 		{
 			codingAgent: packageLock.packages?.[""]?.devDependencies?.["@earendil-works/pi-coding-agent"],
