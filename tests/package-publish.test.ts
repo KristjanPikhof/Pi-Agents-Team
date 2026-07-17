@@ -238,7 +238,7 @@ test("the package publish timeout covers every subprocess budget and filesystem 
 	);
 });
 
-test("package docs pin Pi 0.80.6 and separate source, compiled, and published validation", async () => {
+test("package docs distinguish Pi 0.80.10 development validation from the 0.80.6 minimum", async () => {
 	const [readme, contributing, operations, architecture] = await Promise.all(
 		["README.md", "CONTRIBUTING.md", "docs/operations.md", "docs/architecture.md"].map((path) =>
 			readFile(join(projectRoot, path), "utf8"),
@@ -252,13 +252,20 @@ test("package docs pin Pi 0.80.6 and separate source, compiled, and published va
 	assert.match(readme, /This checks the source path only; it does not validate the compiled or published package entrypoint\./);
 	assert.match(
 		contributing,
-		/Development validation uses exactly Pi `0\.80\.6`[\s\S]*Do not use `-p "\/team"` as an overlay check/,
+		/Development validation uses exactly Pi `0\.80\.10`\. The supported host and worker minimum remains Pi `0\.80\.6`\.[\s\S]*Do not use `-p "\/team"` as an overlay check/,
 	);
 	assert.match(
 		operations,
 		/Check the source shim during development:[\s\S]*Check the compiled Pi entrypoint:[\s\S]*Check the published package contract/,
 	);
-	assert.match(architecture, /Repository development dependencies and validation use exactly Pi `0\.80\.6`/);
+	assert.match(
+		operations,
+		/Development validation uses exactly Pi `0\.80\.10`\. The supported host and worker minimum remains Pi `0\.80\.6`\./,
+	);
+	assert.match(
+		architecture,
+		/Repository development dependencies and validation use exactly Pi `0\.80\.10`\. The supported host and worker minimum remains Pi `0\.80\.6`\./,
+	);
 });
 
 test("a clean publish artifact installs and imports in an offline consumer", { timeout: PACKAGE_TEST_TIMEOUT_MS }, async () => {
