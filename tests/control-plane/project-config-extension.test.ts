@@ -311,8 +311,8 @@ test("invalid project config warns on session start and blocks delegate_task", a
 		root,
 		buildConfig({
 			reviewer: {
-				prompt: { source: "project", path: "../outside.md" },
-			},
+				prompt: "./prompts/missing-reviewer.md",
+			} as any,
 		}),
 	);
 

@@ -412,7 +412,8 @@ const DEFAULT_READ_ONLY_TOOLS = ["read", "grep", "find", "ls", "bash"];
  *    if the role name matches a packaged profile, use the packaged file;
  *    otherwise use the generic-worker sentinel.
  *  - source: "project" with a path that resolves to a readable file → use the file.
- *  - source: "project" with a string that does NOT resolve to a file → treat as
+ *  - source: "project" with a missing path-shaped string → fail closed.
+ *  - source: "project" with prose that does NOT resolve to a file → treat as
  *    inline prompt text (populates TeamProfileSpec.promptInline).
  *  - source: "project" with no path → warn and fall back to generic-worker.
  */
@@ -455,47 +456,55 @@ function resolveRolePrompt(
 	}
 	if (resolved.path && existsSync(resolved.path)) {
 		// Existing path — verify it's a regular file. A directory would crash
-		// `readFileSync` at worker launch with EISDIR; catch it here instead.
+		// `readFileSync` at worker launch with EISDIR; reject it during config load.
 		try {
 			if (!statSync(resolved.path).isFile()) {
 				return {
 					promptPath: GENERIC_WORKER_PROMPT_SENTINEL,
 					diagnostics: [
 						makeDiagnostic(
-							"warning",
+							"error",
 							"project_prompt_not_a_file",
-							`Prompt path resolves to a directory (or non-file) for role "${roleName}": ${raw} — using the generic worker template.`,
+							`Prompt path for role "${roleName}" is not a regular file: ${raw}.`,
 							fieldPath,
 						),
 					],
 				};
 			}
-		} catch {
-			// stat failed — treat as not-a-file, fall through to inline/warning path
+		} catch (error) {
+			return {
+				promptPath: GENERIC_WORKER_PROMPT_SENTINEL,
+				diagnostics: [
+					makeDiagnostic(
+						"error",
+						"project_prompt_not_a_file",
+						`Prompt path for role "${roleName}" could not be read: ${raw} (${error instanceof Error ? error.message : String(error)}).`,
+						fieldPath,
+					),
+				],
+			};
 		}
 		return { promptPath: resolved.path, diagnostics: [] };
 	}
 
-	// Not a readable file. Two cases:
-	//  - string looks like a path (has separators, `.md` suffix, `./`, `~/`,
-	//    http(s)://, Windows drive) — very likely a typo or a wrong scope; warn
-	//    so operators see it, but still fall through to inline rather than
-	//    hard-failing (escape hatch for intentional inline prompts that happen
-	//    to contain `/`).
-	//  - string looks like prose — silent fallback to inline is the user's
-	//    explicit escape hatch.
-	const diagnostics: ProjectConfigDiagnostic[] = [];
+	// A path-shaped string is an explicit file reference. Never reinterpret a
+	// missing file as inline prose: that launches a worker with the path itself
+	// as its entire role prompt. Prose-shaped strings remain the inline escape
+	// hatch.
 	if (looksLikePathString(raw)) {
-		diagnostics.push(
-			makeDiagnostic(
-				"warning",
-				"project_prompt_missing",
-				`Prompt string for role "${roleName}" looks like a path but no file was found at ${raw} — treating it as inline prompt text. If you meant a file, fix the path; if you meant literal text, ignore this warning.`,
-				fieldPath,
-			),
-		);
+		return {
+			promptPath: GENERIC_WORKER_PROMPT_SENTINEL,
+			diagnostics: [
+				makeDiagnostic(
+					"error",
+					"project_prompt_missing",
+					`Prompt file for role "${roleName}" was not found: ${raw}.`,
+					fieldPath,
+				),
+			],
+		};
 	}
-	return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, promptInline: raw, diagnostics };
+	return { promptPath: GENERIC_WORKER_PROMPT_SENTINEL, promptInline: raw, diagnostics: [] };
 }
 
 /**
