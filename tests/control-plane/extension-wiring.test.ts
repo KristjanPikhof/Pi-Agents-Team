@@ -19,6 +19,7 @@ import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
 interface RegisteredTool {
 	name: string;
+	constrainedSampling?: unknown;
 	renderCall?: (...args: any[]) => unknown;
 	execute?: (...args: any[]) => Promise<any>;
 }
@@ -99,6 +100,16 @@ test("extension mismatch notifier emits exactly one non-fatal session warning", 
 	assert.equal(warnings.length, 2, "a new session may warn once again");
 });
 
+test("orchestrator thinking inheritance prefers the current Pi context", () => {
+	const pi = { getThinkingLevel: () => "low" } as unknown as ExtensionAPI;
+	const currentContext = { thinkingLevel: "high", getThinkingLevel: () => "xhigh" } as unknown as ExtensionContext;
+	const legacyContext = { getThinkingLevel: () => "xhigh" } as unknown as ExtensionContext;
+
+	assert.equal(_testing.getOrchestratorThinkingLevel(pi, currentContext), "high");
+	assert.equal(_testing.getOrchestratorThinkingLevel(pi, legacyContext), "low");
+	assert.equal(_testing.getOrchestratorThinkingLevel({} as ExtensionAPI, legacyContext), "xhigh");
+});
+
 test("extension registers control-plane tools and operator commands", () => {
 	const tools: RegisteredTool[] = [];
 	const commands: RegisteredCommand[] = [];
@@ -140,6 +151,10 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(!commands.some((command) => command.name === "team-off"));
 	assert.ok(!commands.some((command) => command.name === "team-disable"));
 	assert.ok(tools.every((tool) => typeof tool.renderCall === "function"));
+	assert.deepEqual(
+		tools.map((tool) => tool.constrainedSampling),
+		tools.map(() => ({ type: "json_schema", strict: "prefer" })),
+	);
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("agent_start"));
 	assert.ok(events.includes("agent_end"));

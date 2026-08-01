@@ -116,7 +116,9 @@ Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, f
 The probe keeps a promise cache keyed by the resolved command and any CLI entrypoint prefix. Concurrent first launches share that promise, and later launches reuse the result rather than spawning another version check. This applies to the default and custom worker commands, so injected test launchers must also inject a probe and never fall through to a machine-global `pi`.
 
 Exact host/worker patch equality is not required. A supported worker version that differs from the host emits one non-fatal warning per extension session; an exact match emits none. This is a minimum-version gate, not an upper-bound policy.
-Repository development dependencies and validation use exactly Pi `0.80.10`. The supported host and worker minimum remains Pi `0.80.6`.
+Repository development dependencies and validation use exactly Pi `0.83.0`. The supported host and worker minimum remains Pi `0.80.6`.
+
+Team tools request Pi's preferred strict JSON-schema sampling. Pi uses provider-side schema enforcement when the selected model supports it and falls back to ordinary tool calling otherwise. Worker thinking inheritance reads the effective `ctx.thinkingLevel` supplied by current Pi releases before consulting legacy getter APIs.
 
 ### Workers launch with reduced discovery
 
