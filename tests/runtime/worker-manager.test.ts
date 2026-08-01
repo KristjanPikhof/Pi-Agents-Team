@@ -222,6 +222,51 @@ test("agent_end, compaction, retries, queued continuations, and refresh stay run
 	assert.equal((manager.getWorker("worker-settlement")?.state as Record<string, unknown>).awaitingSettlement, undefined);
 	transport.setState({ isCompacting: false });
 
+	transport.writeEvent({
+		type: "summarization_retry_scheduled",
+		attempt: 1,
+		maxAttempts: 3,
+		delayMs: 2_000,
+		errorMessage: "terminated",
+	});
+	transport.writeEvent({
+		type: "summarization_retry_attempt_start",
+		source: "compaction",
+		reason: "threshold",
+	});
+	transport.writeEvent({ type: "summarization_retry_finished" });
+	await waitForMicrotasks();
+	assert.equal(manager.getWorker("worker-settlement")?.state.status, "running");
+	const retryActivity = (manager.getWorkerActivity("worker-settlement") ?? [])
+		.filter((event) => event.sourceEvent.startsWith("worker_summarization_retry"));
+	assert.deepEqual(retryActivity.map((event) => ({
+		actionKind: event.actionKind,
+		status: event.status,
+		label: event.label,
+		summary: event.summary,
+	})), [
+		{
+			actionKind: "process",
+			status: "info",
+			label: "Summarization retry scheduled",
+			summary: "attempt 1/3 · delay 2000ms · terminated",
+		},
+		{
+			actionKind: "process",
+			status: "info",
+			label: "Compaction retry started",
+			summary: "reason=threshold",
+		},
+		{
+			actionKind: "process",
+			status: "info",
+			label: "Summarization retry finished",
+			summary: "retry loop ended; awaiting Pi settlement",
+		},
+	]);
+	assert.ok((manager.getWorkerConsole("worker-settlement") ?? [])
+		.some((event) => event.kind === "status" && event.text.includes("summarization retry scheduled")));
+
 	transport.writeEvent({ type: "agent_start" });
 	transport.writeEvent({ type: "agent_end", messages: [] });
 	transport.writeEvent({ type: "queue_update", steering: [], followUp: ["continue"] });
@@ -235,6 +280,10 @@ test("agent_end, compaction, retries, queued continuations, and refresh stay run
 	await waitForMicrotasks();
 	assert.equal(manager.getWorker("worker-settlement")?.state.status, "idle");
 	assert.equal(events.filter((type) => type === "worker_idle").length, 1);
+	const activityCountAfterSettlement = manager.getWorkerActivity("worker-settlement")?.length;
+	transport.writeEvent({ type: "summarization_retry_finished" });
+	await waitForMicrotasks();
+	assert.equal(manager.getWorkerActivity("worker-settlement")?.length, activityCountAfterSettlement);
 });
 
 test("abort, RPC parse error, exit, and prompt rejection take precedence over late settlement", async () => {

@@ -1048,6 +1048,16 @@ export class WorkerManager {
 		) {
 			return;
 		}
+		if (
+			(
+				event.type === "worker_summarization_retry_scheduled"
+				|| event.type === "worker_summarization_retry_attempt_started"
+				|| event.type === "worker_summarization_retry_finished"
+			)
+			&& (!record.awaitingSettlement || UNREACHABLE_TERMINAL_STATUSES.has(record.state.status))
+		) {
+			return;
+		}
 
 		if (event.type !== "worker_state") {
 			record.state.lastEventAt = event.timestamp;
@@ -1218,6 +1228,62 @@ export class WorkerManager {
 			case "worker_agent_end":
 				this.flushPendingText(record);
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				break;
+			case "worker_summarization_retry_scheduled": {
+				const details: string[] = [];
+				if (event.attempt !== undefined && event.maxAttempts !== undefined) {
+					details.push(`attempt ${event.attempt}/${event.maxAttempts}`);
+				} else if (event.attempt !== undefined) {
+					details.push(`attempt ${event.attempt}`);
+				}
+				if (event.delayMs !== undefined) details.push(`delay ${event.delayMs}ms`);
+				if (event.errorMessage) details.push(trimSummary(event.errorMessage, 160));
+				const summary = details.join(" · ") || "awaiting retry";
+				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: `summarization retry scheduled: ${summary}` });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "process",
+					status: "info",
+					label: "Summarization retry scheduled",
+					summary,
+					sourceEvent: event.type,
+				});
+				break;
+			}
+			case "worker_summarization_retry_attempt_started": {
+				const label = event.source === "compaction"
+					? "Compaction retry started"
+					: event.source === "branchSummary"
+						? "Branch summary retry started"
+						: "Summarization retry started";
+				const summary = event.reason ? `reason=${event.reason}` : "retry attempt started";
+				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: `${label}: ${summary}` });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "process",
+					status: "info",
+					label,
+					summary,
+					sourceEvent: event.type,
+				});
+				break;
+			}
+			case "worker_summarization_retry_finished":
+				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: "summarization retry loop finished; awaiting Pi settlement" });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp,
+					updatedAt: event.timestamp,
+					actionKind: "process",
+					status: "info",
+					label: "Summarization retry finished",
+					summary: "retry loop ended; awaiting Pi settlement",
+					sourceEvent: event.type,
+				});
 				break;
 			case "worker_idle":
 				record.awaitingSettlement = false;
