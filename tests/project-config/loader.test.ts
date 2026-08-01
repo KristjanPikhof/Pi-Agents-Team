@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TEAM_PROFILE_NAMES, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE, TEAM_SCAFFOLD_VERSION, type TeamProjectConfigFile } from "../../src/types";
 import { loadActiveTeamConfig } from "../../src/project-config/loader";
+import { loadWorkerPrompt } from "../../src/prompts/contracts";
+import { applyLaunchPolicy } from "../../src/safety/launch-policy";
 
 function projectConfigPath(root: string): string {
 	return join(root, TEAM_PROJECT_CONFIG_DIR, TEAM_PROJECT_CONFIG_FILE);
@@ -1025,12 +1027,7 @@ test("loadActiveTeamConfig defaults safety.projectRoot to cwd when no project co
 	assert.equal(result.config.safety.projectRoot, cwd);
 });
 
-test("loadActiveTeamConfig: path-typo-shaped string emits project_prompt_missing warning but still falls back to inline", () => {
-	// cr-expert P2-11: a typo like `prompts/reviewr.md` used to silently become
-	// a 21-char inline prompt, so the worker ran with a trivial role contract
-	// and nobody noticed. Now the loader warns when the string looks like a
-	// path but doesn't resolve, while still falling through to inline so the
-	// escape hatch for intentional inline prompts containing `/` still works.
+test("loadActiveTeamConfig: missing path-shaped prompt disables delegation", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-prompt-typo-"));
 	mkdirSync(join(root, "app"), { recursive: true });
 	writeProjectConfig(root, {
@@ -1047,12 +1044,66 @@ test("loadActiveTeamConfig: path-typo-shaped string emits project_prompt_missing
 	});
 
 	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "invalid");
+	assert.equal(result.delegationEnabled, false);
+	const diagnostic = result.diagnostics.find((entry) => entry.code === "project_prompt_missing");
+	assert.equal(diagnostic?.severity, "error");
+	assert.ok(!result.config.profiles.find((profile) => profile.name === "typo-role"));
+});
+
+test("loadActiveTeamConfig: prompt directory disables delegation", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-prompt-directory-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	mkdirSync(join(root, "prompts"));
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			"directory-role": {
+				access: {
+					tools: ["read"],
+					write: false,
+				},
+				prompt: "./prompts",
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
+	assert.equal(result.status, "invalid");
+	assert.equal(result.delegationEnabled, false);
+	const diagnostic = result.diagnostics.find((entry) => entry.code === "project_prompt_not_a_file");
+	assert.equal(diagnostic?.severity, "error");
+});
+
+test("loadActiveTeamConfig: project prompt survives a sibling worker cwd", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-team-project-prompt-"));
+	const workerCwd = mkdtempSync(join(tmpdir(), "pi-agent-team-worker-cwd-"));
+	mkdirSync(join(root, "app"), { recursive: true });
+	const promptPath = join(root, "prompts", "custom-reviewer.md");
+	mkdirSync(resolve(promptPath, ".."), { recursive: true });
+	writeFileSync(promptPath, "Review the project prompt contract.\n");
+	writeProjectConfig(root, {
+		schemaVersion: 4,
+		roles: {
+			"custom-reviewer": {
+				access: {
+					tools: ["read"],
+					write: false,
+				},
+				prompt: "./prompts/custom-reviewer.md",
+			} as any,
+		},
+	});
+
+	const result = loadActiveTeamConfig({ cwd: join(root, "app"), globalConfigPath: null });
 	assert.equal(result.status, "project");
-	const warning = result.diagnostics.find((diagnostic) => diagnostic.code === "project_prompt_missing");
-	assert.ok(warning, "expected a project_prompt_missing warning for a path-shaped string");
-	assert.equal(warning?.severity, "warning");
-	const role = result.config.profiles.find((profile) => profile.name === "typo-role");
-	assert.equal(role?.promptInline, "./prompts/reviewr.md", "falls back to inline so operators keep the escape hatch");
+	const profile = result.config.profiles.find((entry) => entry.name === "custom-reviewer");
+	assert.ok(profile);
+	assert.equal(profile.promptPath, promptPath);
+	const plan = applyLaunchPolicy({ cwd: workerCwd, profile }, result.config);
+	assert.equal(plan.systemPromptPath, promptPath);
+	assert.equal(plan.systemPromptPath.startsWith(workerCwd), false);
+	assert.equal(loadWorkerPrompt(profile.name, result.config), "Review the project prompt contract.");
 });
 
 test("loadActiveTeamConfig: empty prompt string resolves without crashing on EISDIR", () => {

@@ -501,6 +501,7 @@ Expected when the winning role config hits a hard error. Project-local files win
 Common causes (hard errors):
 
 - The JSON isn't parseable (syntax error).
+- A path-shaped prompt string is missing or resolves to something other than a regular file.
 - A prompt path escapes the project root.
 - A `pathScope` root escapes the project root while `workerAccess.allowPathsOutsideProject` is explicitly `false`.
 - A role declares `access.extensionMode: "inherit"` (recursion guard).
@@ -511,7 +512,6 @@ Soft warnings don't disable delegation (the config keeps working):
 
 - `schemaVersion` doesn't match the current schema. The active layer falls back to built-ins and you get a toast pointing at `/team-init --force`. See [`profiles.md`](profiles.md) "Version bumps."
 - The active config's `scaffoldVersion` is stale, or a current-schema active config is missing `scaffoldVersion`. This is a freshness nudge only: the active file keeps loading. Run `/team-init <local|global> --force` for the active scope when you want to refresh the scaffold; the previous file is backed up first.
-- A prompt string that doesn't resolve to a file. It gets treated as inline prompt text, which is usually what you want. If you actually meant a path, fix the typo.
 - A role has an invalid `thinkingLevel`. The extension drops only that field, keeps the rest of the role, and emits a toast such as `invalid thinkingLevel ... field dropped`. Fix the value to one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, then reload.
 
 See [`profiles.md`](profiles.md) for the full role shape and prompt-resolution rules.
