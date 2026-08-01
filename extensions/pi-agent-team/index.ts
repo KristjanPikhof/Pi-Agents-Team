@@ -28,6 +28,9 @@ import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer.j
 import type { WorkerPiVersionMismatchEvent } from "../../src/runtime/worker-manager.js";
 import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type TeamPersistenceRecord, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types.js";
 
+const DELEGATE_TASK_MODEL_DESCRIPTION = "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model.";
+const SCOPED_MODEL_PREVIEW_LIMIT = 8;
+
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
 	goal: Type.String({ description: "What the worker should accomplish" }),
@@ -38,7 +41,7 @@ const DelegateTaskSchema = Type.Object({
 	pathScopeRoots: Type.Optional(Type.Array(Type.String(), { description: "Allowed path roots for scoped workers, especially write-capable profiles." })),
 	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
 	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of installed Pi skill names to enable on the worker. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches) and the worker is told to load and apply the requested skills by name. Omit if no specialized skill is needed." })),
-	model: Type.Optional(Type.String({ description: "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model." })),
+	model: Type.Optional(Type.String({ description: DELEGATE_TASK_MODEL_DESCRIPTION })),
 	reuseWorkerId: Type.Optional(Type.String({ description: "Reuse an existing idle (or waiting_followup) worker's RPC session for this task instead of spawning a fresh process. Use when the next task is in scope of the previous role and roughly the same path scope — saves spawn cost and keeps warm role context. The worker's prior summary, finalAnswer, and lastTool are reset; a new taskId is allocated. Rejected if the target is running/starting/completed/aborted/error/exited (its RPC is already disposed); cancel + delegate fresh in that case. Check agent_status for `reusable: true` to find candidates." })),
 });
 
@@ -178,6 +181,40 @@ function updateDelegateTaskProfileDescription(config: TeamConfig): void {
 	const profileListSummary = profileListSnapshot.length > 0 ? profileListSnapshot.join(", ") : "(none declared)";
 	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
 		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
+}
+
+function buildDelegateTaskModelDescription(scopedModels: unknown): string {
+	if (!Array.isArray(scopedModels) || scopedModels.length === 0) return DELEGATE_TASK_MODEL_DESCRIPTION;
+
+	const modelRefs: string[] = [];
+	const seen = new Set<string>();
+	for (const entry of scopedModels) {
+		if (!entry || typeof entry !== "object") continue;
+		const model = (entry as { model?: unknown }).model;
+		if (!model || typeof model !== "object") continue;
+		const provider = typeof (model as { provider?: unknown }).provider === "string"
+			? (model as { provider: string }).provider.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 96)
+			: "";
+		const id = typeof (model as { id?: unknown }).id === "string"
+			? (model as { id: string }).id.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160)
+			: "";
+		if (!provider || !id) continue;
+		const modelRef = `${provider}/${id}`;
+		if (seen.has(modelRef)) continue;
+		seen.add(modelRef);
+		modelRefs.push(modelRef);
+	}
+	if (modelRefs.length === 0) return DELEGATE_TASK_MODEL_DESCRIPTION;
+
+	const preview = modelRefs.slice(0, SCOPED_MODEL_PREVIEW_LIMIT).join(", ");
+	const remaining = modelRefs.length - SCOPED_MODEL_PREVIEW_LIMIT;
+	const overflow = remaining > 0 ? ` (+${remaining} more)` : "";
+	return `${DELEGATE_TASK_MODEL_DESCRIPTION} Models suggested by the orchestrator's current Pi scope: ${preview}${overflow}. This list is advisory; role-specific config and worker extensions may make additional model IDs available.`;
+}
+
+function updateDelegateTaskModelDescription(scopedModels: unknown): void {
+	(DelegateTaskSchema.properties.model as { description?: string }).description =
+		buildDelegateTaskModelDescription(scopedModels);
 }
 
 function isPersistedSession(ctx: ExtensionContext): boolean {
@@ -461,6 +498,7 @@ export const _testing = {
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
 	getOrchestratorThinkingLevel,
+	buildDelegateTaskModelDescription,
 	getProjectTrustDecisionForContext,
 	isProjectConfigTrustedForContext,
 	thinkingClampToastKey,
@@ -481,6 +519,7 @@ export default function (pi: ExtensionAPI): void {
 	// model a schema-level hint of which names are valid. On session_start and
 	// /reload the active config may change, so refresh it after trust-aware load.
 	updateDelegateTaskProfileDescription(activeProjectConfig.config);
+	updateDelegateTaskModelDescription(undefined);
 
 	const deriveInitialRoutingMode = (loaded: LoadedTeamProjectConfig): "team" | "solo" => {
 		if (!loaded.enabled || !loaded.delegationEnabled) return "solo";
@@ -1217,6 +1256,7 @@ export default function (pi: ExtensionAPI): void {
 				projectConfigTrusted: isProjectConfigTrustedForContext(ctx),
 			});
 			updateDelegateTaskProfileDescription(activeProjectConfig.config);
+			updateDelegateTaskModelDescription((ctx as unknown as { scopedModels?: unknown }).scopedModels);
 			await replaceTeamManager(activeProjectConfig.config);
 			const { state, markedCount, persistenceMeasurement } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;
