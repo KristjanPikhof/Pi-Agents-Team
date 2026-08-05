@@ -4,7 +4,7 @@ Thanks for helping out. This guide covers local setup, the test discipline, and 
 
 ## Local setup
 
-Use Node `>=22.19.0`. Development validation uses exactly Pi `0.80.10`. The supported host and worker minimum remains Pi `0.80.6`. npm and `package-lock.json` are the only supported dependency and lock workflow; do not add or regenerate a Bun lock.
+Use Node `>=22.19.0`. Development validation uses exactly Pi `0.83.0`. The supported host and worker minimum remains Pi `0.80.6`. npm and `package-lock.json` are the only supported dependency and lock workflow; do not add or regenerate a Bun lock.
 
 ```bash
 git clone git@github.com:KristjanPikhof/pi-agents-team.git

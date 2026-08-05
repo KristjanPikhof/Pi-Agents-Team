@@ -28,6 +28,9 @@ import type { NormalizedWorkerEvent } from "../../src/runtime/event-normalizer.j
 import type { WorkerPiVersionMismatchEvent } from "../../src/runtime/worker-manager.js";
 import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState, type TeamConfig, type TeamPersistenceRecord, type ThinkingLevel, type ThinkingLevelConfigWarning, type WorkerRuntimeState } from "../../src/types.js";
 
+const DELEGATE_TASK_MODEL_DESCRIPTION = "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model.";
+const SCOPED_MODEL_PREVIEW_LIMIT = 8;
+
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
 	goal: Type.String({ description: "What the worker should accomplish" }),
@@ -38,7 +41,7 @@ const DelegateTaskSchema = Type.Object({
 	pathScopeRoots: Type.Optional(Type.Array(Type.String(), { description: "Allowed path roots for scoped workers, especially write-capable profiles." })),
 	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
 	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of installed Pi skill names to enable on the worker. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches) and the worker is told to load and apply the requested skills by name. Omit if no specialized skill is needed." })),
-	model: Type.Optional(Type.String({ description: "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model." })),
+	model: Type.Optional(Type.String({ description: DELEGATE_TASK_MODEL_DESCRIPTION })),
 	reuseWorkerId: Type.Optional(Type.String({ description: "Reuse an existing idle (or waiting_followup) worker's RPC session for this task instead of spawning a fresh process. Use when the next task is in scope of the previous role and roughly the same path scope — saves spawn cost and keeps warm role context. The worker's prior summary, finalAnswer, and lastTool are reset; a new taskId is allocated. Rejected if the target is running/starting/completed/aborted/error/exited (its RPC is already disposed); cancel + delegate fresh in that case. Check agent_status for `reusable: true` to find candidates." })),
 });
 
@@ -99,6 +102,7 @@ const PERSISTENCE_LIVE_WARNING = "Pi Agents Team: a compact persistence append f
 const PERSISTENCE_AMBIGUOUS_APPEND_WARNING = "Pi Agents Team: a compact persistence append threw after Pi advanced the session leaf; the durably confirmed tail record was treated as accepted and will not be retried beneath that leaf.";
 const PERSISTENCE_AMBIGUOUS_BLOCKED_WARNING = "Pi Agents Team: compact persistence is disabled because this session manager's disk and in-memory state may differ or the session-file boundary could not be captured or restored safely. Restart Pi, reopen the session, or start a new session before retrying persistence; plain /reload is not sufficient.";
 const PERSISTENCE_TAIL_READ_BYTES = 32 * 1024;
+const PREFERRED_JSON_SCHEMA_SAMPLING = { type: "json_schema", strict: "prefer" } as const;
 
 function createPersistenceGrowthMonitor(notify: (message: string) => void) {
 	let measurement: CompactPersistenceMeasurement = { recordCount: 0, payloadBytes: 0 };
@@ -157,7 +161,8 @@ function getProcessStablePersistenceIntegrityBlocks(): WeakSet<object> {
 }
 
 function getOrchestratorThinkingLevel(pi: ExtensionAPI, ctx: ExtensionContext): ThinkingLevel | undefined {
-	return (pi as ExtensionAPIWithThinkingLevel).getThinkingLevel?.()
+	return ctx.thinkingLevel
+		?? (pi as ExtensionAPIWithThinkingLevel).getThinkingLevel?.()
 		?? (ctx as ExtensionContextWithThinkingLevel).getThinkingLevel?.();
 }
 
@@ -176,6 +181,40 @@ function updateDelegateTaskProfileDescription(config: TeamConfig): void {
 	const profileListSummary = profileListSnapshot.length > 0 ? profileListSnapshot.join(", ") : "(none declared)";
 	(DelegateTaskSchema.properties.profileName as { description?: string }).description =
 		`Worker profile name. Currently declared in this session: ${profileListSummary}. See the 'Available worker profiles' block in the orchestrator system prompt for details and write policy. Don't invent names that aren't in that list — delegate_task will fail.`;
+}
+
+function buildDelegateTaskModelDescription(scopedModels: unknown): string {
+	if (!Array.isArray(scopedModels) || scopedModels.length === 0) return DELEGATE_TASK_MODEL_DESCRIPTION;
+
+	const modelRefs: string[] = [];
+	const seen = new Set<string>();
+	for (const entry of scopedModels) {
+		if (!entry || typeof entry !== "object") continue;
+		const model = (entry as { model?: unknown }).model;
+		if (!model || typeof model !== "object") continue;
+		const provider = typeof (model as { provider?: unknown }).provider === "string"
+			? (model as { provider: string }).provider.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 96)
+			: "";
+		const id = typeof (model as { id?: unknown }).id === "string"
+			? (model as { id: string }).id.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160)
+			: "";
+		if (!provider || !id) continue;
+		const modelRef = `${provider}/${id}`;
+		if (seen.has(modelRef)) continue;
+		seen.add(modelRef);
+		modelRefs.push(modelRef);
+	}
+	if (modelRefs.length === 0) return DELEGATE_TASK_MODEL_DESCRIPTION;
+
+	const preview = modelRefs.slice(0, SCOPED_MODEL_PREVIEW_LIMIT).join(", ");
+	const remaining = modelRefs.length - SCOPED_MODEL_PREVIEW_LIMIT;
+	const overflow = remaining > 0 ? ` (+${remaining} more)` : "";
+	return `${DELEGATE_TASK_MODEL_DESCRIPTION} Models suggested by the orchestrator's current Pi scope: ${preview}${overflow}. This list is advisory; role-specific config and worker extensions may make additional model IDs available.`;
+}
+
+function updateDelegateTaskModelDescription(scopedModels: unknown): void {
+	(DelegateTaskSchema.properties.model as { description?: string }).description =
+		buildDelegateTaskModelDescription(scopedModels);
 }
 
 function isPersistedSession(ctx: ExtensionContext): boolean {
@@ -459,6 +498,7 @@ export const _testing = {
 	buildThinkingClampToast,
 	buildThinkingLevelWarningToast,
 	getOrchestratorThinkingLevel,
+	buildDelegateTaskModelDescription,
 	getProjectTrustDecisionForContext,
 	isProjectConfigTrustedForContext,
 	thinkingClampToastKey,
@@ -479,6 +519,7 @@ export default function (pi: ExtensionAPI): void {
 	// model a schema-level hint of which names are valid. On session_start and
 	// /reload the active config may change, so refresh it after trust-aware load.
 	updateDelegateTaskProfileDescription(activeProjectConfig.config);
+	updateDelegateTaskModelDescription(undefined);
 
 	const deriveInitialRoutingMode = (loaded: LoadedTeamProjectConfig): "team" | "solo" => {
 		if (!loaded.enabled || !loaded.delegationEnabled) return "solo";
@@ -998,6 +1039,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Delegate Task",
 		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
 		parameters: DelegateTaskSchema,
+		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("delegate_task"),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			ensureNotReloading();
@@ -1055,6 +1097,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Agent Status",
 		description: "Return compact status for one worker or all tracked workers. Done statuses are idle/completed/aborted/error/exited; starting/running/waiting_followup are not done. Each worker carries `reusable: true` when its RPC session is still alive (idle or waiting_followup) — pass that workerId as delegate_task.reuseWorkerId to skip spawning a fresh process. For the worker's actual output, call agent_result.",
 		parameters: WorkerLookupSchema,
+		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("agent_status"),
 		async execute(_toolCallId, params) {
 			const resolvedId = params.workerId ? teamManager.resolveWorkerId(params.workerId) ?? params.workerId : undefined;
@@ -1077,6 +1120,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Agent Result",
 		description: "Get a terminal worker's final deliverable as compact plain text: worker title, optional task/status/error/relay lines, scan-friendly summary sections when available, then Result: followed by the verbatim contents of the worker's <final_answer>…</final_answer> block. Results remain unavailable until agent settlement; wait_for_agents before retrying. Terminal error/aborted/exited workers remain readable. This is the authoritative answer — synthesize directly from it. If the final_answer block is missing after settlement, steer or re-delegate with a clearer final_answer instruction instead of reading files yourself.",
 		parameters: WorkerIdSchema,
+		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("agent_result"),
 		async execute(_toolCallId, params) {
 			const workerId = teamManager.resolveWorkerId(params.workerId) ?? params.workerId;
@@ -1111,6 +1155,7 @@ export default function (pi: ExtensionAPI): void {
 		description:
 			"Send a message to a tracked worker. Running workers receive it as a mid-stream steer (or a follow_up queued onto the live stream when delivery=follow_up). Idle/waiting_followup workers wake up and start a new turn with the message as the next user prompt; completed/aborted/error/exited workers cannot receive messages.",
 		parameters: WorkerMessageSchema,
+		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("agent_message"),
 		async execute(_toolCallId, params) {
 			ensureNotReloading();
@@ -1129,6 +1174,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Ping Agents",
 		description: "Return passive or active status for tracked workers. Active mode refreshes attached live workers and returns registry snapshots for restored/disposed workers. Prefer wait_for_agents while waiting. Done statuses are idle/completed/aborted/error/exited; running means not done.",
 		parameters: PingAgentsSchema,
+		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("ping_agents"),
 		async execute(_toolCallId, params) {
 			const mode = params.mode === "active" ? "active" : "passive";
@@ -1146,6 +1192,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Wait for Agents",
 		description: "Block until every target worker reaches a terminal status (idle, completed, aborted, error, exited) or until a target raises a new relay question. Also honors a timeout. Returns reason=all_terminal, relay_raised (with newRelays listed), timeout, aborted, or wrapper-only no_workers when no targets are tracked. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting. Use it after delegate_task; when it returns relay_raised, answer via agent_message and call wait_for_agents again to resume.",
 		parameters: WaitForAgentsSchema,
+		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("wait_for_agents"),
 		async execute(_toolCallId, params, signal) {
 			ensureNotReloading();
@@ -1184,6 +1231,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Agent Cancel",
 		description: "Abort and shut down a tracked worker.",
 		parameters: WorkerIdSchema,
+		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("agent_cancel"),
 		async execute(_toolCallId, params) {
 			ensureNotReloading();
@@ -1208,6 +1256,7 @@ export default function (pi: ExtensionAPI): void {
 				projectConfigTrusted: isProjectConfigTrustedForContext(ctx),
 			});
 			updateDelegateTaskProfileDescription(activeProjectConfig.config);
+			updateDelegateTaskModelDescription((ctx as unknown as { scopedModels?: unknown }).scopedModels);
 			await replaceTeamManager(activeProjectConfig.config);
 			const { state, markedCount, persistenceMeasurement } = restoreLatestState(ctx, event.reason, activeProjectConfig.config);
 			teamState = state;

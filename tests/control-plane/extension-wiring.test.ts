@@ -19,6 +19,8 @@ import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
 interface RegisteredTool {
 	name: string;
+	parameters?: { properties?: { model?: { description?: string; enum?: unknown } } };
+	constrainedSampling?: unknown;
 	renderCall?: (...args: any[]) => unknown;
 	execute?: (...args: any[]) => Promise<any>;
 }
@@ -99,6 +101,69 @@ test("extension mismatch notifier emits exactly one non-fatal session warning", 
 	assert.equal(warnings.length, 2, "a new session may warn once again");
 });
 
+test("orchestrator thinking inheritance prefers the current Pi context", () => {
+	const pi = { getThinkingLevel: () => "low" } as unknown as ExtensionAPI;
+	const currentContext = { thinkingLevel: "high", getThinkingLevel: () => "xhigh" } as unknown as ExtensionContext;
+	const legacyContext = { getThinkingLevel: () => "xhigh" } as unknown as ExtensionContext;
+
+	assert.equal(_testing.getOrchestratorThinkingLevel(pi, currentContext), "high");
+	assert.equal(_testing.getOrchestratorThinkingLevel(pi, legacyContext), "low");
+	assert.equal(_testing.getOrchestratorThinkingLevel({} as ExtensionAPI, legacyContext), "xhigh");
+});
+
+test("delegate_task model guidance is bounded, deduplicated, and advisory", () => {
+	const scopedModels = Array.from({ length: 10 }, (_, index) => ({
+		model: { provider: "provider", id: `model-${index}` },
+	}));
+	scopedModels.splice(1, 0, { model: { provider: "provider", id: "model-0" } });
+	const description = _testing.buildDelegateTaskModelDescription(scopedModels);
+
+	assert.match(description, /provider\/model-0/);
+	assert.equal(description.match(/provider\/model-0/g)?.length, 1);
+	assert.match(description, /provider\/model-7/);
+	assert.doesNotMatch(description, /provider\/model-8/);
+	assert.match(description, /\(\+2 more\)/);
+	assert.match(description, /list is advisory/);
+	assert.doesNotMatch(_testing.buildDelegateTaskModelDescription([]), /current Pi scope/);
+	assert.doesNotMatch(_testing.buildDelegateTaskModelDescription(undefined), /current Pi scope/);
+});
+
+test("session_start refreshes scoped model guidance without enforcing an enum", async () => {
+	type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+	const handlers = new Map<string, Handler>();
+	const tools: RegisteredTool[] = [];
+	extension({
+		registerTool(tool: RegisteredTool) { tools.push(tool); },
+		registerCommand() {},
+		on(event: string, handler: Handler) { handlers.set(event, handler); },
+		appendEntry() {},
+		sendMessage() {},
+	} as unknown as ExtensionAPI);
+	const sessionManager = SessionManager.inMemory(process.cwd());
+	const ctx = {
+		cwd: process.cwd(),
+		hasUI: false,
+		sessionManager,
+		scopedModels: [
+			{ model: { provider: "openai", id: "gpt-5" } },
+			{ model: { provider: "anthropic", id: "claude-sonnet" } },
+		],
+	} as unknown as ExtensionContext;
+	await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+
+	const modelSchema = tools.find((tool) => tool.name === "delegate_task")?.parameters?.properties?.model;
+	assert.match(modelSchema?.description ?? "", /openai\/gpt-5/);
+	assert.match(modelSchema?.description ?? "", /anthropic\/claude-sonnet/);
+	assert.match(modelSchema?.description ?? "", /role-specific config and worker extensions/);
+	assert.equal(modelSchema?.enum, undefined);
+
+	(ctx as unknown as { scopedModels?: unknown }).scopedModels = [];
+	await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+	assert.doesNotMatch(modelSchema?.description ?? "", /openai\/gpt-5/);
+	assert.match(modelSchema?.description ?? "", /Defaults to the orchestrator's current model/);
+	await handlers.get("session_shutdown")?.({}, ctx);
+});
+
 test("extension registers control-plane tools and operator commands", () => {
 	const tools: RegisteredTool[] = [];
 	const commands: RegisteredCommand[] = [];
@@ -140,6 +205,10 @@ test("extension registers control-plane tools and operator commands", () => {
 	assert.ok(!commands.some((command) => command.name === "team-off"));
 	assert.ok(!commands.some((command) => command.name === "team-disable"));
 	assert.ok(tools.every((tool) => typeof tool.renderCall === "function"));
+	assert.deepEqual(
+		tools.map((tool) => tool.constrainedSampling),
+		tools.map(() => ({ type: "json_schema", strict: "prefer" })),
+	);
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("agent_start"));
 	assert.ok(events.includes("agent_end"));

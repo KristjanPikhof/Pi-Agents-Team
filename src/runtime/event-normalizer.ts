@@ -53,6 +53,27 @@ export interface WorkerAgentEndEvent {
 	timestamp: number;
 }
 
+export interface WorkerSummarizationRetryScheduledEvent {
+	type: "worker_summarization_retry_scheduled";
+	attempt?: number;
+	maxAttempts?: number;
+	delayMs?: number;
+	errorMessage?: string;
+	timestamp: number;
+}
+
+export interface WorkerSummarizationRetryAttemptStartedEvent {
+	type: "worker_summarization_retry_attempt_started";
+	source?: "compaction" | "branchSummary";
+	reason?: "manual" | "threshold" | "overflow";
+	timestamp: number;
+}
+
+export interface WorkerSummarizationRetryFinishedEvent {
+	type: "worker_summarization_retry_finished";
+	timestamp: number;
+}
+
 export interface WorkerIdleEvent {
 	type: "worker_idle";
 	timestamp: number;
@@ -104,6 +125,9 @@ export type NormalizedWorkerEvent =
 	| WorkerToolFinishedEvent
 	| WorkerQueueUpdatedEvent
 	| WorkerAgentEndEvent
+	| WorkerSummarizationRetryScheduledEvent
+	| WorkerSummarizationRetryAttemptStartedEvent
+	| WorkerSummarizationRetryFinishedEvent
 	| WorkerIdleEvent
 	| WorkerErrorEvent
 	| WorkerExtensionErrorEvent
@@ -122,6 +146,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 function asStringArray(value: unknown): string[] {
 	if (!Array.isArray(value)) return [];
 	return value.filter((item): item is string => typeof item === "string");
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
@@ -173,6 +201,30 @@ export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
 			];
 		case "agent_end":
 			return [{ type: "worker_agent_end", messages: Array.isArray(event.messages) ? event.messages : undefined, timestamp: now() }];
+		case "summarization_retry_scheduled":
+			return [{
+				type: "worker_summarization_retry_scheduled",
+				attempt: asFiniteNumber(event.attempt),
+				maxAttempts: asFiniteNumber(event.maxAttempts),
+				delayMs: asFiniteNumber(event.delayMs),
+				errorMessage: typeof event.errorMessage === "string" ? event.errorMessage : undefined,
+				timestamp: now(),
+			}];
+		case "summarization_retry_attempt_start": {
+			const source = event.source === "compaction" || event.source === "branchSummary" ? event.source : undefined;
+			const reason = source === "compaction"
+				&& (event.reason === "manual" || event.reason === "threshold" || event.reason === "overflow")
+				? event.reason
+				: undefined;
+			return [{
+				type: "worker_summarization_retry_attempt_started",
+				source,
+				reason,
+				timestamp: now(),
+			}];
+		}
+		case "summarization_retry_finished":
+			return [{ type: "worker_summarization_retry_finished", timestamp: now() }];
 		case "agent_settled":
 			return [{ type: "worker_idle", timestamp: now() }];
 		case "extension_error":

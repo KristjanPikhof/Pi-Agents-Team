@@ -33,3 +33,70 @@ test("normalizeRpcEvent preserves extension errors as distinct normalized failur
 	assert.deepEqual(events.map((event) => event.type), ["worker_extension_error"]);
 	assert.equal(events[0] && "error" in events[0] ? events[0].error : undefined, "optional extension failed");
 });
+
+test("normalizeRpcEvent preserves Pi summarization retry lifecycle details", () => {
+	const scheduled = normalizeRpcEvent({
+		type: "summarization_retry_scheduled",
+		attempt: 1,
+		maxAttempts: 3,
+		delayMs: 2_000,
+		errorMessage: "terminated",
+	});
+	assert.deepEqual(scheduled.map(({ timestamp: _timestamp, ...event }) => event), [{
+		type: "worker_summarization_retry_scheduled",
+		attempt: 1,
+		maxAttempts: 3,
+		delayMs: 2_000,
+		errorMessage: "terminated",
+	}]);
+
+	const compactionStart = normalizeRpcEvent({
+		type: "summarization_retry_attempt_start",
+		source: "compaction",
+		reason: "threshold",
+	});
+	assert.deepEqual(compactionStart.map(({ timestamp: _timestamp, ...event }) => event), [{
+		type: "worker_summarization_retry_attempt_started",
+		source: "compaction",
+		reason: "threshold",
+	}]);
+
+	const branchStart = normalizeRpcEvent({
+		type: "summarization_retry_attempt_start",
+		source: "branchSummary",
+	});
+	assert.deepEqual(branchStart.map(({ timestamp: _timestamp, ...event }) => event), [{
+		type: "worker_summarization_retry_attempt_started",
+		source: "branchSummary",
+		reason: undefined,
+	}]);
+
+	const finished = normalizeRpcEvent({ type: "summarization_retry_finished" });
+	assert.deepEqual(finished.map(({ timestamp: _timestamp, ...event }) => event), [{
+		type: "worker_summarization_retry_finished",
+	}]);
+});
+
+test("normalizeRpcEvent drops malformed summarization retry metadata", () => {
+	const [scheduled] = normalizeRpcEvent({
+		type: "summarization_retry_scheduled",
+		attempt: "one",
+		maxAttempts: Number.POSITIVE_INFINITY,
+		delayMs: null,
+		errorMessage: { message: "no" },
+	});
+	assert.ok(scheduled?.type === "worker_summarization_retry_scheduled");
+	assert.equal(scheduled.attempt, undefined);
+	assert.equal(scheduled.maxAttempts, undefined);
+	assert.equal(scheduled.delayMs, undefined);
+	assert.equal(scheduled.errorMessage, undefined);
+
+	const [started] = normalizeRpcEvent({
+		type: "summarization_retry_attempt_start",
+		source: "unknown",
+		reason: "threshold",
+	});
+	assert.ok(started?.type === "worker_summarization_retry_attempt_started");
+	assert.equal(started.source, undefined);
+	assert.equal(started.reason, undefined);
+});
