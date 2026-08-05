@@ -19,10 +19,22 @@ import type { PersistedTeamState, WorkerRuntimeState } from "../../src/types";
 
 interface RegisteredTool {
 	name: string;
-	parameters?: { properties?: { model?: { description?: string; enum?: unknown } } };
+	parameters?: JsonSchema;
 	constrainedSampling?: unknown;
+	prepareArguments?: (args: unknown) => Record<string, unknown>;
 	renderCall?: (...args: any[]) => unknown;
 	execute?: (...args: any[]) => Promise<any>;
+}
+
+interface JsonSchema {
+	type?: string | string[];
+	properties?: Record<string, JsonSchema>;
+	required?: string[];
+	additionalProperties?: boolean;
+	anyOf?: JsonSchema[];
+	items?: JsonSchema;
+	description?: string;
+	enum?: unknown;
 }
 
 interface RegisteredCommand {
@@ -80,6 +92,24 @@ function assistantMessage(text: string): Parameters<SessionManager["appendMessag
 		stopReason: "stop",
 		timestamp: Date.now(),
 	};
+}
+
+function assertStrictFunctionSchema(tool: RegisteredTool): void {
+	const schema = tool.parameters;
+	assert.equal(schema?.type, "object", `${tool.name} parameters must be an object`);
+	assert.equal(schema.additionalProperties, false, `${tool.name} must reject undeclared parameters`);
+	assert.deepEqual(
+		[...(schema.required ?? [])].sort(),
+		Object.keys(schema.properties ?? {}).sort(),
+		`${tool.name} must require every declared parameter`,
+	);
+}
+
+function acceptsNull(schema: JsonSchema | undefined): boolean {
+	if (!schema) return false;
+	if (schema.type === "null") return true;
+	if (Array.isArray(schema.type) && schema.type.includes("null")) return true;
+	return schema.anyOf?.some(acceptsNull) === true;
 }
 
 
@@ -209,6 +239,26 @@ test("extension registers control-plane tools and operator commands", () => {
 		tools.map((tool) => tool.constrainedSampling),
 		tools.map(() => ({ type: "json_schema", strict: "prefer" })),
 	);
+	for (const tool of tools) assertStrictFunctionSchema(tool);
+
+	const nullableParameters: Record<string, string[]> = {
+		delegate_task: ["cwd", "contextHints", "expectedOutput", "pathScopeRoots", "pathScopeAllowWrite", "skills", "model", "reuseWorkerId"],
+		agent_status: ["workerId"],
+		agent_message: ["delivery"],
+		ping_agents: ["workerIds", "mode"],
+		wait_for_agents: ["workerIds", "timeoutMs", "wakeOnRelay"],
+	};
+	for (const [toolName, parameterNames] of Object.entries(nullableParameters)) {
+		const tool = tools.find((candidate) => candidate.name === toolName);
+		for (const parameterName of parameterNames) {
+			assert.ok(acceptsNull(tool?.parameters?.properties?.[parameterName]), `${toolName}.${parameterName} must accept null`);
+		}
+		const prepared = tool?.prepareArguments?.({ preserved: "value" });
+		assert.equal(prepared?.preserved, "value");
+		for (const parameterName of parameterNames) {
+			assert.equal(prepared?.[parameterName], null, `${toolName}.${parameterName} must default to null before validation`);
+		}
+	}
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("agent_start"));
 	assert.ok(events.includes("agent_end"));
