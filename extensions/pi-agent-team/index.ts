@@ -1,6 +1,6 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync, statSync, truncateSync, unlinkSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { Type, type Static, type TSchema } from "typebox";
 import { CURRENT_SCAFFOLD_VERSION, DEFAULT_TEAM_CONFIG, createDefaultTeamState } from "../../src/config.js";
 import {
 	CompactPersistenceJournal,
@@ -31,53 +31,64 @@ import { THINKING_LEVELS, type LoadedTeamProjectConfig, type PersistedTeamState,
 const DELEGATE_TASK_MODEL_DESCRIPTION = "Override the worker model (e.g. \"provider/model-id\"). Defaults to the orchestrator's current model.";
 const SCOPED_MODEL_PREVIEW_LIMIT = 8;
 
+function createNullableArgumentPreparer<T extends TSchema>(
+	nullableKeys: readonly (keyof Static<T> & string)[],
+): (args: unknown) => Static<T> {
+	return function prepareNullableArguments(args: unknown): Static<T> {
+		if (typeof args !== "object" || args === null || Array.isArray(args)) return args as Static<T>;
+		const prepared = { ...args } as Record<string, unknown>;
+		for (const key of nullableKeys) {
+			if (!(key in prepared)) prepared[key] = null;
+		}
+		return prepared as Static<T>;
+	};
+}
+
 const DelegateTaskSchema = Type.Object({
 	title: Type.String({ description: "Short title for the delegated task" }),
 	goal: Type.String({ description: "What the worker should accomplish" }),
 	profileName: Type.String({ description: "Worker profile name — see the 'Available worker profiles' block in the system prompt for the live list. Names are user-declared in agents-team.json; don't invent names." }),
-	cwd: Type.Optional(Type.String({ description: "Working directory for the worker. Defaults to the current session cwd." })),
-	contextHints: Type.Optional(Type.Array(Type.String(), { description: "Compact context bullets to pass into the worker" })),
-	expectedOutput: Type.Optional(Type.String({ description: "Describe the output contract the worker should return" })),
-	pathScopeRoots: Type.Optional(Type.Array(Type.String(), { description: "Allowed path roots for scoped workers, especially write-capable profiles." })),
-	pathScopeAllowWrite: Type.Optional(Type.Boolean({ description: "Whether the delegated path scope may be written to." })),
-	skills: Type.Optional(Type.Array(Type.String(), { description: "Optional list of installed Pi skill names to enable on the worker. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches) and the worker is told to load and apply the requested skills by name. Omit if no specialized skill is needed." })),
-	model: Type.Optional(Type.String({ description: DELEGATE_TASK_MODEL_DESCRIPTION })),
-	reuseWorkerId: Type.Optional(Type.String({ description: "Reuse an existing idle (or waiting_followup) worker's RPC session for this task instead of spawning a fresh process. Use when the next task is in scope of the previous role and roughly the same path scope — saves spawn cost and keeps warm role context. The worker's prior summary, finalAnswer, and lastTool are reset; a new taskId is allocated. Rejected if the target is running/starting/completed/aborted/error/exited (its RPC is already disposed); cancel + delegate fresh in that case. Check agent_status for `reusable: true` to find candidates." })),
-});
+	cwd: Type.Union([Type.String(), Type.Null()], { description: "Working directory for the worker. Set to null to use the current session cwd." }),
+	contextHints: Type.Union([Type.Array(Type.String()), Type.Null()], { description: "Compact context bullets to pass into the worker, or null when none are needed." }),
+	expectedOutput: Type.Union([Type.String(), Type.Null()], { description: "Describe the output contract the worker should return, or null when unspecified." }),
+	pathScopeRoots: Type.Union([Type.Array(Type.String()), Type.Null()], { description: "Allowed path roots for scoped workers, especially write-capable profiles, or null when unscoped." }),
+	pathScopeAllowWrite: Type.Union([Type.Boolean(), Type.Null()], { description: "Whether the delegated path scope may be written to, or null when no path scope is set." }),
+	skills: Type.Union([Type.Array(Type.String()), Type.Null()], { description: "List of installed Pi skill names to enable on the worker, or null if no specialized skill is needed. When set, Pi's skill discovery runs for this worker (normally disabled for worker-minimal launches) and the worker is told to load and apply the requested skills by name." }),
+	model: Type.Union([Type.String(), Type.Null()], { description: DELEGATE_TASK_MODEL_DESCRIPTION }),
+	reuseWorkerId: Type.Union([Type.String(), Type.Null()], { description: "Reuse an existing idle (or waiting_followup) worker's RPC session for this task instead of spawning a fresh process, or null to launch a new worker. Use reuse when the next task is in scope of the previous role and roughly the same path scope — saves spawn cost and keeps warm role context. The worker's prior summary, finalAnswer, and lastTool are reset; a new taskId is allocated. Rejected if the target is running/starting/completed/aborted/error/exited (its RPC is already disposed); cancel + delegate fresh in that case. Check agent_status for `reusable: true` to find candidates." }),
+}, { additionalProperties: false });
 
 const WorkerLookupSchema = Type.Object({
-	workerId: Type.Optional(Type.String({ description: "Specific worker id. Omit to inspect all tracked workers." })),
-});
+	workerId: Type.Union([Type.String(), Type.Null()], { description: "Specific worker id, or null to inspect all tracked workers." }),
+}, { additionalProperties: false });
 
 const WorkerMessageSchema = Type.Object({
 	workerId: Type.String({ description: "Target worker id" }),
 	message: Type.String({ description: "Instruction for the worker" }),
-	delivery: Type.Optional(
-		Type.String({
-			description:
-				'Delivery mode: "auto" (default), "steer", or "follow_up". Applied only when the worker is running; idle/waiting_followup workers always receive the message as a fresh prompt that wakes the session and starts a new turn.',
-		}),
-	),
-});
+	delivery: Type.Union([Type.String(), Type.Null()], {
+		description:
+			'Delivery mode: "auto", "steer", or "follow_up". Set to null for the default auto behavior. Applied only when the worker is running; idle/waiting_followup workers always receive the message as a fresh prompt that wakes the session and starts a new turn.',
+	}),
+}, { additionalProperties: false });
 
 const PingAgentsSchema = Type.Object({
-	workerIds: Type.Optional(Type.Array(Type.String(), { description: "Worker ids to ping. Omit to ping all workers." })),
-	mode: Type.Optional(Type.String({ description: 'Ping mode: "passive" or "active". Active mode refreshes state and stats.' })),
-});
+	workerIds: Type.Union([Type.Array(Type.String()), Type.Null()], { description: "Worker ids to ping, or null to ping all workers." }),
+	mode: Type.Union([Type.String(), Type.Null()], { description: 'Ping mode: "passive" or "active". Set to null for passive. Active mode refreshes state and stats.' }),
+}, { additionalProperties: false });
 
 const WorkerIdSchema = Type.Object({
 	workerId: Type.String({ description: "Target worker id" }),
-});
+}, { additionalProperties: false });
 
 type AgentResultDetails =
 	| { workerId: string; status: WorkerRuntimeState["status"]; ready: false }
 	| AgentResult;
 
 const WaitForAgentsSchema = Type.Object({
-	workerIds: Type.Optional(Type.Array(Type.String(), { description: "Worker ids to wait on. Omit to wait on every tracked worker." })),
-	timeoutMs: Type.Optional(Type.Number({ description: "Maximum wait in milliseconds. Defaults to 300000 (5 min)." })),
-	wakeOnRelay: Type.Optional(Type.Boolean({ description: "Return early with reason=relay_raised when any target raises a new relay question. Defaults to true so the orchestrator can answer mid-flight without waiting for every worker to finish." })),
-});
+	workerIds: Type.Union([Type.Array(Type.String()), Type.Null()], { description: "Worker ids to wait on, or null to wait on every tracked worker." }),
+	timeoutMs: Type.Union([Type.Number(), Type.Null()], { description: "Maximum wait in milliseconds, or null to use 300000 (5 min)." }),
+	wakeOnRelay: Type.Union([Type.Boolean(), Type.Null()], { description: "Return early with reason=relay_raised when any target raises a new relay question. Set to null for the default true behavior so the orchestrator can answer mid-flight without waiting for every worker to finish." }),
+}, { additionalProperties: false });
 
 type ExtensionAPIWithThinkingLevel = ExtensionAPI & {
 	getThinkingLevel?: () => ThinkingLevel;
@@ -1039,6 +1050,16 @@ export default function (pi: ExtensionAPI): void {
 		label: "Delegate Task",
 		description: "Launch a background Pi RPC worker for a bounded delegated task and track it in the orchestrator state.",
 		parameters: DelegateTaskSchema,
+		prepareArguments: createNullableArgumentPreparer<typeof DelegateTaskSchema>([
+			"cwd",
+			"contextHints",
+			"expectedOutput",
+			"pathScopeRoots",
+			"pathScopeAllowWrite",
+			"skills",
+			"model",
+			"reuseWorkerId",
+		]),
 		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("delegate_task"),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -1067,16 +1088,16 @@ export default function (pi: ExtensionAPI): void {
 				goal: params.goal,
 				profileName: params.profileName,
 				cwd: params.cwd ?? ctx.cwd,
-				contextHints: params.contextHints,
-				expectedOutput: params.expectedOutput,
+				contextHints: params.contextHints ?? undefined,
+				expectedOutput: params.expectedOutput ?? undefined,
 				pathScope,
-				skills: params.skills,
-				model: params.model,
+				skills: params.skills ?? undefined,
+				model: params.model ?? undefined,
 				orchestratorModel,
 				orchestratorThinkingLevel,
 				projectTrusted,
 				projectTrustRoot: projectTrusted === undefined ? undefined : activeProjectConfig.projectRoot ?? ctx.cwd,
-				reuseWorkerId: params.reuseWorkerId,
+				reuseWorkerId: params.reuseWorkerId ?? undefined,
 			}, signal);
 			teamState = teamManager.snapshot();
 			renderUi(activeContext, teamState, spinnerFrame, activeProjectConfig.config, isTeamActive(activeProjectConfig), teamManager.routingMode, activeProjectConfig.displayCost);
@@ -1084,7 +1105,7 @@ export default function (pi: ExtensionAPI): void {
 				content: [
 					{
 						type: "text",
-						text: formatDelegateTaskResult({ ...result, reuseWorkerId: params.reuseWorkerId }),
+						text: formatDelegateTaskResult({ ...result, reuseWorkerId: params.reuseWorkerId ?? undefined }),
 					},
 				],
 				details: result,
@@ -1097,6 +1118,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Agent Status",
 		description: "Return compact status for one worker or all tracked workers. Done statuses are idle/completed/aborted/error/exited; starting/running/waiting_followup are not done. Each worker carries `reusable: true` when its RPC session is still alive (idle or waiting_followup) — pass that workerId as delegate_task.reuseWorkerId to skip spawning a fresh process. For the worker's actual output, call agent_result.",
 		parameters: WorkerLookupSchema,
+		prepareArguments: createNullableArgumentPreparer<typeof WorkerLookupSchema>(["workerId"]),
 		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("agent_status"),
 		async execute(_toolCallId, params) {
@@ -1155,6 +1177,7 @@ export default function (pi: ExtensionAPI): void {
 		description:
 			"Send a message to a tracked worker. Running workers receive it as a mid-stream steer (or a follow_up queued onto the live stream when delivery=follow_up). Idle/waiting_followup workers wake up and start a new turn with the message as the next user prompt; completed/aborted/error/exited workers cannot receive messages.",
 		parameters: WorkerMessageSchema,
+		prepareArguments: createNullableArgumentPreparer<typeof WorkerMessageSchema>(["delivery"]),
 		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("agent_message"),
 		async execute(_toolCallId, params) {
@@ -1174,6 +1197,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Ping Agents",
 		description: "Return passive or active status for tracked workers. Active mode refreshes attached live workers and returns registry snapshots for restored/disposed workers. Prefer wait_for_agents while waiting. Done statuses are idle/completed/aborted/error/exited; running means not done.",
 		parameters: PingAgentsSchema,
+		prepareArguments: createNullableArgumentPreparer<typeof PingAgentsSchema>(["workerIds", "mode"]),
 		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("ping_agents"),
 		async execute(_toolCallId, params) {
@@ -1192,6 +1216,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Wait for Agents",
 		description: "Block until every target worker reaches a terminal status (idle, completed, aborted, error, exited) or until a target raises a new relay question. Also honors a timeout. Returns reason=all_terminal, relay_raised (with newRelays listed), timeout, aborted, or wrapper-only no_workers when no targets are tracked. Prefer this over repeated ping_agents polling — it consumes no tokens while waiting. Use it after delegate_task; when it returns relay_raised, answer via agent_message and call wait_for_agents again to resume.",
 		parameters: WaitForAgentsSchema,
+		prepareArguments: createNullableArgumentPreparer<typeof WaitForAgentsSchema>(["workerIds", "timeoutMs", "wakeOnRelay"]),
 		constrainedSampling: PREFERRED_JSON_SCHEMA_SAMPLING,
 		renderCall: renderAgentToolCallTitle("wait_for_agents"),
 		async execute(_toolCallId, params, signal) {
