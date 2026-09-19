@@ -338,3 +338,12 @@ test("POSIX disposal terminates the worker process group including child and gra
 	}
 	assert.fail(`process tree survivors after disposal: ${[...pids].join(", ")}`);
 });
+
+test("explicit role tools override Pi defaults, including an empty set and PowerShell", () => {
+	const empty = buildWorkerProcessArgs({ cwd: process.cwd(), tools: [] });
+	assert.ok(empty.includes("--no-tools"));
+	assert.ok(!empty.includes("--tools"));
+	const explicit = buildWorkerProcessArgs({ cwd: process.cwd(), tools: ["read", "powershell", "custom_tool"] });
+	assert.equal(explicit[explicit.indexOf("--tools") + 1], "read,powershell,custom_tool");
+	assert.ok(!explicit.includes("--no-tools"));
+});
