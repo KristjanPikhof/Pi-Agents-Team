@@ -25,7 +25,7 @@ test("normalizeRpcEvent maps streaming and tool events", () => {
 
 	const settledEvents = normalizeRpcEvent({ type: "agent_settled" });
 	assert.equal(settledEvents.length, 1);
-	assert.equal(settledEvents[0]?.type, "worker_idle");
+	assert.equal(settledEvents[0]?.type, "worker_settled");
 });
 
 test("normalizeRpcEvent preserves extension errors as distinct normalized failures", () => {
