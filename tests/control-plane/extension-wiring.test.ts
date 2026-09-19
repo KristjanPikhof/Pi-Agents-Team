@@ -111,9 +111,6 @@ function assertStrictFunctionSchema(tool: RegisteredTool): void {
 	);
 }
 
-
-
-
 test("extension mismatch notifier emits exactly one non-fatal session warning", () => {
 	const warnings: string[] = [];
 	const notifier = _testing.createPiVersionMismatchNotifier((message) => warnings.push(message));
