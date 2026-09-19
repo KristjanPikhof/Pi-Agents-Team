@@ -95,7 +95,7 @@ Reuse re-prompts an idle/waiting_followup worker over its live RPC client. Proce
 
 After launch-setting checks, reuse refreshes worker stats and rejects saturated context before registering the new task or sending the prompt. The hard guard rejects `contextPercent >= 80` or `contextRemainingTokens <= 32768`, with an error that includes known budget values and says to delegate fresh. Unknown/null context does not hard-reject; the orchestrator prompt instead biases long, exploratory, or multi-lane work toward fresh workers. There is intentionally no auto-compact fallback.
 
-While the worker runs, RPC events flow through the event normalizer into `applyNormalizedEvent`, which mutates the worker's `WorkerRuntimeState` (status, textBuffer, lastToolName, usage, requested/effective thinking levels, lastSummary, pendingRelayQuestions, finalAnswer) and emits a snapshot. Pi's `summarization_retry_*` events are an observational exception: the manager appends bounded Activity and Raw entries while settlement is pending, but does not change status, summaries, usage, or the internal settlement guard. A retry loop finishing does not imply success; only `agent_settled` crosses the successful idle boundary. `TeamManager` upserts the snapshot into the registry and re-emits `state_change`, which drives both persistence and UI listeners.
+While the worker runs, RPC events flow through the event normalizer into `applyNormalizedEvent`, which mutates the worker's `WorkerRuntimeState` (status, textBuffer, lastToolName, usage, requested/effective thinking levels, lastSummary, pendingRelayQuestions, finalAnswer) and emits a snapshot. Pi's compaction, provider retry, and `summarization_retry_*` events are observational: the manager appends bounded Activity and Raw entries while settlement is pending, but does not change status, summaries, usage, or the internal settlement guard. A retry loop finishing does not imply success. `agent_settled` is normalized to `worker_settled`; the manager then uses the latest assistant outcome to select `idle`, `error`, or `aborted`. It keeps that outcome only in the runtime record and resets it for a fresh prompt or reuse. Output-limit stops become `error` with an incomplete-result diagnostic. A later successful assistant response clears an earlier failure. `TeamManager` upserts the snapshot into the registry and re-emits `state_change`, which drives both persistence and UI listeners.
 
 ## Key decisions
 
@@ -107,7 +107,7 @@ Local development takes a separate path: `pi -e ./extensions/index.ts` loads the
 
 ### Pi RPC is the worker transport
 
-Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, follow-up, abort, state, and stats commands without inventing another agent protocol. Transport is line-delimited JSON (`jsonl-lf`).
+Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, follow-up, queue clearing, abort, state, and stats commands without inventing another agent protocol. Transport is line-delimited JSON (`jsonl-lf`).
 
 ### Worker launch has a cached Pi version gate
 
@@ -118,7 +118,7 @@ The probe keeps a promise cache keyed by the resolved command and any CLI entryp
 Exact host/worker patch equality is not required. A supported worker version that differs from the host emits one non-fatal warning per extension session; an exact match emits none. This is a minimum-version gate, not an upper-bound policy.
 Repository development dependencies and validation use exactly Pi `0.85.1`. The supported host and worker minimum is Pi `0.85.1`.
 
-Team tools request Pi's preferred strict JSON-schema sampling. Pi uses provider-side schema enforcement when the selected model supports it and falls back to ordinary tool calling otherwise. Worker thinking inheritance reads the effective `ctx.thinkingLevel` supplied by current Pi releases before consulting legacy getter APIs.
+Team tools define ordinary optional TypeBox arguments and request Pi's preferred strict JSON-schema sampling. Pi converts the provider schema and normalizes optional null arguments before validation; the extension does not maintain its own nullable-argument adapter. Pi uses provider-side schema enforcement when the selected model supports it and falls back to ordinary tool calling otherwise. Worker thinking inheritance reads the effective `ctx.thinkingLevel` supplied by current Pi releases before consulting legacy getter APIs.
 
 ### Workers launch with reduced discovery
 
@@ -379,3 +379,12 @@ A separate 15 s managed `setInterval` rotates the bottom status-line tip while t
 - [`operations.md`](operations.md) for install, smoke, steer, troubleshoot
 - [`profiles.md`](profiles.md) for profile policy and write-scope rules
 - [`prompting.md`](prompting.md) for orchestrator and worker prompt contracts
+
+### Cancellation ordering
+
+WorkerManager marks cancellation before any asynchronous RPC operation, so late
+settlement cannot report success and concurrent prompt/steer/follow-up calls are
+rejected. `clear_queue` runs before `abort` under one abort signal and deadline.
+If either command fails or stalls, bounded process disposal remains the fallback.
+Late RPC responses cannot continue the cancelled sequence. Queue contents are
+not copied into runtime diagnostics; only their counts are retained.
