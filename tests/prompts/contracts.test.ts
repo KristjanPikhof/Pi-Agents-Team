@@ -84,7 +84,8 @@ test("buildWorkerTaskPrompt injects skills section only when skills are provided
 	assert.match(withSkills, /Requested Pi skills for this task/);
 	assert.match(withSkills, /- writer/);
 	assert.match(withSkills, /- documenting-systems/);
-	assert.match(withSkills, /Load and apply each relevant requested skill by name/);
+	assert.match(withSkills, /Use read to load each relevant requested skill, or bash when read is unavailable/);
+	assert.match(withSkills, /Apply the skill before producing your/);
 	assert.doesNotMatch(withSkills, /\/skill:/);
 	assert.doesNotMatch(withSkills, /Skill tool/i);
 
