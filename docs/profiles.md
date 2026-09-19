@@ -396,3 +396,31 @@ To toggle the `enabled` flag itself, edit `agents-team.json` by hand and follow 
 - [`operations.md`](operations.md): dashboard keys, steer/follow-up semantics, troubleshooting toggles and stale configs.
 - [`prompting.md`](prompting.md): the `<final_answer>` contract every worker prompt must uphold.
 - [`architecture.md`](architecture.md): runtime flow, state contract, animation layer.
+
+## Explicit tool selection and PowerShell
+
+A role's `access.tools` list controls all enabled worker tools, including custom
+extension tools. An empty list passes `--no-tools`; a nonempty list passes Pi's
+strict `--tools` allowlist. Pi's global or project `defaultTools` cannot add tools
+to either selection.
+
+On Windows, a role can opt in to Pi's `powershell` tool instead of `bash`:
+
+```json
+{
+  "roles": {
+    "windows-reviewer": {
+      "description": "Review Windows code and run PowerShell checks",
+      "prompt": "default",
+      "access": {
+        "tools": ["read", "powershell", "grep", "find", "ls"],
+        "write": false
+      }
+    }
+  }
+}
+```
+
+This is a role fragment to merge into a valid config. Built-in roles keep their
+existing tools. Both Bash and PowerShell can modify files; a read-only role is a
+prompt convention, not an operating-system sandbox.
