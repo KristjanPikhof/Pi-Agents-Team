@@ -74,8 +74,8 @@ export interface WorkerSummarizationRetryFinishedEvent {
 	timestamp: number;
 }
 
-export interface WorkerIdleEvent {
-	type: "worker_idle";
+export interface WorkerSettledEvent {
+	type: "worker_settled";
 	timestamp: number;
 }
 
@@ -128,7 +128,7 @@ export type NormalizedWorkerEvent =
 	| WorkerSummarizationRetryScheduledEvent
 	| WorkerSummarizationRetryAttemptStartedEvent
 	| WorkerSummarizationRetryFinishedEvent
-	| WorkerIdleEvent
+	| WorkerSettledEvent
 	| WorkerErrorEvent
 	| WorkerExtensionErrorEvent
 	| WorkerStateEvent
@@ -226,7 +226,7 @@ export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
 		case "summarization_retry_finished":
 			return [{ type: "worker_summarization_retry_finished", timestamp: now() }];
 		case "agent_settled":
-			return [{ type: "worker_idle", timestamp: now() }];
+			return [{ type: "worker_settled", timestamp: now() }];
 		case "extension_error":
 			return [
 				{

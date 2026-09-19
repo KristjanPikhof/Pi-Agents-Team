@@ -64,7 +64,7 @@ async function main(): Promise<void> {
 			throw new Error(`First wait did not finish at settled idle: ${firstWait.reason}/${firstWait.workers[0]?.status}`);
 		}
 		const firstAgentEnd = lifecycle.indexOf("worker_agent_end");
-		const firstIdle = lifecycle.indexOf("worker_idle");
+		const firstIdle = lifecycle.indexOf("worker_settled");
 		if (firstAgentEnd < 0 || firstIdle <= firstAgentEnd || statusesAtAgentEnd[0] !== "running") {
 			throw new Error(`First task did not remain running at agent_end: ${lifecycle.join(" -> ")}`);
 		}
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
 			throw new Error("Reused settled task did not expose a final result");
 		}
 		if (
-			lifecycle.filter((event) => event === "worker_idle").length !== 2
+			lifecycle.filter((event) => event === "worker_settled").length !== 2
 			|| statusesAtAgentEnd.length !== 2
 			|| statusesAtAgentEnd.some((status) => status !== "running")
 		) {
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
 		console.log(`Pi version: ${version.workerVersion} (minimum ${MINIMUM_WORKER_PI_VERSION})`);
 		console.log(`Worker: ${workerId} (reused same RPC process)`);
 		console.log(`Waits: ${firstWait.reason}, ${secondWait.reason}`);
-		console.log(`Settlement: agent_end statuses=${statusesAtAgentEnd.join(",")} -> 2 worker_idle events`);
+		console.log(`Settlement: agent_end statuses=${statusesAtAgentEnd.join(",")} -> 2 worker_settled events`);
 		console.log(`First result: ${firstResult.worker.lastSummary?.headline ?? firstResult.worker.finalAnswer}`);
 		console.log(`Reused result: ${secondResult.worker.lastSummary?.headline ?? secondResult.worker.finalAnswer}`);
 	} finally {

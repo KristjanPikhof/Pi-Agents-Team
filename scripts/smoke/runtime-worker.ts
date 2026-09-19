@@ -76,7 +76,7 @@ async function main(): Promise<void> {
 					reject(new Error(event.error));
 					return;
 				}
-				if (event.type === "worker_idle") {
+				if (event.type === "worker_settled") {
 					clearTimeout(timeout);
 					off();
 					resolveDone();
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
 		await manager.refreshStats(workerId);
 
 		const agentEndIndex = lifecycle.indexOf("worker_agent_end");
-		const idleIndex = lifecycle.indexOf("worker_idle");
+		const idleIndex = lifecycle.indexOf("worker_settled");
 		if (agentEndIndex < 0 || idleIndex <= agentEndIndex || statusAtAgentEnd !== "running") {
 			throw new Error(`Expected running at worker_agent_end and idle only afterward; observed status=${statusAtAgentEnd}, ${lifecycle.join(" -> ")}`);
 		}
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
 		console.log("Runtime smoke complete:");
 		console.log(`Pi command: ${command}`);
 		console.log(`Pi version: ${version.workerVersion} (minimum ${MINIMUM_WORKER_PI_VERSION})`);
-		console.log(`Settlement: worker_agent_end status=${statusAtAgentEnd} -> worker_idle`);
+		console.log(`Settlement: worker_agent_end status=${statusAtAgentEnd} -> worker_settled`);
 		console.log(`Final result: ${worker.state.lastSummary.headline}`);
 		console.log(`Tokens: ${worker.state.usage.inputTokens}/${worker.state.usage.outputTokens}`);
 	} finally {
