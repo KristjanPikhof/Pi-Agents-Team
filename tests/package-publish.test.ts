@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
@@ -36,9 +36,9 @@ const EXPECTED_EXTENSION_COMMANDS = [
 
 function subprocessEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 	const env = Object.fromEntries(
-		Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "npm_config_dry_run"),
+		Object.entries(process.env).filter(([key]) => !["npm_config_dry_run", "npm_config_allow_scripts", "npm_config_userconfig"].includes(key.toLowerCase())),
 	);
-	return { ...env, npm_config_dry_run: "false", ...overrides };
+	return { ...env, npm_config_dry_run: "false", npm_config_userconfig: devNull, ...overrides };
 }
 
 function isolatedPiEnv(isolationRoot: string): NodeJS.ProcessEnv {
@@ -252,7 +252,7 @@ test("package docs declare Pi 0.85.1 for development and supported runtime", asy
 	assert.match(readme, /This checks the source path only; it does not validate the compiled or published package entrypoint\./);
 	assert.match(
 		contributing,
-		/Development validation uses exactly Pi `0\.83\.0`\. The supported host and worker minimum is Pi `0\.80\.6`\.[\s\S]*Do not use `-p "\/team"` as an overlay check/,
+		/Development validation uses exactly Pi `0\.85\.1`\. The supported host and worker minimum is Pi `0\.85\.1`\.[\s\S]*Do not use `-p "\/team"` as an overlay check/,
 	);
 	assert.match(
 		operations,
@@ -260,11 +260,11 @@ test("package docs declare Pi 0.85.1 for development and supported runtime", asy
 	);
 	assert.match(
 		operations,
-		/Development validation uses exactly Pi `0\.83\.0`\. The supported host and worker minimum is Pi `0\.80\.6`\./,
+		/Development validation uses exactly Pi `0\.85\.1`\. The supported host and worker minimum is Pi `0\.85\.1`\./,
 	);
 	assert.match(
 		architecture,
-		/Repository development dependencies and validation use exactly Pi `0\.83\.0`\. The supported host and worker minimum is Pi `0\.80\.6`\./,
+		/Repository development dependencies and validation use exactly Pi `0\.85\.1`\. The supported host and worker minimum is Pi `0\.85\.1`\./,
 	);
 });
 
