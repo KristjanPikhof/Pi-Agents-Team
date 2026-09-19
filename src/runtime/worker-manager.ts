@@ -735,8 +735,10 @@ export class WorkerManager {
 		record.state.status = "aborted";
 		record.state.lastEventAt = timestamp;
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer || "Aborted");
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), this.abortTimeoutMs);
 		try {
-			const signal = AbortSignal.timeout(this.abortTimeoutMs);
+			const signal = controller.signal;
 			const cleared = await record.client.clearQueue(signal);
 			this.appendConsole(record, {
 				ts: Date.now(), kind: "queue",
@@ -783,6 +785,8 @@ export class WorkerManager {
 				timestamp: failedAt,
 			} satisfies NormalizedWorkerEvent);
 			throw new Error(detail, { cause: error });
+		} finally {
+			clearTimeout(timeout);
 		}
 	}
 
