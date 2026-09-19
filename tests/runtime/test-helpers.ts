@@ -104,7 +104,7 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 		}
 	}
 
-	private handleCommand(command: MockCommand): void {
+		private handleCommand(command: MockCommand): void {
 		switch (command.type) {
 			case "get_state":
 				this.respond(command, this.state);
@@ -148,6 +148,9 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 						this.completePrompt(promptText);
 					}
 				});
+				break;
+			case "clear_queue":
+				this.respond(command, { steering: [], followUp: [] });
 				break;
 			case "steer":
 			case "follow_up":
