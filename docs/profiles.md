@@ -391,12 +391,6 @@ To toggle the `enabled` flag itself, edit `agents-team.json` by hand and follow 
 - [`src/util/backup.ts`](../src/util/backup.ts): `atomicWriteFileSync` and exclusive-create backup (`copyFileSync` with `COPYFILE_EXCL`).
 - [`prompts/agents/*.md`](../prompts/agents/): packaged worker prompts (including `_generic-worker.md`).
 
-## Related docs
-
-- [`operations.md`](operations.md): dashboard keys, steer/follow-up semantics, troubleshooting toggles and stale configs.
-- [`prompting.md`](prompting.md): the `<final_answer>` contract every worker prompt must uphold.
-- [`architecture.md`](architecture.md): runtime flow, state contract, animation layer.
-
 ## Explicit tool selection and PowerShell
 
 A role's `access.tools` list controls all enabled worker tools, including custom
@@ -424,3 +418,9 @@ On Windows, a role can opt in to Pi's `powershell` tool instead of `bash`:
 This is a role fragment to merge into a valid config. Built-in roles keep their
 existing tools. Both Bash and PowerShell can modify files; a read-only role is a
 prompt convention, not an operating-system sandbox.
+
+## Related docs
+
+- [`operations.md`](operations.md): dashboard keys, steer/follow-up semantics, troubleshooting toggles and stale configs.
+- [`prompting.md`](prompting.md): the `<final_answer>` contract every worker prompt must uphold.
+- [`architecture.md`](architecture.md): runtime flow, state contract, animation layer.
