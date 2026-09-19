@@ -221,7 +221,10 @@ export function buildWorkerProcessArgs(options: WorkerProcessOptions): string[] 
 	if (options.projectTrust === "no-approve") args.push("--no-approve");
 	if (options.model) args.push("--model", options.model);
 	if (options.thinkingLevel) args.push("--thinking", options.thinkingLevel);
-	if (options.tools && options.tools.length > 0) args.push("--tools", options.tools.join(","));
+	if (options.tools) {
+		if (options.tools.length > 0) args.push("--tools", options.tools.join(","));
+		else args.push("--no-tools");
+	}
 	if (options.systemPromptPath) args.push("--append-system-prompt", options.systemPromptPath);
 	if (options.extensionMode && options.extensionMode !== "inherit") {
 		args.push("--no-extensions");
