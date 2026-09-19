@@ -1,9 +1,13 @@
 import test from "node:test";
 import { EventEmitter } from "node:events";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { buildWorkerProcessArgs, resolveWorkerSpawnImplementation, spawnWorkerProcess, terminateWindowsWorkerTree } from "../../src/runtime/worker-process";
 import { WorkerManager } from "../../src/runtime/worker-manager";
+import { RpcClient } from "../../src/runtime/rpc-client";
 import { HOST_PI_VERSION, type ProbeWorkerPiVersion } from "../../src/runtime/pi-version";
 import { MockWorkerHandle, MockWorkerTransport } from "./test-helpers";
 
@@ -346,4 +350,47 @@ test("explicit role tools override Pi defaults, including an empty set and Power
 	const explicit = buildWorkerProcessArgs({ cwd: process.cwd(), tools: ["read", "powershell", "custom_tool"] });
 	assert.equal(explicit[explicit.indexOf("--tools") + 1], "read,powershell,custom_tool");
 	assert.ok(!explicit.includes("--no-tools"));
+});
+
+test("real Pi preserves explicit worker tools against configured defaults and extension tools", { timeout: 30_000 }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-worker-tools-"));
+	const agentDir = join(root, "agent");
+	const extension = join(root, "fixture.mjs");
+	const activeToolsFile = join(root, "active-tools.json");
+	try {
+		await mkdir(agentDir);
+		await mkdir(join(root, ".pi"));
+		await writeFile(join(agentDir, "settings.json"), JSON.stringify({ defaultTools: ["bash"] }));
+		await writeFile(join(root, ".pi", "settings.json"), JSON.stringify({ defaultTools: ["write"] }));
+		await writeFile(extension, `
+import { writeFileSync } from "node:fs";
+export default function (pi) {
+	pi.registerTool({ name: "custom_tool", label: "Fixture", description: "Test tool",
+		parameters: { type: "object", properties: {} }, execute: async () => ({ content: [], details: {} }) });
+	pi.on("session_start", () => writeFileSync(${JSON.stringify(activeToolsFile)}, JSON.stringify(pi.getActiveTools())));
+}
+`);
+		for (const tools of [[], ["read", "custom_tool"]]) {
+			const handle = spawnWorkerProcess({
+				command: process.execPath,
+				baseArgs: [resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js"), "--mode", "rpc", "--no-session"],
+				cwd: root,
+				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1" },
+				tools,
+				extensionMode: "worker-minimal",
+				workerExtensions: [extension],
+				projectTrust: "approve",
+			});
+			const client = new RpcClient(handle.transport);
+			try {
+				await client.send({ type: "get_state" }, AbortSignal.timeout(10_000));
+				assert.deepEqual(JSON.parse(await readFile(activeToolsFile, "utf8")).sort(), [...tools].sort());
+			} finally {
+				client.dispose();
+				await handle.dispose();
+			}
+		}
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
