@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.85.1`. The supported host and worker minimum is Pi `0.85.1`. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
+Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.85.1`. The supported host and worker minimum is Pi `0.85.1`. Upgrade both the host Pi and any custom `rpc.command` before using this release. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
 
 Install dependencies and run the checks:
 
@@ -600,3 +600,25 @@ npx tsx --test tests/package-manifest.test.ts tests/package-publish.test.ts
 ```
 
 For a manual TUI overlay check, start either Pi entrypoint interactively and enter `/team` after Pi opens. Do not use `-p "/team"` as evidence for overlay behavior: `-p` submits a prompt and does not exercise interactive overlay input or rendering.
+
+## Worker recovery and cancellation
+
+Activity shows provider retries and compaction, including compaction between a
+tool result and the next response. These workers remain `running` until Pi
+settles. Keep using `wait_for_agents`; a quiet recovery interval does not mean
+the worker is stuck.
+
+At settlement, an unresolved provider failure or output-limit stop becomes
+`error`, and an aborted response becomes `aborted`. Partial output remains
+available for diagnosis. Check the status before treating the result as complete.
+A successful retry clears the earlier response failure and settles to `idle`.
+A compaction failure is diagnostic and does not by itself fail work that continues.
+
+Cancellation clears queued steering and follow-up messages before sending
+`abort`. It rejects further messages as soon as cancellation starts. Queue
+clearing and abort share a deadline; a failed or stalled request triggers bounded
+process cleanup. The console records discarded message counts only.
+
+Role tool lists override Pi's `defaultTools`: an empty `access.tools` list disables
+all tools, and a nonempty list selects exactly those tools. See
+[role configuration](profiles.md) for an opt-in PowerShell example.
