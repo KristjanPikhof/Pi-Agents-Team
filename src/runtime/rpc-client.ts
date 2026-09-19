@@ -79,7 +79,7 @@ export interface PromptRpcCommand extends RpcCommandBase {
 }
 
 export interface SimpleMessageRpcCommand extends RpcCommandBase {
-	type: "steer" | "follow_up" | "abort" | "get_state" | "get_messages" | "get_session_stats";
+	type: "steer" | "follow_up" | "clear_queue" | "abort" | "get_state" | "get_messages" | "get_session_stats";
 	message?: string;
 }
 
@@ -180,8 +180,12 @@ export class RpcClient {
 		await this.send<void>({ type: "follow_up", message });
 	}
 
-	async abort(): Promise<void> {
-		await this.send<void>({ type: "abort" });
+	async clearQueue(signal?: AbortSignal): Promise<{ steering: string[]; followUp: string[] }> {
+		return this.send({ type: "clear_queue" }, signal);
+	}
+
+	async abort(signal?: AbortSignal): Promise<void> {
+		await this.send<void>({ type: "abort" }, signal);
 	}
 
 	async getState(): Promise<RpcSessionState> {
