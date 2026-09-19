@@ -2034,3 +2034,98 @@ test("applyNormalizedEvent captures <final_answer> contents on message_end", asy
 	assert.doesNotMatch(worker!.state.finalAnswer!, /trailing/);
 	assert.doesNotMatch(worker!.state.finalAnswer!, /some chatter/);
 });
+
+for (const [stopReason, expectedStatus, expectedError] of [
+	["error", "error", "Provider quota exhausted"],
+	["aborted", "aborted", "Worker response was aborted"],
+	["length", "error", "result is incomplete"],
+] as const) {
+	test(`settlement reports an unrecovered ${stopReason} without losing partial output`, async () => {
+		const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+		const manager = await launchRuntimeTestWorker("outcome", transport);
+		try {
+			await manager.promptWorker("outcome", "work");
+			transport.writeEvent({ type: "message_end", message: {
+				role: "assistant", content: [{ type: "text", text: "Partial result" }], stopReason,
+				...(stopReason === "error" ? { errorMessage: expectedError } : {}),
+			} });
+			transport.writeEvent({ type: "agent_end", messages: [], willRetry: false });
+			transport.setState({ isStreaming: false });
+			await manager.refreshState("outcome");
+			assert.equal(manager.getWorker("outcome")?.state.status, "running");
+			transport.writeEvent({ type: "agent_settled" });
+			assert.equal(manager.getWorker("outcome")?.state.status, expectedStatus);
+			assert.match(manager.getWorker("outcome")?.state.error ?? "", new RegExp(expectedError));
+			assert.match(manager.getWorkerTranscript("outcome") ?? "", /Partial result/);
+			const activityCount = manager.getWorkerActivity("outcome")?.length;
+			transport.writeEvent({ type: "agent_settled" });
+			assert.equal(manager.getWorkerActivity("outcome")?.length, activityCount);
+			await assert.rejects(manager.promptWorker("outcome", "new work"), /cannot receive messages/);
+		} finally { await manager.dispose(); }
+	});
+}
+
+test("provider retry and compaction diagnostics stay running until a recovered success settles", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = await launchRuntimeTestWorker("recovery", transport);
+	try {
+		await manager.promptWorker("recovery", "work");
+		transport.writeEvent({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "transient" } });
+		transport.writeEvent({ type: "agent_end", messages: [], willRetry: true });
+		for (const event of [
+			{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 50, errorMessage: "transient" },
+			{ type: "compaction_start", reason: "threshold" },
+			{ type: "compaction_end", reason: "threshold", aborted: false, errorMessage: "summary failed", willRetry: false },
+			{ type: "compaction_start", reason: "overflow" },
+			{ type: "compaction_end", reason: "overflow", aborted: false, willRetry: true },
+			{ type: "auto_retry_end", attempt: 1, success: true },
+		]) {
+			transport.writeEvent(event);
+			assert.equal(manager.getWorker("recovery")?.state.status, "running");
+		}
+		const labels = manager.getWorkerActivity("recovery")!.map((event) => event.label);
+		assert.ok(labels.includes("Compaction failed"));
+		assert.ok(labels.includes("Provider retry scheduled"));
+		assert.ok(labels.includes("Provider retry finished"));
+		transport.writeEvent({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "<final_answer>Recovered</final_answer>" }], stopReason: "stop" } });
+		transport.writeEvent({ type: "agent_settled" });
+		assert.equal(manager.getWorker("recovery")?.state.status, "idle");
+		assert.equal(manager.getWorker("recovery")?.state.error, undefined);
+		assert.equal(manager.getWorker("recovery")?.state.finalAnswer, "Recovered");
+		const count = manager.getWorkerActivity("recovery")?.length;
+		transport.writeEvent({ type: "compaction_start", reason: "threshold" });
+		assert.equal(manager.getWorkerActivity("recovery")?.length, count);
+	} finally { await manager.dispose(); }
+});
+
+test("cancellation clears queued work before abort and rejects concurrent delivery", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false, hangCommands: ["clear_queue"] });
+	const manager = await launchRuntimeTestWorker("cancel-queue", transport);
+	try {
+		await manager.promptWorker("cancel-queue", "work");
+		const cancellation = manager.abortWorker("cancel-queue");
+		await assert.rejects(manager.steerWorker("cancel-queue", "late steer"), /cannot receive messages/);
+		await assert.rejects(manager.followUpWorker("cancel-queue", "late followup"), /cannot receive messages/);
+		await assert.rejects(manager.promptWorker("cancel-queue", "late prompt"), /cannot receive messages/);
+		assert.equal(transport.commands.some((command) => command.type === "abort"), false);
+		const clear = transport.commands.find((command) => command.type === "clear_queue")!;
+		transport.writeEvent({ type: "response", command: "clear_queue", id: clear.id, success: true, data: { steering: ["private queued text"], followUp: ["more private text"] } });
+		await cancellation;
+		assert.deepEqual(transport.commands.slice(-2).map((command) => command.type), ["clear_queue", "abort"]);
+		assert.equal(manager.getWorker("cancel-queue")?.state.status, "aborted");
+		assert.doesNotMatch(JSON.stringify(manager.getWorkerConsole("cancel-queue")), /private/);
+	} finally { await manager.dispose(); }
+});
+
+test("hung queue clearing terminates the process and ignores a late clear response", async () => {
+	const transport = new MockWorkerTransport({ hangCommands: ["clear_queue"] });
+	const handle = new InstrumentedWorkerHandle(transport);
+	const manager = new WorkerManager(() => handle, undefined, { abortTimeoutMs: 10 });
+	await manager.launchWorker({ workerId: "hung-clear", profileName: "reviewer", task: taskInput("hung-clear", "Cancel"), cwd: process.cwd() });
+	try {
+		await assert.rejects(manager.abortWorker("hung-clear"), /worker process was terminated/);
+		assert.equal(handle.disposeCalls, 1);
+		assert.equal(transport.commands.some((command) => command.type === "abort"), false);
+		assert.equal(manager.getWorker("hung-clear")?.state.status, "aborted");
+	} finally { await manager.dispose(); }
+});
