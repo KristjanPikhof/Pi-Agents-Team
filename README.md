@@ -10,6 +10,8 @@ Pi main session acts as the coordinator, while background RPC workers execute th
 - **Repo:** [`git@github.com:KristjanPikhof/pi-agents-team.git`](https://github.com/KristjanPikhof/Pi-Agents-Team)
 - **Requires:** Pi ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.85.1`, Node `>=22.19.0`, and Git. npm and `package-lock.json` are the authoritative dependency workflow for this repository.
 
+Workers keep running through Pi retries and compaction. When Pi settles, the team reports unresolved provider failures, aborts, and output-limit stops instead of treating them as successful idle workers. Cancelling a worker clears its queued messages before aborting it.
+
 ## Install
 
 Install the published package from npm:
