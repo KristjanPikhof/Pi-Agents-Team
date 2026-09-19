@@ -1,9 +1,13 @@
 import test from "node:test";
 import { EventEmitter } from "node:events";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { buildWorkerProcessArgs, resolveWorkerSpawnImplementation, spawnWorkerProcess, terminateWindowsWorkerTree } from "../../src/runtime/worker-process";
 import { WorkerManager } from "../../src/runtime/worker-manager";
+import { RpcClient } from "../../src/runtime/rpc-client";
 import { HOST_PI_VERSION, type ProbeWorkerPiVersion } from "../../src/runtime/pi-version";
 import { MockWorkerHandle, MockWorkerTransport } from "./test-helpers";
 
@@ -165,16 +169,16 @@ test("WorkerManager rejects an unsupported worker before RPC process launch", as
 			command: "old-pi",
 			versionArgs: ["--version"],
 			hostVersion: HOST_PI_VERSION,
-			minimumVersion: "0.80.6",
-			workerVersion: "0.80.5",
+			minimumVersion: "0.85.1",
+			workerVersion: "0.85.0",
 			supported: false,
 			mismatch: false,
-			message: "Cannot launch Pi worker: old-pi is Pi 0.80.5, but RPC workers require Pi 0.80.6 or newer. Update the selected worker command or rpc.command.",
+			message: "Cannot launch Pi worker: old-pi is Pi 0.85.0, but RPC workers require Pi 0.85.1 or newer. Update the selected worker command or rpc.command.",
 		}),
 	);
 	await assert.rejects(
 		manager.launchWorker({ workerId: "old", profileName: "fixer", task: {} as any, cwd: process.cwd() }),
-		/RPC workers require Pi 0\.80\.6 or newer/,
+		/RPC workers require Pi 0\.85\.1 or newer/,
 	);
 	assert.equal(launches, 0);
 });
@@ -187,8 +191,8 @@ test("WorkerManager injects the selected command into preflight and emits mismat
 			command: options.command ?? "pi",
 			versionArgs: ["--version"],
 			hostVersion: HOST_PI_VERSION,
-			minimumVersion: "0.80.6",
-			workerVersion: "0.81.0",
+			minimumVersion: "0.85.1",
+			workerVersion: "0.86.0",
 			supported: true,
 			mismatch: true,
 		};
@@ -206,7 +210,7 @@ test("WorkerManager injects the selected command into preflight and emits mismat
 	});
 	assert.deepEqual(probes, [{ command: "custom-pi", baseArgs: ["--mode", "rpc", "--no-session"], cwd: process.cwd(), env: undefined }]);
 	assert.deepEqual(warnings, [
-		`Pi Agents Team: host Pi ${HOST_PI_VERSION} is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal.`,
+		`Pi Agents Team: host Pi ${HOST_PI_VERSION} is launching worker Pi 0.86.0 via custom-pi; the supported version mismatch is non-fatal.`,
 	]);
 	await manager.dispose();
 });
@@ -337,4 +341,56 @@ test("POSIX disposal terminates the worker process group including child and gra
 		await delay(20);
 	}
 	assert.fail(`process tree survivors after disposal: ${[...pids].join(", ")}`);
+});
+
+test("explicit role tools override Pi defaults, including an empty set and PowerShell", () => {
+	const empty = buildWorkerProcessArgs({ cwd: process.cwd(), tools: [] });
+	assert.ok(empty.includes("--no-tools"));
+	assert.ok(!empty.includes("--tools"));
+	const explicit = buildWorkerProcessArgs({ cwd: process.cwd(), tools: ["read", "powershell", "custom_tool"] });
+	assert.equal(explicit[explicit.indexOf("--tools") + 1], "read,powershell,custom_tool");
+	assert.ok(!explicit.includes("--no-tools"));
+});
+
+test("real Pi preserves explicit worker tools against configured defaults and extension tools", { timeout: 30_000 }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-worker-tools-"));
+	const agentDir = join(root, "agent");
+	const extension = join(root, "fixture.mjs");
+	const activeToolsFile = join(root, "active-tools.json");
+	try {
+		await mkdir(agentDir);
+		await mkdir(join(root, ".pi"));
+		await writeFile(join(agentDir, "settings.json"), JSON.stringify({ defaultTools: ["bash"] }));
+		await writeFile(join(root, ".pi", "settings.json"), JSON.stringify({ defaultTools: ["write"] }));
+		await writeFile(extension, `
+import { writeFileSync } from "node:fs";
+export default function (pi) {
+	pi.registerTool({ name: "custom_tool", label: "Fixture", description: "Test tool",
+		parameters: { type: "object", properties: {} }, execute: async () => ({ content: [], details: {} }) });
+	pi.on("session_start", () => writeFileSync(${JSON.stringify(activeToolsFile)}, JSON.stringify(pi.getActiveTools())));
+}
+`);
+		for (const tools of [[], ["read", "custom_tool"]]) {
+			const handle = spawnWorkerProcess({
+				command: process.execPath,
+				baseArgs: [resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js"), "--mode", "rpc", "--no-session"],
+				cwd: root,
+				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1" },
+				tools,
+				extensionMode: "worker-minimal",
+				workerExtensions: [extension],
+				projectTrust: "approve",
+			});
+			const client = new RpcClient(handle.transport);
+			try {
+				await client.send({ type: "get_state" }, AbortSignal.timeout(10_000));
+				assert.deepEqual(JSON.parse(await readFile(activeToolsFile, "utf8")).sort(), [...tools].sort());
+			} finally {
+				client.dispose();
+				await handle.dispose();
+			}
+		}
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });

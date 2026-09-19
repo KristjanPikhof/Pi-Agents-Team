@@ -264,6 +264,27 @@ test("wait, result readiness, terminal notification, and reuse stay blocked unti
 	assert.equal(reused.worker.workerId, worker.workerId);
 });
 
+test("settled provider failure wakes waits, exposes the error, and blocks reuse", async () => {
+	const { workerManager, transports } = createMockWorkerManager({ autoCompletePrompt: false });
+	const teamManager = new TeamManager({ workerManager });
+	const request = { title: "Failure", goal: "Fail after retry", profileName: "reviewer", cwd: process.cwd() };
+	try {
+		const { worker } = await teamManager.delegateTask(request);
+		transports[0]!.writeEvent({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "Provider unavailable" } });
+		transports[0]!.writeEvent({ type: "agent_end", messages: [] });
+		assert.equal((await teamManager.waitForTerminal([worker.workerId], { timeoutMs: 20 })).reason, "timeout");
+		const pending = teamManager.waitForTerminal([worker.workerId], { timeoutMs: 500 });
+		await settleTransport(transports[0]);
+		assert.equal((await pending).reason, "all_terminal");
+		const result = teamManager.getWorkerResult(worker.workerId);
+		assert.equal(result?.worker.status, "error");
+		assert.equal(result?.worker.error, "Provider unavailable");
+		await assert.rejects(teamManager.delegateTask({ ...request, reuseWorkerId: worker.workerId }), /Cannot reuse worker.*error/);
+	} finally {
+		await teamManager.dispose();
+	}
+});
+
 test("waitForTerminal wakes early when a running worker raises a new relay", async () => {
 	const transports: MockWorkerTransport[] = [];
 	const workerManager = new WorkerManager(() => {

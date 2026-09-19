@@ -74,8 +74,27 @@ export interface WorkerSummarizationRetryFinishedEvent {
 	timestamp: number;
 }
 
-export interface WorkerIdleEvent {
-	type: "worker_idle";
+export interface WorkerCompactionEvent {
+	type: "worker_compaction_started" | "worker_compaction_finished";
+	reason?: "manual" | "threshold" | "overflow";
+	aborted: boolean;
+	willRetry: boolean;
+	errorMessage?: string;
+	timestamp: number;
+}
+
+export interface WorkerRetryEvent {
+	type: "worker_retry_started" | "worker_retry_finished";
+	attempt?: number;
+	maxAttempts?: number;
+	delayMs?: number;
+	success: boolean;
+	errorMessage?: string;
+	timestamp: number;
+}
+
+export interface WorkerSettledEvent {
+	type: "worker_settled";
 	timestamp: number;
 }
 
@@ -128,7 +147,9 @@ export type NormalizedWorkerEvent =
 	| WorkerSummarizationRetryScheduledEvent
 	| WorkerSummarizationRetryAttemptStartedEvent
 	| WorkerSummarizationRetryFinishedEvent
-	| WorkerIdleEvent
+	| WorkerCompactionEvent
+	| WorkerRetryEvent
+	| WorkerSettledEvent
 	| WorkerErrorEvent
 	| WorkerExtensionErrorEvent
 	| WorkerStateEvent
@@ -201,6 +222,29 @@ export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
 			];
 		case "agent_end":
 			return [{ type: "worker_agent_end", messages: Array.isArray(event.messages) ? event.messages : undefined, timestamp: now() }];
+		case "compaction_start":
+		case "compaction_end":
+			return [{
+				type: event.type === "compaction_start" ? "worker_compaction_started" : "worker_compaction_finished",
+				reason: event.reason === "manual" || event.reason === "threshold" || event.reason === "overflow" ? event.reason : undefined,
+				aborted: event.aborted === true,
+				willRetry: event.willRetry === true,
+				errorMessage: typeof event.errorMessage === "string" ? event.errorMessage : undefined,
+				timestamp: now(),
+			}];
+		case "auto_retry_start":
+		case "auto_retry_end": {
+			const error = event.type === "auto_retry_start" ? event.errorMessage : event.finalError;
+			return [{
+				type: event.type === "auto_retry_start" ? "worker_retry_started" : "worker_retry_finished",
+				attempt: asFiniteNumber(event.attempt),
+				maxAttempts: asFiniteNumber(event.maxAttempts),
+				delayMs: asFiniteNumber(event.delayMs),
+				success: event.success === true,
+				errorMessage: typeof error === "string" ? error : undefined,
+				timestamp: now(),
+			}];
+		}
 		case "summarization_retry_scheduled":
 			return [{
 				type: "worker_summarization_retry_scheduled",
@@ -226,7 +270,7 @@ export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
 		case "summarization_retry_finished":
 			return [{ type: "worker_summarization_retry_finished", timestamp: now() }];
 		case "agent_settled":
-			return [{ type: "worker_idle", timestamp: now() }];
+			return [{ type: "worker_settled", timestamp: now() }];
 		case "extension_error":
 			return [
 				{

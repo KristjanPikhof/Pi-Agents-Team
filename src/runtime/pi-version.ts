@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const crossSpawn = require("cross-spawn") as typeof nodeSpawn;
 
 export const HOST_PI_VERSION = VERSION;
-export const MINIMUM_WORKER_PI_VERSION = "0.80.6";
+export const MINIMUM_WORKER_PI_VERSION = "0.85.1";
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
 export const SUCCESSFUL_PROBE_CACHE_TTL_MS = 30_000;
 export const MAX_COMPLETED_PROBE_CACHE_ENTRIES = 64;

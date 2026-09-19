@@ -4,6 +4,9 @@ import { appendFileSync, chmodSync, mkdtempSync, readFileSync, statSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
+import { convertResponsesTools } from "@earendil-works/pi-ai/api/openai-responses-shared";
+import type { Tool } from "@earendil-works/pi-ai";
 import extension, { _testing } from "../../extensions/pi-agent-team/index";
 import { createDefaultTeamState, DEFAULT_TEAM_CONFIG } from "../../src/config";
 import { TeamManager, type AgentResult } from "../../src/control-plane/team-manager";
@@ -95,7 +98,10 @@ function assistantMessage(text: string): Parameters<SessionManager["appendMessag
 }
 
 function assertStrictFunctionSchema(tool: RegisteredTool): void {
-	const schema = tool.parameters;
+	const converted = convertResponsesTools([tool as Tool])[0];
+	assert.ok(converted?.type === "function");
+	assert.equal(converted.strict, true);
+	const schema = converted.parameters as JsonSchema;
 	assert.equal(schema?.type, "object", `${tool.name} parameters must be an object`);
 	assert.equal(schema.additionalProperties, false, `${tool.name} must reject undeclared parameters`);
 	assert.deepEqual(
@@ -105,23 +111,15 @@ function assertStrictFunctionSchema(tool: RegisteredTool): void {
 	);
 }
 
-function acceptsNull(schema: JsonSchema | undefined): boolean {
-	if (!schema) return false;
-	if (schema.type === "null") return true;
-	if (Array.isArray(schema.type) && schema.type.includes("null")) return true;
-	return schema.anyOf?.some(acceptsNull) === true;
-}
-
-
 test("extension mismatch notifier emits exactly one non-fatal session warning", () => {
 	const warnings: string[] = [];
 	const notifier = _testing.createPiVersionMismatchNotifier((message) => warnings.push(message));
 	const event = {
 		type: "pi_version_mismatch" as const,
-		hostVersion: "0.80.6",
-		workerVersion: "0.81.0",
+		hostVersion: "0.85.1",
+		workerVersion: "0.86.0",
 		command: "custom-pi",
-		message: "Pi Agents Team: host Pi 0.80.6 is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal.",
+		message: "Pi Agents Team: host Pi 0.85.1 is launching worker Pi 0.86.0 via custom-pi; the supported version mismatch is non-fatal.",
 	};
 	notifier.notify(event);
 	notifier.notify({ ...event, workerVersion: "0.82.0" });
@@ -241,24 +239,33 @@ test("extension registers control-plane tools and operator commands", () => {
 	);
 	for (const tool of tools) assertStrictFunctionSchema(tool);
 
-	const nullableParameters: Record<string, string[]> = {
+	const optionalParameters: Record<string, string[]> = {
 		delegate_task: ["cwd", "contextHints", "expectedOutput", "pathScopeRoots", "pathScopeAllowWrite", "skills", "model", "reuseWorkerId"],
 		agent_status: ["workerId"],
 		agent_message: ["delivery"],
 		ping_agents: ["workerIds", "mode"],
 		wait_for_agents: ["workerIds", "timeoutMs", "wakeOnRelay"],
 	};
-	for (const [toolName, parameterNames] of Object.entries(nullableParameters)) {
-		const tool = tools.find((candidate) => candidate.name === toolName);
-		for (const parameterName of parameterNames) {
-			assert.ok(acceptsNull(tool?.parameters?.properties?.[parameterName]), `${toolName}.${parameterName} must accept null`);
-		}
-		const prepared = tool?.prepareArguments?.({ preserved: "value" });
-		assert.equal(prepared?.preserved, "value");
-		for (const parameterName of parameterNames) {
-			assert.equal(prepared?.[parameterName], null, `${toolName}.${parameterName} must default to null before validation`);
-		}
+	function validate(name: string, args: Record<string, unknown>): Record<string, unknown> {
+		const tool = tools.find((candidate) => candidate.name === name)!;
+		return validateToolArguments(tool as Tool, { type: "toolCall", id: "schema-test", name, arguments: args });
 	}
+	for (const [toolName, parameterNames] of Object.entries(optionalParameters)) {
+		const tool = tools.find((candidate) => candidate.name === toolName)!;
+		assert.equal(tool.prepareArguments, undefined, "Pi owns optional-null normalization");
+		const required = toolName === "delegate_task" ? { title: "Review", goal: "Review code", profileName: "reviewer" }
+			: toolName === "agent_message" ? { workerId: "w1", message: "Focus on tests" } : {};
+		assert.deepEqual(validate(toolName, required), required);
+		assert.deepEqual(validate(toolName, { ...required, ...Object.fromEntries(parameterNames.map((key) => [key, null])) }), required);
+		for (const key of parameterNames) assert.ok(!tool.parameters?.required?.includes(key));
+	}
+	assert.deepEqual(validate("wait_for_agents", { workerIds: [], timeoutMs: 0, wakeOnRelay: false }),
+		{ workerIds: [], timeoutMs: 0, wakeOnRelay: false });
+	assert.deepEqual(validate("delegate_task", { title: "Read", goal: "Check", profileName: "custom-role", contextHints: ["Keep scope"], skills: [], pathScopeAllowWrite: false }),
+		{ title: "Read", goal: "Check", profileName: "custom-role", contextHints: ["Keep scope"], skills: [], pathScopeAllowWrite: false });
+	assert.throws(() => validate("ping_agents", { mode: "wrong" }), /Validation failed/);
+	assert.throws(() => validate("agent_message", { workerId: "w1", message: "test", delivery: "wrong" }), /Validation failed/);
+	assert.throws(() => validate("delegate_task", { title: "x", goal: "x" }), /Validation failed/);
 	assert.ok(events.includes("session_start"));
 	assert.ok(events.includes("agent_start"));
 	assert.ok(events.includes("agent_end"));

@@ -65,9 +65,10 @@ with other lanes.
 When unsure, prefer a small first recon or observation step, then launch a better
 scoped second wave.
 
-When a worker exists for the topic, do not run bash, read, grep, or file
-inspection to fill in missing findings. Use `agent_result`, `agent_message`,
-smaller re-delegation, or cancellation.
+Do not duplicate a worker's active assignment. Use `agent_result` or
+`agent_message` to request missing findings. While workers run, you may do
+independent work or verify their results directly. Keep write ownership clear
+and avoid editing files assigned to an active worker.
 
 Surface a plan to the user only when alignment is worth an extra turn. Ask one
 clarifying question if you cannot define done.
@@ -77,6 +78,9 @@ clarifying question if you cannot define done.
 Briefs must be self-sufficient and include `title`, `goal`, `contextHints`, and
 `expectedOutput`; add `pathScopeRoots` for write-capable work or useful focus,
 `cwd` only when useful, and `skills` only when materially relevant.
+Include acceptance criteria and applicable repository instructions in
+`contextHints`. Minimal workers do not automatically load `AGENTS.md`,
+`AGENTS.override.md`, or `CLAUDE.md`; do not assume they share your context.
 
 ## Profiles vs Skills
 
@@ -127,11 +131,17 @@ Never leave workers hanging. After delegating:
 1. Call `wait_for_agents` for the spawned ids, or omit ids to wait on all.
 2. If `reason=relay_raised`, answer each `newRelays` item with
    `agent_message`, then call `wait_for_agents` again with the same ids.
-3. If `reason=all_terminal`, call `agent_result` once per worker.
+3. If `reason=all_terminal`, call `agent_result` once per worker and inspect
+   its status. Terminal means finished, not necessarily successful.
 4. Synthesize one user-facing answer.
 
 Terminal worker statuses are `idle`, `completed`, `aborted`, `error`, and
 `exited`. `starting`, `running`, and `waiting_followup` are not done.
+
+Provider retries and compaction are still active work, including pauses after
+tools finish. Keep waiting; do not create duplicate workers because output is
+quiet. A final error, abort, or output-limit stop needs recovery or an honest
+report of incomplete work. Never present a partial result as completed work.
 
 Tool discipline:
 
@@ -152,7 +162,8 @@ If `agent_result` has an empty, placeholder, or under-scoped `<final_answer>`:
 2. steer the same worker once with exact missing sections, or
 3. cancel and re-spawn with a better brief.
 
-Do not compensate by doing the worker's investigation yourself.
+Verify the result directly when that is the smallest useful next step. Do not
+repeat a whole investigation while the assigned worker is still doing it.
 
 ## Result Integration
 

@@ -59,12 +59,13 @@ The loop after `delegate_task`:
 
 The wait resumes cleanly because `waitForTerminal` re-snapshots each target's pending-relay count on every call. Already-answered relays don't wake it again; only new ones do.
 
-Forbidden: looping `ping_agents`, sleeping in bash, spawning new workers to "check on" old ones, running tools directly to "help" a running worker, treating `interim=…` text in a running worker as a finding.
+Avoid looping `ping_agents`, sleeping in bash, spawning workers to check on other workers, and treating `interim=` text as a result. Do not duplicate an active assignment. Independent orchestrator work and direct verification are allowed when useful, with clear file ownership.
 
 ### Reading status
 
 - `running` means not done. `interim=` text is a streaming fragment, not a result.
-- A worker is done only when its status is `idle`, `completed`, `exited`, `aborted`, or `error`.
+- A worker is done only when its status is `idle`, `completed`, `exited`, `aborted`, or `error`. These are terminal states, not a guarantee of success. Unresolved provider failures and output-limit stops settle to `error`; aborted responses settle to `aborted`.
+- Retries and compaction remain active work until Pi settles. Do not duplicate the assignment during a quiet recovery interval.
 - A worker with `status=idle` and an empty `<final_answer>` is "ran but produced no output." Re-delegate, steer, or cancel, don't pretend it succeeded.
 
 ### Worker toasts are UI-only
@@ -129,7 +130,7 @@ next_recommendation:
 
 - **One authoritative surface.** `agent_result` returns the block verbatim. The orchestrator never has to scrape transcripts.
 - **Compact state stays honest.** Contents outside the block are internal notes and are not forwarded, which keeps orchestrator context small.
-- **Failure is explicit.** An empty block is a clear signal the worker did not follow the contract; the orchestrator's response is to re-delegate, steer, or cancel, not to fall back to doing the work itself.
+- **Failure is explicit.** An empty block is a clear signal the worker did not follow the contract; the orchestrator should request missing work, delegate a smaller task, or verify directly when that is the smallest useful next step.
 
 ### What the runtime does
 
@@ -154,3 +155,14 @@ When a session-frozen project config is active, both project prompt overrides an
 ## Injection point
 
 On `before_agent_start`, the extension replaces the orchestrator session's system prompt with `${originalSystemPrompt}\n\n${buildOrchestratorPromptBundle(state, config)}`. The bundle concatenates the markdown contract with a live status header (active worker count, relay count, transport, safety flags, available profiles). Worker prompts are loaded via `systemPromptPath` at launch time.
+
+## Repository context in the brief
+
+Minimal workers run with `--no-context-files`. Include relevant repository
+instructions, constraints, and acceptance criteria in `contextHints`; workers do
+not automatically receive the orchestrator's `AGENTS.md`, `AGENTS.override.md`,
+or `CLAUDE.md` context. This does not enable broader context-file discovery.
+
+Requested skills are loaded with `read`, or with `bash` when `read` is unavailable.
+Only request skills that exist in the installation, and report a missing skill
+rather than pretending it was applied.

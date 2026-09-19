@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.83.0`. The supported host and worker minimum remains Pi `0.80.6`. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
+Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.85.1`. The supported host and worker minimum is Pi `0.85.1`. Upgrade both the host Pi and any custom `rpc.command` before using this release. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
 
 Install dependencies and run the checks:
 
@@ -257,6 +257,28 @@ The orchestrator's `agent_message` tool takes `delivery: "auto" | "steer" | "fol
 
 Inside the `/team` overlay, `s` steers the selected worker and `m` sends a message — both defer to the same delivery resolver and only block unreachable terminal workers.
 
+## Worker recovery and cancellation
+
+Activity shows provider retries and compaction, including compaction between a
+tool result and the next response. These workers remain `running` until Pi
+settles. Keep using `wait_for_agents`; a quiet recovery interval does not mean
+the worker is stuck.
+
+At settlement, an unresolved provider failure or output-limit stop becomes
+`error`, and an aborted response becomes `aborted`. Partial output remains
+available for diagnosis. Check the status before treating the result as complete.
+A successful retry clears the earlier response failure and settles to `idle`.
+A compaction failure is diagnostic and does not by itself fail work that continues.
+
+Cancellation clears queued steering and follow-up messages before sending
+`abort`. It rejects further messages as soon as cancellation starts. Queue
+clearing and abort share a deadline; a failed or stalled request triggers bounded
+process cleanup. The console records discarded message counts only.
+
+Role tool lists override Pi's `defaultTools`: an empty `access.tools` list disables
+all tools, and a nonempty list selects exactly those tools. See
+[role configuration](profiles.md) for an opt-in PowerShell example.
+
 ## Stop a worker
 
 ```text
@@ -490,9 +512,9 @@ What you see:
 
 ### A worker is rejected before RPC launch
 
-Before the first launch for a Pi command, the extension runs that command with `--version`. Pi versions older than `0.80.6`, missing version output, and unparseable version output are fatal because the worker RPC contract cannot be verified. Fix the selected Pi command or upgrade it, then delegate again.
+Before the first launch for a Pi command, the extension runs that command with `--version`. Pi versions older than `0.85.1`, missing version output, and unparseable version output are fatal because the worker RPC contract cannot be verified. Fix the selected Pi command or upgrade it, then delegate again.
 
-A parseable worker version at or above `0.80.6` is supported even when it differs from the host Pi version. The extension emits one non-fatal mismatch warning per session and continues; exact patch equality is not required.
+A parseable worker version at or above `0.85.1` is supported even when it differs from the host Pi version. The extension emits one non-fatal mismatch warning per session and continues; exact patch equality is not required.
 
 ### Delegation is disabled because `agents-team.json` is invalid
 

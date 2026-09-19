@@ -214,7 +214,7 @@ test("agent_end, compaction, retries, queued continuations, and refresh stay run
 	assert.equal(manager.getWorker("worker-settlement")?.state.status, "running");
 	assert.match(manager.getWorker("worker-settlement")?.state.finalAnswer ?? "", /output ready/);
 	assert.ok(events.includes("worker_agent_end"));
-	assert.equal(events.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(events.filter((type) => type === "worker_settled").length, 0);
 
 	transport.setState({ isStreaming: false, isCompacting: true });
 	await manager.refreshState("worker-settlement");
@@ -279,7 +279,7 @@ test("agent_end, compaction, retries, queued continuations, and refresh stay run
 	transport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(manager.getWorker("worker-settlement")?.state.status, "idle");
-	assert.equal(events.filter((type) => type === "worker_idle").length, 1);
+	assert.equal(events.filter((type) => type === "worker_settled").length, 1);
 	const activityCountAfterSettlement = manager.getWorkerActivity("worker-settlement")?.length;
 	transport.writeEvent({ type: "summarization_retry_finished" });
 	await waitForMicrotasks();
@@ -291,7 +291,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	abortTransport = new MockWorkerTransport({
 		autoCompletePrompt: false,
 		onCommand(command) {
-			// Pi 0.80.6 emits settlement before acknowledging the abort RPC.
+			// Pi 0.85.1 emits settlement before acknowledging the abort RPC.
 			if (command.type === "abort") abortTransport.writeEvent({ type: "agent_settled" });
 		},
 	});
@@ -302,7 +302,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	await abortManager.abortWorker("worker-late-abort");
 	await waitForMicrotasks();
 	assert.equal(abortManager.getWorker("worker-late-abort")?.state.status, "aborted");
-	assert.equal(abortEvents.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(abortEvents.filter((type) => type === "worker_settled").length, 0);
 
 	const errorTransport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const errorManager = await launchRuntimeTestWorker("worker-late-error", errorTransport);
@@ -318,7 +318,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	errorTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(errorManager.getWorker("worker-late-error")?.state.status, "error");
-	assert.equal(errorEvents.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(errorEvents.filter((type) => type === "worker_settled").length, 0);
 
 	const exitTransport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const exitManager = await launchRuntimeTestWorker("worker-late-exit", exitTransport);
@@ -330,7 +330,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	exitTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(exitManager.getWorker("worker-late-exit")?.state.status, "exited");
-	assert.equal(exitEvents.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(exitEvents.filter((type) => type === "worker_settled").length, 0);
 
 	const rejectTransport = new MockWorkerTransport({ rejectPrompt: "rejected" });
 	const rejectManager = await launchRuntimeTestWorker("worker-late-reject", rejectTransport);
@@ -340,7 +340,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	rejectTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(rejectManager.getWorker("worker-late-reject")?.state.status, "error");
-	assert.equal(rejectEvents.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(rejectEvents.filter((type) => type === "worker_settled").length, 0);
 });
 
 test("abort ingests data and authoritative usage emitted before acknowledgement without resurrecting lifecycle", async () => {
@@ -474,9 +474,9 @@ test("extension errors remain diagnostic until agent settlement transitions the 
 		"worker_extension_error",
 		"worker_message",
 		"worker_agent_end",
-		"worker_idle",
+		"worker_settled",
 	]);
-	assert.equal(lifecycle.filter((entry) => entry.type === "worker_idle").length, 1);
+	assert.equal(lifecycle.filter((entry) => entry.type === "worker_settled").length, 1);
 	assert.equal(lifecycle.at(-1)?.error, undefined);
 });
 
@@ -575,12 +575,12 @@ test("direct or extension agent_start arms settlement before a non-streaming sta
 		assert.equal(manager.getWorker(workerId)?.state.status, "running");
 		await manager.refreshState(workerId);
 		assert.equal(manager.getWorker(workerId)?.state.status, "running");
-		assert.equal(events.filter((type) => type === "worker_idle").length, priorStatus === "idle" ? 1 : 0);
+		assert.equal(events.filter((type) => type === "worker_settled").length, priorStatus === "idle" ? 1 : 0);
 
 		transport.writeEvent({ type: "agent_settled" });
 		await waitForMicrotasks();
 		assert.equal(manager.getWorker(workerId)?.state.status, "idle");
-		assert.equal(events.filter((type) => type === "worker_idle").length, priorStatus === "idle" ? 2 : 1);
+		assert.equal(events.filter((type) => type === "worker_settled").length, priorStatus === "idle" ? 2 : 1);
 		await manager.dispose();
 	}
 });
@@ -741,7 +741,7 @@ test("refreshStats passes through Pi RPC fractional cost without recomputing it 
 	const rpcCost = 0.01987654321;
 	const transport = new MockWorkerTransport({
 		sessionStats: {
-			sessionId: "pi-0.80.6-tiered-cost",
+			sessionId: "pi-0.85.1-tiered-cost",
 			totalMessages: 7,
 			tokens: { input: 800_001, output: 12_345, cacheRead: 654_321, cacheWrite: 9_876, total: 1_476_543 },
 			cost: rpcCost,
@@ -1248,7 +1248,7 @@ test("dispose exits live workers while preserving aborted and fatal terminal pre
 	assert.equal(fatalAfterDispose?.status, "error");
 	assert.equal(fatalAfterDispose?.error, fatalBeforeDispose?.error);
 	for (const workerId of ["worker-dispose-fatal", "worker-dispose-aborted"]) {
-		assert.equal(terminalEvents.get(workerId)?.filter((type) => type === "worker_idle").length ?? 0, 0);
+		assert.equal(terminalEvents.get(workerId)?.filter((type) => type === "worker_settled").length ?? 0, 0);
 	}
 });
 
@@ -1313,9 +1313,9 @@ test("launch cancellation covers pre-reservation, shared-probe, and post-spawn r
 	probeGate.resolve({
 		command: "pi",
 		versionArgs: ["--version"],
-		hostVersion: "0.80.6",
-		minimumVersion: "0.80.6",
-		workerVersion: "0.80.6",
+		hostVersion: "0.85.1",
+		minimumVersion: "0.85.1",
+		workerVersion: "0.85.1",
 		supported: true,
 		mismatch: false,
 	});
@@ -1390,9 +1390,9 @@ test("dispose shares one outcome, cancels pending launches, and aggregates after
 			: Promise.resolve({
 				command: options.command ?? "pi",
 				versionArgs: ["--version"],
-				hostVersion: "0.80.6",
-				minimumVersion: "0.80.6",
-				workerVersion: "0.80.6",
+				hostVersion: "0.85.1",
+				minimumVersion: "0.85.1",
+				workerVersion: "0.85.1",
 				supported: true,
 				mismatch: false,
 			}),
@@ -2033,4 +2033,99 @@ test("applyNormalizedEvent captures <final_answer> contents on message_end", asy
 	assert.match(worker!.state.finalAnswer!, /src\/runtime\/worker-manager\.ts/);
 	assert.doesNotMatch(worker!.state.finalAnswer!, /trailing/);
 	assert.doesNotMatch(worker!.state.finalAnswer!, /some chatter/);
+});
+
+for (const [stopReason, expectedStatus, expectedError] of [
+	["error", "error", "Provider quota exhausted"],
+	["aborted", "aborted", "Worker response was aborted"],
+	["length", "error", "result is incomplete"],
+] as const) {
+	test(`settlement reports an unrecovered ${stopReason} without losing partial output`, async () => {
+		const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+		const manager = await launchRuntimeTestWorker("outcome", transport);
+		try {
+			await manager.promptWorker("outcome", "work");
+			transport.writeEvent({ type: "message_end", message: {
+				role: "assistant", content: [{ type: "text", text: "Partial result" }], stopReason,
+				...(stopReason === "error" ? { errorMessage: expectedError } : {}),
+			} });
+			transport.writeEvent({ type: "agent_end", messages: [], willRetry: false });
+			transport.setState({ isStreaming: false });
+			await manager.refreshState("outcome");
+			assert.equal(manager.getWorker("outcome")?.state.status, "running");
+			transport.writeEvent({ type: "agent_settled" });
+			assert.equal(manager.getWorker("outcome")?.state.status, expectedStatus);
+			assert.match(manager.getWorker("outcome")?.state.error ?? "", new RegExp(expectedError));
+			assert.match(manager.getWorkerTranscript("outcome") ?? "", /Partial result/);
+			const activityCount = manager.getWorkerActivity("outcome")?.length;
+			transport.writeEvent({ type: "agent_settled" });
+			assert.equal(manager.getWorkerActivity("outcome")?.length, activityCount);
+			await assert.rejects(manager.promptWorker("outcome", "new work"), /cannot receive messages/);
+		} finally { await manager.dispose(); }
+	});
+}
+
+test("provider retry and compaction diagnostics stay running until a recovered success settles", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = await launchRuntimeTestWorker("recovery", transport);
+	try {
+		await manager.promptWorker("recovery", "work");
+		transport.writeEvent({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "transient" } });
+		transport.writeEvent({ type: "agent_end", messages: [], willRetry: true });
+		for (const event of [
+			{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 50, errorMessage: "transient" },
+			{ type: "compaction_start", reason: "threshold" },
+			{ type: "compaction_end", reason: "threshold", aborted: false, errorMessage: "summary failed", willRetry: false },
+			{ type: "compaction_start", reason: "overflow" },
+			{ type: "compaction_end", reason: "overflow", aborted: false, willRetry: true },
+			{ type: "auto_retry_end", attempt: 1, success: true },
+		]) {
+			transport.writeEvent(event);
+			assert.equal(manager.getWorker("recovery")?.state.status, "running");
+		}
+		const labels = manager.getWorkerActivity("recovery")!.map((event) => event.label);
+		assert.ok(labels.includes("Compaction failed"));
+		assert.ok(labels.includes("Provider retry scheduled"));
+		assert.ok(labels.includes("Provider retry finished"));
+		transport.writeEvent({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "<final_answer>Recovered</final_answer>" }], stopReason: "stop" } });
+		transport.writeEvent({ type: "agent_settled" });
+		assert.equal(manager.getWorker("recovery")?.state.status, "idle");
+		assert.equal(manager.getWorker("recovery")?.state.error, undefined);
+		assert.equal(manager.getWorker("recovery")?.state.finalAnswer, "Recovered");
+		const count = manager.getWorkerActivity("recovery")?.length;
+		transport.writeEvent({ type: "compaction_start", reason: "threshold" });
+		assert.equal(manager.getWorkerActivity("recovery")?.length, count);
+	} finally { await manager.dispose(); }
+});
+
+test("cancellation clears queued work before abort and rejects concurrent delivery", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false, hangCommands: ["clear_queue"] });
+	const manager = await launchRuntimeTestWorker("cancel-queue", transport);
+	try {
+		await manager.promptWorker("cancel-queue", "work");
+		const cancellation = manager.abortWorker("cancel-queue");
+		await assert.rejects(manager.steerWorker("cancel-queue", "late steer"), /cannot receive messages/);
+		await assert.rejects(manager.followUpWorker("cancel-queue", "late followup"), /cannot receive messages/);
+		await assert.rejects(manager.promptWorker("cancel-queue", "late prompt"), /cannot receive messages/);
+		assert.equal(transport.commands.some((command) => command.type === "abort"), false);
+		const clear = transport.commands.find((command) => command.type === "clear_queue")!;
+		transport.writeEvent({ type: "response", command: "clear_queue", id: clear.id, success: true, data: { steering: ["private queued text"], followUp: ["more private text"] } });
+		await cancellation;
+		assert.deepEqual(transport.commands.slice(-2).map((command) => command.type), ["clear_queue", "abort"]);
+		assert.equal(manager.getWorker("cancel-queue")?.state.status, "aborted");
+		assert.doesNotMatch(JSON.stringify(manager.getWorkerConsole("cancel-queue")), /private/);
+	} finally { await manager.dispose(); }
+});
+
+test("hung queue clearing terminates the process without sending abort", async () => {
+	const transport = new MockWorkerTransport({ hangCommands: ["clear_queue"] });
+	const handle = new InstrumentedWorkerHandle(transport);
+	const manager = new WorkerManager(() => handle, undefined, { abortTimeoutMs: 10 });
+	await manager.launchWorker({ workerId: "hung-clear", profileName: "reviewer", task: taskInput("hung-clear", "Cancel"), cwd: process.cwd() });
+	try {
+		await assert.rejects(manager.abortWorker("hung-clear"), /worker process was terminated/);
+		assert.equal(handle.disposeCalls, 1);
+		assert.equal(transport.commands.some((command) => command.type === "abort"), false);
+		assert.equal(manager.getWorker("hung-clear")?.state.status, "aborted");
+	} finally { await manager.dispose(); }
 });
