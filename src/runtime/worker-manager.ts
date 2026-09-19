@@ -1130,7 +1130,7 @@ export class WorkerManager {
 						record.assistantFailure = {
 							status: reason === "aborted" ? "aborted" : "error",
 							message: typeof event.message.errorMessage === "string" && event.message.errorMessage.trim()
-								? event.message.errorMessage : fallback,
+								? trimSummary(event.message.errorMessage, 600) : fallback,
 						};
 					}
 				}
