@@ -2117,7 +2117,7 @@ test("cancellation clears queued work before abort and rejects concurrent delive
 	} finally { await manager.dispose(); }
 });
 
-test("hung queue clearing terminates the process and ignores a late clear response", async () => {
+test("hung queue clearing terminates the process without sending abort", async () => {
 	const transport = new MockWorkerTransport({ hangCommands: ["clear_queue"] });
 	const handle = new InstrumentedWorkerHandle(transport);
 	const manager = new WorkerManager(() => handle, undefined, { abortTimeoutMs: 10 });
