@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.83.0`. The supported host and worker minimum remains Pi `0.80.6`. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
+Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.85.1`. The supported host and worker minimum is Pi `0.85.1`. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
 
 Install dependencies and run the checks:
 
@@ -490,9 +490,9 @@ What you see:
 
 ### A worker is rejected before RPC launch
 
-Before the first launch for a Pi command, the extension runs that command with `--version`. Pi versions older than `0.80.6`, missing version output, and unparseable version output are fatal because the worker RPC contract cannot be verified. Fix the selected Pi command or upgrade it, then delegate again.
+Before the first launch for a Pi command, the extension runs that command with `--version`. Pi versions older than `0.85.1`, missing version output, and unparseable version output are fatal because the worker RPC contract cannot be verified. Fix the selected Pi command or upgrade it, then delegate again.
 
-A parseable worker version at or above `0.80.6` is supported even when it differs from the host Pi version. The extension emits one non-fatal mismatch warning per session and continues; exact patch equality is not required.
+A parseable worker version at or above `0.85.1` is supported even when it differs from the host Pi version. The extension emits one non-fatal mismatch warning per session and continues; exact patch equality is not required.
 
 ### Delegation is disabled because `agents-team.json` is invalid
 

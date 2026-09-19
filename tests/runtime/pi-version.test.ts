@@ -32,31 +32,31 @@ test("uses the installed Pi package version as the host compatibility version", 
 });
 
 test("parses supported Pi version output and compares semantic components", () => {
-	assert.deepEqual(parsePiVersion("pi version v0.80.6\n"), { major: 0, minor: 80, patch: 6, prerelease: [], text: "0.80.6" });
-	assert.ok(comparePiVersions(parsePiVersion("0.81.0")!, parsePiVersion("0.80.6")!) > 0);
-	assert.ok(comparePiVersions(parsePiVersion("0.80.6-beta.1")!, parsePiVersion("0.80.6")!) < 0);
+	assert.deepEqual(parsePiVersion("pi version v0.85.1\n"), { major: 0, minor: 85, patch: 1, prerelease: [], text: "0.85.1" });
+	assert.ok(comparePiVersions(parsePiVersion("0.86.0")!, parsePiVersion("0.85.1")!) > 0);
+	assert.ok(comparePiVersions(parsePiVersion("0.85.1-beta.1")!, parsePiVersion("0.85.1")!) < 0);
 	assert.equal(parsePiVersion("not a Pi version"), undefined);
 });
 
 test("accepts the minimum, exact host, and newer worker versions but rejects prereleases below the stable floor", async () => {
-	for (const output of ["0.80.6", "pi 0.80.6", "0.81.0", "1.0.0-beta.1"]) {
+	for (const output of ["0.85.1", "pi 0.85.1", "0.86.0", "1.0.0-beta.1"]) {
 		clearPiVersionProbeCache();
 		const result = await probeWorkerPiVersion({ command: "custom-pi", cwd: "/tmp" }, runner({ stdout: output }));
 		assert.equal(result.supported, true, output);
 	}
-	for (const output of ["0.80.6-beta.1", "0.80.6-rc.1"]) {
+	for (const output of ["0.85.1-beta.1", "0.85.1-rc.1"]) {
 		clearPiVersionProbeCache();
 		const result = await probeWorkerPiVersion({ command: "custom-pi", cwd: "/tmp" }, runner({ stdout: output }));
 		assert.equal(result.supported, false, output);
-		assert.match(result.message ?? "", /require Pi 0\.80\.6 or newer/);
+		assert.match(result.message ?? "", /require Pi 0\.85\.1 or newer/);
 	}
 });
 
 test("rejects old, malformed, and missing worker versions with actionable diagnostics", async () => {
 	const cases = [
-		{ result: { stdout: "0.80.5" }, pattern: /Pi 0\.80\.5.*require Pi 0\.80\.6 or newer.*rpc\.command/ },
-		{ result: { stdout: "nightly" }, pattern: /unparseable version.*0\.80\.6 or newer.*rpc\.command/ },
-		{ result: { code: null, error: new Error("spawn ENOENT") }, pattern: /failed to run custom-pi --version.*ENOENT.*0\.80\.6 or newer.*rpc\.command/ },
+		{ result: { stdout: "0.85.0" }, pattern: /Pi 0\.85\.0.*require Pi 0\.85\.1 or newer.*rpc\.command/ },
+		{ result: { stdout: "nightly" }, pattern: /unparseable version.*0\.85\.1 or newer.*rpc\.command/ },
+		{ result: { code: null, error: new Error("spawn ENOENT") }, pattern: /failed to run custom-pi --version.*ENOENT.*0\.85\.1 or newer.*rpc\.command/ },
 	];
 	for (const entry of cases) {
 		clearPiVersionProbeCache();
@@ -99,10 +99,10 @@ test("redacts token-bearing wrapper arguments from every failure diagnostic", as
 
 test("reports supported host/worker mismatch but not an exact match", async () => {
 	const exact = await probeWorkerPiVersion({ command: "exact", cwd: "/tmp" }, runner({ stdout: HOST_PI_VERSION }));
-	const mismatch = await probeWorkerPiVersion({ command: "newer", cwd: "/tmp" }, runner({ stdout: "0.81.0" }));
+	const mismatch = await probeWorkerPiVersion({ command: "newer", cwd: "/tmp" }, runner({ stdout: "0.86.0" }));
 	assert.equal(exact.mismatch, false);
 	assert.equal(mismatch.mismatch, true);
-	assert.equal(mismatch.workerVersion, "0.81.0");
+	assert.equal(mismatch.workerVersion, "0.86.0");
 });
 
 test("caches probes and coalesces concurrent first probes by command", async () => {
@@ -112,7 +112,7 @@ test("caches probes and coalesces concurrent first probes by command", async () 
 	const run: RunPiVersionCommand = async () => {
 		calls += 1;
 		await blocked;
-		return { stdout: "0.80.6", stderr: "", code: 0 };
+		return { stdout: "0.85.1", stderr: "", code: 0 };
 	};
 	const options = { command: "coalesced-pi", cwd: "/tmp" };
 	const first = probeWorkerPiVersion(options, run);
@@ -137,7 +137,7 @@ test("coalesces the same resolved command and CLI prefix across cwd and unrelate
 	const run: RunPiVersionCommand = async () => {
 		calls += 1;
 		await blocked;
-		return { stdout: "0.80.6", stderr: "", code: 0 };
+		return { stdout: "0.85.1", stderr: "", code: 0 };
 	};
 	const baseArgs = ["/shared/pi-cli.js", "--mode", "rpc", "--no-session"];
 	try {
@@ -155,8 +155,8 @@ test("coalesces the same resolved command and CLI prefix across cwd and unrelate
 		}, run);
 		assert.equal(calls, 1);
 		release();
-		assert.equal((await first).workerVersion, "0.80.6");
-		assert.equal((await second).workerVersion, "0.80.6");
+		assert.equal((await first).workerVersion, "0.85.1");
+		assert.equal((await second).workerVersion, "0.85.1");
 		assert.equal(calls, 1);
 	} finally {
 		release();
@@ -176,15 +176,15 @@ test("separates identical relative CLI prefixes that resolve under different cwd
 	let calls = 0;
 	const run: RunPiVersionCommand = async ({ cwd }) => {
 		calls += 1;
-		return { stdout: cwd === firstCwd ? "0.80.7" : "0.80.5", stderr: "", code: 0 };
+		return { stdout: cwd === firstCwd ? "0.85.2" : "0.85.0", stderr: "", code: 0 };
 	};
 	const baseArgs = [relativeCli, "--mode", "rpc", "--no-session"];
 	try {
 		const supported = await probeWorkerPiVersion({ command: process.execPath, baseArgs, cwd: firstCwd }, run);
 		const unsupported = await probeWorkerPiVersion({ command: process.execPath, baseArgs, cwd: secondCwd }, run);
-		assert.equal(supported.workerVersion, "0.80.7");
+		assert.equal(supported.workerVersion, "0.85.2");
 		assert.equal(supported.supported, true);
-		assert.equal(unsupported.workerVersion, "0.80.5");
+		assert.equal(unsupported.workerVersion, "0.85.0");
 		assert.equal(unsupported.supported, false);
 		assert.equal(calls, 2, "different resolved relative entrypoints must not share a probe result");
 	} finally {
@@ -214,7 +214,7 @@ test("canonicalizes dash-prefixed positional CLI entries after the option termin
 	let calls = 0;
 	const run: RunPiVersionCommand = async ({ cwd }) => {
 		calls += 1;
-		return { stdout: cwd === firstCwd ? "0.80.7" : "0.80.5", stderr: "", code: 0 };
+		return { stdout: cwd === firstCwd ? "0.85.2" : "0.85.0", stderr: "", code: 0 };
 	};
 	const baseArgs = ["--", "-pi-cli.js", "--mode", "rpc", "--no-session"];
 	try {
@@ -276,14 +276,14 @@ test("expires successful cache entries while continuing to coalesce pending prob
 	let calls = 0;
 	const run: RunPiVersionCommand = async () => {
 		calls += 1;
-		return { stdout: calls === 1 ? "0.80.6" : "0.81.0", stderr: "", code: 0 };
+		return { stdout: calls === 1 ? "0.85.1" : "0.86.0", stderr: "", code: 0 };
 	};
 	const options = { command: "ttl-pi", cwd: "/tmp" };
-	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.80.6");
+	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.85.1");
 	now += SUCCESSFUL_PROBE_CACHE_TTL_MS - 1;
-	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.80.6");
+	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.85.1");
 	now += 1;
-	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.81.0");
+	assert.equal((await probeWorkerPiVersion(options, run)).workerVersion, "0.86.0");
 	assert.equal(calls, 2);
 });
 
@@ -293,7 +293,7 @@ test("purges expired completed entries when an unrelated command is probed", asy
 	let calls = 0;
 	const run: RunPiVersionCommand = async () => {
 		calls += 1;
-		return { stdout: "0.80.6", stderr: "", code: 0 };
+		return { stdout: "0.85.1", stderr: "", code: 0 };
 	};
 	await probeWorkerPiVersion({ command: "/tmp/expired-first-pi", cwd: "/tmp" }, run);
 	await probeWorkerPiVersion({ command: "/tmp/expired-second-pi", cwd: "/tmp" }, run);
@@ -311,7 +311,7 @@ test("bounds completed cache entries by evicting the oldest successful probe", a
 	let calls = 0;
 	const run: RunPiVersionCommand = async () => {
 		calls += 1;
-		return { stdout: "0.80.6", stderr: "", code: 0 };
+		return { stdout: "0.85.1", stderr: "", code: 0 };
 	};
 	for (let index = 0; index <= MAX_COMPLETED_PROBE_CACHE_ENTRIES; index += 1) {
 		await probeWorkerPiVersion({ command: `/tmp/capacity-pi-${index}`, cwd: "/tmp" }, run);
@@ -336,7 +336,7 @@ test("stores only sanitized compatibility data after a successful wrapper probe"
 	let calls = 0;
 	const run: RunPiVersionCommand = async () => {
 		calls += 1;
-		return { stdout: "0.80.6", stderr: "", code: 0 };
+		return { stdout: "0.85.1", stderr: "", code: 0 };
 	};
 	const expectedArgs = ["--token", secret, cliEntry, "--version"];
 	const first = await probeWorkerPiVersion(options, run);
@@ -390,13 +390,13 @@ test("invalidates a successful probe when the resolved executable is replaced", 
 	let calls = 0;
 	const run: RunPiVersionCommand = async () => {
 		calls += 1;
-		return { stdout: calls === 1 ? "0.80.6" : "0.81.0", stderr: "", code: 0 };
+		return { stdout: calls === 1 ? "0.85.1" : "0.86.0", stderr: "", code: 0 };
 	};
 	try {
-		assert.equal((await probeWorkerPiVersion({ command: executable, cwd: root }, run)).workerVersion, "0.80.6");
+		assert.equal((await probeWorkerPiVersion({ command: executable, cwd: root }, run)).workerVersion, "0.85.1");
 		await writeFile(replacement, "second executable");
 		await rename(replacement, executable);
-		assert.equal((await probeWorkerPiVersion({ command: executable, cwd: root }, run)).workerVersion, "0.81.0");
+		assert.equal((await probeWorkerPiVersion({ command: executable, cwd: root }, run)).workerVersion, "0.86.0");
 		assert.equal(calls, 2);
 	} finally {
 		await rm(root, { recursive: true, force: true });
@@ -451,7 +451,7 @@ test("preserves arbitrary value-taking wrapper options through the explicit Pi R
 			},
 			async ({ args }) => {
 				observed = args;
-				return { stdout: "0.80.6", stderr: "", code: 0 };
+				return { stdout: "0.85.1", stderr: "", code: 0 };
 			},
 		);
 		assert.deepEqual(observed, [...wrapperArgs, cliEntry, "--version"]);
@@ -489,13 +489,13 @@ test("keys bare-command probes by the executable resolved from cwd and PATH", as
 	let calls = 0;
 	const run: RunPiVersionCommand = async ({ env }) => {
 		calls += 1;
-		return { stdout: env?.PATH?.startsWith(firstBin) ? "0.80.6" : "0.81.0", stderr: "", code: 0 };
+		return { stdout: env?.PATH?.startsWith(firstBin) ? "0.85.1" : "0.86.0", stderr: "", code: 0 };
 	};
 	try {
 		const first = await probeWorkerPiVersion({ command: "pi", cwd: root, env: { PATH: `${firstBin}${delimiter}/usr/bin` } }, run);
 		const second = await probeWorkerPiVersion({ command: "pi", cwd: root, env: { PATH: `${secondBin}${delimiter}/usr/bin` } }, run);
-		assert.equal(first.workerVersion, "0.80.6");
-		assert.equal(second.workerVersion, "0.81.0");
+		assert.equal(first.workerVersion, "0.85.1");
+		assert.equal(second.workerVersion, "0.86.0");
 		assert.equal(calls, 2);
 	} finally {
 		await rm(root, { recursive: true, force: true });
@@ -508,7 +508,7 @@ test("does not cache failed probes so an operator can fix the executable and ret
 		calls += 1;
 		return calls === 1
 			? { stdout: "", stderr: "spawn failed", code: 1 }
-			: { stdout: "0.80.6", stderr: "", code: 0 };
+			: { stdout: "0.85.1", stderr: "", code: 0 };
 	};
 	const options = { command: "repairable-pi", cwd: "/tmp" };
 	assert.equal((await probeWorkerPiVersion(options, run)).supported, false);

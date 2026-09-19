@@ -8,7 +8,7 @@ Pi main session acts as the coordinator, while background RPC workers execute th
 </p>
 
 - **Repo:** [`git@github.com:KristjanPikhof/pi-agents-team.git`](https://github.com/KristjanPikhof/Pi-Agents-Team)
-- **Requires:** Pi ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.80.6`, Node `>=22.19.0`, and Git. npm and `package-lock.json` are the authoritative dependency workflow for this repository.
+- **Requires:** Pi ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) `>=0.85.1`, Node `>=22.19.0`, and Git. npm and `package-lock.json` are the authoritative dependency workflow for this repository.
 
 ## Install
 

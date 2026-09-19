@@ -165,16 +165,16 @@ test("WorkerManager rejects an unsupported worker before RPC process launch", as
 			command: "old-pi",
 			versionArgs: ["--version"],
 			hostVersion: HOST_PI_VERSION,
-			minimumVersion: "0.80.6",
-			workerVersion: "0.80.5",
+			minimumVersion: "0.85.1",
+			workerVersion: "0.85.0",
 			supported: false,
 			mismatch: false,
-			message: "Cannot launch Pi worker: old-pi is Pi 0.80.5, but RPC workers require Pi 0.80.6 or newer. Update the selected worker command or rpc.command.",
+			message: "Cannot launch Pi worker: old-pi is Pi 0.85.0, but RPC workers require Pi 0.85.1 or newer. Update the selected worker command or rpc.command.",
 		}),
 	);
 	await assert.rejects(
 		manager.launchWorker({ workerId: "old", profileName: "fixer", task: {} as any, cwd: process.cwd() }),
-		/RPC workers require Pi 0\.80\.6 or newer/,
+		/RPC workers require Pi 0\.85\.1 or newer/,
 	);
 	assert.equal(launches, 0);
 });
@@ -187,8 +187,8 @@ test("WorkerManager injects the selected command into preflight and emits mismat
 			command: options.command ?? "pi",
 			versionArgs: ["--version"],
 			hostVersion: HOST_PI_VERSION,
-			minimumVersion: "0.80.6",
-			workerVersion: "0.81.0",
+			minimumVersion: "0.85.1",
+			workerVersion: "0.86.0",
 			supported: true,
 			mismatch: true,
 		};
@@ -206,7 +206,7 @@ test("WorkerManager injects the selected command into preflight and emits mismat
 	});
 	assert.deepEqual(probes, [{ command: "custom-pi", baseArgs: ["--mode", "rpc", "--no-session"], cwd: process.cwd(), env: undefined }]);
 	assert.deepEqual(warnings, [
-		`Pi Agents Team: host Pi ${HOST_PI_VERSION} is launching worker Pi 0.81.0 via custom-pi; the supported version mismatch is non-fatal.`,
+		`Pi Agents Team: host Pi ${HOST_PI_VERSION} is launching worker Pi 0.86.0 via custom-pi; the supported version mismatch is non-fatal.`,
 	]);
 	await manager.dispose();
 });

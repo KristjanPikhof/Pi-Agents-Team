@@ -291,7 +291,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	abortTransport = new MockWorkerTransport({
 		autoCompletePrompt: false,
 		onCommand(command) {
-			// Pi 0.80.6 emits settlement before acknowledging the abort RPC.
+			// Pi 0.85.1 emits settlement before acknowledging the abort RPC.
 			if (command.type === "abort") abortTransport.writeEvent({ type: "agent_settled" });
 		},
 	});
@@ -741,7 +741,7 @@ test("refreshStats passes through Pi RPC fractional cost without recomputing it 
 	const rpcCost = 0.01987654321;
 	const transport = new MockWorkerTransport({
 		sessionStats: {
-			sessionId: "pi-0.80.6-tiered-cost",
+			sessionId: "pi-0.85.1-tiered-cost",
 			totalMessages: 7,
 			tokens: { input: 800_001, output: 12_345, cacheRead: 654_321, cacheWrite: 9_876, total: 1_476_543 },
 			cost: rpcCost,
@@ -1313,9 +1313,9 @@ test("launch cancellation covers pre-reservation, shared-probe, and post-spawn r
 	probeGate.resolve({
 		command: "pi",
 		versionArgs: ["--version"],
-		hostVersion: "0.80.6",
-		minimumVersion: "0.80.6",
-		workerVersion: "0.80.6",
+		hostVersion: "0.85.1",
+		minimumVersion: "0.85.1",
+		workerVersion: "0.85.1",
 		supported: true,
 		mismatch: false,
 	});
@@ -1390,9 +1390,9 @@ test("dispose shares one outcome, cancels pending launches, and aggregates after
 			: Promise.resolve({
 				command: options.command ?? "pi",
 				versionArgs: ["--version"],
-				hostVersion: "0.80.6",
-				minimumVersion: "0.80.6",
-				workerVersion: "0.80.6",
+				hostVersion: "0.85.1",
+				minimumVersion: "0.85.1",
+				workerVersion: "0.85.1",
 				supported: true,
 				mismatch: false,
 			}),
