@@ -204,6 +204,7 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	unsubscribers: Array<() => void>;
 	closing: boolean;
 	awaitingSettlement: boolean;
+	assistantFailure?: { status: "error" | "aborted"; message: string };
 	launchSnapshot: WorkerLaunchSnapshot;
 	requestedThinkingLevel: ThinkingLevel;
 	thinkingClamped: boolean;
@@ -655,6 +656,7 @@ export class WorkerManager {
 		record.textBufferDroppedBytes = 0;
 		record.textBufferDroppedLines = 0;
 		record.awaitingSettlement = false;
+		record.assistantFailure = undefined;
 		// Reuse keeps the same RPC session and launch-time model/thinking flags,
 		// so the post-launch clamp comparison remains valid for the reused task.
 		return this.snapshot(workerId)!;
@@ -678,7 +680,8 @@ export class WorkerManager {
 	}
 
 	async promptWorker(workerId: string, message: string): Promise<void> {
-		const record = this.requireWorker(workerId);
+		const record = this.requireMessageableWorker(workerId);
+		record.assistantFailure = undefined;
 		record.awaitingSettlement = true;
 		record.state.status = "running";
 		record.state.lastEventAt = Date.now();
@@ -706,13 +709,21 @@ export class WorkerManager {
 	}
 
 	async steerWorker(workerId: string, message: string): Promise<void> {
-		const record = this.requireWorker(workerId);
+		const record = this.requireMessageableWorker(workerId);
 		await record.client.steer(message);
 	}
 
 	async followUpWorker(workerId: string, message: string): Promise<void> {
-		const record = this.requireWorker(workerId);
+		const record = this.requireMessageableWorker(workerId);
 		await record.client.followUp(message);
+	}
+
+	private requireMessageableWorker(workerId: string): WorkerRuntimeRecord {
+		const record = this.requireWorker(workerId);
+		if (record.closing || UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) {
+			throw new Error(`Worker ${workerId} cannot receive messages (status=${record.state.status}). Delegate a fresh worker.`);
+		}
+		return record;
 	}
 
 	async abortWorker(workerId: string): Promise<void> {
@@ -725,7 +736,13 @@ export class WorkerManager {
 		record.state.lastEventAt = timestamp;
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer || "Aborted");
 		try {
-			await this.withDeadline(record.client.abort(), this.abortTimeoutMs, `Abort RPC for ${workerId}`);
+			const signal = AbortSignal.timeout(this.abortTimeoutMs);
+			const cleared = await record.client.clearQueue(signal);
+			this.appendConsole(record, {
+				ts: Date.now(), kind: "queue",
+				text: `Cancelled queued messages: steering=${cleared.steering.length} followUp=${cleared.followUp.length}`,
+			});
+			await record.client.abort(signal);
 		} catch (error) {
 			const abortMessage = error instanceof Error ? error.message : String(error);
 			let shutdownError: unknown;
@@ -1043,7 +1060,7 @@ export class WorkerManager {
 			return;
 		}
 		if (
-			event.type === "worker_idle"
+			event.type === "worker_settled"
 			&& (!record.awaitingSettlement || UNREACHABLE_TERMINAL_STATUSES.has(record.state.status))
 		) {
 			return;
@@ -1053,6 +1070,10 @@ export class WorkerManager {
 				event.type === "worker_summarization_retry_scheduled"
 				|| event.type === "worker_summarization_retry_attempt_started"
 				|| event.type === "worker_summarization_retry_finished"
+				|| event.type === "worker_compaction_started"
+				|| event.type === "worker_compaction_finished"
+				|| event.type === "worker_retry_started"
+				|| event.type === "worker_retry_finished"
 			)
 			&& (!record.awaitingSettlement || UNREACHABLE_TERMINAL_STATUSES.has(record.state.status))
 		) {
@@ -1095,6 +1116,20 @@ export class WorkerManager {
 				break;
 			case "worker_message": {
 				this.flushPendingText(record);
+				if (event.message.role === "assistant") {
+					const reason = event.message.stopReason;
+					record.assistantFailure = undefined;
+					if (reason === "error" || reason === "aborted" || reason === "length") {
+						const fallback = reason === "length"
+							? "Worker output reached the model limit; the result is incomplete."
+							: `Worker response ${reason === "aborted" ? "was aborted" : "failed"}.`;
+						record.assistantFailure = {
+							status: reason === "aborted" ? "aborted" : "error",
+							message: typeof event.message.errorMessage === "string" && event.message.errorMessage.trim()
+								? event.message.errorMessage : fallback,
+						};
+					}
+				}
 				const assistantText = extractAssistantText(event.message);
 				if (assistantText) {
 					const finalAnswer = extractFinalAnswer(assistantText);
@@ -1229,6 +1264,45 @@ export class WorkerManager {
 				this.flushPendingText(record);
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
 				break;
+			case "worker_compaction_started":
+			case "worker_compaction_finished": {
+				const started = event.type === "worker_compaction_started";
+				let label = started ? "Compaction started" : "Compaction finished";
+				if (event.aborted) label = "Compaction aborted";
+				else if (event.errorMessage) label = "Compaction failed";
+				const summary = [
+					event.reason ? `reason=${event.reason}` : undefined,
+					event.willRetry ? "Pi will retry" : undefined,
+					event.errorMessage ? trimSummary(event.errorMessage, 260) : undefined,
+				].filter(Boolean).join("; ");
+				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: `${label}: ${summary}` });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp, updatedAt: event.timestamp,
+					actionKind: "process", status: event.errorMessage ? "error" : "info",
+					label, summary, sourceEvent: event.type,
+				});
+				break;
+			}
+			case "worker_retry_started":
+			case "worker_retry_finished": {
+				const started = event.type === "worker_retry_started";
+				const label = started ? "Provider retry scheduled" : "Provider retry finished";
+				const summary = [
+					event.attempt !== undefined ? `attempt ${event.attempt}${event.maxAttempts !== undefined ? `/${event.maxAttempts}` : ""}` : undefined,
+					event.delayMs !== undefined ? `delay ${event.delayMs}ms` : undefined,
+					event.errorMessage ? trimSummary(event.errorMessage, 260) : undefined,
+					started ? undefined : "awaiting Pi settlement",
+				].filter(Boolean).join("; ");
+				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: `${label}: ${summary}` });
+				this.appendActivity(record, {
+					id: this.nextActivityId(record, event.type, event.timestamp),
+					ts: event.timestamp, updatedAt: event.timestamp,
+					actionKind: "process", status: !started && !event.success ? "error" : "info",
+					label, summary, sourceEvent: event.type,
+				});
+				break;
+			}
 			case "worker_summarization_retry_scheduled": {
 				const details: string[] = [];
 				if (event.attempt !== undefined && event.maxAttempts !== undefined) {
@@ -1285,21 +1359,21 @@ export class WorkerManager {
 					sourceEvent: event.type,
 				});
 				break;
-			case "worker_idle":
+			case "worker_settled":
 				record.awaitingSettlement = false;
-				record.state.status = "idle";
-				record.state.error = undefined;
-				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
+				record.state.status = record.assistantFailure?.status ?? "idle";
+				record.state.error = record.assistantFailure?.message;
+				record.state.lastSummary = buildSummary(record.state, record.state.error ?? record.textBuffer);
 				this.flushPendingText(record);
-				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: record.state.status });
+				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: record.state.error ?? record.state.status });
 				this.appendActivity(record, {
 					id: this.nextActivityId(record, event.type, event.timestamp),
 					ts: event.timestamp,
 					updatedAt: event.timestamp,
 					actionKind: "status",
-					status: "info",
-					label: "Worker idle",
-					summary: record.state.status,
+					status: record.assistantFailure ? "error" : "info",
+					label: `Worker ${record.state.status}`,
+					summary: record.state.error ?? record.state.status,
 					sourceEvent: event.type,
 				});
 				break;
