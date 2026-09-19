@@ -100,3 +100,39 @@ test("normalizeRpcEvent drops malformed summarization retry metadata", () => {
 	assert.equal(started.source, undefined);
 	assert.equal(started.reason, undefined);
 });
+
+test("compaction diagnostics retain metadata without retaining summary payloads", () => {
+	const [event] = normalizeRpcEvent({
+		type: "compaction_end", reason: "overflow", aborted: false, willRetry: true,
+		errorMessage: "Summary unavailable", result: { summary: "private compaction text" },
+	});
+	assert.ok(event?.type === "worker_compaction_finished");
+	assert.equal(event.reason, "overflow");
+	assert.equal(event.willRetry, true);
+	assert.equal(event.errorMessage, "Summary unavailable");
+	assert.ok(!("result" in event));
+	const [malformed] = normalizeRpcEvent({ type: "compaction_start", reason: "unknown", aborted: "yes", errorMessage: {} });
+	assert.ok(malformed?.type === "worker_compaction_started");
+	assert.equal(malformed.reason, undefined);
+	assert.equal(malformed.aborted, false);
+	assert.equal(malformed.errorMessage, undefined);
+});
+
+test("provider retry diagnostics use finalError and discard malformed counters", () => {
+	const [started] = normalizeRpcEvent({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2_000, errorMessage: "Busy" });
+	assert.ok(started?.type === "worker_retry_started");
+	assert.equal(started.attempt, 1);
+	assert.equal(started.maxAttempts, 3);
+	assert.equal(started.delayMs, 2_000);
+	assert.equal(started.errorMessage, "Busy");
+	const [finished] = normalizeRpcEvent({ type: "auto_retry_end", success: false, attempt: 3, finalError: "Still busy" });
+	assert.ok(finished?.type === "worker_retry_finished");
+	assert.equal(finished.errorMessage, "Still busy");
+	assert.equal(finished.success, false);
+	const [malformed] = normalizeRpcEvent({ type: "auto_retry_start", attempt: "one", maxAttempts: Infinity, delayMs: null, errorMessage: {} });
+	assert.ok(malformed?.type === "worker_retry_started");
+	assert.equal(malformed.attempt, undefined);
+	assert.equal(malformed.maxAttempts, undefined);
+	assert.equal(malformed.delayMs, undefined);
+	assert.equal(malformed.errorMessage, undefined);
+});
