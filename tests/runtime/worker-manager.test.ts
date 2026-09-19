@@ -214,7 +214,7 @@ test("agent_end, compaction, retries, queued continuations, and refresh stay run
 	assert.equal(manager.getWorker("worker-settlement")?.state.status, "running");
 	assert.match(manager.getWorker("worker-settlement")?.state.finalAnswer ?? "", /output ready/);
 	assert.ok(events.includes("worker_agent_end"));
-	assert.equal(events.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(events.filter((type) => type === "worker_settled").length, 0);
 
 	transport.setState({ isStreaming: false, isCompacting: true });
 	await manager.refreshState("worker-settlement");
@@ -279,7 +279,7 @@ test("agent_end, compaction, retries, queued continuations, and refresh stay run
 	transport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(manager.getWorker("worker-settlement")?.state.status, "idle");
-	assert.equal(events.filter((type) => type === "worker_idle").length, 1);
+	assert.equal(events.filter((type) => type === "worker_settled").length, 1);
 	const activityCountAfterSettlement = manager.getWorkerActivity("worker-settlement")?.length;
 	transport.writeEvent({ type: "summarization_retry_finished" });
 	await waitForMicrotasks();
@@ -302,7 +302,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	await abortManager.abortWorker("worker-late-abort");
 	await waitForMicrotasks();
 	assert.equal(abortManager.getWorker("worker-late-abort")?.state.status, "aborted");
-	assert.equal(abortEvents.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(abortEvents.filter((type) => type === "worker_settled").length, 0);
 
 	const errorTransport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const errorManager = await launchRuntimeTestWorker("worker-late-error", errorTransport);
@@ -318,7 +318,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	errorTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(errorManager.getWorker("worker-late-error")?.state.status, "error");
-	assert.equal(errorEvents.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(errorEvents.filter((type) => type === "worker_settled").length, 0);
 
 	const exitTransport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const exitManager = await launchRuntimeTestWorker("worker-late-exit", exitTransport);
@@ -330,7 +330,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	exitTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(exitManager.getWorker("worker-late-exit")?.state.status, "exited");
-	assert.equal(exitEvents.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(exitEvents.filter((type) => type === "worker_settled").length, 0);
 
 	const rejectTransport = new MockWorkerTransport({ rejectPrompt: "rejected" });
 	const rejectManager = await launchRuntimeTestWorker("worker-late-reject", rejectTransport);
@@ -340,7 +340,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	rejectTransport.writeEvent({ type: "agent_settled" });
 	await waitForMicrotasks();
 	assert.equal(rejectManager.getWorker("worker-late-reject")?.state.status, "error");
-	assert.equal(rejectEvents.filter((type) => type === "worker_idle").length, 0);
+	assert.equal(rejectEvents.filter((type) => type === "worker_settled").length, 0);
 });
 
 test("abort ingests data and authoritative usage emitted before acknowledgement without resurrecting lifecycle", async () => {
@@ -474,9 +474,9 @@ test("extension errors remain diagnostic until agent settlement transitions the 
 		"worker_extension_error",
 		"worker_message",
 		"worker_agent_end",
-		"worker_idle",
+		"worker_settled",
 	]);
-	assert.equal(lifecycle.filter((entry) => entry.type === "worker_idle").length, 1);
+	assert.equal(lifecycle.filter((entry) => entry.type === "worker_settled").length, 1);
 	assert.equal(lifecycle.at(-1)?.error, undefined);
 });
 
@@ -575,12 +575,12 @@ test("direct or extension agent_start arms settlement before a non-streaming sta
 		assert.equal(manager.getWorker(workerId)?.state.status, "running");
 		await manager.refreshState(workerId);
 		assert.equal(manager.getWorker(workerId)?.state.status, "running");
-		assert.equal(events.filter((type) => type === "worker_idle").length, priorStatus === "idle" ? 1 : 0);
+		assert.equal(events.filter((type) => type === "worker_settled").length, priorStatus === "idle" ? 1 : 0);
 
 		transport.writeEvent({ type: "agent_settled" });
 		await waitForMicrotasks();
 		assert.equal(manager.getWorker(workerId)?.state.status, "idle");
-		assert.equal(events.filter((type) => type === "worker_idle").length, priorStatus === "idle" ? 2 : 1);
+		assert.equal(events.filter((type) => type === "worker_settled").length, priorStatus === "idle" ? 2 : 1);
 		await manager.dispose();
 	}
 });
@@ -1248,7 +1248,7 @@ test("dispose exits live workers while preserving aborted and fatal terminal pre
 	assert.equal(fatalAfterDispose?.status, "error");
 	assert.equal(fatalAfterDispose?.error, fatalBeforeDispose?.error);
 	for (const workerId of ["worker-dispose-fatal", "worker-dispose-aborted"]) {
-		assert.equal(terminalEvents.get(workerId)?.filter((type) => type === "worker_idle").length ?? 0, 0);
+		assert.equal(terminalEvents.get(workerId)?.filter((type) => type === "worker_settled").length ?? 0, 0);
 	}
 });
 
