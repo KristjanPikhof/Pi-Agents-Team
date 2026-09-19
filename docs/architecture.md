@@ -109,6 +109,15 @@ Local development takes a separate path: `pi -e ./extensions/index.ts` loads the
 
 Workers run through `pi --mode rpc --no-session`. That gives us prompt, steer, follow-up, queue clearing, abort, state, and stats commands without inventing another agent protocol. Transport is line-delimited JSON (`jsonl-lf`).
 
+### Cancellation ordering
+
+WorkerManager marks cancellation before any asynchronous RPC operation, so late
+settlement cannot report success and concurrent prompt/steer/follow-up calls are
+rejected. `clear_queue` runs before `abort` under one abort signal and deadline.
+If either command fails or stalls, bounded process disposal remains the fallback.
+Late RPC responses cannot continue the cancelled sequence. Queue contents are
+not copied into runtime diagnostics; only their counts are retained.
+
 ### Worker launch has a cached Pi version gate
 
 `WorkerManager.launchWorker` probes the selected worker command with `--version` before creating the RPC process. The host version comes from Pi's exported `VERSION`; workers must report a parseable Pi version at or above `0.85.1`. An old version, missing command, failed probe, or unparseable output rejects the launch before `pi --mode rpc` starts, with guidance to update the selected command or `rpc.command`.
@@ -379,12 +388,3 @@ A separate 15 s managed `setInterval` rotates the bottom status-line tip while t
 - [`operations.md`](operations.md) for install, smoke, steer, troubleshoot
 - [`profiles.md`](profiles.md) for profile policy and write-scope rules
 - [`prompting.md`](prompting.md) for orchestrator and worker prompt contracts
-
-### Cancellation ordering
-
-WorkerManager marks cancellation before any asynchronous RPC operation, so late
-settlement cannot report success and concurrent prompt/steer/follow-up calls are
-rejected. `clear_queue` runs before `abort` under one abort signal and deadline.
-If either command fails or stalls, bounded process disposal remains the fallback.
-Late RPC responses cannot continue the cancelled sequence. Queue contents are
-not copied into runtime diagnostics; only their counts are retained.
