@@ -47,6 +47,15 @@ function makeWorker(): WorkerRuntimeState {
 	};
 }
 
+test("copy payload keeps the recorded tool execution time", () => {
+	const payload = buildCopyPayload(makeWorker(), "", [], [{
+		id: "duration", ts: 1000, updatedAt: 10000,
+		actionKind: "tool", status: "completed", label: "Used read",
+		toolName: "read", sourceEvent: "worker_tool_finished", durationMs: 1250,
+	}]);
+	assert.match(payload, /Took: 1250ms/);
+});
+
 test("buildCopyPayload includes task, summary, final answer, transcript, activity, and raw console", () => {
 	const worker = makeWorker();
 	const transcript = "Here is the complete report…";

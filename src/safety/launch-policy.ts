@@ -163,6 +163,9 @@ export function applyLaunchPolicy(
 	}
 
 	const tools = request.tools ?? request.profile.tools;
+	if (tools.some((tool) => !tool || tool.startsWith("+") || tool.startsWith("-") || /[*,\s]/.test(tool))) {
+		throw new Error("Worker tools must use exact names; Pi tool patterns and +name/-name selectors can broaden the role's configured tool set.");
+	}
 	if (tools.some((tool) => !request.profile.tools.includes(tool))) {
 		throw new Error("Launch-time tool overrides must stay within the role's configured tool set.");
 	}

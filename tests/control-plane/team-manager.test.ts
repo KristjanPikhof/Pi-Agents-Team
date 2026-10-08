@@ -285,6 +285,24 @@ test("settled provider failure wakes waits, exposes the error, and blocks reuse"
 	}
 });
 
+test("aborted settlement wakes waits and blocks reuse without an assistant response", async () => {
+	const { workerManager, transports } = createMockWorkerManager({ autoCompletePrompt: false });
+	const manager = new TeamManager({ workerManager });
+	const request = { title: "Cancel", goal: "Cancel before output", profileName: "reviewer", cwd: process.cwd() };
+	try {
+		const { worker } = await manager.delegateTask(request);
+		const wait = manager.waitForTerminal([worker.workerId], { timeoutMs: 500 });
+		transports[0]!.writeEvent({ type: "agent_settled", aborted: true });
+		const result = await wait;
+		assert.equal(result.reason, "all_terminal");
+		assert.equal(result.workers[0]?.status, "aborted");
+		assert.equal(manager.getWorkerResult(worker.workerId)?.worker.status, "aborted");
+		await assert.rejects(manager.delegateTask({ ...request, reuseWorkerId: worker.workerId }), /Cannot reuse worker.*aborted/);
+	} finally {
+		await manager.dispose();
+	}
+});
+
 test("waitForTerminal wakes early when a running worker raises a new relay", async () => {
 	const transports: MockWorkerTransport[] = [];
 	const workerManager = new WorkerManager(() => {

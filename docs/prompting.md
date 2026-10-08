@@ -57,6 +57,8 @@ The loop after `delegate_task`:
 2. If `reason === "relay_raised"`, read `details.newRelays` (each entry has `workerId`, `profileName`, `question`, `urgency`), answer each via `agent_message` (auto-routed), then call `wait_for_agents` again with the same ids to go back to sleep. Do **not** wait for every worker to finish before answering a mid-flight relay.
 3. If `reason === "all_terminal"`, call `agent_result` once per worker and synthesize.
 
+`agent_settled.aborted: true` counts as a terminal worker, not a successful result. Inspect `agent_result` for the cancellation diagnostic and any partial output before deciding whether to delegate again. A worker input extension that handles a fresh prompt without starting a run produces an error immediately.
+
 The wait resumes cleanly because `waitForTerminal` re-snapshots each target's pending-relay count on every call. Already-answered relays don't wake it again; only new ones do.
 
 Avoid looping `ping_agents`, sleeping in bash, spawning workers to check on other workers, and treating `interim=` text as a result. Do not duplicate an active assignment. Independent orchestrator work and direct verification are allowed when useful, with clear file ownership.

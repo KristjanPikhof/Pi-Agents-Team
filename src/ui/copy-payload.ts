@@ -33,6 +33,7 @@ function formatActivityEvent(event: WorkerActivityEvent): string[] {
 			? `• ${label.startsWith("Used ") ? label : `Used ${toolName ?? label}`}`
 			: `• ${label}`;
 	const lines = [bulletLabel];
+	if (event.durationMs !== undefined) lines.push(`  Took: ${event.durationMs}ms`);
 	if (event.actionKind === "final_summary") {
 		lines.push(...formatFinalAnswerFields(event.finalSummaryFields, event.summary));
 	} else if (event.summary && event.actionKind !== "command") {

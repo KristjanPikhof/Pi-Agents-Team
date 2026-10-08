@@ -11,6 +11,15 @@ function profileWithoutThinkingLevel(): TeamProfileSpec {
 	return profile;
 }
 
+test("worker roles reject CLI selectors that could broaden their tool set", () => {
+	for (const selector of ["+write", "-read", "*", "w*", "mcp__server__*", "read,write", " +write", ""]) {
+		const profile = { ...resolveProfile("reviewer"), tools: [selector] };
+		assert.throws(() => applyLaunchPolicy({ cwd: process.cwd(), profile }), /Worker tools must use exact names/, selector);
+	}
+	const profile = { ...resolveProfile("reviewer"), tools: ["read", "mcp__server__lookup"] };
+	assert.deepEqual(applyLaunchPolicy({ cwd: process.cwd(), profile }).tools, profile.tools);
+});
+
 test("applyLaunchPolicy uses explicit thinkingLevel before profile and orchestrator fallbacks", () => {
 	const plan = applyLaunchPolicy({
 		cwd: process.cwd(),

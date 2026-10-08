@@ -38,12 +38,12 @@ test("package manifest exposes only the compiled extension and dist-contained as
 	assert.ok(!packageJson.files?.includes("profiles"), "worker profiles ship under dist only");
 });
 
-test("package manifest pins development checks to Pi 0.85.1", () => {
+test("package manifest pins development checks to Pi 1.1.0", () => {
 	const testedPiVersions = {
 		codingAgent: packageJson.devDependencies?.["@earendil-works/pi-coding-agent"],
 		tui: packageJson.devDependencies?.["@earendil-works/pi-tui"],
 	};
-	assert.deepEqual(testedPiVersions, { codingAgent: "0.85.1", tui: "0.85.1" });
+	assert.deepEqual(testedPiVersions, { codingAgent: "1.1.0", tui: "1.1.0" });
 	assert.deepEqual(
 		{
 			codingAgent: packageLock.packages?.[""]?.devDependencies?.["@earendil-works/pi-coding-agent"],
@@ -56,15 +56,15 @@ test("package manifest pins development checks to Pi 0.85.1", () => {
 test("package manifest consumes Pi's shared TypeBox runtime", () => {
 	assert.equal(packageJson.dependencies?.typebox, undefined);
 	assert.equal(packageJson.peerDependencies?.typebox, "*");
-	assert.equal(packageJson.devDependencies?.typebox, "1.3.7");
+	assert.equal(packageJson.devDependencies?.typebox, "1.3.27");
 });
 
-test("package manifest requires the supported Pi 0.85.1 peer baseline", () => {
+test("package manifest requires the supported Pi 1.1.0 peer baseline", () => {
 	const supportedPiVersions = {
 		codingAgent: packageJson.peerDependencies?.["@earendil-works/pi-coding-agent"],
 		tui: packageJson.peerDependencies?.["@earendil-works/pi-tui"],
 	};
-	assert.deepEqual(supportedPiVersions, { codingAgent: ">=0.85.1", tui: ">=0.85.1" });
+	assert.deepEqual(supportedPiVersions, { codingAgent: ">=1.1.0", tui: ">=1.1.0" });
 	assert.deepEqual(
 		{
 			codingAgent: packageLock.packages?.[""]?.peerDependencies?.["@earendil-works/pi-coding-agent"],

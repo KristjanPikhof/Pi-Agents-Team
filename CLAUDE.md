@@ -37,18 +37,21 @@ Single test: `npx tsx --test tests/runtime/worker-manager.test.ts`; avoid `npm t
 
 Commands: `/team`, `/team-steer`, `/team-stop`, `/team-copy`, `/team-result`, `/team-enable`, `/team-init`.
 Tools: `delegate_task`, `agent_status`, `agent_result`, `agent_message`, `ping_agents`, `wait_for_agents`, `agent_cancel`.
-`/team`: Workers/Inspect/Console/Cost tabs; active refresh on open; Console defaults to Activity; `r` toggles Raw in Console and refreshes elsewhere.
+`/team`: Workers/Inspect/Console/Cost tabs; active refresh on open; Console defaults to Activity with auto-follow. Colored, bold tool names lead muted summaries; status/duration align right, selected rows use Pi’s `selectedBg`, running indicators stop on terminal/close; `↑`/`↓` select rows, `enter` toggles details, errors stay expanded. `f`/`G` resumes following; `r` toggles Raw in Console and refreshes elsewhere; `?` shows all footer actions. Workers aligns wide columns and stacks narrow tasks. Inspect `enter` toggles full details (collapsed initially); copies always keep the retained tail. Cost pins totals and adapts tables to labelled blocks.
 Do not re-add without discussion: `/team-status`, `/agents`, `/ping-agents`, `/team-on`, `/team-off`, `/team-cost`, `/team-prune`, `/team-disable`, `/agent-cancel`, `/agent-close`, `/agent-steer`, `/agent-followup`, `/agent-result`.
 
 ## Load-bearing invariants
 
 - Status set: terminal `idle | completed | aborted | error | exited`; non-terminal `starting | running | waiting_followup`. Keep normalizer, `isTerminalWorkerStatus`, UI glyphs, broadcasts, and `wait_for_agents` aligned.
 - Starting guard: keep `starting` when `worker_state.status === "starting" && !state.isStreaming`.
-- Settlement boundary: `agent_end` is a loop boundary only. It may update output/summary but must remain `running`; only `agent_settled` may produce successful `idle`.
+- Settlement boundary: `agent_end` is a loop boundary only. It may update output/summary but must remain `running`; only `agent_settled` may produce successful `idle`. Its `aborted: true` flag wins over assistant output and produces `aborted`.
 - Keep `awaitingSettlement` internal to `WorkerRuntimeRecord`, non-persisted, and absent from `WorkerRuntimeState` and public status/result unions. While set, `get_state` with `isStreaming: false` must not bypass the guard, including compaction, retry, queued-follow-up, and continuation sequences.
 - Terminal precedence: abort, error, prompt rejection, and process exit clear the settlement guard and beat late `agent_settled`. Ignore duplicate settlement/idle events after the first valid transition so waits, results, UI, and toasts observe one completion.
 - Prompt rejection: `promptWorker` marks `running`; rejection marks `error`, emits state, rethrows.
 - Terminal workers reject messages; `idle`/`waiting_followup` accept fresh prompts.
+- Worker tools use exact names; reject patterns, additive selectors, commas, and whitespace. Exclude unlisted MCP tools. `--no-extensions` disables built-ins too; required built-ins go in explicit worker extensions.
+- Tool Activity keeps finite non-negative Pi `durationMs` in memory; display it ahead of arrival-time estimates and include it in copies.
+- A fresh RPC prompt with disposition `handled` fails promptly; it must not await a nonexistent settlement.
 - Delivery union: `"steer" | "follow_up" | "prompt"`. Idle/waiting `/team-steer`, even `--queue`, upgrades to `prompt`; overlay steer/message must not pre-block idle/waiting.
 - `wait_for_agents`: `all_terminal | relay_raised | timeout | aborted`; prefer wait over polling. `relay_raised` returns new relay questions since the baseline. Between `agent_end` and `agent_settled`, waits must not return `all_terminal`, results/completion notifications stay non-terminal, and reuse stays rejected; settlement unlocks all four.
 - Keep all relay-placeholder guards: `PLACEHOLDER_RELAY_VALUES`, relay-toast guard, worker prompt wording.
@@ -62,7 +65,8 @@ Do not re-add without discussion: `/team-status`, `/agents`, `/ping-agents`, `/t
 
 - `record.textBuffer` is a retained assistant-text tail, capped at 4,000 lines/256 KiB. Transcript reads add `[transcript truncated: ...]` when older text dropped.
 - Assistant chunks are memory-only, capped at 4,096 chunks/256 KiB. Keep at least one chunk on eviction. Reuse resets chunks, activity, final answer, summary, relays, `nextIndex`.
-- Final-answer text must not render as process Thinking. Runtime extracts/dedupes final summaries; overlay fallback `synthesizeActivity` handles split final-answer markers across chunks, including char-by-char streams. Raw mode keeps original chunks.
+- Only assistant-role `message_end` updates assistant text, relays, final answers, and message usage; tool results belong to their tool Activity, never duplicate assistant rows.
+- Final-answer text must not render as process Thinking. The private runtime stream marker carry/open flag spans deltas and flushes, resets on assistant-message boundary/reuse, and stays out of public state/persistence. Runtime extracts/dedupes final summaries; overlay fallback `synthesizeActivity` handles split final-answer markers across chunks, including char-by-char streams. Raw mode keeps original chunks.
 - Copy payload order: task/summary/relays/usage/final answer/retained latest assistant-text tail/`## Activity`/`## Console timeline (Raw)`. Use retained-transcript helper so truncation notices survive display caps.
 - Use pi-tui `visibleWidth`/`truncateToWidth`, not `.length`/`.slice`. `sanitizeText` preserves `\x1b` for trusted colors; `sanitizeTerminalText` strips hostile worker controls, including CR.
 - Overlay row budget: `TEAM_DASHBOARD_OVERLAY_OPTIONS.maxHeight = "90%"` must match `OVERLAY_HEIGHT_PCT = 0.9`; update `tests/ui/overlay.test.ts` if changed.
@@ -77,7 +81,7 @@ Do not re-add without discussion: `/team-status`, `/agents`, `/ping-agents`, `/t
 - Config precedence is file presence. Nearest project `.pi/agent/agents-team.json` beats global `~/.pi/agent/agents-team.json`, even invalid. Active invalid config disables delegation; non-winning fatal parse is diagnostic-only.
 - Freshness toasts inspect only `LoadedTeamProjectConfig.activeConfigFreshness`: project-local, then global, then none. Dedup key = active scope + `scaffoldVersion` or `unknown`, stored via `Symbol.for("pi-agents-team.scaffoldFreshnessToasts")` on `globalThis`.
 - `schemaVersion` and `scaffoldVersion`: `src/project-config/versions.ts`. Schema = parsing contract; scaffold = active-config freshness. Lifecycle, Pi compatibility, thinking `max`, and cost pass-through work do not by themselves change `TEAM_STATE_VERSION`, `TEAM_PROJECT_SCHEMA_VERSION`, or `TEAM_SCAFFOLD_VERSION`.
-- Worker Pi preflight: source the host from Pi's exported `VERSION`; require a parseable worker version `>=0.85.1` before RPC spawn. Cache/coalesce by resolved command plus CLI entrypoint prefix. Old, missing, failed, or malformed probes are fatal; supported host/worker mismatches warn once per session and remain non-fatal. Do not require exact patch equality or add an upper bound.
+- Worker Pi preflight: source the host from Pi's exported `VERSION`; require a parseable worker version `>=1.1.0` before RPC spawn. Cache/coalesce by resolved command plus CLI entrypoint prefix. Old, missing, failed, or malformed probes are fatal; supported host/worker mismatches warn once per session and remain non-fatal. Do not require exact patch equality or add an upper bound.
 - Bad `roles.<name>.thinkingLevel`: drop field, warn, keep role. Launch cascade: explicit request -> role default -> live `pi.getThinkingLevel()` -> `medium`; `max` is accepted but model-dependent, and the existing clamp toast fires if effective differs. Do not change built-in defaults merely to support `max`.
 - Path scope is prompt convention, not OS sandbox. It blocks bad delegations but cannot contain bash/network/subprocesses/worker behavior.
 - User prompt strings are length-capped, sanitized, fenced, and wrapped in `<!-- BEGIN available-profiles -->` sentinels.

@@ -13,6 +13,7 @@ export interface MockTransportOptions {
 	onCommand?: (command: MockCommand) => void;
 	promptText?: string | ((command: MockCommand) => string);
 	rejectPrompt?: string;
+	promptDisposition?: "started" | "queued" | "handled";
 	autoCompletePrompt?: boolean;
 	sessionStats?: Record<string, unknown> | (() => Record<string, unknown>);
 	rejectSessionStats?: string;
@@ -131,7 +132,8 @@ export class MockWorkerTransport extends EventEmitter implements WorkerTransport
 					this.respond(command, undefined, this.options.rejectPrompt);
 					break;
 				}
-				this.respond(command, undefined);
+				this.respond(command, { disposition: this.options.promptDisposition ?? "started" });
+				if (this.options.promptDisposition === "handled") break;
 				this.state.isStreaming = true;
 				queueMicrotask(() => {
 					const promptText =

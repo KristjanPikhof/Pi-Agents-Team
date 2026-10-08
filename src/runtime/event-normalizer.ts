@@ -37,6 +37,7 @@ export interface WorkerToolFinishedEvent {
 	toolName: string;
 	result: Record<string, unknown>;
 	isError: boolean;
+	durationMs?: number;
 	timestamp: number;
 }
 
@@ -95,6 +96,7 @@ export interface WorkerRetryEvent {
 
 export interface WorkerSettledEvent {
 	type: "worker_settled";
+	aborted: boolean;
 	timestamp: number;
 }
 
@@ -208,6 +210,8 @@ export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
 					toolName: typeof event.toolName === "string" ? event.toolName : "",
 					result: asRecord(event.result),
 					isError: event.isError === true,
+					durationMs: typeof event.durationMs === "number" && Number.isFinite(event.durationMs) && event.durationMs >= 0
+						? event.durationMs : undefined,
 					timestamp: now(),
 				},
 			];
@@ -270,7 +274,7 @@ export function normalizeRpcEvent(event: RpcEvent): NormalizedWorkerEvent[] {
 		case "summarization_retry_finished":
 			return [{ type: "worker_summarization_retry_finished", timestamp: now() }];
 		case "agent_settled":
-			return [{ type: "worker_settled", timestamp: now() }];
+			return [{ type: "worker_settled", aborted: event.aborted === true, timestamp: now() }];
 		case "extension_error":
 			return [
 				{

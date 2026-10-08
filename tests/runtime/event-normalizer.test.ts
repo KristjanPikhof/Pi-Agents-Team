@@ -34,6 +34,22 @@ test("normalizeRpcEvent preserves extension errors as distinct normalized failur
 	assert.equal(events[0] && "error" in events[0] ? events[0].error : undefined, "optional extension failed");
 });
 
+test("normalizes cancellation at settlement even without an assistant message", () => {
+	for (const aborted of [true, false, undefined, "true"]) {
+		const [event] = normalizeRpcEvent({ type: "agent_settled", aborted });
+		assert.ok(event?.type === "worker_settled");
+		assert.equal(event.aborted, aborted === true);
+	}
+});
+
+test("tool completion keeps recorded execution duration and drops malformed values", () => {
+	for (const durationMs of [0, 1234.5, undefined, -1, NaN, Infinity, "1234"]) {
+		const [event] = normalizeRpcEvent({ type: "tool_execution_end", durationMs });
+		assert.ok(event?.type === "worker_tool_finished");
+		assert.equal(event.durationMs, typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : undefined);
+	}
+});
+
 test("normalizeRpcEvent preserves Pi summarization retry lifecycle details", () => {
 	const scheduled = normalizeRpcEvent({
 		type: "summarization_retry_scheduled",
