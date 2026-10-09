@@ -26,6 +26,9 @@ export const warningBold = (text: string): string => wrap("1;38;5;179", text);
 export const danger = (text: string): string => wrap("38;5;167", text);
 export const dangerBold = (text: string): string => wrap("1;38;5;167", text);
 export const inverse = (text: string): string => wrap("7", text);
+const toolRead = (text: string): string => wrap("38;5;75", text);
+const toolSearch = (text: string): string => wrap("38;5;141", text);
+const selected = (text: string): string => wrap("48;5;236", text.replace(/\x1b\[0m/g, `${RESET}${ESC}48;5;236m`));
 
 export interface ThemedPalette {
 	bold: (text: string) => string;
@@ -40,9 +43,12 @@ export interface ThemedPalette {
 	danger: (text: string) => string;
 	dangerBold: (text: string) => string;
 	inverse: (text: string) => string;
+	toolRead: (text: string) => string;
+	toolSearch: (text: string) => string;
+	selected: (text: string) => string;
 }
 
-const legacy: ThemedPalette = { bold, dim, muted, accent, accentBold, success, successBold, warning, warningBold, danger, dangerBold, inverse };
+const legacy: ThemedPalette = { bold, dim, muted, accent, accentBold, success, successBold, warning, warningBold, danger, dangerBold, inverse, toolRead, toolSearch, selected };
 
 export const fallbackPalette: ThemedPalette = legacy;
 
@@ -61,6 +67,13 @@ export function themedPalette(theme?: Theme): ThemedPalette {
 		danger: (text) => (text ? theme.fg("error", text) : text),
 		dangerBold: (text) => (text ? theme.bold(theme.fg("error", text)) : text),
 		inverse: (text) => (text ? theme.inverse(text) : text),
+		toolRead: (text) => (text ? theme.fg("syntaxKeyword", text) : text),
+		toolSearch: (text) => (text ? theme.fg("syntaxType", text) : text),
+		selected: (text) => {
+			if (!text || typeof theme.bg !== "function") return selected(text);
+			const background = theme.bg("selectedBg", "").replace(/\x1b\[49m$/, "");
+			return theme.bg("selectedBg", text.replace(/\x1b\[0m/g, `${RESET}${background}`));
+		},
 	};
 }
 

@@ -2,11 +2,10 @@ import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	Input,
 	matchesKey,
-	SelectList,
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { Component, Focusable, OverlayOptions, SelectItem, SelectListTheme, TUI } from "@earendil-works/pi-tui";
+import type { Component, Focusable, OverlayOptions, TUI } from "@earendil-works/pi-tui";
 import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import type { AgentMessageResult, TeamManager } from "../control-plane/team-manager.js";
 import type { AssistantChunk, WorkerActivityEvent, WorkerConsoleEvent } from "../runtime/worker-manager.js";
@@ -15,10 +14,10 @@ import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } f
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage.js";
 import { copyToClipboard } from "../util/clipboard.js";
 import { buildCopyPayload } from "./copy-payload.js";
-import { buildActionSummaryLine, buildCompactTeamSummaryLine, buildRosterSections, buildTeamDashboardText, buildWorkerPrioritySnippet, type WorkerAttentionGroup } from "./dashboard.js";
+import { buildRosterSections, buildTeamDashboardText, type WorkerAttentionGroup } from "./dashboard.js";
 import { formatRetainedTranscript } from "./transcript-retention.js";
-import { formatCacheUsage, formatCompactTokenCount, formatContextBudget } from "./usage-format.js";
-import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar.js";
+import { formatCompactTokenCount } from "./usage-format.js";
+import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar.js";
 import { formatAgentMessageResult } from "./tool-formatters.js";
 import { FRAME, stripAnsi, sanitizeTerminalText, fallbackPalette, themedPalette, type ThemedPalette } from "./theme.js";
 
@@ -59,7 +58,6 @@ const muted = (text: string): string => currentPalette.muted(text);
 const accent = (text: string): string => currentPalette.accent(text);
 const accentBold = (text: string): string => currentPalette.accentBold(text);
 const success = (text: string): string => currentPalette.success(text);
-const successBold = (text: string): string => currentPalette.successBold(text);
 const warning = (text: string): string => currentPalette.warning(text);
 const warningBold = (text: string): string => currentPalette.warningBold(text);
 const danger = (text: string): string => currentPalette.danger(text);
@@ -91,9 +89,15 @@ interface DashboardState {
 	selectedWorkerId?: string;
 	inspectScroll: number;
 	inspectFollow: boolean;
+	inspectDetailsExpanded: boolean;
+	workersScroll: number;
 	consoleScroll: number;
 	consoleFollow: boolean;
 	consoleMode: "activity" | "raw";
+	consoleSelectedActivityId?: string;
+	consoleDetailsExpanded: boolean;
+	consoleRevealSelection: boolean;
+	helpExpanded: boolean;
 	costScroll: number;
 	modal?: ModalState;
 }
@@ -129,7 +133,6 @@ export const TEAM_DASHBOARD_OVERLAY_OPTIONS: OverlayOptions = {
 // than the panel can display, the bottom (frame + footer) gets cut. Compute
 // our row budget from this constant, not from terminal rows directly.
 const OVERLAY_HEIGHT_PCT = 0.9;
-const ROSTER_PAGE_SIZE = 30;
 
 const TAB_ORDER: OverlayTab[] = ["workers", "inspect", "console", "cost"];
 const TAB_LABELS: Record<OverlayTab, string> = {
@@ -149,34 +152,65 @@ function formatTimestamp(ts: number): string {
 	return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 }
 
-function appendList(lines: string[], label: string, values: string[]): void {
-	if (values.length === 0) return;
-	lines.push(dim(label));
-	for (const value of values) lines.push(`  ${value}`);
+function fieldLine(label: string, value: string): string {
+	return `${muted(`${label}:`)} ${value}`;
 }
 
-function inspectSection(label: string, palette: ThemedPalette = currentPalette): string {
-	return palette.accentBold(label);
+function workerIdentity(worker: WorkerRuntimeState): string {
+	return `${accentBold(sanitizeTerminalText(worker.workerId))} ${muted(sanitizeTerminalText(worker.profileName))}`;
 }
 
-function inspectDivider(label: string, palette: ThemedPalette = currentPalette): string {
-	return palette.accent(FRAME.horizontal.repeat(2)) + " " + inspectSection(label, palette) + " " + palette.accent(FRAME.horizontal.repeat(2));
+function selectedRow(content: string, width: number, selected: boolean): string {
+	const prefix = selected ? `${accentBold("> ")}` : "  ";
+	const row = padToWidth(prefix + content, width);
+	return selected ? currentPalette.selected(row) : row;
 }
 
-function inspectField(label: string, value: string, palette: ThemedPalette = currentPalette): string {
-	return `  ${palette.dim(label)} ${value}`;
+function alignedRow(cells: string[], widths: number[], rightAligned: number[] = []): string {
+	return cells.map((cell, index) => {
+		const padded = padToWidth(cell, widths[index]!);
+		if (!rightAligned.includes(index)) return padded;
+		return " ".repeat(Math.max(0, widths[index]! - visibleWidth(cell))) + truncateToWidth(cell, widths[index]!, "…");
+	}).join("  ");
 }
 
-function formatUsage(worker: WorkerRuntimeState): string {
-	const parts = [
-		`turns=${worker.usage.turns}`,
-		`in=${formatCompactTokenCount(worker.usage.inputTokens)}`,
-		`out=${formatCompactTokenCount(worker.usage.outputTokens)}`,
-		formatCacheUsage(worker.usage),
-		`cost=$${worker.usage.costUsd.toFixed(4)}`,
-		formatContextBudget(worker.usage),
-	].filter((part): part is string => Boolean(part));
-	return parts.join("  ");
+function previewRows(text: string, width: number, limit = 2): string[] {
+	const contentWidth = Math.max(1, width - 4);
+	const lines = wrapLines(text, contentWidth);
+	if (lines.length > limit) lines[limit - 1] = truncateToWidth(lines[limit - 1]!, Math.max(1, contentWidth - 1), "") + muted("…");
+	return lines.slice(0, limit).map((line) => `    ${line}`);
+}
+
+function teamSummaryLine(snapshot: PersistedTeamState, width: number): string {
+	const count = Object.keys(snapshot.activeWorkers).length;
+	const sections = buildRosterSections(snapshot);
+	const labels: Record<WorkerAttentionGroup, string> = { needs_reply: "needs reply", needs_recovery: "needs recovery", in_progress: "working", completed_or_idle: "done" };
+	const parts = sections.filter((section) => section.workers.length > 0).map((section) => colorForGroupBold(section.key)(`${section.workers.length} ${labels[section.key]}`));
+	const attention = sections.filter((section) => section.key === "needs_reply" || section.key === "needs_recovery").reduce((sum, section) => sum + section.workers.length, 0);
+	return firstFitting(width, [
+		`${muted(`${count} workers`)}${parts.length ? ` · ${parts.join(" · ")}` : ""}`,
+		`${muted(`${count} workers`)} · ${attention ? warning(`${attention} need attention`) : muted("no action needed")}`,
+		muted(`${count} workers`),
+	]);
+}
+
+function usageFields(worker: WorkerRuntimeState, displayCost: boolean): string[] {
+	const usage = worker.usage;
+	const fields = [
+		fieldLine("Tokens", `${formatCompactTokenCount(usage.inputTokens)} input · ${formatCompactTokenCount(usage.outputTokens)} output`),
+		fieldLine("Turns", String(usage.turns)),
+	];
+	if (displayCost) fields.push(fieldLine("Cost", accentBold(`$${usage.costUsd.toFixed(4)}`)));
+	if (usage.cacheReadTokens || usage.cacheWriteTokens) fields.push(fieldLine("Cache", `${formatCompactTokenCount(usage.cacheReadTokens)} read · ${formatCompactTokenCount(usage.cacheWriteTokens)} written`));
+	if (usage.contextPercent !== undefined || usage.contextRemainingTokens !== undefined) {
+		const parts: string[] = [];
+		if (usage.contextPercent !== undefined) parts.push(`${usage.contextPercent}% used`);
+		if (usage.contextWindow !== undefined) parts.push(`${formatCompactTokenCount(usage.contextWindow)} window`);
+		if (usage.contextRemainingTokens !== undefined) parts.push(`${formatCompactTokenCount(usage.contextRemainingTokens)} remaining`);
+		const value = parts.join(" · ");
+		fields.push(fieldLine("Context", (usage.contextPercent ?? 0) >= 80 ? warning(value) : value));
+	}
+	return fields;
 }
 
 function hasClampedThinking(worker: WorkerRuntimeState): boolean {
@@ -186,10 +220,6 @@ function hasClampedThinking(worker: WorkerRuntimeState): boolean {
 function formatThinking(worker: WorkerRuntimeState, palette: ThemedPalette): string {
 	if (!hasClampedThinking(worker)) return worker.effectiveThinkingLevel;
 	return palette.warning(`${worker.requestedThinkingLevel} -> ${worker.effectiveThinkingLevel} (clamped)`);
-}
-
-function formatRosterProfileName(worker: WorkerRuntimeState): string {
-	return `${worker.profileName}${hasClampedThinking(worker) ? " (clamped)" : ""}`;
 }
 
 function compactActivityLine(event: WorkerActivityEvent): string | undefined {
@@ -225,31 +255,21 @@ function buildRecentActivityRows(
 
 function formatInspectStatus(worker: WorkerRuntimeState, palette: ThemedPalette): string {
 	const label = worker.status;
+	if (worker.pendingRelayQuestions.length > 0 || worker.status === "waiting_followup") return palette.warningBold(label);
 	if (worker.status === "completed" || worker.status === "idle") return palette.successBold(label);
 	if (worker.status === "error" || worker.status === "aborted") return palette.dangerBold(label);
-	if (worker.status === "waiting_followup" || worker.status === "starting" || worker.status === "running") return palette.warningBold(label);
+	if (worker.status === "starting" || worker.status === "running") return palette.accentBold(label);
 	return palette.muted(label);
-}
-
-function inspectBlockHeader(label: string, palette: ThemedPalette, badge?: string): string {
-	const suffix = badge ? ` [${badge}]` : "";
-	return `${palette.accent(`${FRAME.topLeft}${FRAME.horizontal} `)}${palette.accentBold(label)}${suffix}${palette.accent(` ${FRAME.horizontal}`)}`;
-}
-
-function inspectBlockFooter(palette: ThemedPalette): string {
-	return palette.accent(`${FRAME.bottomLeft}${FRAME.horizontal}`);
-}
-
-function inspectBlockLine(line: string, palette: ThemedPalette, options: { structured?: boolean } = {}): string {
-	const content = options.structured ? formatStructuredLine(line, classifyTextLine(line).kind) : line;
-	return `${palette.accent(FRAME.vertical)} ${content}`;
 }
 
 function pushInspectBlock(lines: string[], label: string, body: string[], palette: ThemedPalette, badge?: string, options: { structured?: boolean } = {}): void {
 	if (lines.length > 0) lines.push("");
-	lines.push(inspectBlockHeader(label, palette, badge));
-	for (const line of body.length > 0 ? body : ["(none)"]) lines.push(inspectBlockLine(line, palette, options));
-	lines.push(inspectBlockFooter(palette));
+	const badgeText = badge === "ok" ? palette.success("[ok]") : palette.muted(badge ? `[${badge}]` : "");
+	lines.push(palette.accentBold(label) + (badge ? ` ${badgeText}` : ""));
+	for (const line of body.length > 0 ? body : ["(none)"]) {
+		const content = options.structured ? formatStructuredLine(line, classifyTextLine(line).kind) : line;
+		lines.push(`  ${content}`);
+	}
 }
 
 function pushInspectList(body: string[], label: string, values: string[], palette: ThemedPalette): void {
@@ -258,60 +278,55 @@ function pushInspectList(body: string[], label: string, values: string[], palett
 	for (const value of values) body.push(`  ${value}`);
 }
 
-function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined, activityEvents: WorkerActivityEvent[] | undefined, palette: ThemedPalette): string {
+function buildInspectText(worker: WorkerRuntimeState, transcript: string | undefined, consoleEvents: WorkerConsoleEvent[] | undefined, activityEvents: WorkerActivityEvent[] | undefined, palette: ThemedPalette, displayCost: boolean, showDetails: boolean): string {
 	const lines: string[] = [];
-	const reusable = REUSABLE_STATUSES.has(worker.status) ? "  [reusable]" : "";
-	const statusBody = [
-		`${worker.workerId} · ${worker.profileName} · ${formatInspectStatus(worker, palette)}${reusable}`,
-		`${palette.dim("Usage:")} ${formatUsage(worker)}`,
-		`${palette.dim("Thinking:")} ${formatThinking(worker, palette)}`,
-	];
-	if (worker.lastToolName) statusBody.push(`${palette.dim("Last tool:")} ${sanitizeTerminalText(worker.lastToolName)}`);
-	if (worker.error) statusBody.push(`${palette.dim("Error:")} ${palette.danger(sanitizeTerminalText(worker.error))}`);
+	const statusBody = [bold(sanitizeTerminalText(worker.currentTask?.title ?? "No assigned task"))];
+	if (showDetails) statusBody.push(fieldLine("Role", sanitizeTerminalText(worker.profileName)));
+	statusBody.push(fieldLine("Thinking", formatThinking(worker, palette)));
+	if (worker.lastToolName) statusBody.push(fieldLine("Last tool", sanitizeTerminalText(worker.lastToolName)));
 	pushInspectBlock(lines, "Status", statusBody, palette, formatInspectStatus(worker, palette));
+
+	const operatorBody: string[] = [];
+	if (worker.error) operatorBody.push(palette.danger(sanitizeTerminalText(worker.error)));
+	for (const relay of worker.pendingRelayQuestions) {
+		operatorBody.push(`${warningBold(`[${relay.urgency}]`)} ${sanitizeTerminalText(relay.question)}`);
+		operatorBody.push(fieldLine("Assumption", sanitizeTerminalText(relay.assumption)));
+	}
+	if (operatorBody.length > 0) pushInspectBlock(lines, "Needs operator", operatorBody, palette, "attention");
+
+	if (worker.lastSummary) {
+		const summary = worker.lastSummary;
+		const summaryBody = [sanitizeTerminalText(summary.headline)];
+		pushInspectList(summaryBody, "Risks:", summary.risks.map((risk) => palette.warning(sanitizeTerminalText(risk))), palette);
+		if (summary.nextRecommendation) summaryBody.push(fieldLine("Next", sanitizeTerminalText(summary.nextRecommendation)));
+		if (showDetails) {
+			pushInspectList(summaryBody, "Read files:", summary.readFiles.map(sanitizeTerminalText), palette);
+			pushInspectList(summaryBody, "Changed files:", summary.changedFiles.map(sanitizeTerminalText), palette);
+		} else if (summary.readFiles.length || summary.changedFiles.length) {
+			summaryBody.push(palette.muted(`${summary.readFiles.length} files read · ${summary.changedFiles.length} changed · enter for details`));
+		}
+		pushInspectBlock(lines, "Summary", summaryBody, palette);
+	}
+	const finalAnswer = sanitizeTerminalText(worker.finalAnswer ?? "").trim();
+	if (finalAnswer) pushInspectBlock(lines, "Final answer", finalAnswer.split("\n"), palette, "ok", { structured: true });
+	else pushInspectBlock(lines, "Final answer", [palette.muted("Not available yet.")], palette);
 
 	const recentActivity = buildRecentActivityRows(worker, transcript, consoleEvents, activityEvents);
 	if (recentActivity.length > 0) pushInspectBlock(lines, "Recent activity", recentActivity, palette);
+	pushInspectBlock(lines, "Usage", usageFields(worker, displayCost), palette);
 
 	const taskBody: string[] = [];
-	if (worker.currentTask) {
-		taskBody.push(worker.currentTask.title);
-		if (worker.currentTask.goal) taskBody.push(`${palette.dim("Goal:")} ${worker.currentTask.goal}`);
-		if (worker.currentTask.expectedOutput) taskBody.push(`${palette.dim("Expected:")} ${worker.currentTask.expectedOutput}`);
-		pushInspectList(taskBody, "Context:", worker.currentTask.contextHints, palette);
-		if (worker.currentTask.pathScope) pushInspectList(taskBody, "Path scope:", worker.currentTask.pathScope.roots, palette);
-	} else {
-		taskBody.push("(none)");
-	}
-	pushInspectBlock(lines, "Task", taskBody, palette);
+	if (showDetails && worker.currentTask) {
+		if (worker.currentTask.goal) taskBody.push(fieldLine("Goal", sanitizeTerminalText(worker.currentTask.goal)));
+		if (worker.currentTask.expectedOutput) taskBody.push(fieldLine("Expected", sanitizeTerminalText(worker.currentTask.expectedOutput)));
+		pushInspectList(taskBody, "Context:", worker.currentTask.contextHints.map(sanitizeTerminalText), palette);
+		if (worker.currentTask.pathScope) pushInspectList(taskBody, "Path scope:", worker.currentTask.pathScope.roots.map(sanitizeTerminalText), palette);
+	} else taskBody.push(palette.muted("Full instructions hidden · enter to show details."));
+	pushInspectBlock(lines, "Task", taskBody, palette, showDetails ? "details" : "collapsed");
 
-	const operatorBody: string[] = [];
-	if (worker.pendingRelayQuestions.length === 0) {
-		operatorBody.push("(none)");
-	} else {
-		for (const relay of worker.pendingRelayQuestions) {
-			operatorBody.push(`${warningBold(`[${relay.urgency}]`)} ${sanitizeTerminalText(relay.question)}`);
-			operatorBody.push(`${palette.dim("Assumption:")} ${sanitizeTerminalText(relay.assumption)}`);
-		}
-	}
-	pushInspectBlock(lines, "Needs operator", operatorBody, palette, worker.pendingRelayQuestions.length > 0 ? "attention" : undefined);
-
-	const summaryBody: string[] = [];
-	if (worker.lastSummary) {
-		summaryBody.push(`${palette.dim("Headline:")} ${sanitizeTerminalText(worker.lastSummary.headline)}`);
-		pushInspectList(summaryBody, "Read files:", worker.lastSummary.readFiles.map(sanitizeTerminalText), palette);
-		pushInspectList(summaryBody, "Changed files:", worker.lastSummary.changedFiles.map(sanitizeTerminalText), palette);
-		pushInspectList(summaryBody, "Risks:", worker.lastSummary.risks.map(sanitizeTerminalText), palette);
-		if (worker.lastSummary.nextRecommendation) summaryBody.push(`${palette.dim("Next:")} ${sanitizeTerminalText(worker.lastSummary.nextRecommendation)}`);
-	} else {
-		summaryBody.push("(no summary captured yet)");
-	}
-	pushInspectBlock(lines, "Summary", summaryBody, palette);
-
-	const finalAnswer = sanitizeTerminalText(worker.finalAnswer ?? "").trim();
-	const assistantText = formatRetainedTranscript(transcript);
-	pushInspectBlock(lines, "Final answer", (finalAnswer || "(no <final_answer> block produced)").split("\n"), palette, worker.finalAnswer ? "ok" : undefined, { structured: true });
-	pushInspectBlock(lines, "Latest assistant text", (assistantText || "(no assistant text captured)").split("\n"), palette, assistantText ? "tail" : undefined, { structured: true });
+	const assistantText = showDetails ? formatRetainedTranscript(transcript) : "";
+	const assistantBody = showDetails ? (assistantText || "No assistant text captured.").split("\n") : [palette.muted("Retained assistant text hidden · enter to show details.")];
+	pushInspectBlock(lines, "Latest assistant text", assistantBody, palette, showDetails ? "tail" : "collapsed", { structured: true });
 	return lines.join("\n");
 }
 
@@ -345,34 +360,38 @@ function formatFinalAnswerFields(fields: WorkerActivityEvent["finalSummaryFields
 function formatActivityStatus(status: WorkerActivityEvent["status"]): string {
 	switch (status) {
 		case "completed":
-			return successBold("ok");
+			return success("ok");
 		case "error":
 			return dangerBold("error");
 		case "started":
-			return warningBold("running");
+			return accent("running");
 		case "info":
 			return muted("info");
 	}
 }
 
-function formatActivityHeaderLabel(event: WorkerActivityEvent): string {
-	const label = sanitizeTerminalText(event.label);
-	const toolName = event.toolName ? sanitizeTerminalText(event.toolName) : undefined;
-	if (event.actionKind === "command") return `tool ${toolName ?? "command"}`;
-	if (event.actionKind === "tool") return `tool ${toolName ?? label.replace(/^Used\s+/, "")}`;
-	if (event.actionKind === "process") return `process ${label.toLowerCase()}`;
-	if (event.actionKind === "final_summary") return "final-answer";
-	return label.toLowerCase().replace(/\s+/g, "-");
+function activityName(event: WorkerActivityEvent): string {
+	if (event.actionKind === "final_summary") return "Final answer";
+	if (event.toolName) return sanitizeTerminalText(event.toolName);
+	return event.actionKind === "command" ? "command" : sanitizeTerminalText(event.label);
 }
 
-function formatActivityFooter(event: WorkerActivityEvent): string {
-	const parts: string[] = [];
-	if (event.updatedAt > event.ts) {
-		const seconds = (event.updatedAt - event.ts) / 1000;
-		parts.push(`took ${seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0)}s`);
-	}
-	parts.push("raw:r");
-	return parts.join(" · ");
+function styleActivityName(event: WorkerActivityEvent, name: string): string {
+	if (event.status === "error") return dangerBold(name);
+	if (event.actionKind === "final_summary") return currentPalette.successBold(name);
+	if (event.toolName === "read" || event.toolName === "ls") return bold(currentPalette.toolRead(name));
+	if (event.toolName === "grep" || event.toolName === "find") return bold(currentPalette.toolSearch(name));
+	if (event.actionKind === "command") return warningBold(name);
+	if (event.actionKind === "tool") return accentBold(name);
+	return muted(name);
+}
+
+function formatActivityDuration(event: WorkerActivityEvent): string | undefined {
+	const durationMs = event.durationMs ?? (event.updatedAt > event.ts ? event.updatedAt - event.ts : undefined);
+	if (durationMs === undefined) return undefined;
+	if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
+	const seconds = durationMs / 1000;
+	return `${seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0)}s`;
 }
 
 function styleDiffStatLine(line: string): string {
@@ -397,28 +416,41 @@ function styleActivityOutputLine(line: string): string {
 	return safeLine;
 }
 
-function formatActivityEvent(event: WorkerActivityEvent): string[] {
-	const header = `${FRAME.topLeft}${FRAME.horizontal} ${formatActivityHeaderLabel(event)} [${formatActivityStatus(event.status)}] ${muted(formatTimestamp(event.ts))} ${FRAME.horizontal}`;
-	const lines = [event.status === "error" ? dangerBold(header) : accent(header)];
-	const pushBody = (line: string): void => {
-		lines.push(`${accent(FRAME.vertical)} ${line}`);
-	};
+function formatActivityEvent(event: WorkerActivityEvent, width: number, nameWidth: number, selected: boolean, detailsExpanded: boolean, spinner: string): string[] {
+	const command = event.command ? sanitizeTerminalText(event.command) : undefined;
+	const summary = event.summary ? sanitizeTerminalText(event.summary) : undefined;
+	const label = sanitizeTerminalText(event.label);
+	const name = activityName(event);
+	let description = summary && summary !== label ? summary : "";
 	if (event.actionKind === "command") {
-		const command = event.command ? sanitizeTerminalText(event.command) : undefined;
-		const summary = event.summary ? sanitizeTerminalText(event.summary) : undefined;
-		const label = sanitizeTerminalText(event.label);
-		pushBody(`${accentBold("$")} ${command ?? summary ?? label.replace(/^Ran\s+/, "")}`);
-		if (summary && summary !== command) pushBody(`${dim("detail:")} ${summary}`);
+		description = command ?? summary ?? label.replace(/^Ran\s+/, "");
 	} else if (event.actionKind === "final_summary") {
-		for (const line of formatFinalAnswerFields(event.finalSummaryFields, event.summary ? sanitizeTerminalText(event.summary) : undefined)) pushBody(line);
-	} else if (event.summary) {
-		pushBody(sanitizeTerminalText(event.summary));
+		description = event.finalSummaryFields?.headline ? sanitizeTerminalText(event.finalSummaryFields.headline) : summary ?? "ready";
 	}
-	if (event.outputSnippet) {
-		for (const line of sanitizeTerminalText(event.outputSnippet).split("\n")) pushBody(styleActivityOutputLine(line));
+	const prefix = selected ? `${accentBold(">")} ` : "  ";
+	const duration = formatActivityDuration(event);
+	const trailing = event.status === "started" ? accent(spinner) : dim(duration ?? "");
+	const suffix = `  ${padToWidth(`[${formatActivityStatus(event.status)}]`, 9)} ${padToWidth(trailing, 6)}`;
+	const available = Math.max(1, width - visibleWidth(prefix) - visibleWidth(suffix));
+	const compactName = truncateToWidth(name.replace(/\s+/g, " "), Math.min(nameWidth, available), "…");
+	const descriptionWidth = available - Math.min(nameWidth, available) - 2;
+	const compactDescription = description && descriptionWidth > 1 ? `  ${truncateToWidth(description.replace(/\s+/g, " "), descriptionWidth, "…")}` : "";
+	const styledName = styleActivityName(event, compactName);
+	let header = padToWidth(`${prefix}${padToWidth(styledName, Math.min(nameWidth, available))}${muted(compactDescription)}`, width - visibleWidth(suffix)) + suffix;
+	if (selected) header = currentPalette.selected(header);
+	const lines = [truncateToWidth(header, width, "…")];
+	if (!(selected && detailsExpanded) && event.status !== "error") return lines;
+
+	const detailWidth = Math.max(1, width - 4);
+	const details: string[] = [];
+	if (event.actionKind === "final_summary") details.push(...formatFinalAnswerFields(event.finalSummaryFields, summary));
+	else if (visibleWidth(description) > descriptionWidth || description.includes("\n")) details.push(command ? `$ ${command}` : description);
+	if (visibleWidth(name) > visibleWidth(compactName)) details.unshift(name);
+	if (event.outputSnippet) details.push(...sanitizeTerminalText(event.outputSnippet).split("\n"));
+	if ((event.hiddenLineCount ?? 0) > 0) details.push(muted(`… +${event.hiddenLineCount} lines hidden`));
+	for (const detail of details) {
+		for (const line of wrapLines(detail, detailWidth)) lines.push(`    ${styleActivityOutputLine(line)}`);
 	}
-	if ((event.hiddenLineCount ?? 0) > 0) pushBody(muted(`… +${event.hiddenLineCount} lines hidden`));
-	lines.push(accent(`${FRAME.bottomLeft}${FRAME.horizontal} ${formatActivityFooter(event)}`));
 	return lines;
 }
 
@@ -615,52 +647,70 @@ function buildRawConsoleLines(
 	return lines;
 }
 
-function buildConsoleLines(
-	worker: WorkerRuntimeState,
-	chunks: AssistantChunk[],
-	consoleEvents: WorkerConsoleEvent[],
-	activityEvents: WorkerActivityEvent[] | undefined,
-	mode: "activity" | "raw" = "activity",
-): string[] {
-	if (mode === "raw") return buildRawConsoleLines(worker, chunks, consoleEvents);
-	const activity = (activityEvents && activityEvents.length > 0 ? activityEvents : synthesizeActivity(chunks, consoleEvents));
-	if (activity.length === 0) {
-		return [`${worker.workerId} · ${worker.profileName} · ${worker.status}`, "", accentBold("— activity —"), dim("(no activity yet — press r for raw logs)")];
+function getConsoleActivity(chunks: AssistantChunk[], consoleEvents: WorkerConsoleEvent[], activityEvents: WorkerActivityEvent[] | undefined): WorkerActivityEvent[] {
+	return activityEvents && activityEvents.length > 0 ? activityEvents : synthesizeActivity(chunks, consoleEvents);
+}
+
+function buildActivityConsoleLines(activity: WorkerActivityEvent[], width: number, selectedId: string | undefined, detailsExpanded: boolean, spinner: string): { lines: string[]; selectedTop?: number; selectedBottom?: number } {
+	const lines: string[] = [];
+	let selectedTop: number | undefined;
+	let selectedBottom: number | undefined;
+	const nameWidth = Math.min(width >= 64 ? 20 : 12, Math.max(4, ...activity.map((event) => visibleWidth(activityName(event)))));
+	for (const event of activity) {
+		if (lines.length > 0) lines.push("");
+		const selected = event.id === selectedId;
+		if (selected) selectedTop = lines.length;
+		lines.push(...formatActivityEvent(event, width, nameWidth, selected, detailsExpanded, spinner));
+		if (selected) selectedBottom = lines.length;
 	}
-	const lines = [`${worker.workerId} · ${worker.profileName} · ${worker.status}  ·  chunks=${chunks.length}  events=${consoleEvents.length}  activity=${activity.length}  ·  raw:r`, "", accentBold("— activity —")];
-	activity.forEach((event, index) => {
-		if (index > 0) lines.push("");
-		lines.push(...formatActivityEvent(event));
-	});
-	return lines;
+	if (lines.length === 0) lines.push(dim("No activity yet. Output will appear here."));
+	return { lines, selectedTop, selectedBottom };
 }
 
-function formatCachePart(usage: { cacheReadTokens: number; cacheWriteTokens: number }): string {
-	const cache = formatCacheUsage(usage);
-	return cache ? `  ${cache}` : "";
+interface CostLayout {
+	summary: string[];
+	header: string[];
+	rows: string[];
 }
 
-function buildCostLines(state: PersistedTeamState): string[] {
-	const workers = Object.values(state.activeWorkers);
+function buildCostLayout(state: PersistedTeamState, width: number, selectedId: string | undefined): CostLayout {
+	const workers = getAttentionOrderedWorkerIds(state).map((id) => state.activeWorkers[id]!);
 	const total = aggregateWorkerUsage(workers, state.prunedWorkerUsageTotals);
 	const retained = state.prunedWorkerUsageTotals;
-	if (workers.length === 0 && !hasWorkerUsage(retained)) return ["(no tracked workers)"];
-	const rows: string[] = [];
-	if (hasWorkerUsage(retained)) {
-		rows.push(
-			`retained/pruned: workers=${retained.workers}  turns=${retained.turns}  in=${formatCompactTokenCount(retained.inputTokens)}  out=${formatCompactTokenCount(retained.outputTokens)}${formatCachePart(retained)}  cost=$${retained.costUsd.toFixed(4)}`,
-		);
-	}
-	for (const worker of workers) {
-		rows.push(
-			`  ${worker.workerId.padEnd(6)} ${worker.profileName.padEnd(12)} turns=${worker.usage.turns}  in=${formatCompactTokenCount(worker.usage.inputTokens)}  out=${formatCompactTokenCount(worker.usage.outputTokens)}${formatCachePart(worker.usage)}  cost=$${worker.usage.costUsd.toFixed(4)}`,
-		);
-	}
-	return [
-		`Σ workers=${total.workers}  turns=${total.turns}  in=${formatCompactTokenCount(total.inputTokens)}  out=${formatCompactTokenCount(total.outputTokens)}${formatCachePart(total)}  cost=$${total.costUsd.toFixed(4)}`,
-		"",
-		...(rows.length > 0 ? rows : ["(no tracked workers)"]),
+	const summary = [
+		`${accentBold("Σ Agent total")}  ${bold(`$${total.costUsd.toFixed(4)}`)}`,
+		muted(`${total.workers} workers · ${total.turns} turns · orchestrator excluded`),
+		fieldLine("Tokens", `${formatCompactTokenCount(total.inputTokens)} input · ${formatCompactTokenCount(total.outputTokens)} output`),
 	];
+	const hasCache = total.cacheReadTokens !== 0 || total.cacheWriteTokens !== 0;
+	if (hasCache) summary.push(fieldLine("Cache", `${formatCompactTokenCount(total.cacheReadTokens)} read · ${formatCompactTokenCount(total.cacheWriteTokens)} written`));
+	if (hasWorkerUsage(retained)) summary.push(muted(`Includes ${retained.workers} pruned workers`));
+	const entries = workers.map((worker) => ({ label: workerIdentity(worker), usage: worker.usage, selected: worker.workerId === selectedId }));
+	if (hasWorkerUsage(retained)) entries.push({ label: muted(`Pruned (${retained.workers})`), usage: retained, selected: false });
+	if (entries.length === 0) return { summary, header: [], rows: [muted("No tracked workers. Press [n] to delegate one.")] };
+	const cellRows = entries.map((entry) => [
+		entry.label, String(entry.usage.turns), formatCompactTokenCount(entry.usage.inputTokens), formatCompactTokenCount(entry.usage.outputTokens),
+		...(hasCache ? [formatCompactTokenCount(entry.usage.cacheReadTokens), formatCompactTokenCount(entry.usage.cacheWriteTokens)] : []),
+		accentBold(`$${entry.usage.costUsd.toFixed(4)}`),
+	]);
+	const labels = ["Worker", "Turns", "Input", "Output", ...(hasCache ? ["Cache read", "Cache write"] : []), "Cost"];
+	const widths = labels.map((label, index) => Math.max(visibleWidth(label), ...cellRows.map((cells) => visibleWidth(cells[index]!))));
+	widths[0] = Math.min(24, widths[0]!);
+	const rightAligned = labels.map((_, index) => index).slice(1);
+	const tableWidth = widths.reduce((sum, value) => sum + value, 0) + (widths.length - 1) * 2 + 2;
+	const rows: string[] = [];
+	if (tableWidth <= width) {
+		for (const [index, entry] of entries.entries()) rows.push(selectedRow(alignedRow(cellRows[index]!, widths, rightAligned), width, entry.selected));
+		return { summary, header: [muted("  " + alignedRow(labels, widths, rightAligned))], rows };
+	}
+	for (const entry of entries) {
+		if (rows.length > 0) rows.push("");
+		rows.push(selectedRow(entry.label, width, entry.selected));
+		const fields = [fieldLine("Cost", accentBold(`$${entry.usage.costUsd.toFixed(4)}`)), fieldLine("Turns", String(entry.usage.turns)), fieldLine("Tokens", `${formatCompactTokenCount(entry.usage.inputTokens)} input · ${formatCompactTokenCount(entry.usage.outputTokens)} output`)];
+		if (hasCache) fields.push(fieldLine("Cache", `${formatCompactTokenCount(entry.usage.cacheReadTokens)} read · ${formatCompactTokenCount(entry.usage.cacheWriteTokens)} written`));
+		rows.push(...wrapLines(fields.map((field) => `    ${field}`).join("\n"), width));
+	}
+	return { summary, header: [], rows };
 }
 
 function getAttentionOrderedWorkerIds(state: PersistedTeamState): string[] {
@@ -820,57 +870,73 @@ class LabeledInput implements Component, Focusable {
 	}
 }
 
-class RosterSelectList implements Component {
-	constructor(
-		private snapshot: PersistedTeamState,
-		private selectedWorkerId?: string,
-	) {}
+interface WorkerRosterLayout {
+	header: string[];
+	lines: string[];
+	selectedTop: number;
+	selectedBottom: number;
+	workerStarts: number[];
+}
 
-	invalidate(): void {}
-
-	render(width: number, rowBudget = ROSTER_PAGE_SIZE): string[] {
-		const items: SelectItem[] = [];
-		for (const section of buildRosterSections(this.snapshot)) {
-			if (section.workers.length === 0) continue;
-			items.push({
-				value: `__section__${section.key}`,
-				label: colorForGroupBold(section.key)(`${section.label} (${section.workers.length})`),
-			});
-			for (const worker of section.workers) {
-				const base = `${worker.workerId} · ${formatRosterProfileName(worker)} · ${worker.status}${REUSABLE_STATUSES.has(worker.status) ? " [reuse]" : ""} · ${buildWorkerPrioritySnippet(worker)}`;
-				items.push({ value: worker.workerId, label: colorForWorker(worker)(base) });
+function buildWorkerRoster(snapshot: PersistedTeamState, width: number, selectedId: string | undefined): WorkerRosterLayout {
+	const workers = Object.values(snapshot.activeWorkers);
+	const wide = width >= 76;
+	const identityWidth = Math.min(26, Math.max(12, ...workers.map((worker) => visibleWidth(workerIdentity(worker)))));
+	const statusWidth = 18;
+	const timeWidth = 6;
+	const taskWidth = Math.max(1, width - identityWidth - statusWidth - timeWidth - 8);
+	const widths = [identityWidth, statusWidth, taskWidth, timeWidth];
+	const header = wide ? [muted("  " + alignedRow(["Worker", "Status", "Task", "Time"], widths, [3]))] : [];
+	const lines: string[] = [];
+	const workerStarts: number[] = [];
+	let selectedTop = 0;
+	let selectedBottom = 0;
+	for (const section of buildRosterSections(snapshot)) {
+		if (section.workers.length === 0) continue;
+		if (lines.length > 0) lines.push("");
+		lines.push(colorForGroupBold(section.key)(`${section.label} (${section.workers.length})`));
+		for (const worker of section.workers) {
+			const selected = worker.workerId === selectedId;
+			const start = lines.length;
+			workerStarts.push(start);
+			let statusLabel = formatWorkerStatusLabel(worker);
+			if (REUSABLE_STATUSES.has(worker.status)) statusLabel = `${worker.finalAnswer ? "Done" : "Idle"} [reuse]`;
+			if (worker.status === "waiting_followup") statusLabel = "Waiting [reuse]";
+			if (worker.pendingRelayQuestions.length > 0) statusLabel = "Needs reply";
+			const status = colorForWorker(worker)(statusLabel);
+			const task = sanitizeTerminalText(worker.currentTask?.title ?? worker.lastSummary?.headline ?? "No assigned task");
+			const active = worker.status === "running" || worker.status === "starting" || worker.status === "waiting_followup";
+			const end = active ? Date.now() : worker.lastEventAt;
+			const seconds = Math.max(0, Math.floor((end - (worker.currentTask?.createdAt ?? worker.startedAt)) / 1000));
+			const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m`;
+			let identity = workerIdentity(worker);
+			if (hasClampedThinking(worker)) identity += warning(wide ? " (clamped)" : "!");
+			if (wide) {
+				// Keep the clamp marker visible even when a role name is long.
+				if (hasClampedThinking(worker)) identity = truncateToWidth(workerIdentity(worker), identityWidth - 10, "…") + warning(" (clamped)");
+				lines.push(selectedRow(alignedRow([identity, status, task, muted(elapsed)], widths, [3]), width, selected));
+			} else {
+				const statusAndTime = `${status} ${muted(elapsed)}`;
+				const nameWidth = Math.max(1, width - visibleWidth(statusAndTime) - 4);
+				if (hasClampedThinking(worker)) identity = truncateToWidth(workerIdentity(worker), Math.max(1, nameWidth - 1), "…") + warning("!");
+				const main = padToWidth(truncateToWidth(identity, nameWidth, "…"), nameWidth) + "  " + statusAndTime;
+				lines.push(selectedRow(main, width, selected));
+				lines.push(...previewRows(task, width));
+			}
+			if (selected) {
+				const detail = worker.pendingRelayQuestions[0]?.question ?? worker.error ?? worker.lastSummary?.headline;
+				if (detail && detail !== task) {
+					const style = section.key === "needs_reply" || section.key === "needs_recovery" ? colorForWorker(worker) : muted;
+					lines.push(...previewRows(style(sanitizeTerminalText(detail)), width));
+				}
+				if (REUSABLE_STATUSES.has(worker.status)) lines.push(`    ${success("[reuse]")} ${muted("Session available for another task")}`);
+				selectedTop = start;
+				selectedBottom = lines.length;
 			}
 		}
-		if (items.length === 0) {
-			return [dim("No tracked workers. Press [n] to delegate one.")];
-		}
-		const workerIndices = items
-			.map((item, index) => (item.value.startsWith("__section__") ? -1 : index))
-			.filter((index) => index >= 0);
-		const selectedIndex = this.selectedWorkerId
-			? workerIndices.find((index) => items[index].value === this.selectedWorkerId)
-			: undefined;
-		const safeSelectedIndex = selectedIndex ?? workerIndices[0] ?? 0;
-		const theme: SelectListTheme = {
-			selectedText: (text) => bold(text),
-			selectedPrefix: (text) => text,
-			description: (text) => text,
-			scrollInfo: (text) => text,
-			noMatch: (text) => text,
-		};
-		const visibleRows = Math.max(1, Math.min(rowBudget, ROSTER_PAGE_SIZE));
-		const itemRows = items.length > visibleRows && visibleRows > 1 ? visibleRows - 1 : visibleRows;
-		const list = new SelectList(items, Math.min(items.length, itemRows), theme);
-		list.setSelectedIndex(safeSelectedIndex);
-		return list.render(width).map((line) => {
-			const plain = stripAnsi(line);
-			if (plain.startsWith("→ ")) {
-				const arrowIndex = line.indexOf("→ ");
-				return line.slice(0, arrowIndex) + "▶ " + line.slice(arrowIndex + 2);
-			}
-			return line;
-		});
 	}
+	if (workers.length === 0) lines.push(muted("No tracked workers. Press [n] to delegate one."));
+	return { header, lines, selectedTop, selectedBottom, workerStarts };
 }
 
 function computeOverlayRows(termRows: number): number {
@@ -881,41 +947,41 @@ function computeOverlayRows(termRows: number): number {
 }
 
 function frameRow(content: string, totalWidth: number): string {
-	if (totalWidth <= 2) return accent(FRAME.vertical).repeat(totalWidth);
+	if (totalWidth <= 2) return muted(FRAME.vertical).repeat(totalWidth);
 	if (totalWidth <= 4) {
 		const innerWidth = Math.max(0, totalWidth - 2);
 		const truncated = innerWidth === 0 ? "" : truncateToWidth(content, innerWidth, "");
-		return `${accent(FRAME.vertical)}${truncated}${accent(FRAME.vertical)}`;
+		return `${muted(FRAME.vertical)}${truncated}${muted(FRAME.vertical)}`;
 	}
 	const innerWidth = totalWidth - 4;
 	const padded = padToWidth(content, innerWidth);
-	const sides = accent(FRAME.vertical);
+	const sides = muted(FRAME.vertical);
 	return `${sides} ${padded} ${sides}`;
 }
 
 function frameTopWithTitle(titleStyled: string, totalWidth: number): string {
 	if (totalWidth <= 2) {
-		return accent(FRAME.topLeft) + accent(FRAME.horizontal.repeat(Math.max(0, totalWidth - 1)));
+		return muted(FRAME.topLeft) + muted(FRAME.horizontal.repeat(Math.max(0, totalWidth - 1)));
 	}
 	const titleVisible = visibleWidth(titleStyled);
 	const inner = totalWidth - 2;
 	const titleFragment = ` ${titleStyled} `;
 	const titleVisibleWithPad = titleVisible + 2;
 	if (titleVisibleWithPad >= inner) {
-		return accent(FRAME.topLeft) + truncateToWidth(titleFragment, inner, "…") + accent(FRAME.topRight);
+		return muted(FRAME.topLeft) + truncateToWidth(titleFragment, inner, "…") + muted(FRAME.topRight);
 	}
 	const remaining = inner - titleVisibleWithPad;
 	const leftPad = Math.min(2, remaining);
 	const rightFill = remaining - leftPad;
-	const top = `${accent(FRAME.topLeft)}${accent(FRAME.horizontal.repeat(leftPad))}${titleFragment}${accent(FRAME.horizontal.repeat(rightFill))}${accent(FRAME.topRight)}`;
+	const top = `${muted(FRAME.topLeft)}${muted(FRAME.horizontal.repeat(leftPad))}${titleFragment}${muted(FRAME.horizontal.repeat(rightFill))}${muted(FRAME.topRight)}`;
 	return top;
 }
 
 function frameBottom(totalWidth: number): string {
 	if (totalWidth <= 0) return "";
-	if (totalWidth === 1) return accent(FRAME.bottomLeft);
+	if (totalWidth === 1) return muted(FRAME.bottomLeft);
 	const inner = totalWidth - 2;
-	const bottom = `${accent(FRAME.bottomLeft)}${accent(FRAME.horizontal.repeat(inner))}${accent(FRAME.bottomRight)}`;
+	const bottom = `${muted(FRAME.bottomLeft)}${muted(FRAME.horizontal.repeat(inner))}${muted(FRAME.bottomRight)}`;
 	return bottom;
 }
 
@@ -939,7 +1005,7 @@ export function buildTabBar(active: OverlayTab, routingMode: "team" | "solo", di
 	const cells = visibleTabs.map((tab) => {
 		const num = TAB_ORDER.indexOf(tab) + 1;
 		const label = `${num} ${TAB_LABELS[tab]}`;
-		return tab === active ? accentBold(`[${label}]`) : dim(` ${label} `);
+		return tab === active ? accentBold(`[${label}]`) : dim(label);
 	});
 	const badge = routingMode === "solo" ? `  · ${warningBold("solo")}` : "";
 	return cells.join(" ") + badge;
@@ -966,23 +1032,26 @@ function firstFitting(width: number, candidates: string[]): string {
 }
 
 function buildSelectedWorkerHeader(worker: WorkerRuntimeState | undefined, width: number): string {
-	if (!worker) return firstFitting(width, ["selected: none · action: delegate new", "selected: none", "none"]);
-	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker)).label;
+	if (!worker) return firstFitting(width, ["No worker selected · [n]ew task", "No worker selected", "none"]);
+	const attention = getWorkerAttentionPriority(worker);
 	const status = formatWorkerStatusLabel(worker);
-	const action = getWorkerPrimaryAction(worker);
+	const action = attention === "needs_reply" || attention === "needs_recovery" ? ` · ${getWorkerPrimaryAction(worker)}` : "";
 	return firstFitting(width, [
-		`selected: ${worker.workerId} · ${worker.profileName} · ${status} · ${attention} · action: ${action}`,
-		`selected: ${worker.workerId} · ${status} · action: ${action}`,
-		`${worker.workerId} · ${status} · ${action}`,
-		`${worker.workerId} · ${action}`,
+		`${worker.workerId} · ${worker.profileName} · ${status}${action}`,
+		`${worker.workerId} · ${status}${action}`,
+		`${worker.workerId} · ${status}`,
+		worker.workerId,
 	]);
 }
 
 function formatFollowHeader(following: boolean, top: number, visible: number, total: number): string {
+	return `${following ? "[follow]" : "[paused]"}  ${formatScrollRange(top, visible, total)}`;
+}
+
+function formatScrollRange(top: number, visible: number, total: number): string {
 	const start = total === 0 ? 0 : top + 1;
 	const end = Math.min(total, top + visible);
-	const status = following ? "[follow]" : "[paused f/G]";
-	return `${status}  scroll ${start}-${end} / ${total}`;
+	return `scroll ${start}-${end} / ${total}`;
 }
 
 function colorForGroupBold(group: WorkerAttentionGroup): (text: string) => string {
@@ -994,7 +1063,7 @@ function colorForGroupBold(group: WorkerAttentionGroup): (text: string) => strin
 		case "in_progress":
 			return accentBold;
 		case "completed_or_idle":
-			return successBold;
+			return currentPalette.successBold;
 	}
 }
 
@@ -1007,7 +1076,6 @@ function colorForWorker(worker: WorkerRuntimeState): (text: string) => string {
 		case "waiting_followup":
 			return warning;
 		case "idle":
-			return worker.finalAnswer ? success : muted;
 		case "completed":
 			return success;
 		case "aborted":
@@ -1080,17 +1148,37 @@ export function createTeamDashboardOverlayComponent(
 		selectedWorkerId: initialWorker,
 		inspectScroll: 0,
 		inspectFollow: false,
+		inspectDetailsExpanded: false,
+		workersScroll: 0,
 		consoleScroll: 0,
 		consoleFollow: true,
 		consoleMode: "activity",
+		consoleDetailsExpanded: true,
+		consoleRevealSelection: false,
+		helpExpanded: false,
 		costScroll: 0,
 	};
 	let statusMessage: string | undefined;
 	let statusExpires = 0;
 	let lastRenderMetrics: RenderMetrics = { listPageSize: 8, bodyPageSize: 10 };
+	const spinnerFrames = ["|", "/", "-", "\\"];
+	let spinnerFrame = 0;
+	let consoleAnimationTimer: ReturnType<typeof setInterval> | undefined;
 
 	const requestRender = () => {
 		tui.requestRender?.();
+	};
+	const updateConsoleAnimation = (animate: boolean) => {
+		if (!animate) {
+			if (consoleAnimationTimer) clearInterval(consoleAnimationTimer);
+			consoleAnimationTimer = undefined;
+		} else if (!consoleAnimationTimer) {
+			consoleAnimationTimer = setInterval(() => {
+				spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
+				requestRender();
+			}, 160);
+			consoleAnimationTimer.unref();
+		}
 	};
 	const setStatus = (message: string, durationMs = 2500) => {
 		statusMessage = message;
@@ -1108,13 +1196,17 @@ export function createTeamDashboardOverlayComponent(
 
 	const offChunk = teamManager.onAssistantChunk?.((workerId) => {
 		if (state.selectedWorkerId !== workerId) return;
-		if ((state.tab === "console" && state.consoleFollow) || (state.tab === "inspect" && state.inspectFollow)) {
+		if (state.tab === "console" || state.tab === "inspect") {
 			requestRender();
 		}
 	});
 	const offActivity = teamManager.onActivityEvent?.((workerId) => {
+		if (state.tab === "workers" || state.tab === "cost") {
+			requestRender();
+			return;
+		}
 		if (state.selectedWorkerId !== workerId) return;
-		if ((state.tab === "console" && state.consoleFollow) || (state.tab === "inspect" && state.inspectFollow)) {
+		if (state.tab === "console" || state.tab === "inspect") {
 			requestRender();
 		}
 	});
@@ -1122,6 +1214,7 @@ export function createTeamDashboardOverlayComponent(
 	const dispose = () => {
 		if (disposed) return;
 		disposed = true;
+		updateConsoleAnimation(false);
 		offChunk?.();
 		offActivity?.();
 	};
@@ -1140,8 +1233,12 @@ export function createTeamDashboardOverlayComponent(
 		state.selectedWorkerId = ids[0];
 		state.inspectScroll = 0;
 		state.inspectFollow = false;
+		state.inspectDetailsExpanded = false;
 		state.consoleScroll = 0;
 		state.consoleFollow = true;
+		state.consoleSelectedActivityId = undefined;
+		state.consoleDetailsExpanded = true;
+		state.consoleRevealSelection = false;
 		state.consoleMode = "activity";
 	};
 	const refreshSnapshot = () => {
@@ -1161,8 +1258,12 @@ export function createTeamDashboardOverlayComponent(
 		state.selectedWorkerId = ids[next];
 		state.inspectScroll = 0;
 		state.inspectFollow = false;
+		state.inspectDetailsExpanded = false;
 		state.consoleScroll = 0;
 		state.consoleFollow = true;
+		state.consoleSelectedActivityId = undefined;
+		state.consoleDetailsExpanded = true;
+		state.consoleRevealSelection = false;
 	};
 
 	const refreshActive = () => {
@@ -1316,10 +1417,12 @@ export function createTeamDashboardOverlayComponent(
 		}
 		const body = wrapLines(buildInspectText(
 			worker,
-			teamManager.getWorkerTranscript(worker.workerId),
+			state.inspectDetailsExpanded ? teamManager.getWorkerTranscript(worker.workerId) : undefined,
 			teamManager.getWorkerConsole(worker.workerId),
 			teamManager.getWorkerActivity?.(worker.workerId),
 			currentPalette,
+			displayCost,
+			state.inspectDetailsExpanded,
 		), width);
 		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
 		const visible = Math.max(1, rows - 1);
@@ -1332,33 +1435,63 @@ export function createTeamDashboardOverlayComponent(
 		return enforceWidth([header, ...body.slice(top, top + visible)], width);
 	};
 
+	const currentActivity = (): WorkerActivityEvent[] => {
+		const worker = currentWorker();
+		if (!worker) return [];
+		return getConsoleActivity(teamManager.getAssistantTail(worker.workerId), teamManager.getWorkerConsole(worker.workerId) ?? [], teamManager.getWorkerActivity?.(worker.workerId));
+	};
+
+	const moveActivitySelection = (delta: number): void => {
+		const activity = currentActivity();
+		if (activity.length === 0) return;
+		const index = activity.findIndex((event) => event.id === state.consoleSelectedActivityId);
+		const next = clamp((index >= 0 ? index : activity.length - 1) + delta, 0, activity.length - 1);
+		state.consoleSelectedActivityId = activity[next]!.id;
+		state.consoleDetailsExpanded = true;
+		state.consoleRevealSelection = true;
+		state.consoleFollow = false;
+	};
+
 	const renderConsoleBody = (width: number, rows: number): string[] => {
 		const worker = currentWorker();
-		if (!worker) {
-			return enforceWidth(["No worker selected. Switch to Workers (1) to pick one."], width).slice(0, rows);
-		}
+		if (!worker) return enforceWidth(["No worker selected. Pick one in Workers."], width).slice(0, rows);
 		const chunks = teamManager.getAssistantTail(worker.workerId);
 		const events = teamManager.getWorkerConsole(worker.workerId) ?? [];
-		const activity = teamManager.getWorkerActivity?.(worker.workerId);
-		const all = wrapLines(buildConsoleLines(worker, chunks, events, activity, state.consoleMode).join("\n"), width);
-		// Reserve 1 row for the [follow]/scroll header; the rest is the visible window.
+		const activity = getConsoleActivity(chunks, events, teamManager.getWorkerActivity?.(worker.workerId));
+		updateConsoleAnimation(!disposed && state.consoleMode === "activity" && worker.status === "running" && activity.some((event) => event.status === "started"));
+		if (state.consoleFollow || !activity.some((event) => event.id === state.consoleSelectedActivityId)) {
+			state.consoleSelectedActivityId = activity[activity.length - 1]?.id;
+		}
+		const rendered = state.consoleMode === "raw"
+			? { lines: wrapLines(buildRawConsoleLines(worker, chunks, events).join("\n"), width), selectedTop: undefined, selectedBottom: undefined }
+			: buildActivityConsoleLines(activity, width, state.consoleSelectedActivityId, state.consoleDetailsExpanded, spinnerFrames[spinnerFrame]!);
+		const all = rendered.lines;
 		const visible = Math.max(1, rows - 1);
 		const maxTop = Math.max(0, all.length - visible);
 		if (state.consoleFollow) state.consoleScroll = maxTop;
+		if (state.consoleRevealSelection && rendered.selectedTop !== undefined) {
+			if (rendered.selectedTop < state.consoleScroll || (rendered.selectedBottom ?? 0) > state.consoleScroll + visible) state.consoleScroll = rendered.selectedTop;
+			state.consoleRevealSelection = false;
+		}
 		const top = clamp(state.consoleScroll, 0, maxTop);
 		state.consoleScroll = top;
 		lastRenderMetrics.bodyPageSize = visible;
-		const header = formatFollowHeader(state.consoleFollow, top, visible, all.length);
-		return enforceWidth([header, ...all.slice(top, top + visible)], width);
+		const header = `${state.consoleMode === "activity" ? "Activity" : "Raw"} · ${formatFollowHeader(state.consoleFollow, top, visible, all.length)}`;
+		return enforceWidth([dim(header), ...all.slice(top, top + visible)], width);
 	};
 
 	const renderCostBody = (width: number, rows: number): string[] => {
-		const all = wrapLines(buildCostLines(snapshot).join("\n"), width);
-		const maxTop = Math.max(0, all.length - rows);
-		const top = Math.min(state.costScroll, maxTop);
+		const layout = buildCostLayout(snapshot, width, state.selectedWorkerId);
+		let summary = wrapLines(layout.summary.join("\n"), width);
+		if (summary.length + layout.header.length + 3 > rows) summary = summary.slice(0, 1);
+		const header = rows > summary.length + 3 ? layout.header : [];
+		const visible = Math.max(1, rows - summary.length - header.length - 2);
+		const maxTop = Math.max(0, layout.rows.length - visible);
+		const top = clamp(state.costScroll, 0, maxTop);
 		state.costScroll = top;
-		lastRenderMetrics.bodyPageSize = rows;
-		return enforceWidth(all.slice(top, top + rows), width);
+		lastRenderMetrics.bodyPageSize = visible;
+		const range = dim(`Cost · ${formatScrollRange(top, visible, layout.rows.length)}`);
+		return enforceWidth([...summary, "", range, ...header, ...layout.rows.slice(top, top + visible)], width).slice(0, rows);
 	};
 
 	const renderBody = (width: number, rows: number): string[] => {
@@ -1376,10 +1509,16 @@ export function createTeamDashboardOverlayComponent(
 	};
 
 	function renderWorkersBody(width: number, rows: number): string[] {
-		const roster = new RosterSelectList(snapshot, state.selectedWorkerId);
-		const lines = roster.render(width, rows);
-		lastRenderMetrics.listPageSize = Math.max(1, Math.min(rows - 1, ROSTER_PAGE_SIZE));
-		return enforceWidth(lines, width).slice(0, rows);
+		const roster = buildWorkerRoster(snapshot, width, state.selectedWorkerId);
+		const header = rows >= 4 ? roster.header : [];
+		const visible = Math.max(1, rows - header.length - 1);
+		let top = clamp(state.workersScroll, 0, Math.max(0, roster.lines.length - visible));
+		if (roster.selectedTop < top || roster.selectedBottom - roster.selectedTop > visible) top = roster.selectedTop;
+		else if (roster.selectedBottom > top + visible) top = roster.selectedBottom - visible;
+		state.workersScroll = top;
+		lastRenderMetrics.listPageSize = Math.max(1, roster.workerStarts.filter((start) => start >= top && start < top + visible).length);
+		const range = dim(`Workers · ${formatScrollRange(top, visible, roster.lines.length)}`);
+		return enforceWidth([range, ...header, ...roster.lines.slice(top, top + visible)], width).slice(0, rows);
 	}
 
 	ensureSelectedWorker();
@@ -1408,6 +1547,7 @@ export function createTeamDashboardOverlayComponent(
 	return {
 		render(width: number): string[] {
 			refreshSnapshot();
+			if (state.tab !== "console" || !currentWorker()) updateConsoleAnimation(false);
 			const cap = Math.min(width, Math.max(1, tui.terminal.columns));
 			const innerWidth = Math.max(1, cap - 4); // outer frame: │ + space + content + space + │
 			const totalRows = computeOverlayRows(tui.terminal.rows);
@@ -1419,51 +1559,36 @@ export function createTeamDashboardOverlayComponent(
 			const tabBar = buildTabBar(state.tab, routingMode, displayCost);
 			const fullTabHint = displayCost ? "1-4 tabs" : "1-3 tabs";
 			const compactTabHint = displayCost ? "1-4" : "1-3";
-			const helpRow = state.tab === "workers"
-				? firstFitting(innerWidth, [
-					`↑/↓ select · space/b page · g/G ends · ${fullTabHint}`,
-					`↑↓ select · space/b page · g/G · ${compactTabHint}`,
-					`↑↓ select · space/b · g/G · ${compactTabHint}`,
-				])
-				: state.tab === "inspect"
-					? firstFitting(innerWidth, [
-						`↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${fullTabHint}`,
-						`↑↓ scroll · f follow · space/b · g/G · ${compactTabHint}`,
-						`↑↓ · f · space/b · g/G · ${compactTabHint}`,
-					])
-					: state.tab === "console"
-						? firstFitting(innerWidth, [
-							`↑/↓ scroll · f follow · r raw/activity · space/b page · g/G top/bottom · ${fullTabHint}`,
-							`↑↓ scroll · f follow · r raw · space/b · g/G · ${compactTabHint}`,
-							`↑↓ · f · r · space/b · g/G · ${compactTabHint}`,
-						])
-						: firstFitting(innerWidth, [
-							`↑/↓ scroll · space/b page · g/G top/bottom · ${fullTabHint}`,
-							`↑↓ scroll · space/b · g/G · ${compactTabHint}`,
-							`↑↓ · space/b · g/G · ${compactTabHint}`,
-						]);
+			let helpRow: string;
+			if (state.tab === "workers") helpRow = firstFitting(innerWidth, [
+				`↑/↓ select · enter inspect · space/b page · g/G ends · ${fullTabHint}`,
+				`↑↓ select · enter inspect · space/b · g/G · ${compactTabHint}`,
+				`↑↓ · enter · space/b · g/G · ${compactTabHint}`,
+			]);
+			else if (state.tab === "console" && state.consoleMode === "activity") helpRow = firstFitting(innerWidth, [
+				`↑/↓ select · enter details · f follow · space/b page · g/G ends · ${fullTabHint}`,
+				`↑↓ select · enter details · f · space/b · g/G · ${compactTabHint}`,
+				`↑↓ · enter · f · space/b · g/G`,
+			]);
+			else if (state.tab === "inspect") helpRow = firstFitting(innerWidth, [
+				`↑/↓ scroll · enter details · f follow · space/b page · g/G ends · ${fullTabHint}`,
+				`↑↓ scroll · enter details · f · space/b · g/G · ${compactTabHint}`,
+				`↑↓ · enter · f · space/b · g/G`,
+			]);
+			else if (state.tab === "console") helpRow = firstFitting(innerWidth, [
+				`↑/↓ scroll · f follow · space/b page · g/G top/bottom · ${fullTabHint}`,
+				`↑↓ scroll · f follow · space/b · g/G · ${compactTabHint}`,
+				`↑↓ · f · space/b · g/G · ${compactTabHint}`,
+			]);
+			else helpRow = firstFitting(innerWidth, [
+				`↑/↓ scroll · space/b page · g/G top/bottom · ${fullTabHint}`,
+				`↑↓ scroll · space/b · g/G · ${compactTabHint}`,
+				`↑↓ · space/b · g/G · ${compactTabHint}`,
+			]);
 			const worker = currentWorker();
-			const workerCount = Object.keys(snapshot.activeWorkers).length;
-			const attentionSummary = buildActionSummaryLine(snapshot);
-			const summaryRow = firstFitting(innerWidth, [
-				buildCompactTeamSummaryLine(snapshot),
-				`workers ${workerCount} · ${attentionSummary}`,
-				`workers ${workerCount} · ${attentionSummary.replace(/Needs /g, "").replace("Completed or idle", "Done/idle")}`,
-				`${workerCount} workers · ${snapshot.relayQueue.length} relays`,
-			]);
+			const summaryRow = teamSummaryLine(snapshot, innerWidth);
 			const selectedHeader = buildSelectedWorkerHeader(worker, innerWidth);
-			const snippet = sanitizeTerminalText(worker ? buildWorkerPrioritySnippet(worker) : "no worker selected");
-			const selectedSnippet = firstFitting(innerWidth, [
-				`focus: ${snippet}`,
-				snippet,
-			]);
-			const headerLines = [
-				tabBar,
-				accent(summaryRow),
-				dim(helpRow),
-				bold(selectedHeader),
-				dim(selectedSnippet),
-			];
+			const headerLines = [tabBar, summaryRow, bold(selectedHeader)];
 
 			const footerLines: string[] = [];
 			if (state.modal) {
@@ -1475,7 +1600,15 @@ export function createTeamDashboardOverlayComponent(
 				}
 				footerLines.push(...inputLines);
 			}
-			footerLines.push(buildActionBar(state.tab === "console" ? { r: state.consoleMode === "activity" ? "aw" : "ctivity" } : undefined));
+			footerLines.push(dim(helpRow));
+			let rLabel = "refresh";
+			if (state.tab === "console") rLabel = state.consoleMode === "activity" ? "raw" : "activity";
+			if (state.helpExpanded) footerLines.push(...wrapLines(buildActionBar({ r: rLabel }) + "  [?]less", innerWidth));
+			else footerLines.push(firstFitting(innerWidth, [
+				`[s]teer  [n]ew  [r]${rLabel}  [y]copy  [?]help  [q]uit`,
+				`[s]teer  [r]${rLabel}  [?]help  [q]uit`,
+				`[r]${rLabel}  [?]help  [q]uit`,
+			]));
 			if (status) footerLines.push(accent(`» ${status}`));
 
 			// Reserve rows: top frame (1) + header lines + blank + body + blank + footer + bottom frame (1).
@@ -1506,6 +1639,11 @@ export function createTeamDashboardOverlayComponent(
 				return;
 			}
 
+			if (data === "?") {
+				state.helpExpanded = !state.helpExpanded;
+				requestRender();
+				return;
+			}
 			if (data === "q") return finish();
 			if (matchesKey(data, "escape")) return finish();
 
@@ -1568,6 +1706,7 @@ export function createTeamDashboardOverlayComponent(
 			if (data === "r") {
 				if (state.tab === "console") {
 					state.consoleMode = state.consoleMode === "activity" ? "raw" : "activity";
+					state.consoleRevealSelection = state.consoleMode === "activity";
 					state.consoleScroll = 0;
 					state.consoleFollow = false;
 					setStatus(`Console ${state.consoleMode} view`);
@@ -1610,6 +1749,13 @@ export function createTeamDashboardOverlayComponent(
 			}
 
 			if (state.tab === "inspect") {
+				if (matchesKey(data, "enter")) {
+					state.inspectDetailsExpanded = !state.inspectDetailsExpanded;
+					state.inspectScroll = 0;
+					state.inspectFollow = false;
+					requestRender();
+					return;
+				}
 				if (isFollowToggleKey(data)) { state.inspectFollow = !state.inspectFollow; requestRender(); return; }
 				if (data === "j" || matchesKey(data, "down")) { state.inspectScroll += 1; state.inspectFollow = false; requestRender(); return; }
 				if (data === "k" || matchesKey(data, "up")) { state.inspectScroll = Math.max(0, state.inspectScroll - 1); state.inspectFollow = false; requestRender(); return; }
@@ -1621,19 +1767,27 @@ export function createTeamDashboardOverlayComponent(
 			}
 
 			if (state.tab === "console") {
+				if (matchesKey(data, "enter") && state.consoleMode === "activity") {
+					state.consoleDetailsExpanded = !state.consoleDetailsExpanded;
+					state.consoleRevealSelection = true;
+					requestRender();
+					return;
+				}
 				if (isFollowToggleKey(data)) {
 					state.consoleFollow = !state.consoleFollow;
 					requestRender();
 					return;
 				}
 				if (data === "j" || matchesKey(data, "down")) {
-					state.consoleScroll += 1;
+					if (state.consoleMode === "activity") moveActivitySelection(1);
+					else state.consoleScroll += 1;
 					state.consoleFollow = false;
 					requestRender();
 					return;
 				}
 				if (data === "k" || matchesKey(data, "up")) {
-					state.consoleScroll = Math.max(0, state.consoleScroll - 1);
+					if (state.consoleMode === "activity") moveActivitySelection(-1);
+					else state.consoleScroll = Math.max(0, state.consoleScroll - 1);
 					state.consoleFollow = false;
 					requestRender();
 					return;
@@ -1656,6 +1810,7 @@ export function createTeamDashboardOverlayComponent(
 					return;
 				}
 				if (isTopKey(data)) {
+					if (state.consoleMode === "activity") moveActivitySelection(-Number.MAX_SAFE_INTEGER);
 					state.consoleScroll = 0;
 					state.consoleFollow = false;
 					requestRender();

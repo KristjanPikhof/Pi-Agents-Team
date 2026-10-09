@@ -12,7 +12,7 @@ import {
 	TEAM_DASHBOARD_INITIAL_REFRESH_TIMEOUT_MS,
 	TEAM_DASHBOARD_OVERLAY_OPTIONS,
 } from "../../src/ui/overlay";
-import { sanitizeTerminalText, stripAnsi } from "../../src/ui/theme";
+import { sanitizeTerminalText, stripAnsi, themedPalette } from "../../src/ui/theme";
 import {
 	CONSOLE_ACTIVITY_GOLDEN_LINES,
 	CONSOLE_RAW_FALLBACK_GOLDEN_LINES,
@@ -50,6 +50,8 @@ function makeFakeTheme(): Theme {
 		accent: "38;5;201",
 		dim: "38;5;244",
 		muted: "38;5;245",
+		syntaxKeyword: "38;5;81",
+		syntaxType: "38;5;141",
 		success: "38;5;120",
 		warning: "38;5;214",
 		error: "38;5;196",
@@ -58,6 +60,7 @@ function makeFakeTheme(): Theme {
 		fg: (role: string, text: string) => `\x1b[${roleCodes[role] ?? "39"}m${text}\x1b[0m`,
 		bold: (text: string) => `\x1b[1m${text}\x1b[0m`,
 		inverse: (text: string) => `\x1b[7m${text}\x1b[0m`,
+		bg: (_role: string, text: string) => `\x1b[48;5;237m${text}\x1b[49m`,
 	} as unknown as Theme;
 }
 import type { AssistantChunk, WorkerActivityEvent, WorkerConsoleEvent } from "../../src/runtime/worker-manager";
@@ -372,7 +375,7 @@ test("workers tab renders roster sections, reuse tag for idle workers, and suppo
 	component.handleInput("j");
 	component.handleInput("j");
 	lines = renderPlain(component, 100);
-	const selectedRow = lines.find((line) => line.includes("▶"));
+	const selectedRow = lines.find((line) => line.includes("> w"));
 	assert.ok(selectedRow, "expected selection arrow on a row");
 });
 
@@ -382,7 +385,7 @@ test("workers tab keeps the selected worker visible on short overlays", () => {
 
 	component.handleInput("1");
 	const lines = renderPlain(component, 100);
-	const selectedRow = lines.find((line) => line.includes("▶"));
+	const selectedRow = lines.find((line) => line.includes("> w"));
 	assert.ok(selectedRow, `expected selected row to be visible; got:\n${lines.join("\n")}`);
 	assert.match(selectedRow, /w30/);
 });
@@ -407,8 +410,8 @@ test("workers tab shows compact summary, selected mini header, and state-specifi
 	component.handleInput("1");
 	const lines = renderPlain(component, 96);
 	const body = lines.join("\n");
-	assert.match(body, /workers 4 .*Needs reply 1 .*Needs recovery 1 .*Working 1 .*Done 1/);
-	assert.match(body, /selected: w1 .*Running .*Needs reply .*action: Answer relay/);
+	assert.match(body, /4 workers .*1 needs reply .*1 needs recovery .*1 working .*1 done/);
+	assert.match(body, /w1 · reviewer · Running · Answer relay/);
 	assert.match(body, /Needs reply \(1\)/);
 	assert.match(body, /Needs recovery \(1\)/);
 	assert.match(body, /Done \(1\)/);
@@ -471,11 +474,11 @@ test("inspect tab renders structured readable sections with styled headers", () 
 	for (const section of ["Status", "Task", "Needs operator", "Summary", "Final answer", "Latest assistant text"]) {
 		assert.ok(body.includes(section), `expected Inspect section ${section}`);
 	}
-	assert.ok(lines.some((line) => line.includes("╭─ Status [running]")), "expected framed Status block");
-	assert.ok(lines.some((line) => line.includes("╭─ Final answer [ok]")), "expected framed Final answer block");
+	assert.ok(lines.some((line) => line.includes("Status [running]")), "expected plain Status section");
+	assert.ok(lines.some((line) => line.includes("Final answer [ok]")), "expected plain Final answer section");
 	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;75mStatus\x1b[0m")), "expected styled Status header");
-	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;179mrunning\x1b[0m")), "expected running status to use warning color");
-	assert.ok(rawLines.some((line) => line.includes("\x1b[2mThinking:\x1b[0m")), "expected dimmed metadata label");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;179mrunning\x1b[0m")), "expected a worker needing a reply to use warning color");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[38;5;244mThinking:\x1b[0m")), "expected dimmed metadata label");
 });
 
 test("inspect tab marks oversized assistant transcript as truncated", () => {
@@ -489,6 +492,7 @@ test("inspect tab marks oversized assistant transcript as truncated", () => {
 		transcripts: { w1: transcript },
 	});
 
+	component.handleInput("\r");
 	const body = renderPlain(component, 100).join("\n");
 	assert.match(body, /Latest assistant text \[tail\]/);
 	assert.match(body, /\[transcript truncated: showing retained tail; omitted /);
@@ -507,15 +511,16 @@ test("inspect tab visually separates final answer from latest assistant text and
 		transcripts: { w1: `Latest assistant ${"gamma delta ".repeat(18)}` },
 	});
 
+	component.handleInput("\r");
 	const lines = renderPlain(component, 58);
-	const finalIndex = lines.findIndex((line) => line.includes("╭─ Final answer [ok]"));
-	const latestIndex = lines.findIndex((line) => line.includes("╭─ Latest assistant text [tail]"));
+	const finalIndex = lines.findIndex((line) => line.includes("Final answer [ok]"));
+	const latestIndex = lines.findIndex((line) => line.includes("Latest assistant text [tail]"));
 	assert.ok(finalIndex >= 0, "expected Final answer block header");
 	assert.ok(latestIndex > finalIndex, "expected Latest assistant text after Final answer");
 	assert.ok(lines.slice(finalIndex + 1, latestIndex).some((line) => line.includes("Final answer alpha")), "expected final answer content under its header");
 	assert.ok(lines.slice(latestIndex + 1).some((line) => line.includes("Latest assistant gamma")), "expected latest assistant text content under its header");
-	assert.ok(lines[finalIndex]!.includes("╭─ Final answer [ok]"), lines[finalIndex]);
-	assert.ok(lines[latestIndex]!.includes("╭─ Latest assistant text [tail]"), lines[latestIndex]);
+	assert.ok(lines[finalIndex]!.includes("Final answer [ok]"), lines[finalIndex]);
+	assert.ok(lines[latestIndex]!.includes("Latest assistant text [tail]"), lines[latestIndex]);
 	for (const line of lines) assert.ok(visibleWidth(line) <= 58, `line exceeds width: ${visibleWidth(line)} ${line}`);
 });
 
@@ -646,6 +651,30 @@ test("inspect live-follow re-renders on activity-only updates", () => {
 	component.dispose();
 });
 
+test("paused Console updates the selected tool without following new rows", () => {
+	const event: WorkerActivityEvent = { id: "read-1", ts: 1, updatedAt: 1, actionKind: "tool", status: "started", toolName: "read", label: "Used read", summary: "selected.ts", sourceEvent: "worker_tool_started" };
+	const managerOpts: FakeManagerOptions = { state: makeState(1), activities: { w1: [event] }, activityListeners: [] };
+	let renders = 0;
+	const component = createTeamDashboardOverlayComponent(
+		{ terminal: { rows: 30, columns: 100 }, requestRender: () => { renders += 1; } },
+		makeFakeManager(managerOpts), managerOpts.state, () => {},
+	);
+	component.handleInput("3");
+	component.render(100);
+	component.handleInput("f");
+	managerOpts.activities!.w1!.push({ ...event, id: "read-2", summary: "new.ts" });
+	event.status = "completed";
+	event.outputSnippet = "Selected file finished";
+	renders = 0;
+	managerOpts.activityListeners![0]!("w1", event);
+	assert.equal(renders, 1);
+	const plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /> read\s+selected.ts\s+\[ok\]/);
+	assert.match(plain, /Selected file finished/);
+	assert.match(plain, /Activity · \[paused\]/);
+	component.dispose();
+});
+
 test("[s]teer accepts idle/waiting workers (delivery resolver upgrades to prompt)", async () => {
 	const state = makeState(1);
 	state.activeWorkers.w1!.status = "idle";
@@ -714,7 +743,7 @@ test("console formatter wraps long indented lines without ellipsis or overflow",
 	component.handleInput("3");
 
 	const lines = renderPlain(component, 58);
-	const wrapped = lines.filter((line) => line.includes("veryLongIdentifier") || line.includes("const result"));
+	const wrapped = lines.filter((line) => line.startsWith("│     ") && (line.includes("veryLongIdentifier") || line.includes("const result")));
 	assert.ok(wrapped.length >= 2, `expected long indented line to wrap, got:\n${lines.join("\n")}`);
 	assert.ok(wrapped.some((line) => line.includes("const result")), "expected wrapped command/process text to remain visible");
 	assert.ok(!wrapped.some((line) => line.includes("…")), "wrapping should not use truncation ellipsis");
@@ -836,8 +865,8 @@ test("console Activity fallback coalesces adjacent assistant chunks while Raw ke
 
 	let lines = renderPlain(component, 100);
 	let body = lines.join("\n");
-	assert.match(body, /activity=1/);
-	assert.equal((body.match(/process thinking/g)?.length ?? 0), 1, body);
+	assert.equal((body.match(/> (?:Thinking|Final answer)/g) ?? []).length, 1, body);
+	assert.equal((body.match(/> Thinking/g)?.length ?? 0), 1, body);
 	assert.match(body, /token-0 token-1 token-2/);
 	assert.match(body, /done/);
 
@@ -882,16 +911,18 @@ test("console Activity fallback parses final-answer blocks split across assistan
 	];
 	const { component } = makeComponent({ state, rows: 60, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
 	component.handleInput("3");
+	renderPlain(component, 100);
+	component.handleInput("k");
 
 	const body = renderPlain(component, 100).join("\n");
-	assert.match(body, /process thinking \[info\]/, "expected preamble/trailing activity to remain process thinking");
+	assert.match(body, /Thinking.*\[info\]/, "expected preamble/trailing activity to remain process thinking");
 	assert.match(body, /Mapping result before final\./, "expected preamble process text");
 	assert.match(body, /Postscript after final\./, "expected trailing process text");
-	assert.match(body, /final-answer \[ok\]/, "expected split final-answer block as final summary");
+	assert.match(body, /Final answer.*\[ok\]/, "expected split final-answer block as final summary");
 	assert.match(body, /Headline: split overlay headline/);
 	assert.match(body, /Risks: split tag risk/);
 	assert.match(body, /Next: keep fallback parser/);
-	assert.doesNotMatch(body, /process thinking \[info\][\s\S]*headline: split overlay headline/, "final-answer body must not be rendered as process thinking");
+	assert.doesNotMatch(body, /Thinking[^\n]*headline: split overlay headline/, "final-answer body must not be rendered as process thinking");
 
 	component.handleInput("r");
 	const rawBody = renderPlain(component, 100).join("\n");
@@ -912,10 +943,10 @@ test("console Activity fallback parses final-answer opening marker split across 
 	component.handleInput("3");
 
 	const body = renderPlain(component, 100).join("\n");
-	assert.match(body, /final-answer \[ok\]/);
+	assert.match(body, /Final answer.*\[ok\]/);
 	assert.match(body, /Headline: split-open headline/);
 	assert.match(body, /Risks: open marker risk/);
-	assert.doesNotMatch(body, /process thinking \[info\][\s\S]*headline: split-open headline/);
+	assert.doesNotMatch(body, /Thinking[^\n]*headline: split-open headline/);
 
 	component.handleInput("r");
 	const rawBody = renderPlain(component, 100).join("\n");
@@ -935,13 +966,15 @@ test("console Activity fallback parses final-answer closing marker split across 
 	];
 	const { component } = makeComponent({ state, rows: 70, cols: 100, initialWorkerId: "w1", chunks: { w1: chunks } });
 	component.handleInput("3");
+	renderPlain(component, 100);
+	component.handleInput("k");
 
 	const body = renderPlain(component, 100).join("\n");
-	assert.match(body, /final-answer \[ok\]/);
+	assert.match(body, /Final answer.*\[ok\]/);
 	assert.match(body, /Headline: split-close headline/);
 	assert.match(body, /Risks: close marker risk/);
 	assert.match(body, /Trailing after close\./);
-	assert.doesNotMatch(body, /process thinking \[info\][\s\S]*headline: split-close headline/);
+	assert.doesNotMatch(body, /Thinking[^\n]*headline: split-close headline/);
 });
 
 test("console Activity fallback parses character-by-character final-answer streaming", () => {
@@ -960,12 +993,12 @@ test("console Activity fallback parses character-by-character final-answer strea
 	component.handleInput("3");
 
 	const body = renderPlain(component, 100).join("\n");
-	assert.match(body, /activity=1/);
-	assert.match(body, /final-answer \[ok\]/);
+	assert.equal((body.match(/> (?:Thinking|Final answer)/g) ?? []).length, 1, body);
+	assert.match(body, /Final answer.*\[ok\]/);
 	assert.match(body, /Headline: char streamed headline/);
 	assert.match(body, /Risks: char stream marker risk/);
 	assert.match(body, /Next: keep char scanner/);
-	assert.doesNotMatch(body, /process thinking \[info\][\s\S]*headline: char streamed headline/);
+	assert.doesNotMatch(body, /Thinking[^\n]*headline: char streamed headline/);
 });
 
 test("console Activity fallback keeps unclosed final-answer tags visible as process text", () => {
@@ -979,10 +1012,10 @@ test("console Activity fallback keeps unclosed final-answer tags visible as proc
 	component.handleInput("3");
 
 	const body = renderPlain(component, 100).join("\n");
-	assert.match(body, /process thinking \[info\]/, "unclosed blocks should remain visible as process text");
+	assert.match(body, /Thinking.*\[info\]/, "unclosed blocks should remain visible as process text");
 	assert.match(body, /<final_answer>/);
 	assert.match(body, /headline: incomplete overlay headline/);
-	assert.doesNotMatch(body, /final answer \[ok\]/, "unclosed blocks must not be synthesized as final summaries");
+	assert.doesNotMatch(body, /Final answer.*\[ok\]/, "unclosed blocks must not be synthesized as final summaries");
 });
 
 test("inspect Recent activity with worker.finalAnswer avoids duplicate final-answer body", () => {
@@ -1003,7 +1036,7 @@ test("inspect Recent activity with worker.finalAnswer avoids duplicate final-ans
 
 	const lines = renderPlain(component, 100);
 	const recentIndex = lines.findIndex((line) => line.includes("Recent activity"));
-	const taskIndex = lines.findIndex((line) => line.includes("Task"));
+	const taskIndex = lines.findIndex((line) => /Task \[/.test(line));
 	assert.ok(recentIndex >= 0 && taskIndex > recentIndex, `expected Recent activity before Task; got:\n${lines.join("\n")}`);
 	const recentBlock = lines.slice(recentIndex, taskIndex).join("\n");
 	assert.match(recentBlock, /• Final answer produced/);
@@ -1030,7 +1063,188 @@ test("console Raw fallback contract keeps timestamped diagnostic activity reacha
 	assertRenderedSubsequence(renderPlain(component, 100), CONSOLE_RAW_FALLBACK_GOLDEN_LINES, "Console Raw fallback golden example");
 });
 
-test("console Activity uses themed block color and semantic diff +/- styling", () => {
+test("Console keeps tool names bold and lets operators expand earlier output", () => {
+	const activities: WorkerActivityEvent[] = ["read", "bash"].map((toolName, index) => ({
+		id: `tool-${index}`, ts: index, updatedAt: index + 10,
+		actionKind: "tool", status: "completed", toolName, label: `Used ${toolName}`,
+		summary: index === 0 ? "src/ui/overlay.ts" : "npm run typecheck",
+		outputSnippet: index === 0 ? "Earlier file output" : "Latest check output",
+		sourceEvent: "worker_tool_finished",
+	}));
+	const { component } = makeComponent({ state: makeState(1), activities: { w1: activities }, theme: makeFakeTheme() });
+	component.handleInput("3");
+	let rendered = component.render(100).join("\n");
+	assert.match(rendered, /\x1b\[1m\x1b\[38;5;81mread/);
+	assert.match(stripAnsi(rendered), /read\s+src\/ui\/overlay.ts/);
+	assert.doesNotMatch(stripAnsi(rendered), /Earlier file output/);
+	assert.match(stripAnsi(rendered), /Latest check output/);
+	component.handleInput("k");
+	let plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /> read/);
+	assert.match(plain, /Earlier file output/);
+	assert.doesNotMatch(plain, /Latest check output/);
+	component.handleInput("\r");
+	assert.doesNotMatch(renderPlain(component, 100).join("\n"), /Earlier file output/);
+	component.handleInput("\r");
+	assert.match(renderPlain(component, 100).join("\n"), /Earlier file output/);
+	component.dispose?.();
+});
+
+test("Console colors tool categories, dims summaries, and aligns status columns", () => {
+	const activities: WorkerActivityEvent[] = ["read", "grep", "bash"].map((toolName, index) => ({
+		id: String(index), ts: 1, updatedAt: 2, actionKind: toolName === "bash" ? "command" : "tool", status: "completed",
+		toolName, label: `Used ${toolName}`, summary: `summary-${index}`, durationMs: 12, sourceEvent: "worker_tool_finished",
+	}));
+	const { component } = makeComponent({ state: makeState(1), activities: { w1: activities }, theme: makeFakeTheme() });
+	component.handleInput("3");
+	const rendered = component.render(100);
+	const text = rendered.join("\n");
+	assert.match(text, /38;5;81mread/);
+	assert.match(text, /38;5;141mgrep/);
+	assert.match(text, /38;5;214mbash/);
+	assert.match(text, /38;5;245m  summary-0/);
+	assert.match(text, /38;5;120mok/);
+	const selectedRow = rendered.find((line) => stripAnsi(line).includes("> bash"))!;
+	assert.ok(selectedRow.includes("\x1b[48;5;237m"));
+	assert.ok(!rendered.find((line) => stripAnsi(line).includes("read  summary-0"))?.includes("\x1b[48;5;237m"));
+	const rows = plainLines(rendered).filter((line) => /summary-\d/.test(line));
+	assert.equal(rows.length, 3);
+	assert.equal(new Set(rows.map((line) => line.indexOf("[ok]"))).size, 1);
+	assert.equal(new Set(rows.map((line) => line.indexOf("12ms"))).size, 1);
+	const readIndex = rendered.findIndex((line) => stripAnsi(line).includes("summary-0"));
+	assert.equal(stripAnsi(rendered[readIndex + 1]!).replace(/│/g, "").trim(), "");
+	component.dispose?.();
+});
+
+test("selected row background survives width truncation and nested style resets", () => {
+	const palette = themedPalette(makeFakeTheme());
+	const text = palette.selected("read\x1b[0m…\x1b[0m [ok]");
+	assert.ok(text.includes("\x1b[0m\x1b[48;5;237m…"));
+	assert.ok(text.includes("\x1b[0m\x1b[48;5;237m [ok]"));
+	assert.ok(text.endsWith("\x1b[49m"));
+});
+
+test("Console running animation stops on settlement, tab change, and disposal", () => {
+	const originalSetInterval = globalThis.setInterval;
+	const originalClearInterval = globalThis.clearInterval;
+	let callback: (() => void) | undefined;
+	let unrefs = 0;
+	let clears = 0;
+	let renders = 0;
+	const timer = { unref: () => { unrefs += 1; } } as unknown as ReturnType<typeof setInterval>;
+	globalThis.setInterval = ((fn: () => void) => { callback = fn; return timer; }) as typeof setInterval;
+	globalThis.clearInterval = (() => { clears += 1; callback = undefined; }) as typeof clearInterval;
+	const state = makeState(1);
+	const activities: WorkerActivityEvent[] = [{ id: "running", ts: 1, updatedAt: 1, actionKind: "tool", status: "started", toolName: "read", label: "Used read", sourceEvent: "worker_tool_started" }];
+	const component = createTeamDashboardOverlayComponent({ terminal: { rows: 30, columns: 100 }, requestRender: () => { renders += 1; } }, makeFakeManager({ state, activities: { w1: activities } }), state, () => {});
+	try {
+		component.handleInput("3");
+		assert.match(renderPlain(component, 100).join("\n"), /\[running\]\s+\|/);
+		assert.equal(unrefs, 1);
+		renders = 0;
+		callback!();
+		assert.equal(renders, 1);
+		assert.match(renderPlain(component, 100).join("\n"), /\[running\]\s+\//);
+		assert.equal(unrefs, 1, "render must not start a second timer");
+		state.activeWorkers.w1!.status = "idle";
+		component.render(100);
+		assert.equal(clears, 1);
+		state.activeWorkers.w1!.status = "running";
+		component.render(100);
+		component.handleInput("1");
+		component.render(100);
+		assert.equal(clears, 2);
+		component.handleInput("3");
+		component.render(100);
+		component.dispose();
+		component.dispose();
+		assert.equal(clears, 3);
+		assert.equal(callback, undefined);
+	} finally {
+		component.dispose();
+		globalThis.setInterval = originalSetInterval;
+		globalThis.clearInterval = originalClearInterval;
+	}
+});
+
+test("Console keeps errors expanded even when another tool is selected", () => {
+	const activities: WorkerActivityEvent[] = ["error", "completed"].map((status, index) => ({
+		id: `tool-${index}`, ts: index, updatedAt: index + 10,
+		actionKind: "command", status: status as "error" | "completed", toolName: "bash", label: "Ran npm test",
+		command: "npm test", outputSnippet: index === 0 ? "Failed to run command" : "Finished",
+		sourceEvent: "worker_tool_finished",
+	}));
+	const { component } = makeComponent({ state: makeState(1), activities: { w1: activities } });
+	component.handleInput("3");
+	assert.match(renderPlain(component, 100).join("\n"), /Failed to run command/);
+	component.handleInput("k");
+	component.render(100);
+	component.handleInput("\r");
+	assert.match(renderPlain(component, 100).join("\n"), /Failed to run command/);
+	component.dispose?.();
+});
+
+test("Console follows new activity by default and preserves manual selection until resumed", () => {
+	const activities: WorkerActivityEvent[] = Array.from({ length: 25 }, (_, index) => ({
+		id: `tool-${index}`, ts: index, updatedAt: index + 10, actionKind: "tool", status: "completed",
+		toolName: "read", label: "Used read", summary: `file-${index}.ts`, sourceEvent: "worker_tool_finished",
+	}));
+	const { component } = makeComponent({ state: makeState(1), rows: 24, activities: { w1: activities } });
+	component.handleInput("3");
+	let plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /Activity · \[follow\]/);
+	assert.match(plain, /> read\s+file-24.ts/);
+	assert.doesNotMatch(plain, /file-0.ts/);
+	component.handleInput("k");
+	component.render(100);
+	activities.push({ ...activities[24]!, id: "new-tool", summary: "newest-file.ts" });
+	plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /Activity · \[paused\]/);
+	assert.match(plain, /> read\s+file-23.ts/);
+	component.handleInput("f");
+	plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /Activity · \[follow\]/);
+	assert.match(plain, /> read\s+newest-file.ts/);
+	component.handleInput("g");
+	plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /> read\s+file-0.ts/);
+	component.handleInput("G");
+	assert.match(renderPlain(component, 100).join("\n"), /> read\s+newest-file.ts/);
+	component.dispose?.();
+});
+
+test("footer reveals secondary actions on demand and Raw shows scroll hints", () => {
+	const { component } = makeComponent({ state: makeState(1) });
+	let plain = renderPlain(component, 100).join("\n");
+	assert.doesNotMatch(plain, /\[p\]rune/);
+	component.handleInput("?");
+	plain = renderPlain(component, 100).join("\n");
+	for (const key of ["[m]sg", "[c]lose", "[x]cancel", "[p]rune"]) assert.ok(plain.includes(key), key);
+	component.handleInput("?");
+	component.handleInput("3");
+	component.handleInput("r");
+	plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /↑\/↓ scroll/);
+	assert.doesNotMatch(plain, /enter details/);
+	component.dispose?.();
+});
+
+test("roster shows task titles while Inspect honors hidden cost", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.usage.inputTokens = 9999;
+	state.activeWorkers.w1!.usage.costUsd = 12.34;
+	const { component } = makeComponent({ state, displayCost: false, rows: 48 });
+	let plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /reviewer.*Task 1/);
+	assert.doesNotMatch(plain, /in=|out=|\$12/);
+	component.handleInput("2");
+	plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /(?:9[,.]?999|10k) input/);
+	assert.doesNotMatch(plain, /\$12/);
+	component.dispose?.();
+});
+
+test("console Activity uses bold tool names and semantic diff +/- styling", () => {
 	const state = makeState(1);
 	const now = 1_700_000_000_000;
 	const activities: WorkerActivityEvent[] = [{
@@ -1060,8 +1274,8 @@ test("console Activity uses themed block color and semantic diff +/- styling", (
 
 	const rendered = component.render(100).join("\n");
 	const plain = stripAnsi(rendered);
-	assert.match(plain, /╭─ tool bash \[ok\]/, "expected Pi-style tool block header");
-	assert.match(plain, /│ \$ git diff --stat && git diff/, "expected command prefix separated from output");
+	assert.match(plain, /bash\s+git diff --stat && git diff\s+\[ok\]/, "expected clear tool name and command summary");
+	assert.doesNotMatch(plain, /╭─ tool/, "activities should not have their own boxes");
 	assert.match(rendered, /\x1b\[[0-9;]*38;5;114m\+new line\x1b\[0m/, "expected addition line success styling");
 	assert.match(rendered, /\x1b\[[0-9;]*38;5;167m-old line\x1b\[0m/, "expected deletion line danger styling");
 	assert.match(rendered, /\x1b\[[0-9;]*38;5;75mdiff --git/, "expected diff headers to use accent styling");
@@ -1089,8 +1303,8 @@ test("console Activity blocks remain width-safe for long commands and output", (
 	component.handleInput("3");
 
 	const lines = renderPlain(component, 40);
-	assert.ok(lines.some((line) => line.includes("╭─ tool bash [running]")), "expected running command block");
-	assert.ok(lines.some((line) => line.includes("│ $ npm exec tsx")), "expected command row");
+	assert.ok(lines.some((line) => line.includes("bash") && line.includes("[running]")), "expected running command block");
+	assert.ok(lines.some((line) => line.includes("$ npm exec tsx")), "expected command row");
 	for (const line of lines) assert.ok(visibleWidth(line) <= 40, `line exceeds width: ${visibleWidth(line)} ${line}`);
 });
 
@@ -1111,11 +1325,12 @@ test("inspect Recent activity contract renders compact recent commands, thinking
 		},
 	});
 
+	component.handleInput("\r");
 	const lines = renderPlain(component, 100);
 	assertRenderedSubsequence(lines, INSPECT_RECENT_ACTIVITY_GOLDEN_LINES, "Inspect Recent activity golden example");
 	const statusIndex = lines.findIndex((line) => line.includes("Status"));
 	const recentIndex = lines.findIndex((line) => line.includes("Recent activity"));
-	const taskIndex = lines.findIndex((line) => line.includes("Task"));
+	const taskIndex = lines.findIndex((line) => /Task \[/.test(line));
 	assert.ok(statusIndex >= 0 && recentIndex > statusIndex && taskIndex > recentIndex, `expected Recent activity near top between Status and Task; got:\n${lines.join("\n")}`);
 });
 
@@ -1143,7 +1358,7 @@ test("inspect Recent activity stays compact at narrow width and does not duplica
 
 	const lines = renderPlain(component, 52);
 	const recentIndex = lines.findIndex((line) => line.includes("Recent activity"));
-	const taskIndex = lines.findIndex((line) => line.includes("Task"));
+	const taskIndex = lines.findIndex((line) => /Task \[/.test(line));
 	assert.ok(recentIndex >= 0 && taskIndex > recentIndex, `expected Recent activity before Task; got:\n${lines.join("\n")}`);
 	const recentBlock = lines.slice(recentIndex, taskIndex).join("\n");
 	assert.ok(recentBlock.includes("• Ran grep"), recentBlock);
@@ -1157,6 +1372,8 @@ test("console Activity contract stays ANSI-width-safe and wraps nested output at
 	const { chunks, events } = makeActivityContractInputs();
 	const { component } = makeComponent({ state, rows: 48, cols: NARROW_CONSOLE_ACTIVITY_WIDTH, initialWorkerId: "w1", chunks: { w1: chunks }, consoles: { w1: events } });
 	component.handleInput("3");
+	renderPlain(component, NARROW_CONSOLE_ACTIVITY_WIDTH);
+	component.handleInput("k");
 
 	const lines = renderPlain(component, NARROW_CONSOLE_ACTIVITY_WIDTH);
 	assertRenderedSubsequence(lines, NARROW_CONSOLE_ACTIVITY_GOLDEN_LINES, "narrow Console Activity golden example");
@@ -1258,7 +1475,7 @@ test("console tab streams ring-buffer chunks with auto-follow toggle", () => {
 
 	component.handleInput("\x1b[5~");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("paused f/G")));
+	assert.ok(lines.some((line) => line.includes("paused")));
 
 	component.handleInput("G");
 	lines = renderPlain(component, 100);
@@ -1266,7 +1483,7 @@ test("console tab streams ring-buffer chunks with auto-follow toggle", () => {
 
 	component.handleInput("f");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("paused f/G")), "f should toggle console follow off");
+	assert.ok(lines.some((line) => line.includes("paused")), "f should toggle console follow off");
 
 	component.handleInput("f");
 	lines = renderPlain(component, 100);
@@ -1278,8 +1495,9 @@ test("inspect tab supports follow mode and mac-friendly scroll aliases", () => {
 	const transcript = Array.from({ length: 30 }, (_, i) => `assistant line ${i}`).join("\n");
 	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1", transcripts: { w1: transcript } });
 
+	component.handleInput("\r");
 	let lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("paused f/G")), "Inspect should start in manual scroll mode");
+	assert.ok(lines.some((line) => line.includes("paused")), "Inspect should start in manual scroll mode");
 	assert.ok(!lines.some((line) => line.includes("assistant line 29")), "tail should not be visible before jumping bottom");
 
 	component.handleInput("G");
@@ -1289,7 +1507,7 @@ test("inspect tab supports follow mode and mac-friendly scroll aliases", () => {
 
 	component.handleInput("b");
 	lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("paused f/G")), "b should page up and pause follow");
+	assert.ok(lines.some((line) => line.includes("paused")), "b should page up and pause follow");
 
 	component.handleInput("f");
 	lines = renderPlain(component, 100);
@@ -1322,9 +1540,9 @@ test("Inspect and Console chrome stays compact at laptop panel width", () => {
 
 		component.handleInput("b");
 		lines = renderPlain(component, 80);
-		const pausedLine = lines.find((line) => line.includes("[paused f/G]") && line.includes("scroll"));
+		const pausedLine = lines.find((line) => line.includes("[paused]") && line.includes("scroll"));
 		assert.ok(pausedLine, `expected compact ${label} paused header`);
-		assert.match(pausedLine, /\[paused f\/G\]\s+scroll \d+-\d+ \/ \d+/, pausedLine);
+		assert.match(pausedLine, /\[paused\]\s+scroll \d+-\d+ \/ \d+/, pausedLine);
 		assert.ok(!pausedLine.includes("…"), pausedLine);
 		assert.ok(visibleWidth(pausedLine) <= 80, pausedLine);
 	}
@@ -1369,10 +1587,10 @@ test("cost tab shows aggregate Σ and per-worker rows with compact tokens", () =
 	component.handleInput("4");
 	const lines = renderPlain(component, 100);
 	assert.ok(lines.some((line) => line.includes("Σ")));
-	assert.ok(lines.some((line) => line.includes("in=143.5k") && line.includes("out=1.3m")), "expected compact aggregate token counts");
+	assert.ok(lines.some((line) => line.includes("143.5k input") && line.includes("1.3m output")), "expected compact aggregate token counts");
 	assert.ok(lines.some((line) => line.includes("$0.3000")), "cost precision should remain monetary");
-	assert.ok(lines.some((line) => line.includes("w1") && line.includes("reviewer") && line.includes("in=123.5k") && line.includes("out=50k")));
-	assert.ok(!lines.some((line) => line.includes("cache=")), `zero-cache workers should stay uncluttered; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("w1") && line.includes("reviewer") && /123\.5k\s+50k/.test(line)));
+	assert.ok(!lines.some((line) => line.includes("Cache")), `zero-cache workers should stay uncluttered; got:\n${lines.join("\n")}`);
 });
 
 test("cost tab shows cache metrics for aggregate, retained, and per-worker usage", () => {
@@ -1392,9 +1610,9 @@ test("cost tab shows cache metrics for aggregate, retained, and per-worker usage
 	const { component } = makeComponent({ state, rows: 30, cols: 120 });
 	component.handleInput("4");
 	const lines = renderPlain(component, 120);
-	assert.ok(lines.some((line) => line.includes("Σ workers=3") && line.includes("cache=r16k/w600")), `expected aggregate cache totals; got:\n${lines.join("\n")}`);
-	assert.ok(lines.some((line) => line.includes("retained/pruned") && line.includes("cache=r1k/w100")), "expected retained cache totals");
-	assert.ok(lines.some((line) => line.includes("w1") && line.includes("cache=r12k/w500")), "expected per-worker cache totals");
+	assert.ok(lines.some((line) => line.includes("16k read") && line.includes("600 written")), `expected aggregate cache totals; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("Pruned (1)") && /1k\s+100/.test(line)), "expected retained cache totals");
+	assert.ok(lines.some((line) => line.includes("w1") && /12k\s+500/.test(line)), "expected per-worker cache totals");
 });
 
 test("cost tab includes retained pruned usage in aggregate and note", () => {
@@ -1413,9 +1631,9 @@ test("cost tab includes retained pruned usage in aggregate and note", () => {
 	const { component } = makeComponent({ state, rows: 28, cols: 100 });
 	component.handleInput("4");
 	const lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("Σ workers=3") && line.includes("in=120k") && line.includes("out=1.3m")), "expected active plus retained aggregate totals");
-	assert.ok(lines.some((line) => line.includes("retained/pruned: workers=2") && line.includes("in=20k")), "expected retained/pruned note");
-	assert.ok(lines.some((line) => line.includes("w1") && line.includes("in=100k")), "expected active per-worker row to remain visible");
+	assert.ok(lines.some((line) => line.includes("120k input") && line.includes("1.3m output")), "expected active plus retained aggregate totals");
+	assert.ok(lines.some((line) => line.includes("Pruned (2)") && line.includes("20k")), "expected retained/pruned note");
+	assert.ok(lines.some((line) => line.includes("w1") && line.includes("100k")), "expected active per-worker row to remain visible");
 });
 
 test("cost tab shows retained-only aggregate after all workers are pruned", () => {
@@ -1433,8 +1651,8 @@ test("cost tab shows retained-only aggregate after all workers are pruned", () =
 	const { component } = makeComponent({ state, rows: 28, cols: 100 });
 	component.handleInput("4");
 	const lines = renderPlain(component, 100);
-	assert.ok(lines.some((line) => line.includes("Σ workers=2") && line.includes("out=1.3m")), "expected retained-only aggregate totals");
-	assert.ok(lines.some((line) => line.includes("retained/pruned: workers=2")), "expected retained/pruned note");
+	assert.ok(lines.some((line) => line.includes("20k input") && line.includes("1.3m output")), "expected retained-only aggregate totals");
+	assert.ok(lines.some((line) => line.includes("Pruned (2)")), "expected retained/pruned note");
 	assert.ok(!lines.some((line) => /\bw\d+\b/.test(line)), "expected no per-worker rows");
 });
 
@@ -1455,13 +1673,12 @@ test("inspect tab usage line uses compact tokens, cache metrics, and context bud
 	};
 	const { component } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w1" });
 	const lines = renderPlain(component, 100);
-	const usageLine = lines.find((line) => line.includes("turns=7"));
-	assert.ok(usageLine, "expected usage line in Inspect tab");
-	assert.ok(usageLine.includes("in=1.3m"), usageLine);
-	assert.ok(usageLine.includes("out=12.3k"), usageLine);
-	assert.ok(usageLine.includes("cache=r12.3k/w600"), usageLine);
-	assert.ok(usageLine.includes("cost=$1.2345"), usageLine);
-	assert.ok(usageLine.includes("ctx=64%/200k rem=72k"), usageLine);
+	const body = lines.join("\n");
+	assert.match(body, /Turns: 7/);
+	assert.match(body, /Tokens: 1\.3m input · 12\.3k output/);
+	assert.match(body, /Cache: 12\.3k read · 600 written/);
+	assert.match(body, /Cost: \$1\.2345/);
+	assert.match(body, /Context: 64% used · 200k window · 72k remaining/);
 });
 
 test("cost tab compact large token counts do not exceed terminal width", () => {
@@ -1471,7 +1688,7 @@ test("cost tab compact large token counts do not exceed terminal width", () => {
 	state.activeWorkers.w3!.usage = { ...state.activeWorkers.w3!.usage, turns: 77_777, inputTokens: 765_432_109, outputTokens: 8_765_432, costUsd: 876.5432 };
 	const wide = makeComponent({ state, rows: 32, cols: 120 });
 	wide.component.handleInput("4");
-	assert.ok(renderPlain(wide.component, 120).some((line) => line.includes("in=987.7m")), "expected compact million-scale Cost tab tokens");
+	assert.ok(renderPlain(wide.component, 120).some((line) => line.includes("987.7m")), "expected compact million-scale Cost tab tokens");
 
 	for (const cols of [44, 52, 60]) {
 		const { component } = makeComponent({ state, rows: 32, cols });
@@ -1565,6 +1782,108 @@ test("framed panel renders top/bottom borders and side bars at any width", () =>
 	for (const line of lines) {
 		assert.ok(visibleWidth(line) <= 60, `line exceeds width: ${visibleWidth(line)} ${line}`);
 	}
+});
+
+test("Workers and Cost refresh when an unselected worker changes", () => {
+	const options: FakeManagerOptions = { state: makeState(2), activityListeners: [] };
+	let renders = 0;
+	const component = createTeamDashboardOverlayComponent({ terminal: { rows: 30, columns: 100 }, requestRender: () => { renders += 1; } }, makeFakeManager(options), options.state, () => {}, { initialWorkerId: "w1" });
+	for (const tab of ["1", "4"]) {
+		component.handleInput(tab);
+		renders = 0;
+		options.activityListeners![0]!("w2", { id: "updated", ts: 1, updatedAt: 1, actionKind: "status", status: "info", label: "Worker idle", sourceEvent: "worker_settled" });
+		assert.equal(renders, 1);
+	}
+	component.dispose();
+});
+
+test("Inspect keeps questions and results ahead of long details and reads transcripts only on demand", () => {
+	const state = makeState(1);
+	state.activeWorkers.w1!.currentTask!.goal = "Long instruction ".repeat(400);
+	state.activeWorkers.w1!.pendingRelayQuestions = [{ question: "Approve the migration?", assumption: "Wait", urgency: "high", createdAt: 1 }];
+	state.activeWorkers.w1!.finalAnswer = "headline: Ready for review";
+	const manager = makeFakeManager({ state });
+	let reads = 0;
+	(manager as unknown as { getWorkerTranscript: () => string }).getWorkerTranscript = () => { reads += 1; return "Retained report text"; };
+	const component = createTeamDashboardOverlayComponent({ terminal: { rows: 36, columns: 80 } }, manager, state, () => {}, { initialWorkerId: "w1" });
+	let plain = renderPlain(component, 80).join("\n");
+	assert.match(plain, /Approve the migration\?/);
+	assert.match(plain, /Ready for review/);
+	assert.doesNotMatch(plain, /Long instruction|Retained report text/);
+	assert.equal(reads, 0);
+	component.handleInput("\r");
+	component.handleInput("G");
+	plain = renderPlain(component, 80).join("\n");
+	assert.match(plain, /Retained report text/);
+	assert.ok(reads > 0);
+	component.handleInput("\r");
+	plain = renderPlain(component, 80).join("\n");
+	assert.doesNotMatch(plain, /Retained report text/);
+	assert.match(plain, /Approve the migration\?/);
+	component.dispose();
+});
+
+test("Workers shares Console selection styling and adapts its aligned table to stacked tasks", () => {
+	const state = makeState(3);
+	state.activeWorkers.w1!.currentTask!.title = "Verify the worker lifecycle and cancellation behavior";
+	state.activeWorkers.w2!.status = "idle";
+	state.activeWorkers.w2!.finalAnswer = "Ready";
+	state.activeWorkers.w3!.status = "error";
+	const { component, tui } = makeComponent({ state, rows: 40, cols: 110, theme: makeFakeTheme() });
+	let rendered = component.render(110);
+	assert.ok(rendered.some((line) => /Worker\s+Status\s+Task\s+Time/.test(stripAnsi(line))));
+	const selected = rendered.find((line) => stripAnsi(line).includes("> w3"))!;
+	assert.ok(selected.includes("\x1b[48;5;237m"));
+	assert.ok(rendered.some((line) => line.includes("\x1b[38;5;120mDone [reuse]")));
+	component.handleInput("j");
+	tui.terminal.columns = 44;
+	rendered = component.render(44);
+	const plain = plainLines(rendered).join("\n");
+	assert.match(plain, /> w1/);
+	assert.match(plain, /Verify the worker lifecycle/);
+	assert.doesNotMatch(plain, /Worker\s+Status\s+Task\s+Time/);
+	for (const line of rendered) assert.ok(visibleWidth(line) <= 44);
+	assert.equal(rendered.length, Math.floor(40 * 0.9));
+	component.dispose();
+});
+
+test("Cost keeps totals and column labels visible while scrolling and retains exact amounts when stacked", () => {
+	const state = makeState(24);
+	for (const worker of Object.values(state.activeWorkers)) worker.usage.costUsd = 0.125;
+	const { component, tui } = makeComponent({ state, rows: 28, cols: 100, initialWorkerId: "w1", theme: makeFakeTheme() });
+	component.handleInput("4");
+	component.handleInput("G");
+	let plain = renderPlain(component, 100).join("\n");
+	assert.match(plain, /Σ Agent total\s+\$3\.0000/);
+	assert.match(plain, /Worker\s+Turns\s+Input\s+Output\s+Cost/);
+	assert.match(plain, /w24/);
+	component.handleInput("g");
+	tui.terminal.columns = 44;
+	plain = renderPlain(component, 44).join("\n");
+	assert.match(plain, /Σ Agent total\s+\$3\.0000/);
+	assert.match(plain, /Cost: \$0\.1250/);
+	assert.match(plain, /Turns:/);
+	for (const line of component.render(44)) assert.ok(visibleWidth(line) <= 44);
+	component.dispose();
+});
+
+test("all tabs keep navigation and selected workers inside resized terminal row budgets", () => {
+	const state = makeState(25);
+	const { component, tui } = makeComponent({ state, rows: 30, cols: 100, initialWorkerId: "w24" });
+	for (const columns of [20, 44, 76, 120]) {
+		for (const rows of [14, 30, 50]) {
+			tui.terminal.columns = columns;
+			tui.terminal.rows = rows;
+			for (const tab of ["1", "2", "3", "4"]) {
+				component.handleInput(tab);
+				const rendered = component.render(columns);
+				assert.equal(rendered.length, Math.floor(rows * 0.9));
+				for (const line of rendered) assert.ok(visibleWidth(line) <= columns);
+				if (tab === "1" && columns >= 44) assert.ok(plainLines(rendered).some((line) => line.includes("> w24")));
+			}
+		}
+	}
+	component.dispose();
 });
 
 test("q quits the overlay", () => {
@@ -1685,6 +2004,24 @@ test("sanitizeText strips BEL and backspace but preserves ESC for trusted stylin
 	assert.equal(sanitizeText("a\x07b"), "ab");
 	assert.equal(sanitizeText("a\x08b"), "ab");
 	assert.ok(sanitizeText("\x1b[31mred\x1b[0m").includes("\x1b"), "expected ESC sequences to survive");
+});
+
+test("Console uses Pi's recorded tool duration instead of event arrival time", () => {
+	for (const durationMs of [0, 1250, undefined]) {
+		const { component } = makeComponent({
+			state: makeState(1), rows: 40, cols: 100, initialWorkerId: "w1",
+			activities: { w1: [{
+				id: "recorded-duration", ts: 1000, updatedAt: 10000,
+				actionKind: "tool", status: "completed", label: "Used read",
+				toolName: "read", sourceEvent: "worker_tool_finished", durationMs,
+			}] },
+		});
+		component.handleInput("3");
+		const rendered = renderPlain(component, 100).join("\n");
+		const duration = durationMs === undefined ? "9.0s" : durationMs === 0 ? "0ms" : "1.3s";
+		assert.ok(rendered.includes(duration), rendered);
+		component.dispose();
+	}
 });
 
 test("sanitizeTerminalText strips hostile OSC, CSI, ESC, and control sequences from worker text", () => {
