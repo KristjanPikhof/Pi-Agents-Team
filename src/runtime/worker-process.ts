@@ -222,8 +222,17 @@ export function buildWorkerProcessArgs(options: WorkerProcessOptions): string[] 
 	if (options.model) args.push("--model", options.model);
 	if (options.thinkingLevel) args.push("--thinking", options.thinkingLevel);
 	if (options.tools) {
-		if (options.tools.length > 0) args.push("--tools", options.tools.join(","));
-		else args.push("--no-tools");
+		const tools = options.tools;
+		if (tools.length > 0) {
+			args.push("--tools", tools.join(","));
+			// Pi preserves MCP tools unless --tools explicitly selects MCP names.
+			const excludedMcpTools = ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]
+				.filter((tool) => !tools.includes(tool));
+			if (!tools.some((tool) => tool.startsWith("mcp__"))) excludedMcpTools.unshift("mcp__*");
+			if (excludedMcpTools.length > 0) args.push("--exclude-tools", excludedMcpTools.join(","));
+		} else {
+			args.push("--no-tools");
+		}
 	}
 	if (options.systemPromptPath) args.push("--append-system-prompt", options.systemPromptPath);
 	if (options.extensionMode && options.extensionMode !== "inherit") {

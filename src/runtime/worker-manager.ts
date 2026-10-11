@@ -110,6 +110,7 @@ export interface WorkerActivityEvent {
 	hiddenLineCount?: number;
 	sourceEvent: NormalizedWorkerEvent["type"] | "worker_text_flush";
 	toolCallId?: string;
+	durationMs?: number;
 	finalSummaryFields?: {
 		headline?: string;
 		risks?: string[];
@@ -201,6 +202,8 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	pendingToolActivityByCallId: Map<string, string>;
 	pendingTextDelta: string;
 	pendingTextFlushAt: number;
+	finalAnswerStreamOpen: boolean;
+	finalAnswerMarkerCarry: string;
 	unsubscribers: Array<() => void>;
 	closing: boolean;
 	awaitingSettlement: boolean;
@@ -216,6 +219,21 @@ interface WorkerRuntimeRecord extends ManagedWorkerRecord {
 	textBufferTruncated: boolean;
 	textBufferDroppedBytes: number;
 	textBufferDroppedLines: number;
+}
+
+function trackFinalAnswerStream(record: WorkerRuntimeRecord, delta: string): void {
+	const text = record.finalAnswerMarkerCarry + delta;
+	for (const match of text.matchAll(/<\/?final[_\s-]?answer>/gi)) record.finalAnswerStreamOpen = !match[0].startsWith("</");
+	const tags = ["<final_answer>", "<final-answer>", "<final answer>", "<finalanswer>", "</final_answer>", "</final-answer>", "</final answer>", "</finalanswer>"];
+	const lower = text.toLowerCase().replace(/\s/g, " ");
+	record.finalAnswerMarkerCarry = "";
+	for (let length = Math.min(15, text.length); length > 0; length -= 1) {
+		const tail = lower.slice(-length);
+		if (tags.some((tag) => tag.length > length && tag.startsWith(tail))) {
+			record.finalAnswerMarkerCarry = text.slice(-length);
+			break;
+		}
+	}
 }
 
 function emptyUsage(): WorkerUsageStats {
@@ -272,6 +290,17 @@ function extractCommand(args: Record<string, unknown>): string | undefined {
 	const cmd = args.cmd;
 	if (typeof cmd === "string" && cmd.trim()) return cmd.trim();
 	return undefined;
+}
+
+function summarizeToolArgs(toolName: string, args: Record<string, unknown>): string {
+	const path = typeof args.path === "string" ? args.path : "";
+	if (toolName === "read" || toolName === "write" || toolName === "edit" || toolName === "ls") {
+		return path ? trimSummary(path, 220) : snippet(args, 220);
+	}
+	if ((toolName === "grep" || toolName === "find") && typeof args.pattern === "string") {
+		return trimSummary(`${JSON.stringify(args.pattern)}${path ? ` in ${path}` : ""}`, 220);
+	}
+	return snippet(args, 220);
 }
 
 function buildOutputSnippet(text: string): { snippet: string; hiddenLineCount: number } {
@@ -514,6 +543,8 @@ export class WorkerManager {
 			pendingToolActivityByCallId: new Map(),
 			pendingTextDelta: "",
 			pendingTextFlushAt: 0,
+			finalAnswerStreamOpen: false,
+			finalAnswerMarkerCarry: "",
 			unsubscribers: [],
 			closing: false,
 			awaitingSettlement: false,
@@ -645,6 +676,8 @@ export class WorkerManager {
 		record.textBuffer = "";
 		record.pendingTextDelta = "";
 		record.pendingTextFlushAt = 0;
+		record.finalAnswerStreamOpen = false;
+		record.finalAnswerMarkerCarry = "";
 		record.activity = [];
 		record.pendingToolActivityByCallId = new Map();
 		record.assistantChunks = [];
@@ -681,6 +714,7 @@ export class WorkerManager {
 
 	async promptWorker(workerId: string, message: string): Promise<void> {
 		const record = this.requireMessageableWorker(workerId);
+		const wasAwaitingSettlement = record.awaitingSettlement;
 		record.assistantFailure = undefined;
 		record.awaitingSettlement = true;
 		record.state.status = "running";
@@ -688,7 +722,10 @@ export class WorkerManager {
 		record.state.lastSummary = buildSummary(record.state, record.textBuffer || message);
 		this.emitter.emit("event", this.snapshot(workerId), { type: "worker_running", timestamp: record.state.lastEventAt });
 		try {
-			await record.client.prompt(message);
+			const disposition = await record.client.prompt(message);
+			if (disposition === "handled" && !wasAwaitingSettlement) {
+				throw new Error("Worker prompt was handled by a Pi input extension; no agent run started. Check the worker extensions and delegate again.");
+			}
 		} catch (error) {
 			const timestamp = Date.now();
 			const errorMessage = error instanceof Error ? error.message : String(error);
@@ -949,8 +986,7 @@ export class WorkerManager {
 			text,
 		});
 		const finalAnswer = this.discoverFinalAnswer(record, "worker_text_flush", ts);
-		if (finalAnswer) {
-		} else if (!/<final[_\s-]?answer\b|<\/final[_\s-]?answer>/i.test(pendingText)) {
+		if (!finalAnswer && !record.finalAnswerStreamOpen && !record.finalAnswerMarkerCarry && !/<final[_\s-]?answer\b|<\/final[_\s-]?answer>/i.test(pendingText)) {
 			this.appendActivity(record, {
 				id: this.nextActivityId(record, "worker_text_flush", ts),
 				ts,
@@ -1108,6 +1144,7 @@ export class WorkerManager {
 				});
 				break;
 			case "worker_text_delta":
+				trackFinalAnswerStream(record, event.delta);
 				appendTranscriptText(record, event.delta);
 				if (!UNREACHABLE_TERMINAL_STATUSES.has(record.state.status)) record.state.status = "running";
 				record.state.lastSummary = buildSummary(record.state, record.textBuffer);
@@ -1119,20 +1156,21 @@ export class WorkerManager {
 				this.appendAssistantChunk(record, event.timestamp, event.delta);
 				break;
 			case "worker_message": {
+				if (event.message.role !== "assistant") break;
 				this.flushPendingText(record);
-				if (event.message.role === "assistant") {
-					const reason = event.message.stopReason;
-					record.assistantFailure = undefined;
-					if (reason === "error" || reason === "aborted" || reason === "length") {
-						const fallback = reason === "length"
-							? "Worker output reached the model limit; the result is incomplete."
-							: `Worker response ${reason === "aborted" ? "was aborted" : "failed"}.`;
-						record.assistantFailure = {
-							status: reason === "aborted" ? "aborted" : "error",
-							message: typeof event.message.errorMessage === "string" && event.message.errorMessage.trim()
-								? trimSummary(event.message.errorMessage, 600) : fallback,
-						};
-					}
+				record.finalAnswerStreamOpen = false;
+				record.finalAnswerMarkerCarry = "";
+				const reason = event.message.stopReason;
+				record.assistantFailure = undefined;
+				if (reason === "error" || reason === "aborted" || reason === "length") {
+					const fallback = reason === "length"
+						? "Worker output reached the model limit; the result is incomplete."
+						: `Worker response ${reason === "aborted" ? "was aborted" : "failed"}.`;
+					record.assistantFailure = {
+						status: reason === "aborted" ? "aborted" : "error",
+						message: typeof event.message.errorMessage === "string" && event.message.errorMessage.trim()
+							? trimSummary(event.message.errorMessage, 600) : fallback,
+					};
 				}
 				const assistantText = extractAssistantText(event.message);
 				if (assistantText) {
@@ -1196,7 +1234,7 @@ export class WorkerManager {
 					actionKind: isCommand ? "command" : "tool",
 					status: "started",
 					label: isCommand ? `Ran ${command ?? event.toolName}` : `Used ${event.toolName || "tool"}`,
-					summary: command ? trimSummary(command, 220) : snippet(event.args, 220),
+					summary: command ? trimSummary(command, 220) : summarizeToolArgs(event.toolName, event.args),
 					toolName: event.toolName,
 					...(command ? { command } : {}),
 					sourceEvent: event.type,
@@ -1221,6 +1259,7 @@ export class WorkerManager {
 						updatedAt: event.timestamp,
 						status: event.isError ? "error" : "completed",
 						toolName: event.toolName,
+						durationMs: event.durationMs,
 						...(output.snippet ? { outputSnippet: output.snippet } : {}),
 						...(output.hiddenLineCount > 0 ? { hiddenLineCount: output.hiddenLineCount } : {}),
 						sourceEvent: event.type,
@@ -1236,6 +1275,7 @@ export class WorkerManager {
 						status: event.isError ? "error" : "completed",
 						label: `${event.toolName || "Tool"} finished`,
 						toolName: event.toolName,
+						durationMs: event.durationMs,
 						...(output.snippet ? { outputSnippet: output.snippet } : {}),
 						...(output.hiddenLineCount > 0 ? { hiddenLineCount: output.hiddenLineCount } : {}),
 						sourceEvent: event.type,
@@ -1365,8 +1405,8 @@ export class WorkerManager {
 				break;
 			case "worker_settled":
 				record.awaitingSettlement = false;
-				record.state.status = record.assistantFailure?.status ?? "idle";
-				record.state.error = record.assistantFailure?.message;
+				record.state.status = event.aborted ? "aborted" : record.assistantFailure?.status ?? "idle";
+				record.state.error = event.aborted ? "Worker run was aborted." : record.assistantFailure?.message;
 				record.state.lastSummary = buildSummary(record.state, record.state.error ?? record.textBuffer);
 				this.flushPendingText(record);
 				this.appendConsole(record, { ts: event.timestamp, kind: "status", text: record.state.error ?? record.state.status });
@@ -1375,7 +1415,7 @@ export class WorkerManager {
 					ts: event.timestamp,
 					updatedAt: event.timestamp,
 					actionKind: "status",
-					status: record.assistantFailure ? "error" : "info",
+					status: record.state.status === "idle" ? "info" : "error",
 					label: `Worker ${record.state.status}`,
 					summary: record.state.error ?? record.state.status,
 					sourceEvent: event.type,

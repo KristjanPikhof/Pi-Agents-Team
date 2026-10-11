@@ -2,7 +2,7 @@
 
 ## Quick start
 
-Requires Node `>=22.19.0`. Development validation uses exactly Pi `0.85.1`. The supported host and worker minimum is Pi `0.85.1`. Upgrade both the host Pi and any custom `rpc.command` before using this release. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
+Requires Node `>=22.19.0`. Development validation uses exactly Pi `1.1.0`. The supported host and worker minimum is Pi `1.1.0`. Upgrade both the host Pi and any custom `rpc.command` before using this release. Use npm and `package-lock.json` as the authoritative dependency and lock workflow.
 
 Install dependencies and run the checks:
 
@@ -39,6 +39,18 @@ Run one test file:
 ```bash
 tsx --test tests/runtime/worker-manager.test.ts
 ```
+
+## Pi 1.1.0 upgrade
+
+This extension release is `2026.10.8`. See the [compatibility review](pi-compatibility.md) for the changes from Pi 0.85.1 through 1.1.0.
+
+- Upgrade the host and any custom worker command to Pi `>=1.1.0`, then restart Pi.
+- Pi now defaults to fullscreen. `/team` uses the same overlay; select `tuiMode: "regular"` in Pi settings if you want terminal scrollback.
+- Worker tool lists use exact names. Replace wildcard and `+name`/`-name` entries with explicit tool names. Unlisted MCP tools stay excluded.
+- `worker-minimal` disables Pi's built-in extensions too. Add required built-ins such as `builtin:llama.cpp` to `access.extensions` when a role needs them.
+- Azure users must rename `azure-openai-responses` to `azure` in Pi auth, model/settings files, and role model references, or log in again.
+
+Console tool durations use Pi's recorded execution time when supplied. Copy payloads include that time in milliseconds. Cancellation reported by `agent_settled.aborted` ends the worker as `aborted`, even before output; partial output remains inspectable. A fresh prompt intercepted by a worker input extension fails with a diagnostic instead of waiting indefinitely for an agent run.
 
 ## Manage persisted session growth
 
@@ -96,8 +108,8 @@ Inside the `/team` overlay:
 |---|---|
 | `1` / `2` / `3` / `4` | Jump to Workers / Inspect / Console / Cost |
 | `tab` / `shift+tab` | Cycle tabs |
-| `↑` / `↓` (or `j` / `k`) | Move selection in the roster, or scroll the body of Inspect / Console / Cost. Manual scroll pauses follow in Inspect / Console |
-| `enter` | Open the highlighted worker in Inspect (Workers tab) |
+| `↑` / `↓` (or `j` / `k`) | Select workers or Activity rows; scroll Inspect, Raw Console, or Cost. Manual navigation pauses follow in Inspect / Console |
+| `enter` | Workers: open Inspect. Inspect: show/hide full task, file-list, and assistant-text details. Console Activity: hide/show the selected row’s details |
 | `PgUp` / `PgDn`, `b` / `space`, `ctrl+u` / `ctrl+d` | Page up / page down. The plain-key aliases are Mac-friendly when Page keys are unavailable |
 | `g` / `G` | Top / bottom. In Inspect / Console, `G` also enables follow at the tail |
 | `f` | Toggle follow mode in Inspect / Console |
@@ -109,35 +121,34 @@ Inside the `/team` overlay:
 | `p` | Prune terminal workers |
 | `r` | Re-ping workers outside Console; inside Console, toggle Activity / Raw |
 | `y` | Copy the selected worker's task, summary, final answer, Activity, and Raw console diagnostics to the clipboard |
+| `?` | Show/hide the full action list in the footer |
 | `q` / `esc` | Close overlay (`esc` also cancels a modal) |
 
-The header carries a tab bar, the per-tab help row, and the selected worker's priority snippet. When routing is off, the bar shows a `solo` badge; idle workers carry a `[reuse]` tag in the roster row and `[reusable]` in the Inspect header so reusable sessions are obvious. A transient `» …` status line surfaces last action / refresh / error feedback for a few seconds.
+All tabs share the same Pi theme roles, section headings, `>` selection marker, selection background, and footer controls. The header shows tabs, non-zero worker counts, and the selected worker. Running is accented, questions are amber, success is green, and errors are red. Navigation hints and common actions appear once in the footer; `?` reveals all actions. A transient `» …` line shows action or refresh feedback.
 
-Inspect renders status, a compact `Recent activity` section, task, operator-needs, summary, the worker's `<final_answer>` block, and the latest assistant text in a single scrollable view. `Recent activity` stays intentionally short: it lists recent commands, process notes, and final-answer production without copying dense task prompts or raw transcript text. Worker-controlled text is made terminal-safe before it reaches Inspect, Console, or copy payloads: OSC/DCS/CSI/ESC control sequences and non-printable controls are stripped, tabs become spaces, and Pi-owned theme colors are applied only after sanitization. The text formatter keeps common report shapes recognizable — Markdown-style headings and tables, list markers, separators, indented/code-like lines, and stack-trace-like lines — while wrapping instead of ellipsizing normal body content.
+Workers groups sessions by attention needed. Wide panels use aligned Worker / Status / Task / Time columns. Narrow panels stack the task below the worker and status, keeping elapsed time beside the status. Time follows the current task and stops at the last observed event for a terminal worker. The selected worker also shows a short progress note, question, or error; `enter` opens Inspect for the full detail. `[reuse]` means an idle or waiting session can accept another task. Page keys move by the number of workers currently visible. The selected row stays visible after resizing or refresh.
 
-Console opens on the human-readable `— activity —` view. Activity items are Pi-themed blocks: commands and tools get a framed header, readable status (`[running]`, `[ok]`, `[error]`, or `[info]`), a `$` command line, nested output, and footer metadata such as duration plus the `raw:r` escape hatch. Tool status, command headers, and diff-style output use the active Pi theme roles (accent, success, danger, warning, muted) rather than hardcoded colors. Git-like output keeps its textual `+` / `-` / `±` markers so the meaning survives plain text copies, while additions/deletions are also colored in the TUI. Long output is elided with an explicit hidden-line count such as `… +14 lines hidden`. Process notes are short operational summaries, not private reasoning dumps. Pi compaction and branch-summary retry scheduling, attempt starts, and loop completion appear here as informational process notes; they do not mark a worker successful or idle. Final answers render the parsed `Headline`, `Risks`, and `Next` fields when present instead of dumping the entire block into the Activity card; the full verbatim block remains available in Inspect, `/team-result`, and copy payloads. Press `r` in Console to switch to `— raw —`; press `r` again to return to Activity. Raw/debug keeps timestamped assistant chunks and console events for diagnostics, including status transitions, tool starts and ends, queue updates, errors, and exit. Activity, assistant chunks, and Raw diagnostics are bounded in memory only; raw transcripts/events are not persisted and are not a synthesis fallback. Console content is isolated per selected worker.
+Inspect starts with the task title and worker settings, then questions or errors, summary, and final answer. Recent activity and labelled usage follow. Full instructions, read/changed-file lists, and retained assistant text start collapsed; press `enter` to expand or collapse them. This avoids scrolling through a long delegation prompt to find the result. Details reset when selecting another worker. `f` and `G` still support following expanded assistant text. Inspect reads the retained transcript only while details are expanded; copies always include it.
 
-Example Console Activity output (the docs show plain text; in the TUI, `[ok]`, command headers, and `+` / `-` diff markers use theme colors):
+Worker text is sanitized before display or copy. Report formatting preserves headings, tables, lists, code indentation, and stack traces while wrapping to the available width. All tabs keep their footer and frame within the terminal row budget; their scroll ranges update when the terminal resizes.
+
+Console opens in Activity with auto-follow on. Each row puts the tool name in bold and color, followed by a muted summary. Status (`[running]`, `[ok]`, `[error]`, or `[info]`) and duration line up on the right. Read/list tools use the theme’s blue syntax role, searches use its purple syntax role, shell commands use amber, and edits use the accent. Custom themes control the actual colors. Successful status is green; errors are red. Running tools show an animated indicator. File tools show a path, searches show a pattern, and shell tools show the command. Select a row with `↑` / `↓` to read its output. Press `enter` to hide or show details; errors stay expanded even when another row is selected. Long output shows a hidden-line count such as `… +14 lines hidden`.
+
+Manual navigation pauses following so new output does not move you away from the row you are reading. Press `f` or `G` to resume following the latest activity. `g` selects the first row; page keys scroll through expanded output. Selected rows use a `>` marker and the theme’s selection background. A blank line separates activities. Tool output stays in expandable details and is never repeated as an assistant message; empty assistant messages add no row. Tool names, errors, and diff-style output use the active Pi theme; `+` / `-` / `±` markers also survive plain text copies.
+
+Process notes include compaction and retries without marking the worker complete. Streamed final-answer bodies stay out of Thinking rows, including markers split across chunks and reports spanning many flushes. The completed report produces one final-answer entry; unfinished report text remains available in Raw and expanded Inspect details. Final-answer rows show the headline, with parsed `Headline`, `Risks`, and `Next` fields in their details. The full final answer remains in Inspect, `/team-result`, and copies. Press `r` to switch to Raw diagnostics, which retain timestamped assistant chunks and console events; press it again to return to Activity. These streams are bounded in memory, isolated per worker, and never persisted or used as a synthesis fallback.
+
+Example Activity output (tool names are bold in the TUI):
 
 ```text
-— activity —
-╭─ process thinking [info] 00:13:20 ─
-│ Mapping current console rendering before proposing UI changes.
-╰─ raw:r
+Activity · [follow]
+  read  src/ui/overlay.ts       [ok]     12ms
 
-╭─ tool command [ok] 00:13:21 ─
-│ $ git diff --stat main...HEAD
-│ src/ui/overlay.ts              | 42 +++++++++++++++++
-│ tests/ui/overlay.test.ts       | 18 +++++++
-│ ± 2 files changed, +60 insertions, -0 deletions
-│ … +14 lines hidden
-╰─ took 1.0s · raw:r
+  bash  npm run typecheck      [ok]     1.3s
 
-╭─ final-answer [ok] 00:13:24 ─
-│ Headline: APPROVE — no blocking issues found.
-│ Risks: UI wrapping tests need updates.
-│ Next: Safe to continue after typecheck.
-╰─ raw:r
+> bash  npm test               [error]  2.8s
+    Expected 2 rows, received 3.
+    … +14 lines hidden
 ```
 
 Example Inspect `Recent activity` output:
@@ -150,7 +161,7 @@ Recent activity
 • Final answer produced
 ```
 
-Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused f/G]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost remains focused on worker usage/cost and shows a `Σ` aggregate row plus per-worker turns / in / out / cache / cost when cache counters are non-zero. The aggregate row includes active workers plus retained totals from pruned terminal workers; per-worker rows remain currently tracked workers only.
+Inspect and Console both show a compact follow/paused header: `[follow]  scroll start-end / total` or `[paused]  scroll start-end / total`. Press `f` to toggle tail-following, `G` to jump to the tail and follow, or scroll/page/top-jump to pause. Cost pins the `Σ Agent total`, worker/turn counts, and token totals above the scrolling worker rows. Wide panels align Turns, Input, Output, optional Cache read / Cache write, and Cost columns. Narrow panels use labelled blocks so amounts remain readable. Pruned workers have a separate retained row, and the total includes that usage once. The orchestrator is excluded. Cost uses Pi’s reported amounts unchanged; the view does not calculate prices from tokens.
 
 ## Inspect a worker's result
 
@@ -512,9 +523,9 @@ What you see:
 
 ### A worker is rejected before RPC launch
 
-Before the first launch for a Pi command, the extension runs that command with `--version`. Pi versions older than `0.85.1`, missing version output, and unparseable version output are fatal because the worker RPC contract cannot be verified. Fix the selected Pi command or upgrade it, then delegate again.
+Before the first launch for a Pi command, the extension runs that command with `--version`. Pi versions older than `1.1.0`, missing version output, and unparseable version output are fatal because the worker RPC contract cannot be verified. Fix the selected Pi command or upgrade it, then delegate again.
 
-A parseable worker version at or above `0.85.1` is supported even when it differs from the host Pi version. The extension emits one non-fatal mismatch warning per session and continues; exact patch equality is not required.
+A parseable worker version at or above `1.1.0` is supported even when it differs from the host Pi version. The extension emits one non-fatal mismatch warning per session and continues; exact patch equality is not required.
 
 ### Delegation is disabled because `agents-team.json` is invalid
 

@@ -116,10 +116,10 @@ test("extension mismatch notifier emits exactly one non-fatal session warning", 
 	const notifier = _testing.createPiVersionMismatchNotifier((message) => warnings.push(message));
 	const event = {
 		type: "pi_version_mismatch" as const,
-		hostVersion: "0.85.1",
-		workerVersion: "0.86.0",
+		hostVersion: "1.1.0",
+		workerVersion: "1.2.0",
 		command: "custom-pi",
-		message: "Pi Agents Team: host Pi 0.85.1 is launching worker Pi 0.86.0 via custom-pi; the supported version mismatch is non-fatal.",
+		message: "Pi Agents Team: host Pi 1.1.0 is launching worker Pi 1.2.0 via custom-pi; the supported version mismatch is non-fatal.",
 	};
 	notifier.notify(event);
 	notifier.notify({ ...event, workerVersion: "0.82.0" });

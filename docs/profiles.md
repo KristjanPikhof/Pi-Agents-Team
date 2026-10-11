@@ -183,16 +183,20 @@ Pi owns the actual model support matrix. In the installed Pi documentation, see 
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `access.tools` | string[] | `["read", "grep", "find", "ls", "bash"]` | Tool set the worker can use. You declare it. No ceiling. |
+| `access.tools` | string[] | `["read", "grep", "find", "ls", "bash"]` | Exact tool names the worker can use. No wildcards or `+name`/`-name` selectors. |
 | `access.write` | boolean | `false` | `true` allows `edit`/`write`. Requires a `pathScope` at delegate time (platform-level safety). |
 | `access.pathScope` | object | omitted | Default path scope for this role. The orchestrator can also pass `pathScopeRoots` at delegate time. |
 | `access.extensionMode` | string | `"worker-minimal"` | `"worker-minimal"` or `"disable"`. `"inherit"` is rejected to prevent recursive orchestrators. |
 | `access.extensions` | string[] | omitted | Explicit Pi extension sources for this role's workers. Use this for provider/model extensions that must be loaded before the worker model is selected. |
 | `access.canSpawnWorkers` | boolean | `false` | Reserved for role metadata. Workers still run as background RPC peers, not nested user-facing agents. |
 
+Pi 1.1.0 supports tool patterns and additive selectors on its CLI, but worker roles require exact names so a tool override can only narrow the declared set. For example, use `["read", "mcp__docs__search"]`, not `["+read", "mcp__docs__*"]`. Unlisted MCP tools are excluded even though Pi normally keeps them with `--tools`.
+
 Project Trust is not a role field. Worker launches inside the active project root get `--approve` or `--no-approve` from the orchestrator's current session trust. Launches outside that root, or host contexts that unexpectedly provide no trust decision, get no trust override.
 
-`access.extensions` accepts the same source strings Pi accepts for `--extension`/`-e`: local paths, npm specs, and git/http sources. Local relative paths resolve from the `agents-team.json` layer root. In `worker-minimal` mode the worker still starts with `--no-extensions`; the runtime then passes each listed source with `--extension`, so ambient discovery stays disabled while explicitly listed provider extensions can run. `access.extensionMode: "disable"` cannot be combined with `access.extensions`.
+`access.extensions` accepts the same source strings Pi accepts for `--extension`/`-e`: local paths, npm specs, and git/http sources. Local relative paths resolve from the `agents-team.json` layer root. In `worker-minimal` mode the worker still starts with `--no-extensions`; the runtime then passes each listed source with `--extension`, so ambient discovery stays disabled while explicitly listed extensions can run. Pi built-ins are also disabled; list `builtin:llama.cpp`, `builtin:mcp`, or `builtin:codemode` explicitly if the role needs them. Enabling MCP still requires exact MCP tool names in `access.tools`. `access.extensionMode: "disable"` cannot be combined with `access.extensions`.
+
+Pi 1.0.3 renamed the Azure provider to `azure`. Update role models such as `azure-openai-responses/my-deployment` to `azure/my-deployment` alongside the Pi auth and settings migration. New chat models come from Pi's catalog; classifier and image models are not worker chat models.
 
 Use `access.extensions` for extensions that call `pi.registerProvider()` and make custom model IDs available during worker startup. Do not put the team extension itself there: `pi-agents-team`, `npm:pi-agents-team`, and this package's own extension entrypoints are rejected to prevent recursive orchestrators.
 

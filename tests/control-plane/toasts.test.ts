@@ -34,11 +34,11 @@ test("notification wording helpers use compact/action-oriented copy", () => {
 });
 
 test("supported Pi mismatch is visible once in headless modes and remains a UI warning", () => {
-	const message = "Pi Agents Team: host Pi 0.85.1 is launching worker Pi 0.86.0 via custom-pi; the supported version mismatch is non-fatal.";
+	const message = "Pi Agents Team: host Pi 1.1.0 is launching worker Pi 1.2.0 via custom-pi; the supported version mismatch is non-fatal.";
 	const event = {
 		type: "pi_version_mismatch" as const,
-		hostVersion: "0.85.1",
-		workerVersion: "0.86.0",
+		hostVersion: "1.1.0",
+		workerVersion: "1.2.0",
 		command: "custom-pi",
 		message,
 	};

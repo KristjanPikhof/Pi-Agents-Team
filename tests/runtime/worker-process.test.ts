@@ -67,6 +67,8 @@ test("buildWorkerProcessArgs keeps complete launch option order stable", () => {
 		"high",
 		"--tools",
 		"read,grep",
+		"--exclude-tools",
+		"mcp__*,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource",
 		"--append-system-prompt",
 		"/tmp/worker-prompt.md",
 		"--no-extensions",
@@ -169,16 +171,16 @@ test("WorkerManager rejects an unsupported worker before RPC process launch", as
 			command: "old-pi",
 			versionArgs: ["--version"],
 			hostVersion: HOST_PI_VERSION,
-			minimumVersion: "0.85.1",
+			minimumVersion: "1.1.0",
 			workerVersion: "0.85.0",
 			supported: false,
 			mismatch: false,
-			message: "Cannot launch Pi worker: old-pi is Pi 0.85.0, but RPC workers require Pi 0.85.1 or newer. Update the selected worker command or rpc.command.",
+			message: "Cannot launch Pi worker: old-pi is Pi 0.85.0, but RPC workers require Pi 1.1.0 or newer. Update the selected worker command or rpc.command.",
 		}),
 	);
 	await assert.rejects(
 		manager.launchWorker({ workerId: "old", profileName: "fixer", task: {} as any, cwd: process.cwd() }),
-		/RPC workers require Pi 0\.85\.1 or newer/,
+		/RPC workers require Pi 1\.1\.0 or newer/,
 	);
 	assert.equal(launches, 0);
 });
@@ -191,8 +193,8 @@ test("WorkerManager injects the selected command into preflight and emits mismat
 			command: options.command ?? "pi",
 			versionArgs: ["--version"],
 			hostVersion: HOST_PI_VERSION,
-			minimumVersion: "0.85.1",
-			workerVersion: "0.86.0",
+			minimumVersion: "1.1.0",
+			workerVersion: "1.2.0",
 			supported: true,
 			mismatch: true,
 		};
@@ -210,7 +212,7 @@ test("WorkerManager injects the selected command into preflight and emits mismat
 	});
 	assert.deepEqual(probes, [{ command: "custom-pi", baseArgs: ["--mode", "rpc", "--no-session"], cwd: process.cwd(), env: undefined }]);
 	assert.deepEqual(warnings, [
-		`Pi Agents Team: host Pi ${HOST_PI_VERSION} is launching worker Pi 0.86.0 via custom-pi; the supported version mismatch is non-fatal.`,
+		`Pi Agents Team: host Pi ${HOST_PI_VERSION} is launching worker Pi 1.2.0 via custom-pi; the supported version mismatch is non-fatal.`,
 	]);
 	await manager.dispose();
 });
@@ -365,12 +367,15 @@ test("real Pi preserves explicit worker tools against configured defaults and ex
 		await writeFile(extension, `
 import { writeFileSync } from "node:fs";
 export default function (pi) {
-	pi.registerTool({ name: "custom_tool", label: "Fixture", description: "Test tool",
-		parameters: { type: "object", properties: {} }, execute: async () => ({ content: [], details: {} }) });
+	for (const name of ["custom_tool", "mcp__fixture__lookup", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]) {
+		pi.registerTool({ name, label: "Fixture", description: "Test tool",
+			parameters: { type: "object", properties: {} }, execute: async () => ({ content: [], details: {} }) });
+	}
 	pi.on("session_start", () => writeFileSync(${JSON.stringify(activeToolsFile)}, JSON.stringify(pi.getActiveTools())));
+	pi.on("input", () => ({ action: "handled" }));
 }
 `);
-		for (const tools of [[], ["read", "custom_tool"]]) {
+		for (const tools of [[], ["read", "custom_tool"], ["read", "mcp__fixture__lookup"], ["list_mcp_resources"]]) {
 			const handle = spawnWorkerProcess({
 				command: process.execPath,
 				baseArgs: [resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js"), "--mode", "rpc", "--no-session"],
@@ -385,6 +390,7 @@ export default function (pi) {
 			try {
 				await client.send({ type: "get_state" }, AbortSignal.timeout(10_000));
 				assert.deepEqual(JSON.parse(await readFile(activeToolsFile, "utf8")).sort(), [...tools].sort());
+				assert.equal(await client.prompt("Handled input fixture; do not call a model"), "handled");
 			} finally {
 				client.dispose();
 				await handle.dispose();
@@ -393,4 +399,14 @@ export default function (pi) {
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
+});
+
+test("worker tool allowlists exclude unselected MCP tools", () => {
+	assert.deepEqual(buildWorkerProcessArgs({ cwd: process.cwd(), tools: ["read"] }), [
+		"--mode", "rpc", "--no-session", "--tools", "read", "--exclude-tools", "mcp__*,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource",
+	]);
+	assert.deepEqual(buildWorkerProcessArgs({ cwd: process.cwd(), tools: ["read", "mcp__server__lookup"] }), [
+		"--mode", "rpc", "--no-session", "--tools", "read,mcp__server__lookup", "--exclude-tools", "list_mcp_resources,list_mcp_resource_templates,read_mcp_resource",
+	]);
+	assert.deepEqual(buildWorkerProcessArgs({ cwd: process.cwd(), tools: [] }), ["--mode", "rpc", "--no-session", "--no-tools"]);
 });

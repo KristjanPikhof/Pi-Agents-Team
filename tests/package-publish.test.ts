@@ -238,7 +238,7 @@ test("the package publish timeout covers every subprocess budget and filesystem 
 	);
 });
 
-test("package docs declare Pi 0.85.1 for development and supported runtime", async () => {
+test("package docs declare Pi 1.1.0 for development and supported runtime", async () => {
 	const [readme, contributing, operations, architecture] = await Promise.all(
 		["README.md", "CONTRIBUTING.md", "docs/operations.md", "docs/architecture.md"].map((path) =>
 			readFile(join(projectRoot, path), "utf8"),
@@ -252,7 +252,7 @@ test("package docs declare Pi 0.85.1 for development and supported runtime", asy
 	assert.match(readme, /This checks the source path only; it does not validate the compiled or published package entrypoint\./);
 	assert.match(
 		contributing,
-		/Development validation uses exactly Pi `0\.85\.1`\. The supported host and worker minimum is Pi `0\.85\.1`\.[\s\S]*Do not use `-p "\/team"` as an overlay check/,
+		/Development validation uses exactly Pi `1\.1\.0`\. The supported host and worker minimum is Pi `1\.1\.0`\.[\s\S]*Do not use `-p "\/team"` as an overlay check/,
 	);
 	assert.match(
 		operations,
@@ -260,11 +260,11 @@ test("package docs declare Pi 0.85.1 for development and supported runtime", asy
 	);
 	assert.match(
 		operations,
-		/Development validation uses exactly Pi `0\.85\.1`\. The supported host and worker minimum is Pi `0\.85\.1`\./,
+		/Development validation uses exactly Pi `1\.1\.0`\. The supported host and worker minimum is Pi `1\.1\.0`\./,
 	);
 	assert.match(
 		architecture,
-		/Repository development dependencies and validation use exactly Pi `0\.85\.1`\. The supported host and worker minimum is Pi `0\.85\.1`\./,
+		/Repository development dependencies and validation use exactly Pi `1\.1\.0`\. The supported host and worker minimum is Pi `1\.1\.0`\./,
 	);
 });
 
@@ -297,9 +297,9 @@ test("a clean publish artifact installs and imports in an offline consumer", { t
 				private: true,
 				type: "module",
 				dependencies: {
-					"@earendil-works/pi-coding-agent": "0.85.1",
-					"@earendil-works/pi-tui": "0.85.1",
-					"typebox": "1.3.7",
+					"@earendil-works/pi-coding-agent": "1.1.0",
+					"@earendil-works/pi-tui": "1.1.0",
+					"typebox": "1.3.27",
 				},
 			}),
 		);
@@ -324,12 +324,12 @@ test("a clean publish artifact installs and imports in an offline consumer", { t
 			const manifest = JSON.parse(
 				await readFile(join(consumer, "node_modules", "@earendil-works", piPackage, "package.json"), "utf8"),
 			) as { version?: string };
-			assert.equal(manifest.version, "0.85.1", `${piPackage} consumer validation version drifted`);
+			assert.equal(manifest.version, "1.1.0", `${piPackage} consumer validation version drifted`);
 		}
 		const consumerTypeBoxManifest = JSON.parse(
 			await readFile(join(consumer, "node_modules", "typebox", "package.json"), "utf8"),
 		) as { version?: string };
-		assert.equal(consumerTypeBoxManifest.version, "1.3.7", "consumer TypeBox validation version drifted");
+		assert.equal(consumerTypeBoxManifest.version, "1.3.27", "consumer TypeBox validation version drifted");
 
 		const imported = spawnSync(
 			process.execPath,

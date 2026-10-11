@@ -52,6 +52,57 @@ async function launchRuntimeTestWorker(workerId: string, transport: MockWorkerTr
 	return manager;
 }
 
+test("cancelled settlement beats successful output and does not emit idle", async () => {
+	for (const withOutput of [false, true]) {
+		const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+		const manager = await launchRuntimeTestWorker("cancelled", transport);
+		const statuses: string[] = [];
+		manager.onEvent((worker) => statuses.push(worker.state.status));
+		try {
+			await manager.promptWorker("cancelled", "Work");
+			if (withOutput) transport.completePrompt("<final_answer>Partial result</final_answer>");
+			transport.writeEvent({ type: "agent_settled", aborted: true });
+			transport.writeEvent({ type: "agent_settled", aborted: false });
+			await waitForMicrotasks();
+			assert.equal(manager.getWorker("cancelled")?.state.status, "aborted");
+			assert.match(manager.getWorker("cancelled")?.state.error ?? "", /aborted/);
+			assert.ok(!statuses.includes("idle"));
+			assert.throws(() => manager.prepareWorkerReuse("cancelled", taskInput("retry", "Retry")), /cannot be reused/);
+		} finally {
+			await manager.dispose();
+		}
+	}
+});
+
+test("handled prompts fail promptly instead of waiting for a run that never starts", async () => {
+	const transport = new MockWorkerTransport({ promptDisposition: "handled" });
+	const manager = await launchRuntimeTestWorker("handled", transport);
+	try {
+		await assert.rejects(manager.promptWorker("handled", "Work"), /handled by a Pi input extension/);
+		await manager.refreshState("handled");
+		assert.equal(manager.getWorker("handled")?.state.status, "error");
+	} finally {
+		await manager.dispose();
+	}
+});
+
+test("tool activity keeps Pi's execution duration for paired and unpaired results", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = await launchRuntimeTestWorker("duration", transport);
+	try {
+		await manager.promptWorker("duration", "Work");
+		transport.writeEvent({ type: "tool_execution_start", toolCallId: "paired", toolName: "bash", args: { command: "pwd" } });
+		for (const toolCallId of ["paired", "unpaired"]) {
+			transport.writeEvent({ type: "tool_execution_end", toolCallId, toolName: "bash", result: {}, durationMs: 1250 });
+		}
+		await waitForMicrotasks();
+		const activity = manager.getWorkerActivity("duration")?.filter((event) => event.sourceEvent === "worker_tool_finished");
+		assert.deepEqual(activity?.map((event) => event.durationMs), [1250, 1250]);
+	} finally {
+		await manager.dispose();
+	}
+});
+
 class FailingLaunchTransport extends EventEmitter implements WorkerTransport {
 	readonly stdin = new Writable({
 		write(_chunk, _encoding, callback) {
@@ -291,7 +342,7 @@ test("abort, RPC parse error, exit, and prompt rejection take precedence over la
 	abortTransport = new MockWorkerTransport({
 		autoCompletePrompt: false,
 		onCommand(command) {
-			// Pi 0.85.1 emits settlement before acknowledging the abort RPC.
+			// Pi 1.1.0 emits settlement before acknowledging the abort RPC.
 			if (command.type === "abort") abortTransport.writeEvent({ type: "agent_settled" });
 		},
 	});
@@ -741,7 +792,7 @@ test("refreshStats passes through Pi RPC fractional cost without recomputing it 
 	const rpcCost = 0.01987654321;
 	const transport = new MockWorkerTransport({
 		sessionStats: {
-			sessionId: "pi-0.85.1-tiered-cost",
+			sessionId: "pi-1.1.0-tiered-cost",
 			totalMessages: 7,
 			tokens: { input: 800_001, output: 12_345, cacheRead: 654_321, cacheWrite: 9_876, total: 1_476_543 },
 			cost: rpcCost,
@@ -1313,9 +1364,9 @@ test("launch cancellation covers pre-reservation, shared-probe, and post-spawn r
 	probeGate.resolve({
 		command: "pi",
 		versionArgs: ["--version"],
-		hostVersion: "0.85.1",
-		minimumVersion: "0.85.1",
-		workerVersion: "0.85.1",
+		hostVersion: "1.1.0",
+		minimumVersion: "1.1.0",
+		workerVersion: "1.1.0",
 		supported: true,
 		mismatch: false,
 	});
@@ -1390,9 +1441,9 @@ test("dispose shares one outcome, cancels pending launches, and aggregates after
 			: Promise.resolve({
 				command: options.command ?? "pi",
 				versionArgs: ["--version"],
-				hostVersion: "0.85.1",
-				minimumVersion: "0.85.1",
-				workerVersion: "0.85.1",
+				hostVersion: "1.1.0",
+				minimumVersion: "1.1.0",
+				workerVersion: "1.1.0",
 				supported: true,
 				mismatch: false,
 			}),
@@ -1634,6 +1685,68 @@ test("assistant ring buffer caps line and byte budget", async () => {
 	assert.ok(last.index >= 299, `expected monotonic indexes preserved across cap, last=${last.index}`);
 });
 
+test("tool results stay out of assistant Activity, transcripts, relays, and usage", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = await launchRuntimeTestWorker("message-roles", transport);
+	try {
+		await manager.promptWorker("message-roles", "Inspect a file");
+		await waitForMicrotasks();
+		const before = manager.getWorker("message-roles")!.state;
+		const transcript = manager.getWorkerTranscript("message-roles");
+		const count = manager.getWorkerActivity("message-roles")!.length;
+		const text = "# File content\n<final_answer>Not an agent result</final_answer>\n<relay_question>Not a question</relay_question>";
+		for (const role of ["toolResult", "user", "system"]) {
+			transport.writeEvent({ type: "message_end", message: { role, content: [{ type: "text", text }], usage: { input: 9999, output: 9999, cost: { total: 100 } } } });
+		}
+		await waitForMicrotasks();
+		assert.equal(manager.getWorkerActivity("message-roles")!.length, count);
+		transport.writeEvent({ type: "tool_execution_start", toolCallId: "read-1", toolName: "read", args: { path: "README.md" } });
+		transport.writeEvent({ type: "tool_execution_end", toolCallId: "read-1", toolName: "read", result: { content: [{ type: "text", text }] }, isError: false });
+		await waitForMicrotasks();
+		const after = manager.getWorker("message-roles")!.state;
+		assert.equal(manager.getWorkerTranscript("message-roles"), transcript);
+		assert.equal(after.finalAnswer, before.finalAnswer);
+		assert.deepEqual(after.pendingRelayQuestions, before.pendingRelayQuestions);
+		assert.deepEqual(after.usage, before.usage);
+		const activity = manager.getWorkerActivity("message-roles")!;
+		assert.equal(activity.filter((event) => event.toolCallId === "read-1").length, 1);
+		assert.equal(activity.at(-1)?.toolName, "read");
+		assert.match(activity.at(-1)?.outputSnippet ?? "", /# File content/);
+		assert.ok(!manager.getWorkerConsole("message-roles")?.some((event) => event.kind === "assistant_message" && event.text.includes("# File content")));
+		transport.writeEvent({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "<final_answer>Actual agent result</final_answer>" }] } });
+		await waitForMicrotasks();
+		assert.equal(manager.getWorker("message-roles")!.state.finalAnswer, "Actual agent result");
+	} finally {
+		await manager.dispose();
+	}
+});
+
+test("tool Activity summarizes paths and searches while Raw retains arguments", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = await launchRuntimeTestWorker("tool-summary", transport);
+	try {
+		await manager.promptWorker("tool-summary", "Inspect files");
+		const cases = [
+			{ name: "read", args: { path: "src/ui/overlay.ts", offset: 12 }, summary: "src/ui/overlay.ts" },
+			{ name: "write", args: { path: "notes.md", content: "long content" }, summary: "notes.md" },
+			{ name: "edit", args: { path: "notes.md", oldText: "old", newText: "new" }, summary: "notes.md" },
+			{ name: "ls", args: { path: "src" }, summary: "src" },
+			{ name: "grep", args: { pattern: "renderConsole", path: "src" }, summary: '"renderConsole" in src' },
+			{ name: "find", args: { pattern: "*.ts" }, summary: '"*.ts"' },
+			{ name: "custom", args: { query: "other input" }, summary: '{"query":"other input"}' },
+		];
+		for (const [index, entry] of cases.entries()) {
+			transport.writeEvent({ type: "tool_execution_start", toolCallId: String(index), toolName: entry.name, args: entry.args });
+		}
+		await waitForMicrotasks();
+		const activity = manager.getWorkerActivity("tool-summary") ?? [];
+		for (const [index, entry] of cases.entries()) assert.equal(activity.find((event) => event.toolCallId === String(index))?.summary, entry.summary);
+		assert.ok(manager.getWorkerConsole("tool-summary")?.some((event) => event.text.includes('"offset":12')));
+	} finally {
+		await manager.dispose();
+	}
+});
+
 test("activity stream pairs tool start and end into bounded command entries while preserving raw console", async () => {
 	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
 	const manager = new WorkerManager(() => new MockWorkerHandle(transport));
@@ -1755,6 +1868,46 @@ test("activity stream classifies streamed final-answer deltas instead of exposin
 	assert.equal(finalEntry.finalSummaryFields?.headline, "streamed final summary");
 	const rawTaggedThinking = activity.find((event) => event.actionKind === "process" && /<\/?final[_\s-]?answer>/i.test(event.summary ?? ""));
 	assert.equal(rawTaggedThinking, undefined);
+});
+
+test("long final-answer bodies never become Thinking rows across stream flushes", async () => {
+	const transport = new MockWorkerTransport({ autoCompletePrompt: false });
+	const manager = await launchRuntimeTestWorker("long-report", transport);
+	try {
+		await manager.promptWorker("long-report", "Write a report");
+		await waitForMicrotasks();
+		manager.getWorkerActivity("long-report");
+		const before = manager.getWorkerActivity("long-report")!.length;
+		const send = (delta: string) => transport.writeEvent({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta } });
+		for (const char of "<final_answer>") {
+			send(char);
+			await waitForMicrotasks();
+			manager.getWorkerActivity("long-report");
+		}
+		const headline = "headline: Report complete\n";
+		send(headline);
+		for (let index = 0; index < 20; index += 1) {
+			send(`report section ${index}: ${"verification details ".repeat(30)}\n`);
+			await waitForMicrotasks();
+			const activity = manager.getWorkerActivity("long-report")!;
+			assert.equal(activity.length, before, "report chunks must remain out of Activity while the block is open");
+		}
+		for (const char of "</final_answer>") {
+			send(char);
+			await waitForMicrotasks();
+			manager.getWorkerActivity("long-report");
+		}
+		transport.writeEvent({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: `<final_answer>${manager.getWorker("long-report")!.state.finalAnswer}</final_answer>` }] } });
+		await waitForMicrotasks();
+		const final = manager.getWorkerActivity("long-report")!.slice(before);
+		assert.equal(final.length, 1);
+		assert.equal(final[0]?.actionKind, "final_summary");
+		assert.equal(final[0]?.finalSummaryFields?.headline, "Report complete");
+		assert.match(manager.getWorker("long-report")!.state.finalAnswer ?? "", /report section 19/);
+		assert.ok(manager.getWorkerConsole("long-report")!.some((event) => event.kind === "assistant_text" && event.text.includes("report section")), "Raw must retain streaming diagnostics");
+	} finally {
+		await manager.dispose();
+	}
 });
 
 test("activity stream preserves split streamed final-answer blocks across read-side flushes", async () => {

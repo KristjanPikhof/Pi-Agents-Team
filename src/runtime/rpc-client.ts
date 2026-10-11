@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import type { Readable, Writable } from "node:stream";
-import type { RpcSessionState as PiRpcSessionState } from "@earendil-works/pi-coding-agent";
+import type { RpcSessionState as PiRpcSessionState, RpcResponse as PiRpcResponse } from "@earendil-works/pi-coding-agent";
+
+type PromptDisposition = Extract<PiRpcResponse, { command: "prompt"; success: true }>["data"]["disposition"];
 
 export interface RpcCommandBase {
 	type: string;
@@ -164,12 +166,13 @@ export class RpcClient {
 		return () => this.emitter.off("error", listener);
 	}
 
-	async prompt(message: string, options?: { streamingBehavior?: "steer" | "followUp" }): Promise<void> {
-		await this.send<void>({
+	async prompt(message: string, options?: { streamingBehavior?: "steer" | "followUp" }): Promise<PromptDisposition | undefined> {
+		const result = await this.send<{ disposition: PromptDisposition } | undefined>({
 			type: "prompt",
 			message,
 			...(options?.streamingBehavior ? { streamingBehavior: options.streamingBehavior } : {}),
 		});
+		return result?.disposition;
 	}
 
 	async steer(message: string): Promise<void> {
