@@ -227,6 +227,9 @@ function widgetPalette(theme?: Theme): ThemedPalette {
 		danger: identity,
 		dangerBold: identity,
 		inverse: identity,
+		toolRead: identity,
+		toolSearch: identity,
+		selected: identity,
 	};
 }
 

@@ -1,18 +1,11 @@
 export const CONSOLE_ACTIVITY_GOLDEN_LINES = [
-	"— activity —",
-	"╭─ process thinking [info]",
-	"│ Mapping current console rendering before proposing UI changes.",
-	"╰─ raw:r",
-	"╭─ tool command [ok]",
-	"│ $ git diff --stat main...HEAD",
-	"│ src/ui/overlay.ts              | 42 +++++++++++++++++",
-	"│ tests/ui/overlay.test.ts       | 18 +++++++",
-	"│ … +14 lines hidden",
-	"╰─ took 1.0s · raw:r",
-	"╭─ final-answer [ok]",
-	"│ Headline: APPROVE — no blocking issues found.",
-	"│ Risks: UI wrapping tests need updates.",
-	"│ Next: Safe to continue after typecheck.",
+	"Activity · [follow]",
+	"Thinking      Mapping current console rendering",
+	"command       git diff --stat main...HEAD",
+	"Final answer  APPROVE",
+	"Headline: APPROVE — no blocking issues found.",
+	"Risks: UI wrapping tests need updates.",
+	"Next: Safe to continue after typecheck.",
 ] as const;
 
 export const CONSOLE_ACTIVITY_GOLDEN = CONSOLE_ACTIVITY_GOLDEN_LINES.join("\n");
@@ -48,17 +41,13 @@ export const INSPECT_RECENT_ACTIVITY_GOLDEN_LINES = [
 export const INSPECT_RECENT_ACTIVITY_GOLDEN = INSPECT_RECENT_ACTIVITY_GOLDEN_LINES.join("\n");
 
 export const NARROW_CONSOLE_ACTIVITY_GOLDEN_LINES = [
-	"— activity —",
-	"╭─ tool command [ok]",
-	"│ $ git diff --stat main...HEAD",
-	"│ src/ui/overlay.ts              | 42",
-	"↳ +++++++++++++++++",
-	"│ tests/ui/overlay.test.ts       | 18",
-	"↳ +++++++",
-	"│ … +14 lines hidden",
-	"╭─ final-answer [ok]",
-	"│ Headline: APPROVE — no blocking",
-	"↳ issues found.",
+	"Activity · [paused]",
+	"> command",
+	"$ git diff --stat main...HEAD",
+	"src/ui/overlay.ts",
+	"tests/ui/overlay.test.ts",
+	"… +14 lines hidden",
+	"Final answer",
 ] as const;
 
 export const NARROW_CONSOLE_ACTIVITY_WIDTH = 44;
