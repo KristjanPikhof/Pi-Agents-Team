@@ -717,7 +717,7 @@ test("active ping does not make stale terminal workers reappear in the widget", 
 		assert.equal(afterPing?.lastEventAt, beforePing?.lastEventAt);
 		const plainLines = buildTeamWidgetLines(teamManager.snapshot(), { now }).join("\n");
 		assert.ok(!plainLines.includes("(w1)"), `stale terminal worker should stay hidden after active ping; got:\n${plainLines}`);
-		assert.match(plainLines, /1 old hidden/);
+		assert.match(plainLines, /All agents finished.*1 done/);
 	} finally {
 		Date.now = originalDateNow;
 	}

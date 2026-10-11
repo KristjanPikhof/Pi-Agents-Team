@@ -477,7 +477,7 @@ test("inspect tab renders structured readable sections with styled headers", () 
 	assert.ok(lines.some((line) => line.includes("Status [running]")), "expected plain Status section");
 	assert.ok(lines.some((line) => line.includes("Final answer [ok]")), "expected plain Final answer section");
 	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;75mStatus\x1b[0m")), "expected styled Status header");
-	assert.ok(rawLines.some((line) => line.includes("\x1b[1;38;5;179mrunning\x1b[0m")), "expected a worker needing a reply to use warning color");
+	assert.ok(rawLines.some((line) => line.includes("\x1b[1m\x1b[38;5;179mrunning")), "expected a worker needing a reply to use warning color");
 	assert.ok(rawLines.some((line) => line.includes("\x1b[38;5;244mThinking:\x1b[0m")), "expected dimmed metadata label");
 });
 
@@ -1834,7 +1834,7 @@ test("Workers shares Console selection styling and adapts its aligned table to s
 	assert.ok(rendered.some((line) => /Worker\s+Status\s+Task\s+Time/.test(stripAnsi(line))));
 	const selected = rendered.find((line) => stripAnsi(line).includes("> w3"))!;
 	assert.ok(selected.includes("\x1b[48;5;237m"));
-	assert.ok(rendered.some((line) => line.includes("\x1b[38;5;120mDone [reuse]")));
+	assert.ok(rendered.some((line) => line.includes("\x1b[38;5;244mDone [reuse]")), "finished status should use the dim theme role");
 	component.handleInput("j");
 	tui.terminal.columns = 44;
 	rendered = component.render(44);
@@ -1844,6 +1844,49 @@ test("Workers shares Console selection styling and adapts its aligned table to s
 	assert.doesNotMatch(plain, /Worker\s+Status\s+Task\s+Time/);
 	for (const line of rendered) assert.ok(visibleWidth(line) <= 44);
 	assert.equal(rendered.length, Math.floor(40 * 0.9));
+	component.dispose();
+});
+
+test("Workers colors attention consistently and keeps finished identities and tasks quiet", () => {
+	const state = makeState(5);
+	state.activeWorkers.w1!.status = "idle";
+	state.activeWorkers.w1!.finalAnswer = "Ready";
+	state.activeWorkers.w1!.currentTask!.title = "Finished inventory";
+	state.activeWorkers.w3!.pendingRelayQuestions = [{ question: "Choose the scope", assumption: "Wait", urgency: "normal", createdAt: 1 }];
+	state.activeWorkers.w4!.status = "error";
+	state.activeWorkers.w4!.error = "RPC crashed";
+	state.activeWorkers.w5!.status = "waiting_followup";
+	const { component } = makeComponent({ state, rows: 60, cols: 110, theme: makeFakeTheme() });
+	const lines = component.render(110);
+	const text = lines.join("\n");
+	assert.match(text, /\x1b\[38;5;214mw3/);
+	assert.match(text, /\x1b\[38;5;196mw4/);
+	assert.match(text, /\x1b\[38;5;201mw2/);
+	assert.match(text, /\x1b\[38;5;201mw5/);
+	assert.match(text, /\x1b\[38;5;244mw1/);
+	assert.match(text, /\x1b\[38;5;244mFinished inventory/);
+	assert.doesNotMatch(stripAnsi(text), /All agents finished/);
+	const rows = lines.map(stripAnsi).filter((line) => /[ >]w[1-5]\s+(reviewer|fixer)/.test(line));
+	assert.deepEqual(rows.map((line) => line.match(/w[1-5]/)?.[0]), ["w3", "w4", "w2", "w5", "w1"]);
+	component.dispose();
+});
+
+test("overlay all-finished summary waits for every worker and rejects pending diagnostics", () => {
+	const state = makeState(2);
+	for (const worker of Object.values(state.activeWorkers)) {
+		worker.status = "idle";
+		worker.finalAnswer = "Ready";
+	}
+	const { component } = makeComponent({ state, rows: 40, cols: 110, theme: makeFakeTheme() });
+	assert.match(component.render(110).join("\n"), /\x1b\[38;5;120m✓ All agents finished/);
+	state.activeWorkers.w2!.status = "running";
+	assert.doesNotMatch(renderPlain(component, 110).join("\n"), /All agents finished/);
+	state.activeWorkers.w2!.status = "idle";
+	state.activeWorkers.w2!.error = "Provider warning still needs review";
+	assert.doesNotMatch(renderPlain(component, 110).join("\n"), /All agents finished/);
+	state.activeWorkers.w2!.error = undefined;
+	state.relayQueue = [{ question: "Choose scope", assumption: "Wait", urgency: "normal", createdAt: 1 }];
+	assert.doesNotMatch(renderPlain(component, 110).join("\n"), /All agents finished/);
 	component.dispose();
 });
 

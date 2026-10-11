@@ -17,7 +17,7 @@ import { buildCopyPayload } from "./copy-payload.js";
 import { buildRosterSections, buildTeamDashboardText, type WorkerAttentionGroup } from "./dashboard.js";
 import { formatRetainedTranscript } from "./transcript-retention.js";
 import { formatCompactTokenCount } from "./usage-format.js";
-import { formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar.js";
+import { areAllWorkersFinished, formatWorkerLabel, formatWorkerStatusLabel, getWorkerAttentionColor, getWorkerAttentionPriority, getWorkerPrimaryAction } from "./display-grammar.js";
 import { formatAgentMessageResult } from "./tool-formatters.js";
 import { FRAME, stripAnsi, sanitizeTerminalText, fallbackPalette, themedPalette, type ThemedPalette } from "./theme.js";
 
@@ -157,7 +157,8 @@ function fieldLine(label: string, value: string): string {
 }
 
 function workerIdentity(worker: WorkerRuntimeState): string {
-	return `${accentBold(sanitizeTerminalText(worker.workerId))} ${muted(sanitizeTerminalText(worker.profileName))}`;
+	const color = colorForWorker(worker);
+	return `${bold(color(sanitizeTerminalText(worker.workerId)))} ${color(sanitizeTerminalText(worker.profileName))}`;
 }
 
 function selectedRow(content: string, width: number, selected: boolean): string {
@@ -183,6 +184,13 @@ function previewRows(text: string, width: number, limit = 2): string[] {
 
 function teamSummaryLine(snapshot: PersistedTeamState, width: number): string {
 	const count = Object.keys(snapshot.activeWorkers).length;
+	if (areAllWorkersFinished(snapshot)) {
+		return firstFitting(width, [
+			`${muted(`${count} workers`)} · ${success("✓ All agents finished")}`,
+			success("✓ All agents finished"),
+			success("All done"),
+		]);
+	}
 	const sections = buildRosterSections(snapshot);
 	const labels: Record<WorkerAttentionGroup, string> = { needs_reply: "needs reply", needs_recovery: "needs recovery", in_progress: "working", completed_or_idle: "done" };
 	const parts = sections.filter((section) => section.workers.length > 0).map((section) => colorForGroupBold(section.key)(`${section.workers.length} ${labels[section.key]}`));
@@ -254,12 +262,7 @@ function buildRecentActivityRows(
 }
 
 function formatInspectStatus(worker: WorkerRuntimeState, palette: ThemedPalette): string {
-	const label = worker.status;
-	if (worker.pendingRelayQuestions.length > 0 || worker.status === "waiting_followup") return palette.warningBold(label);
-	if (worker.status === "completed" || worker.status === "idle") return palette.successBold(label);
-	if (worker.status === "error" || worker.status === "aborted") return palette.dangerBold(label);
-	if (worker.status === "starting" || worker.status === "running") return palette.accentBold(label);
-	return palette.muted(label);
+	return palette.bold(getWorkerAttentionColor(getWorkerAttentionPriority(worker), palette)(worker.status));
 }
 
 function pushInspectBlock(lines: string[], label: string, body: string[], palette: ThemedPalette, badge?: string, options: { structured?: boolean } = {}): void {
@@ -904,7 +907,8 @@ function buildWorkerRoster(snapshot: PersistedTeamState, width: number, selected
 			if (worker.status === "waiting_followup") statusLabel = "Waiting [reuse]";
 			if (worker.pendingRelayQuestions.length > 0) statusLabel = "Needs reply";
 			const status = colorForWorker(worker)(statusLabel);
-			const task = sanitizeTerminalText(worker.currentTask?.title ?? worker.lastSummary?.headline ?? "No assigned task");
+			const taskText = sanitizeTerminalText(worker.currentTask?.title ?? worker.lastSummary?.headline ?? "No assigned task");
+			const task = section.key === "completed_or_idle" ? dim(taskText) : taskText;
 			const active = worker.status === "running" || worker.status === "starting" || worker.status === "waiting_followup";
 			const end = active ? Date.now() : worker.lastEventAt;
 			const seconds = Math.max(0, Math.floor((end - (worker.currentTask?.createdAt ?? worker.startedAt)) / 1000));
@@ -925,11 +929,11 @@ function buildWorkerRoster(snapshot: PersistedTeamState, width: number, selected
 			}
 			if (selected) {
 				const detail = worker.pendingRelayQuestions[0]?.question ?? worker.error ?? worker.lastSummary?.headline;
-				if (detail && detail !== task) {
+				if (detail && detail !== taskText) {
 					const style = section.key === "needs_reply" || section.key === "needs_recovery" ? colorForWorker(worker) : muted;
 					lines.push(...previewRows(style(sanitizeTerminalText(detail)), width));
 				}
-				if (REUSABLE_STATUSES.has(worker.status)) lines.push(`    ${success("[reuse]")} ${muted("Session available for another task")}`);
+				if (REUSABLE_STATUSES.has(worker.status)) lines.push(`    ${dim("[reuse]")} ${muted("Session available for another task")}`);
 				selectedTop = start;
 				selectedBottom = lines.length;
 			}
@@ -1036,12 +1040,12 @@ function buildSelectedWorkerHeader(worker: WorkerRuntimeState | undefined, width
 	const attention = getWorkerAttentionPriority(worker);
 	const status = formatWorkerStatusLabel(worker);
 	const action = attention === "needs_reply" || attention === "needs_recovery" ? ` · ${getWorkerPrimaryAction(worker)}` : "";
-	return firstFitting(width, [
+	return colorForWorker(worker)(firstFitting(width, [
 		`${worker.workerId} · ${worker.profileName} · ${status}${action}`,
 		`${worker.workerId} · ${status}${action}`,
 		`${worker.workerId} · ${status}`,
 		worker.workerId,
-	]);
+	]));
 }
 
 function formatFollowHeader(following: boolean, top: number, visible: number, total: number): string {
@@ -1055,36 +1059,11 @@ function formatScrollRange(top: number, visible: number, total: number): string 
 }
 
 function colorForGroupBold(group: WorkerAttentionGroup): (text: string) => string {
-	switch (group) {
-		case "needs_reply":
-			return warningBold;
-		case "needs_recovery":
-			return dangerBold;
-		case "in_progress":
-			return accentBold;
-		case "completed_or_idle":
-			return currentPalette.successBold;
-	}
+	return (text) => bold(getWorkerAttentionColor(group, currentPalette)(text));
 }
 
 function colorForWorker(worker: WorkerRuntimeState): (text: string) => string {
-	if (worker.pendingRelayQuestions.length > 0) return warning;
-	switch (worker.status) {
-		case "running":
-		case "starting":
-			return accent;
-		case "waiting_followup":
-			return warning;
-		case "idle":
-		case "completed":
-			return success;
-		case "aborted":
-		case "error":
-		case "exited":
-			return danger;
-		default:
-			return muted;
-	}
+	return getWorkerAttentionColor(getWorkerAttentionPriority(worker), currentPalette);
 }
 
 interface OverlayTeamManager {

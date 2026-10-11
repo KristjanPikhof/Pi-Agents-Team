@@ -90,11 +90,11 @@ test("status line and widget use the supplied Theme palette roles", () => {
 
 	const lines = buildTeamWidgetLines(state, { frame: 0, theme });
 	assert.ok(lines.some((line) => line.includes("\x1b[38;5;201mPi Agents Team")), `expected accent role in widget header; got:\n${lines.join("\n")}`);
-	assert.ok(lines.some((line) => line.includes("\x1b[1mreviewer\x1b[0m")), `expected bold role for worker profile; got:\n${lines.join("\n")}`);
+	assert.ok(lines.some((line) => line.includes("\x1b[1m\x1b[38;5;201mreviewer")), `expected bold accent role for worker profile; got:\n${lines.join("\n")}`);
 	assert.ok(!lines.some((line) => line.includes("\x1b[38;5;75m")), "expected no legacy accent fallback when a full Theme is supplied");
 });
 
-test("widget shows spinner frame for running workers and ✓ for finished idle workers", () => {
+test("widget prioritizes failures, animates running rows, and summarizes finished workers", () => {
 	const state = createDefaultTeamState();
 	state.activeWorkers = {
 		w1: makeWorker({
@@ -144,28 +144,29 @@ test("widget shows spinner frame for running workers and ✓ for finished idle w
 	const plainFrame3 = frame3.map(stripAnsi);
 	const w1Frame0 = plainFrame0.find((line) => line.includes("explorer (w1)"));
 	const w1Frame3 = plainFrame3.find((line) => line.includes("explorer (w1)"));
-	assert.ok(w1Frame0?.startsWith(`├ ${SPINNER_FRAMES[0]} `));
-	assert.ok(w1Frame3?.startsWith(`├ ${SPINNER_FRAMES[3]} `));
+	assert.ok(w1Frame0?.startsWith(`${SPINNER_FRAMES[0]} `));
+	assert.ok(w1Frame3?.startsWith(`${SPINNER_FRAMES[3]} `));
 	assert.match(frame0.find((line) => stripAnsi(line).includes("explorer (w1)")) ?? "", /\x1b\[1mexplorer\x1b\[0m \(w1\)/);
-	assert.ok(w1Frame0?.includes("explorer (w1) · mapping src/runtime · 0s"));
+	assert.match(w1Frame0 ?? "", /explorer \(w1\)\s+mapping src\/runtime\s+0s$/);
 	assert.ok(!w1Frame0?.includes(" — "));
 
 	const w2Line = plainFrame0.find((line) => line.includes("librarian (w2)"));
-	assert.ok(w2Line?.startsWith("├ ✓ "));
-	assert.equal(w2Line?.endsWith(" · Done"), true);
-	assert.ok(!w2Line?.includes("architecture notes ready"));
+	assert.equal(w2Line, undefined, "finished rows must not compete with current work");
 
 	const w3Line = plainFrame0.find((line) => line.includes("fixer (w3)"));
-	assert.ok(w3Line?.startsWith("└ ✗ "));
+	assert.ok(w3Line?.startsWith("✗ "));
+	assert.ok(plainFrame0.indexOf(w3Line!) < plainFrame0.indexOf(w1Frame0!));
 
-	assert.ok(plainFrame0.some((line) => line.includes("└ Working: mapping src/runtime")), `expected friendly working activity line; got:\n${plainFrame0.join("\n")}`);
+	assert.equal(plainFrame0.filter((line) => line.includes("mapping src/runtime")).length, 1, "routine summaries should not repeat the task row");
+	assert.ok(plainFrame0.some((line) => line.trim() === "boom"), "failure detail must remain visible");
 	assert.ok(!plainFrame0.some((line) => line.includes("Done: architecture notes ready")), `expected no done detail line; got:\n${plainFrame0.join("\n")}`);
 	assert.ok(!plainFrame0.some((line) => /└ (in_progress|completed_or_idle):/.test(line)), `expected no raw attention keys; got:\n${plainFrame0.join("\n")}`);
 
-	const countsLine = frame0[1]!;
+	const countsLine = plainFrame0.join("\n");
 	assert.match(countsLine, /1 running/);
 	assert.match(countsLine, /1 done/);
-	assert.match(countsLine, /1 ended/);
+	assert.match(countsLine, /1 needs recovery/);
+	assert.doesNotMatch(countsLine, /All agents finished|● Agents|active=/);
 });
 
 test("widget caps active rows and reports hidden workers", () => {
@@ -194,10 +195,123 @@ test("widget caps active rows and reports hidden workers", () => {
 	const plainLines = lines.map(stripAnsi);
 	const workerRows = plainLines.filter((line) => / reviewer \(w\d+\) /.test(line));
 	assert.equal(workerRows.length, 8);
-	assert.ok(lines.some((line) => /12 more/.test(line)), "expected spillover marker");
+	assert.ok(lines.some((line) => /\+ 12 active/.test(line)), "overflow must identify hidden live workers");
 
 	for (const line of lines) {
 		assert.ok(visibleWidth(line) <= 100, `line exceeds 100 cols (${visibleWidth(line)}): ${line}`);
+	}
+});
+
+test("twelve finished workers cannot hide the five newly running workers from the screenshot", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	for (let index = 1; index <= 17; index += 1) {
+		const workerId = `w${index}`;
+		state.activeWorkers[workerId] = makeWorker({
+			workerId,
+			status: index <= 12 ? "idle" : "running",
+			finalAnswer: index <= 12 ? "Inventory complete" : undefined,
+			startedAt: now - 3_000,
+			lastEventAt: now,
+		});
+	}
+	const lines = buildTeamWidgetLines(state, { now }).map(stripAnsi);
+	const rows = lines.filter((line) => /\(w\d+\)/.test(line));
+	assert.deepEqual(rows.map((line) => line.match(/\((w\d+)\)/)?.[1]), ["w13", "w14", "w15", "w16", "w17"]);
+	assert.match(lines[0]!, /5 running.*12 done/);
+	assert.doesNotMatch(lines.join("\n"), /All agents finished|\+ \d+ active|● Agents|active=/);
+	assert.equal(lines.length, 6, "one heading and one row per running worker");
+});
+
+test("all-finished preview collapses to the result shortcut and stale output cannot finish a reused worker", () => {
+	const state = createDefaultTeamState();
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "idle", finalAnswer: "Ready" });
+	state.activeWorkers.w2 = makeWorker({ workerId: "w2", status: "completed", finalAnswer: "Ready" });
+	let lines = buildTeamWidgetLines(state, { theme: makeFakeTheme() });
+	assert.match(stripAnsi(lines[0]!), /All agents finished.*2 done/);
+	assert.match(lines[0]!, /\x1b\[38;5;120m✓ All agents finished/);
+	assert.match(stripAnsi(lines[1]!), /\/team-result <id>/);
+	assert.equal(lines.length, 2);
+	assert.equal(hasAnimatedWorkers(state), false);
+	state.activeWorkers.w2.status = "running";
+	lines = buildTeamWidgetLines(state, { theme: makeFakeTheme() });
+	assert.doesNotMatch(lines.join("\n"), /All agents finished/);
+	assert.match(stripAnsi(lines[0]!), /1 running.*1 done/);
+	assert.ok(lines.some((line) => stripAnsi(line).includes("(w2)")));
+	assert.equal(hasAnimatedWorkers(state), true);
+});
+
+test("idle without a result and old failures never show a successful all-finished banner", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "idle", lastEventAt: now });
+	state.activeWorkers.w2 = makeWorker({ workerId: "w2", status: "error", error: "Old failure", lastEventAt: now - 10 * 60_000 });
+	const lines = buildTeamWidgetLines(state, { now }).map(stripAnsi);
+	assert.match(lines.join("\n"), /1 needs recovery.*1 idle/);
+	assert.doesNotMatch(lines.join("\n"), /All agents finished|\(w2\)|Old failure/);
+	assert.match(lines.join("\n"), /\/team for worker details/);
+});
+
+test("questions and failures use warning and error theme colors before running rows", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", status: "running", startedAt: now - 3_000 });
+	state.activeWorkers.w9 = makeWorker({
+		workerId: "w9", status: "waiting_followup", startedAt: now - 3_000,
+		pendingRelayQuestions: [{ question: "Choose the cleanup scope", assumption: "Wait", urgency: "normal", createdAt: now }],
+	});
+	state.activeWorkers.w10 = makeWorker({
+		workerId: "w10", status: "error", startedAt: now - 30_000, lastEventAt: now - 10_000, error: "RPC crashed",
+		lastSummary: { workerId: "w10", headline: "Old progress", status: "running", readFiles: [], changedFiles: [], risks: [], relayQuestionCount: 0, updatedAt: now - 20_000 },
+	});
+	const lines = buildTeamWidgetLines(state, { now, theme: makeFakeTheme() });
+	const plain = lines.map(stripAnsi);
+	const rows = plain.filter((line) => /\(w\d+\)/.test(line));
+	assert.deepEqual(rows.map((line) => line.match(/\((w\d+)\)/)?.[1]), ["w9", "w10", "w1"]);
+	assert.ok(lines.some((line) => line.includes("\x1b[38;5;214mNeeds reply")));
+	assert.ok(lines.some((line) => line.includes("\x1b[38;5;214mChoose the cleanup scope")));
+	assert.ok(lines.some((line) => line.includes("\x1b[38;5;196mNeeds recovery")));
+	assert.ok(lines.some((line) => line.includes("\x1b[38;5;196mRPC crashed")));
+	assert.match(rows[1]!, /20s$/, "terminal elapsed time must stop at the last event");
+	assert.doesNotMatch(plain.join("\n"), /Old progress|All agents finished/);
+	assert.match(plain.join("\n"), /1 needs reply.*1 needs recovery.*1 running/);
+});
+
+test("overflow counts distinguish hidden active workers from terminal failures", () => {
+	const state = createDefaultTeamState();
+	for (let index = 1; index <= 10; index += 1) {
+		const workerId = `w${index}`;
+		state.activeWorkers[workerId] = makeWorker({ workerId, status: "error", error: "RPC crashed" });
+	}
+	state.activeWorkers.w11 = makeWorker({ workerId: "w11", status: "running" });
+	const text = buildTeamWidgetLines(state).map(stripAnsi).join("\n");
+	assert.match(text, /\+ 1 active · 2 need recovery/);
+	assert.doesNotMatch(text, /All agents finished/);
+});
+
+test("preview aligns elapsed time and sanitizes wide text at wide and narrow widths", () => {
+	const state = createDefaultTeamState();
+	const now = 10_000_000;
+	state.activeWorkers.w1 = makeWorker({ workerId: "w1", profileName: "調査担当者".repeat(10), status: "running", startedAt: now - 30_000 });
+	state.activeWorkers.w2 = makeWorker({ workerId: "w2", profileName: "fixer", status: "running", startedAt: now - 3_000 });
+	state.activeWorkers.w1.lastSummary = {
+		workerId: "w1", headline: "Check \x1b]52;c;c2VjcmV0\x07files\n\x1b[2J\x1b[31m状態\x1b[0m\r tail", status: "running", readFiles: [], changedFiles: [], risks: [], relayQuestionCount: 0, updatedAt: now,
+	};
+	for (const width of [44, 80, 100]) {
+		const lines = buildTeamWidgetLines(state, { now, width, theme: makeFakeTheme() });
+		const plain = lines.map(stripAnsi);
+		assert.ok(!plain.join("\n").includes("\x1b"), "worker controls must be inert while theme colors survive");
+		assert.ok(lines.some((line) => line.includes("\x1b[38;5;201m")));
+		const rows = plain.filter((line) => /\(w[12]\)/.test(line));
+		assert.equal(rows.length, 2, "long profile names must not hide worker ids");
+		assert.match(rows[0]!, /30s$/);
+		assert.match(rows[1]!, /3s$/);
+		for (const row of rows) assert.equal(visibleWidth(row), width);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= width);
+			assert.doesNotMatch(stripAnsi(line), /[\r\n\t]/);
+		}
+		if (width < 60) assert.ok(plain.some((line) => line.startsWith("  Check files")), "narrow rows keep the task on a second line");
 	}
 });
 
@@ -225,11 +339,11 @@ test("active worker elapsed uses task creation time when a reused worker has a f
 	const plainLines = lines.map(stripAnsi);
 	const workerRow = plainLines.find((line) => line.includes("fixer (w1)"));
 	assert.ok(workerRow, `expected worker row; got:\n${plainLines.join("\n")}`);
-	assert.match(workerRow, /fresh reused task · 30s/);
+	assert.match(workerRow, /fresh reused task\s+30s$/);
 	assert.doesNotMatch(workerRow, /1h/);
 });
 
-test("widget keeps worker-id order for visible rows while filtering inactive workers", () => {
+test("widget uses attention order, preserves worker-id order within groups, and filters finished rows", () => {
 	const state = createDefaultTeamState();
 	const now = 10_000_000;
 	state.activeWorkers.w3 = makeWorker({ workerId: "w3", profileName: "closer", status: "completed", lastEventAt: now - 1_000 });
@@ -255,15 +369,16 @@ test("widget keeps worker-id order for visible rows while filtering inactive wor
 
 	const lines = buildTeamWidgetLines(state, { frame: 0, now });
 	const plainLines = lines.map(stripAnsi);
-	assert.match(plainLines[0]!, /active=3/);
-	const workerRows = plainLines.filter((line) => /^[├└] [⠋▸◌✓✗○▶]/.test(line) && / \(w\d+\)/.test(line));
-	assert.deepEqual(workerRows.map((line) => line.match(/ \((w\d+)\)/)?.[1]), ["w1", "w2", "w3", "w4"]);
+	assert.match(plainLines.join("\n"), /1 needs reply/);
+	const workerRows = plainLines.filter((line) => /^[⠋▸◌✓✗○▶] /.test(line) && / \(w\d+\)/.test(line));
+	assert.deepEqual(workerRows.map((line) => line.match(/ \((w\d+)\)/)?.[1]), ["w4", "w1", "w2"]);
 	assert.ok(!workerRows.some((line) => line.includes("w99")), `old hidden worker should stay filtered; got:\n${plainLines.join("\n")}`);
-	assert.ok(plainLines.some((line) => line.includes("└ Needs reply: Need scope decision?")), `expected friendly relay activity line; got:\n${plainLines.join("\n")}`);
+	assert.ok(plainLines.some((line) => line.includes("Needs reply")));
+	assert.ok(plainLines.some((line) => line.includes("Need scope decision?")), `expected relay detail; got:\n${plainLines.join("\n")}`);
 	assert.ok(!plainLines.some((line) => line.includes("└ needs_reply:")), `expected no raw attention key; got:\n${plainLines.join("\n")}`);
 });
 
-test("widget treats waiting_followup as live and still summarizes old hidden workers", () => {
+test("widget treats waiting_followup as live and summarizes old finished workers in its counts", () => {
 	const state = createDefaultTeamState();
 	const now = 10_000_000;
 	state.activeWorkers.oldDone = makeWorker({ workerId: "oldDone", status: "completed", lastEventAt: now - 10 * 60 * 1_000 });
@@ -273,10 +388,11 @@ test("widget treats waiting_followup as live and still summarizes old hidden wor
 	const lines = buildTeamWidgetLines(state, { now });
 	const plainLines = lines.map(stripAnsi);
 	assert.ok(!plainLines.some((line) => line.includes("oldDone") || line.includes("oldIdle")), `old terminal rows should be hidden; got:\n${plainLines.join("\n")}`);
-	assert.match(plainLines[0]!, /active=1/);
+	assert.match(plainLines.join("\n"), /1 done/);
+	assert.match(plainLines.join("\n"), /1 idle/);
 	assert.ok(plainLines.some((line) => line.includes("▸ 1 queued")), `expected queued count; got:\n${plainLines.join("\n")}`);
 	assert.ok(plainLines.some((line) => line.includes("reviewer (queued)")), `waiting_followup worker should render as a live row; got:\n${plainLines.join("\n")}`);
-	assert.ok(plainLines.some((line) => line.includes("2 old hidden")), `expected hidden summary; got:\n${plainLines.join("\n")}`);
+	assert.doesNotMatch(plainLines.join("\n"), /All agents finished|old hidden/);
 });
 
 test("widget enforces a hard cap on visible width even with long headlines", () => {
