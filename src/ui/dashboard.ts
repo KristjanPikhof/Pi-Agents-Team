@@ -6,6 +6,7 @@ import {
 	formatWorkerLabel,
 	formatWorkerStatusLabel,
 	getWorkerAttentionDisplay,
+	getWorkerAttentionColor,
 	getWorkerAttentionPriority as getSharedWorkerAttentionPriority,
 	getWorkerPrimaryAction,
 	type WorkerAttentionPriority,
@@ -69,7 +70,7 @@ export function buildActionSummaryLine(state: PersistedTeamState, theme?: Theme)
 	const palette = theme ? themedPalette(theme) : undefined;
 	const sections = buildRosterSections(state);
 	return sections
-		.map((section) => (palette ? `${palette.accent(section.label)} ${palette.bold(String(section.workers.length))}` : `${section.label} ${section.workers.length}`))
+		.map((section) => (palette ? getWorkerAttentionColor(section.key, palette)(`${section.label} ${palette.bold(String(section.workers.length))}`) : `${section.label} ${section.workers.length}`))
 		.join(" · ");
 }
 
@@ -112,7 +113,7 @@ export function buildTeamDashboardLines(
 	for (const section of buildRosterSections(state)) {
 		if (section.workers.length === 0) continue;
 		const sectionHeader = palette
-			? `${palette.accentBold(section.label)} (${palette.bold(String(section.workers.length))})`
+			? palette.bold(getWorkerAttentionColor(section.key, palette)(`${section.label} (${section.workers.length})`))
 			: `${section.label} (${section.workers.length})`;
 		lines.push(truncateToWidth(sectionHeader, resolvedWidth));
 		for (const worker of section.workers) {

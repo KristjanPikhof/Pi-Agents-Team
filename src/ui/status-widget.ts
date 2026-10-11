@@ -1,9 +1,10 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types.js";
+import { type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types.js";
 import { aggregateWorkerUsage, hasWorkerUsage } from "../usage.js";
-import { formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerStatusGlyph } from "./display-grammar.js";
-import { bold as legacyBold, themedPalette, type ThemedPalette } from "./theme.js";
+import { buildRosterSections } from "./dashboard.js";
+import { areAllWorkersFinished, formatProfileLabel, formatWorkerDisplayId, formatWorkerStatusLabel, getWorkerAttentionColor, getWorkerAttentionDisplay, getWorkerAttentionPriority, getWorkerPrimaryAction, getWorkerStatusGlyph } from "./display-grammar.js";
+import { bold as legacyBold, sanitizeTerminalText, themedPalette, type ThemedPalette } from "./theme.js";
 import { formatCacheUsage, formatCacheUsageWithHit, formatCompactTokenCount } from "./usage-format.js";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -19,9 +20,7 @@ export const TEAM_STATUS_TIPS = [
 ] as const;
 
 const NON_TERMINAL_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
-const ACTIVE_ROW_STATUSES = new Set<WorkerStatus>(["starting", "running", "waiting_followup"]);
-const TERMINAL_STATUSES = new Set<WorkerStatus>(["idle", "completed", "aborted", "error", "exited"]);
-const RECENT_TERMINAL_RETENTION_MS = 5 * 60 * 1000;
+const RECENT_FAILURE_RETENTION_MS = 5 * 60 * 1000;
 const MAX_WIDGET_WORKERS = 8;
 
 const HEADER_WIDTH = 100;
@@ -87,25 +86,24 @@ function buildUsageLine(state: PersistedTeamState, palette: ThemedPalette, width
 	return truncateToWidth(visibleWidth(withCache) <= width ? withCache : base, width);
 }
 
-function buildStatusRow(state: PersistedTeamState, palette: ThemedPalette, width: number): { row: string; includesUsage: boolean } {
-	const counts = buildCountsLine(state, palette, width);
-	const usage = buildUsageLine(state, palette, width);
-	if (!usage) return { row: counts, includesUsage: false };
-	const combined = `${counts} · ${usage}`;
-	return visibleWidth(combined) <= width
-		? { row: combined, includesUsage: true }
-		: { row: counts, includesUsage: false };
-}
-
 function buildCountsLine(state: PersistedTeamState, palette: ThemedPalette, width: number): string {
-	const counts = { relay: 0, running: 0, starting: 0, queued: 0, idle: 0, done: 0, ended: 0 };
+	const counts = { relay: 0, running: 0, starting: 0, queued: 0, idle: 0, done: 0, recovery: 0 };
 	for (const worker of Object.values(state.activeWorkers)) {
-		if (worker.pendingRelayQuestions.length > 0) counts.relay += 1;
+		const attention = getWorkerAttentionPriority(worker);
+		if (attention === "needs_reply") {
+			counts.relay += 1;
+			continue;
+		}
+		if (attention === "needs_recovery") {
+			counts.recovery += 1;
+			continue;
+		}
 		switch (worker.status) {
 			case "running":
 				counts.running += 1;
 				break;
 			case "starting":
+			case "created":
 				counts.starting += 1;
 				break;
 			case "waiting_followup":
@@ -118,38 +116,33 @@ function buildCountsLine(state: PersistedTeamState, palette: ThemedPalette, widt
 			case "completed":
 				counts.done += 1;
 				break;
-			case "aborted":
-			case "error":
-			case "exited":
-				counts.ended += 1;
-				break;
 			default:
 				break;
 		}
 	}
+	if (areAllWorkersFinished(state)) {
+		return truncateToWidth(`${palette.success("✓ All agents finished")} ${palette.dim(`· ${counts.done} done`)}`, width);
+	}
 
 	const parts: string[] = [];
-	if (counts.relay || state.relayQueue.length) parts.push(`${palette.warning("?")} ${palette.warning(String(Math.max(counts.relay, state.relayQueue.length)))} relay${Math.max(counts.relay, state.relayQueue.length) === 1 ? "" : "s"}`);
-	if (counts.running) parts.push(`${palette.accent("▶")} ${palette.accent(String(counts.running))} running`);
-	if (counts.starting) parts.push(`${palette.dim("◌")} ${palette.dim(String(counts.starting))} starting`);
-	if (counts.queued) parts.push(`${palette.warning("▸")} ${palette.warning(String(counts.queued))} queued`);
-	if (counts.idle) parts.push(`${palette.dim("○")} ${palette.dim(String(counts.idle))} idle`);
-	if (counts.done) parts.push(`${palette.success("✓")} ${palette.success(String(counts.done))} done`);
-	if (counts.ended) parts.push(`${palette.danger("✗")} ${palette.danger(String(counts.ended))} ended`);
+	const relayCount = Math.max(counts.relay, state.relayQueue.length);
+	if (relayCount) parts.push(palette.warning(`? ${relayCount} ${relayCount === 1 ? "needs" : "need"} reply`));
+	if (counts.recovery) parts.push(palette.danger(`✗ ${counts.recovery} ${counts.recovery === 1 ? "needs" : "need"} recovery`));
+	if (counts.running) parts.push(palette.accent(`▶ ${counts.running} running`));
+	if (counts.starting) parts.push(palette.accent(`◌ ${counts.starting} starting`));
+	if (counts.queued) parts.push(palette.accent(`▸ ${counts.queued} queued`));
+	if (counts.idle) parts.push(palette.dim(`○ ${counts.idle} idle`));
+	if (counts.done) parts.push(palette.dim(`✓ ${counts.done} done`));
 	return truncateToWidth(parts.length === 0 ? palette.dim("no workers tracked") : parts.join("  "), width);
 }
 
 function isActiveSurfaceWorker(worker: WorkerRuntimeState): boolean {
-	return worker.pendingRelayQuestions.length > 0 || ACTIVE_ROW_STATUSES.has(worker.status);
-}
-
-function isRecentTerminalWorker(worker: WorkerRuntimeState, now: number): boolean {
-	if (!TERMINAL_STATUSES.has(worker.status)) return false;
-	return now - worker.lastEventAt <= RECENT_TERMINAL_RETENTION_MS;
+	return worker.pendingRelayQuestions.length > 0 || NON_TERMINAL_STATUSES.has(worker.status) || worker.status === "created";
 }
 
 function shouldRenderWorker(worker: WorkerRuntimeState, now: number): boolean {
-	return isActiveSurfaceWorker(worker) || isRecentTerminalWorker(worker, now);
+	return isActiveSurfaceWorker(worker)
+		|| (getWorkerAttentionPriority(worker) === "needs_recovery" && now - worker.lastEventAt <= RECENT_FAILURE_RETENTION_MS);
 }
 
 function formatElapsed(ms: number): string {
@@ -163,51 +156,50 @@ function formatElapsed(ms: number): string {
 }
 
 function buildWorkerTitle(worker: WorkerRuntimeState): string {
-	return worker.currentTask?.title?.trim() || worker.lastSummary?.headline?.trim() || formatWorkerStatusLabel(worker);
+	return singleLine(worker.currentTask?.title ?? "") || singleLine(worker.lastSummary?.headline ?? "") || formatWorkerStatusLabel(worker);
 }
 
-function getActiveElapsedStart(worker: WorkerRuntimeState): number {
-	return worker.currentTask?.createdAt ?? worker.startedAt;
+function singleLine(text: string): string {
+	return sanitizeTerminalText(text).replace(/\s+/g, " ").trim();
 }
 
-function buildWorkerCell(worker: WorkerRuntimeState, frame: number, now: number, connector: "├" | "└", palette: ThemedPalette, width: number): string {
-	const glyph = statusGlyph(worker, frame);
-	const identity = `${palette.bold(formatProfileLabel(worker.profileName))} ${formatWorkerDisplayId(worker.workerId)}`;
-	if (getWorkerAttentionPriority(worker) === "completed_or_idle") {
-		return truncateToWidth(`${connector} ${glyph} ${identity} · ${palette.success("Done")}`, width, "…");
-	}
-	const title = buildWorkerTitle(worker);
-	const statusOrElapsed = isActiveSurfaceWorker(worker) ? formatElapsed(now - getActiveElapsedStart(worker)) : formatWorkerStatusLabel(worker);
-	const logical = `${connector} ${glyph} ${identity} · ${title} · ${statusOrElapsed}`;
-	return truncateToWidth(logical, width, "…");
+function workerIdentity(worker: WorkerRuntimeState, palette: ThemedPalette): string {
+	const color = getWorkerAttentionColor(getWorkerAttentionPriority(worker), palette);
+	const id = formatWorkerDisplayId(singleLine(worker.workerId));
+	const profile = truncateToWidth(formatProfileLabel(singleLine(worker.profileName)), Math.max(1, 24 - visibleWidth(id) - 1), "…");
+	return `${palette.bold(color(profile))} ${color(id)}`;
 }
 
-function buildWorkerActivityLine(worker: WorkerRuntimeState, hasFollowingRow: boolean, palette: ThemedPalette, width: number): string | undefined {
-	const attention = getWorkerAttentionDisplay(getWorkerAttentionPriority(worker));
-	if (attention.key === "completed_or_idle") return undefined;
-	const relay = worker.pendingRelayQuestions[0];
-	const detail = relay?.question
-		?? worker.lastSummary?.headline
-		?? (worker.lastToolName ? `tool: ${worker.lastToolName}` : undefined)
-		?? (worker.error ? palette.danger(`error: ${worker.error}`) : undefined);
-	if (!detail) return undefined;
-	const gutter = hasFollowingRow ? "│" : " ";
-	const coloredLabel = attention.key === "needs_reply" ? palette.warning(attention.label) : palette.accent(attention.label);
-	return truncateToWidth(`${gutter}  └ ${coloredLabel}: ${detail}`, width, "…");
+function alignElapsed(text: string, elapsed: string, palette: ThemedPalette, width: number): string {
+	const contentWidth = Math.max(0, width - visibleWidth(elapsed) - 1);
+	return truncateToWidth(`${truncateToWidth(text, contentWidth, "…", true)} ${palette.dim(elapsed)}`, width);
 }
 
-function buildAgentsSummaryLine(summaryParts: string[], palette: ThemedPalette, width: number): string {
-	return truncateToWidth(`${palette.dim("└ +")} ${summaryParts.join(" · ")} ${palette.dim("· /team to view")}`, width, "…");
-}
-
-function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number, hasSummaryRow: boolean, palette: ThemedPalette, width: number): string[] {
+function buildWorkerLines(workers: WorkerRuntimeState[], frame: number, now: number, palette: ThemedPalette, width: number): string[] {
 	const lines: string[] = [];
-	workers.forEach((worker, index) => {
-		const hasFollowingRow = index < workers.length - 1 || hasSummaryRow;
-		lines.push(buildWorkerCell(worker, frame, now, hasFollowingRow ? "├" : "└", palette, width));
-		const activity = buildWorkerActivityLine(worker, hasFollowingRow, palette, width);
-		if (activity) lines.push(activity);
-	});
+	const wide = width >= 60;
+	const identityWidth = Math.min(24, Math.max(0, ...workers.map((worker) => visibleWidth(workerIdentity(worker, palette)))));
+	for (const worker of workers) {
+		const attention = getWorkerAttentionPriority(worker);
+		const color = getWorkerAttentionColor(attention, palette);
+		const urgent = attention === "needs_reply" || attention === "needs_recovery";
+		const label = urgent ? getWorkerAttentionDisplay(attention).label : formatWorkerStatusLabel(worker);
+		const title = buildWorkerTitle(worker);
+		const identity = workerIdentity(worker, palette);
+		const prefix = `${color(statusGlyph(worker, frame))} ${wide ? truncateToWidth(identity, identityWidth, "…", true) : identity}`;
+		let content = color(label);
+		if (wide && !urgent && title !== label) {
+			content = worker.status === "running" ? title : `${color(label)} · ${title}`;
+		}
+		const end = NON_TERMINAL_STATUSES.has(worker.status) || worker.status === "created" ? now : worker.lastEventAt;
+		const elapsed = formatElapsed(end - (worker.currentTask?.createdAt ?? worker.startedAt));
+		lines.push(alignElapsed(`${prefix}  ${content}`, elapsed, palette, width));
+		if (!wide && !urgent && title !== label) lines.push(truncateToWidth(`  ${palette.dim(title)}`, width, "…"));
+		if (urgent) {
+			const detail = attention === "needs_reply" ? worker.pendingRelayQuestions[0]?.question : worker.error || getWorkerPrimaryAction(worker);
+			if (detail) lines.push(truncateToWidth(`  ${color(singleLine(detail))}`, width, "…"));
+		}
+	}
 	return lines;
 }
 
@@ -240,7 +232,7 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	const now = options.now ?? Date.now();
 	const width = options.width ?? HEADER_WIDTH;
 	const palette = widgetPalette(options.theme);
-	const allWorkers = Object.values(state.activeWorkers).sort((left, right) => compareWorkerIds(left.workerId, right.workerId));
+	const allWorkers = buildRosterSections(state).flatMap((section) => section.workers);
 	const workers = allWorkers.filter((worker) => shouldRenderWorker(worker, now));
 	if (routingMode === "solo") {
 		// In solo mode the status line already says "Pi Agents Team — solo".
@@ -250,25 +242,26 @@ export function buildTeamWidgetLines(state: PersistedTeamState, options: WidgetR
 	}
 	if (allWorkers.length === 0 && (!displayCost || !buildUsageLine(state, palette, width))) return [];
 
-	const status = displayCost ? buildStatusRow(state, palette, width) : { row: buildCountsLine(state, palette, width), includesUsage: false };
-	const activeCount = allWorkers.filter((worker) => isActiveSurfaceWorker(worker)).length;
-	const header = `${palette.accent("Pi Agents Team")} ${palette.dim("·")} active=${palette.bold(String(activeCount))} ${palette.dim("·")} relays=${palette.bold(String(state.relayQueue.length))}`;
-	const lines = [truncateToWidth(header, width), status.row];
-	if (displayCost && !status.includesUsage) {
+	const title = palette.accent("Pi Agents Team");
+	const counts = buildCountsLine(state, palette, width);
+	const header = `${title} ${palette.dim("·")} ${counts}`;
+	const lines = visibleWidth(header) <= width ? [header] : [truncateToWidth(title, width), counts];
+	const visibleWorkers = workers.slice(0, MAX_WIDGET_WORKERS);
+	const hiddenWorkers = workers.slice(MAX_WIDGET_WORKERS);
+	const hiddenActive = hiddenWorkers.filter(isActiveSurfaceWorker).length;
+	const hiddenRecovery = hiddenWorkers.length - hiddenActive;
+	const summaryParts: string[] = [];
+	if (hiddenActive > 0) summaryParts.push(palette.accent(`${hiddenActive} active`));
+	if (hiddenRecovery > 0) summaryParts.push(palette.danger(`${hiddenRecovery} need recovery`));
+	lines.push(...buildWorkerLines(visibleWorkers, frame, now, palette, width));
+	if (summaryParts.length > 0) lines.push(`+ ${summaryParts.join(" · ")} ${palette.dim("· /team to view")}`);
+	if (allWorkers.length > 0 && workers.length === 0) {
+		const hasResults = allWorkers.some((worker) => worker.finalAnswer || worker.status === "completed");
+		lines.push(palette.dim(hasResults ? "/team-result <id> · /team for all results" : "/team for worker details"));
+	}
+	if (displayCost) {
 		const usageLine = buildUsageLine(state, palette, width);
 		if (usageLine) lines.push(usageLine);
-	}
-	const visibleWorkers = workers.slice(0, MAX_WIDGET_WORKERS);
-	const hiddenByCap = workers.length - visibleWorkers.length;
-	const hiddenByRetention = allWorkers.filter((worker) => TERMINAL_STATUSES.has(worker.status) && !shouldRenderWorker(worker, now)).length;
-	const summaryParts: string[] = [];
-	if (hiddenByCap > 0) summaryParts.push(`${hiddenByCap} more`);
-	if (hiddenByRetention > 0) summaryParts.push(`${hiddenByRetention} old hidden`);
-	if (visibleWorkers.length > 0 || summaryParts.length > 0) {
-		const agentsHeader = `${palette.accent("● Agents")} ${palette.dim("·")} active=${palette.bold(String(activeCount))} ${palette.dim("·")} tracked=${palette.bold(String(allWorkers.length))}`;
-		lines.push(truncateToWidth(agentsHeader, width, "…"));
-		lines.push(...buildWorkerLines(visibleWorkers, frame, now, summaryParts.length > 0, palette, width));
-		if (summaryParts.length > 0) lines.push(buildAgentsSummaryLine(summaryParts, palette, width));
 	}
 	return lines.map((line) => truncateToWidth(line, width));
 }

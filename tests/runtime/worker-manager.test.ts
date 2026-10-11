@@ -732,7 +732,8 @@ test("refreshState preserves stale unreachable terminal statuses without advanci
 			!plainLines.some((line) => terminalStatuses.some((status) => line.includes(`Terminal ${status}`))),
 			`stale terminal workers should remain hidden; got:\n${plainLines.join("\n")}`,
 		);
-		assert.ok(plainLines.some((line) => line.includes("3 old hidden")), `expected hidden summary; got:\n${plainLines.join("\n")}`);
+		assert.ok(!plainLines.some((line) => line.includes("(worker-terminal-")), "stale failure rows must remain hidden");
+		assert.ok(plainLines.some((line) => line.includes("3 need recovery")), `expected retained failure counts; got:\n${plainLines.join("\n")}`);
 	} finally {
 		Date.now = originalDateNow;
 	}

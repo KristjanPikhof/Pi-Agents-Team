@@ -1,4 +1,5 @@
-import { compareWorkerIds, type WorkerRuntimeState, type WorkerStatus } from "../types.js";
+import { compareWorkerIds, type PersistedTeamState, type WorkerRuntimeState, type WorkerStatus } from "../types.js";
+import type { ThemedPalette } from "./theme.js";
 
 export type WorkerAttentionPriority = "needs_reply" | "needs_recovery" | "in_progress" | "completed_or_idle";
 
@@ -121,6 +122,26 @@ export function getWorkerAttentionPriority(worker: Pick<WorkerRuntimeState, "sta
 
 export function getWorkerAttentionDisplay(priority: WorkerAttentionPriority): WorkerAttentionDisplay {
 	return { key: priority, ...ATTENTION_DISPLAY[priority] };
+}
+
+export function getWorkerAttentionColor(priority: WorkerAttentionPriority, palette: ThemedPalette): (text: string) => string {
+	switch (priority) {
+		case "needs_reply":
+			return palette.warning;
+		case "needs_recovery":
+			return palette.danger;
+		case "in_progress":
+			return palette.accent;
+		case "completed_or_idle":
+			return palette.dim;
+	}
+}
+
+export function areAllWorkersFinished(state: PersistedTeamState): boolean {
+	const workers = Object.values(state.activeWorkers);
+	return state.relayQueue.length === 0 && workers.length > 0 && workers.every((worker) =>
+		getWorkerAttentionPriority(worker) === "completed_or_idle" && (worker.status === "completed" || Boolean(worker.finalAnswer)),
+	);
 }
 
 export function getWorkerPrimaryAction(worker: Pick<WorkerRuntimeState, "status" | "error" | "finalAnswer" | "pendingRelayQuestions">): string {
