@@ -1,6 +1,7 @@
 node_modules/
 coverage/
 /dist/
+/.tmp/
 .pi/
 .trekoon/
 .DS_Store
