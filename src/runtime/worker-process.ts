@@ -6,7 +6,8 @@ import { createDeferred } from "./deferred.js";
 import type { ThinkingLevel, WorkerExtensionMode, WorkerProjectTrustOverride } from "../types.js";
 
 const require = createRequire(import.meta.url);
-const crossSpawn = require("cross-spawn") as typeof nodeSpawn;
+// The Windows adapter is unused on POSIX; avoid resolving its dependencies in Pi\'s loader there.
+const crossSpawn = process.platform === "win32" ? require("cross-spawn") as typeof nodeSpawn : nodeSpawn;
 
 export type WorkerSpawnImplementation = "node:child_process" | "cross-spawn";
 

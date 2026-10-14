@@ -356,7 +356,7 @@ When a fresh session boots, the initial `routingMode` falls out of the same conf
 
 The orchestrator-facing tool is `delegate_task`. In normal use you do not type the tool call yourself: ask the orchestrator for the work and it decides when to delegate. On Pi versions that expose scoped models, the `model` field description includes a bounded list of the current session's model references. These are suggestions, not an allowlist: an empty scope means unrestricted, and role-specific configuration or worker extensions may provide additional worker-only models.
 
-The orchestrator may answer directly for trivial, already-known, or tiny bounded checks. It should delegate investigation, review, mapping, tests, and multi-file work to background workers.
+The orchestrator may perform clear, accepted, bounded work directly with the required tools and authority. Choose delegation by complexity, risk, independent evidence and useful parallel benefit, not file count or worker presence. Before dispatch, check the configured profile's tools, write policy, scope and automatic context; read-only profiles cannot implement.
 
 If a profile can write files (today, only `fixer`), provide an explicit writable path scope. Launch policy rejects write-capable tasks without one.
 

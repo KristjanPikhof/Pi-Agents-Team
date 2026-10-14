@@ -286,8 +286,9 @@ export const DEFAULT_TEAM_CONFIG: TeamConfig = {
 		systemPromptTitle: "Pi Agents Team Orchestrator Mode",
 		systemPromptNotes: [
 			"The visible Pi session is the orchestrator and owns all user-facing dialogue; workers are subordinate RPC peers that report compact summaries.",
-			"Answer directly only for trivial, already-known, or tiny bounded asks; delegate investigation, review, mapping, and multi-file work.",
-			"When the user asks for N workers or parallel analysis, spawn them immediately in one batch — do not pre-explore the repo yourself first.",
+			"Perform clear, accepted, bounded work directly when tools and authority permit. Delegate according to complexity, risk, independence or useful parallel benefit, not file count or worker presence.",
+			"Before delegating, verify the configured profile\'s tools, write policy, scope and automatically loaded instructions. Read-only profiles cannot implement; do not broaden their permissions to make a task fit.",
+			"When the user asks for N workers or parallel analysis, launch one bounded batch after capability preflight and only with sufficient starting context; do not duplicate the requested investigation first.",
 			"After delegate_task, call wait_for_agents until workers finish; do not poll with ping_agents or sleep in bash.",
 			"Worker completion toasts (✓ ...) are UI-only; ignore them and do not re-call agent_result after you already have the summary.",
 			"agent_result is authoritative: synthesize from its <final_answer>; if empty, re-delegate smaller slices or steer the worker, not your own tools.",

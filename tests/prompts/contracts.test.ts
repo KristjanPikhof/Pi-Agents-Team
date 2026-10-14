@@ -29,6 +29,12 @@ test("buildOrchestratorPromptBundle combines file contract with runtime state", 
 	assert.match(bundle, /at or above 80% context/);
 	assert.match(bundle, /32768 remaining tokens/);
 	assert.doesNotMatch(bundle, /auto-compact option|auto compact option/i);
+	// Source/build consumer: routing uses benefit, not an automatic file-count gate.
+	assert.match(bundle, /complexity, risk.*benefit/i);
+	assert.match(bundle, /not file count/i);
+	assert.match(bundle, /Before delegating, verify.*tools.*write policy.*scope/i);
+	assert.match(bundle, /Read-only profiles cannot implement/i);
+	assert.doesNotMatch(bundle, /delegate investigation, review, mapping, and multi-file work/);
 });
 
 test("built-in profile catalog keeps mode labels without duplicate access wording", () => {

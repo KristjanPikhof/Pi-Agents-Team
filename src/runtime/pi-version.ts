@@ -6,7 +6,8 @@ import { basename, delimiter, extname, isAbsolute, resolve, win32 } from "node:p
 import { VERSION } from "@earendil-works/pi-coding-agent";
 
 const require = createRequire(import.meta.url);
-const crossSpawn = require("cross-spawn") as typeof nodeSpawn;
+// The Windows adapter is unused on POSIX; avoid resolving its dependencies in Pi\'s loader there.
+const crossSpawn = process.platform === "win32" ? require("cross-spawn") as typeof nodeSpawn : nodeSpawn;
 
 export const HOST_PI_VERSION = VERSION;
 export const MINIMUM_WORKER_PI_VERSION = "0.85.1";

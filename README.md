@@ -82,7 +82,7 @@ Runtime churn and timestamp-only refreshes add no records. A terminal transition
 
 ## How it works (in a nutshell)
 
-The orchestrator may answer trivial, already-known or tiny bounded asks directly; substantial investigation, review, mapping, tests, and multi-file work goes to background workers. 
+The orchestrator may perform clear, accepted, bounded work directly with the required tools and authority. Delegate when complexity, risk, independent evidence or useful parallel work justifies it—not just because several files or workers exist. Check the configured profile's capabilities before dispatch; read-only is not implementation.
 
 For delegated work, the orchestrator **picks a role** from the loaded config (seven [built-ins](https://github.com/KristjanPikhof/Pi-Agents-Team/tree/main/prompts/agents) by default: explorer, fixer, reviewer, librarian, observer, oracle, designer) and calls `delegate_task`. The runtime spawns `pi --mode rpc --no-session` and feeds the worker its role prompt plus a task prompt that requires the final reply to wrap the deliverable in a `<final_answer>…</final_answer>` block. If `delegate_task.skills` names installed Pi skills, worker skill discovery is enabled and the worker is told to load and apply those requested skill names from its available skill context.
 
